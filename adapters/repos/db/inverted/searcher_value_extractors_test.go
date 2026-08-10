@@ -12,11 +12,14 @@
 package inverted
 
 import (
+	"bytes"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 )
 
 // TestExtractBoolValue pins the filter-side bool encoding byte-for-byte and
@@ -55,21 +58,36 @@ func TestExtractBoolValue(t *testing.T) {
 func TestEncodeKeys(t *testing.T) {
 	s := &Searcher{}
 
-	// assertKeysMatch checks each slab key against the single-value encoder and
-	// that its capacity is capped to keyLen (the three-index sub-slice).
-	assertKeysMatch := func(t *testing.T, keys [][]byte, keyLen int, want func(i int) []byte) {
+	// assertKeysMatch checks the encoded keys against the single-value encoder
+	// and that each key's capacity is capped to keyLen, so appending to one
+	// cannot reach the next.
+	//
+	// The expectation is built from every input value and then ordered the way
+	// the builders do, and its length is asserted. Sizing it from keys.Len()
+	// instead would make it agree with whatever the encoder produced —
+	// including nothing at all, since the range body would simply not run.
+	assertKeysMatch := func(t *testing.T, keys ent.SortedKeys, keyLen, numValues int, want func(i int) []byte) {
 		t.Helper()
-		for i := range keys {
-			assert.Equalf(t, want(i), keys[i], "key %d bytes", i)
-			assert.Equalf(t, keyLen, cap(keys[i]), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
+		expected := make([][]byte, numValues)
+		for i := range expected {
+			expected[i] = want(i)
+		}
+		slices.SortFunc(expected, bytes.Compare)
+
+		require.Equal(t, len(expected), keys.Len(), "one key per value")
+		for i, key := range keys.All() {
+			assert.Equalf(t, expected[i], key, "key %d bytes", i)
+			assert.Equalf(t, keyLen, cap(key), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
 		}
 	}
 
 	t.Run("int", func(t *testing.T) {
-		values := []int{-1_000_000, -1, 0, 1, 42}
+		// Deliberately not in ascending order: a fixture that is already sorted
+		// passes whether or not the encoder orders anything.
+		values := []int{0, 42, -1_000_000, 1, -1}
 		keys, err := encodeIntKeys(values)
 		require.NoError(t, err)
-		assertKeysMatch(t, keys, 8, func(i int) []byte {
+		assertKeysMatch(t, keys, 8, len(values), func(i int) []byte {
 			b, err := s.extractIntValue(values[i])
 			require.NoError(t, err)
 			return b
@@ -77,10 +95,10 @@ func TestEncodeKeys(t *testing.T) {
 	})
 
 	t.Run("number", func(t *testing.T) {
-		values := []float64{-math.Pi, 0, 0.5, math.MaxFloat64}
+		values := []float64{0.5, math.MaxFloat64, -math.Pi, 0}
 		keys, err := encodeNumberKeys(values)
 		require.NoError(t, err)
-		assertKeysMatch(t, keys, 8, func(i int) []byte {
+		assertKeysMatch(t, keys, 8, len(values), func(i int) []byte {
 			b, err := s.extractNumberValue(values[i])
 			require.NoError(t, err)
 			return b
@@ -91,7 +109,7 @@ func TestEncodeKeys(t *testing.T) {
 		values := []bool{true, false, true}
 		keys, err := encodeBoolKeys(values)
 		require.NoError(t, err)
-		assertKeysMatch(t, keys, 1, func(i int) []byte {
+		assertKeysMatch(t, keys, 1, len(values), func(i int) []byte {
 			b, err := s.extractBoolValue(values[i])
 			require.NoError(t, err)
 			return b
@@ -99,10 +117,13 @@ func TestEncodeKeys(t *testing.T) {
 	})
 
 	t.Run("date", func(t *testing.T) {
-		values := []string{"2020-01-02T03:04:05Z", "1999-12-31T23:59:59Z"}
+		// The second value is the earlier instant (19:00Z the previous day) but
+		// the later string, so a sort over the values rather than their encodings
+		// would order these the other way round.
+		values := []string{"2020-12-31T23:00:00Z", "2021-01-01T00:00:00+05:00"}
 		keys, err := encodeDateKeys(values)
 		require.NoError(t, err)
-		assertKeysMatch(t, keys, 8, func(i int) []byte {
+		assertKeysMatch(t, keys, 8, len(values), func(i int) []byte {
 			b, err := s.extractDateValue(values[i])
 			require.NoError(t, err)
 			return b
@@ -111,12 +132,12 @@ func TestEncodeKeys(t *testing.T) {
 
 	t.Run("uuid", func(t *testing.T) {
 		values := []string{
-			"00000000-0000-0000-0000-000000000001",
 			"ffffffff-ffff-ffff-ffff-ffffffffffff",
+			"00000000-0000-0000-0000-000000000001",
 		}
 		keys, err := encodeUUIDKeys(values)
 		require.NoError(t, err)
-		assertKeysMatch(t, keys, 16, func(i int) []byte {
+		assertKeysMatch(t, keys, 16, len(values), func(i int) []byte {
 			b, err := s.extractUUIDValue(values[i])
 			require.NoError(t, err)
 			return b
@@ -126,21 +147,21 @@ func TestEncodeKeys(t *testing.T) {
 	t.Run("keys are independent", func(t *testing.T) {
 		keys, err := encodeIntKeys([]int{1, 2, 3})
 		require.NoError(t, err)
-		neighbor := append([]byte(nil), keys[1]...)
-		// no spare capacity, so this reallocates and cannot reach keys[1]
-		grown := append(keys[0], 0xff, 0xff, 0xff, 0xff)
-		require.Len(t, grown, len(keys[0])+4)
-		assert.Equal(t, neighbor, keys[1], "append to one key must not clobber the next")
+		neighbor := append([]byte(nil), keys.At(1)...)
+		// no spare capacity, so this reallocates and cannot reach key 1
+		grown := append(keys.At(0), 0xff, 0xff, 0xff, 0xff)
+		require.Len(t, grown, len(keys.At(0))+4)
+		assert.Equal(t, neighbor, keys.At(1), "append to one key must not clobber the next")
 	})
 
 	t.Run("empty and single", func(t *testing.T) {
 		empty, err := encodeIntKeys(nil)
 		require.NoError(t, err)
-		assert.Empty(t, empty)
+		assert.Zero(t, empty.Len())
 
 		one, err := encodeIntKeys([]int{7})
 		require.NoError(t, err)
-		require.Len(t, one, 1)
+		require.Equal(t, 1, one.Len())
 	})
 
 	t.Run("encode error reports the failing index", func(t *testing.T) {

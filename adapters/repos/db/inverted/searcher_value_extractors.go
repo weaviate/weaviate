@@ -75,53 +75,57 @@ func putUUIDKey(dst []byte, v string) error {
 
 // encodeFixedWidthKeys encodes every already-typed value into its fixed-width
 // slot of one shared slab, wrapping the first failure with its position so the
-// caller can report which element was malformed. The three-index sub-slices
-// cap each key's capacity at its own end, so an append to one key cannot
-// clobber the next.
-func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte, v T) error) ([][]byte, error) {
-	keys := make([][]byte, len(values))
-	slab := make([]byte, len(values)*keyLen)
+// caller can report which element was malformed.
+func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte, v T) error) (ent.SortedKeys, error) {
+	kb := ent.NewFixedKeyBuilder(len(values), keyLen)
 	for i := range values {
-		dst := slab[i*keyLen : (i+1)*keyLen : (i+1)*keyLen]
-		if err := encode(dst, values[i]); err != nil {
-			return nil, fmt.Errorf("value %d: %w", i, err)
+		if err := encode(kb.AppendBuf(), values[i]); err != nil {
+			return ent.SortedKeys{}, fmt.Errorf("value %d: %w", i, err)
 		}
-		keys[i] = dst
 	}
-	return keys, nil
+	// Build orders the encoded keys rather than the values: every fixed-width
+	// encoding here is order-preserving, but only for its own type, and a
+	// string-valued date or uuid does not sort as its encoding does. Sorting
+	// the slab is uniform across all of them and moves only bytes, not slice
+	// headers.
+	//
+	// Every error it can return is [ent.ErrInternal] — the encoders have already
+	// run, so no filter value reaches it — which is what lets the caller report
+	// an internal fault as one.
+	return kb.Build()
 }
 
 // encode*Keys below are the slice counterparts of the extract*Value
 // methods: one key per value, all keys backed by one shared slab.
 
-func encodeIntKeys(values []int) ([][]byte, error) {
+func encodeIntKeys(values []int) (ent.SortedKeys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v int) error {
 		putIntKey(dst, v)
 		return nil
 	})
 }
 
-func encodeNumberKeys(values []float64) ([][]byte, error) {
+func encodeNumberKeys(values []float64) (ent.SortedKeys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v float64) error {
 		putNumberKey(dst, v)
 		return nil
 	})
 }
 
-func encodeBoolKeys(values []bool) ([][]byte, error) {
+func encodeBoolKeys(values []bool) (ent.SortedKeys, error) {
 	return encodeFixedWidthKeys(values, 1, func(dst []byte, v bool) error {
 		putBoolKey(dst, v)
 		return nil
 	})
 }
 
-func encodeDateKeys(values []string) ([][]byte, error) {
+func encodeDateKeys(values []string) (ent.SortedKeys, error) {
 	return encodeFixedWidthKeys(values, 8, func(dst []byte, v string) error {
 		return putDateKey(dst, v)
 	})
 }
 
-func encodeUUIDKeys(values []string) ([][]byte, error) {
+func encodeUUIDKeys(values []string) (ent.SortedKeys, error) {
 	return encodeFixedWidthKeys(values, 16, func(dst []byte, v string) error {
 		return putUUIDKey(dst, v)
 	})
