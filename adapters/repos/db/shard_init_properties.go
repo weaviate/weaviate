@@ -421,15 +421,14 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 }
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
-// mainBucketName — the same name on disk and in the bucket registry. Never the
-// main bucket itself: mainBucketName is the exact name and the sidecars carry a
-// "__" separator, but a future helper that uses underscores differently would
-// otherwise tear down the live bucket.
+// mainBucketName — the same name on disk and in the bucket registry. The "__"
+// the sidecars carry keeps the main bucket itself out: it is the exact name,
+// so it cannot carry a separator on top of it.
 //
 // Shared with [hasStalePartialReindexState], which decides from the same rule
-// whether a cold shard has to be loaded at all.
+// whether an unhydrated shard has to be loaded at all.
 func isSidecarDirOf(name, mainBucketName string) bool {
-	return name != mainBucketName && strings.HasPrefix(name, mainBucketName+"__")
+	return strings.HasPrefix(name, mainBucketName+"__")
 }
 
 // isMigrationDirOf reports whether name is a migration tracker dir of one of

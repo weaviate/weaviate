@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -231,26 +232,40 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 // it. Index.drop signals its cause, then deletes each shard from the map as it
 // goes — and a sync.Map range may skip entries deleted while it runs, so the
 // walk can end early with every remaining shard unswept and nothing to report.
+//
+// A whole-index drop is the only deleter that signals a cause. A tenant delete,
+// an offload and a replica move all take a shard out of the same map without
+// one, and the walk has to answer for those too.
 func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 	tests := []struct {
 		name string
 		// closeCause is signalled from inside the walk, after the first shard.
-		// nil leaves the index open for the whole walk.
+		// nil deletes the remaining shards without signalling anything, which
+		// is what every deleter other than a whole-index drop does.
 		closeCause error
-		wantErr    error
+		// deleteSiblings drops the shards the walk has not reached yet.
+		deleteSiblings bool
+		wantErr        error
 	}{
 		{
 			name: "a walk nothing interrupted is clean",
 		},
 		{
-			name:       "a collection deleted mid-walk is not a swept collection",
-			closeCause: errIndexDropped,
-			wantErr:    errIndexDropped,
+			name:           "a collection deleted mid-walk is not a swept collection",
+			closeCause:     errIndexDropped,
+			deleteSiblings: true,
+			wantErr:        errIndexDropped,
 		},
 		{
-			name:       "a node shutting down mid-walk is not a swept collection",
-			closeCause: errIndexShutdown,
-			wantErr:    errIndexShutdown,
+			name:           "a node shutting down mid-walk is not a swept collection",
+			closeCause:     errIndexShutdown,
+			deleteSiblings: true,
+			wantErr:        errIndexShutdown,
+		},
+		{
+			name:           "a tenant deleted mid-walk explains nothing and is still not swept",
+			deleteSiblings: true,
+			wantErr:        errShardsSkipped,
 		},
 	}
 
@@ -279,13 +294,16 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 			var visited int
 			err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
 				visited++
-				if visited > 1 || tc.closeCause == nil {
+				if visited > 1 || !tc.deleteSiblings {
 					return nil
 				}
 				// What DeleteIndex and Index.drop do, in their order: the
 				// cause first, then the shards leave the map one by one.
-				signalCloseRequested(tc.closeCause)
-				closeIndex()
+				// Every other deleter skips the first step.
+				if tc.closeCause != nil {
+					signalCloseRequested(tc.closeCause)
+					closeIndex()
+				}
 				for _, other := range shardNames {
 					if other != name {
 						idx.shards.LoadAndDelete(other)
@@ -358,6 +376,66 @@ func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, cause, tc.want)
+		})
+	}
+}
+
+// The names a walk did not reach go into an operator-facing message, and a node
+// runs tens of thousands of tenants. The count has to survive the cap: it is
+// what says how much of the collection is unaccounted for.
+func TestUnvisitedShards(t *testing.T) {
+	names := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("tenant-%03d", i)
+		}
+		return out
+	}
+	visitedSet := func(names ...string) map[string]struct{} {
+		out := map[string]struct{}{}
+		for _, name := range names {
+			out[name] = struct{}{}
+		}
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		before  []string
+		visited map[string]struct{}
+		want    []string
+	}{
+		{
+			name:    "a walk that reached every shard",
+			before:  names(3),
+			visited: visitedSet(names(3)...),
+		},
+		{
+			name:    "a walk over an empty map",
+			visited: visitedSet(),
+		},
+		{
+			name:    "one shard skipped",
+			before:  names(3),
+			visited: visitedSet("tenant-000", "tenant-002"),
+			want:    []string{"tenant-001"},
+		},
+		{
+			name:    "a shard that arrived mid-walk is not one the walk skipped",
+			before:  names(2),
+			visited: visitedSet("tenant-000", "tenant-001", "tenant-999"),
+		},
+		{
+			name:    "more skipped shards than a message can carry",
+			before:  names(30),
+			visited: visitedSet("tenant-000"),
+			want:    append(names(11)[1:], "and 19 more"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, unvisitedShards(tc.before, tc.visited))
 		})
 	}
 }

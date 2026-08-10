@@ -69,15 +69,31 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 // later sweep to retry either.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
 
-// classifyCloseCause tags a walk that a close cut short, so the caller can tell
-// the two ends apart: a deleted collection leaves nothing behind, anything else
-// leaves every shard unswept. Anything that is not a close is passed through
+// ErrCleanupShardFailed marks a sweep that reached a shard and could not sweep
+// it. The other two markers say why a sweep stopped; this one says what it
+// found on the way. A delete that lands mid-walk after a shard already failed
+// carries both, and a caller that asks only about the delete reports the state
+// as gone while that shard's is still on disk.
+var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
+
+// IsCleanupCollectionDropped reports whether the collection being deleted is
+// the whole of what a sweep error says. Use it rather than
+// [errors.Is](err, [ErrCleanupCollectionDropped]), which also matches a sweep
+// that left a shard's state behind before the delete landed.
+func IsCleanupCollectionDropped(err error) bool {
+	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
+}
+
+// classifyCloseCause tags a walk that did not reach every shard, so the caller
+// can tell the two ends apart: a deleted collection leaves nothing behind,
+// anything else leaves shards unswept. Anything else is passed through
 // untouched.
 func classifyCloseCause(err error) error {
 	switch {
 	case errors.Is(err, errIndexDropped):
 		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
-	case errors.Is(err, errIndexShutdown), errors.Is(err, errIndexClosed):
+	case errors.Is(err, errIndexShutdown), errors.Is(err, errIndexClosed),
+		errors.Is(err, errShardsSkipped):
 		return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
 	default:
 		return err
@@ -108,9 +124,9 @@ func classifyCloseCause(err error) error {
 // with [ErrCleanupCollectionDropped]: its state is deleted along with it.
 //
 // A shard that is not loaded is loaded only if it has on-disk state this sweep
-// would remove. Unwrapping every cold shard of a large multi-tenant collection
-// hydrates thousands of tenants (LSM store, vector index) under that gate, for
-// a sweep that finds nothing on almost all of them.
+// would remove. Unwrapping every unhydrated shard of a large multi-tenant
+// collection hydrates thousands of tenants (LSM store, vector index) under that
+// gate, for a sweep that finds nothing on almost all of them.
 func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -133,8 +149,11 @@ func (i *Index) CleanStalePartialReindexState(
 				// the safety net still catches whatever is left here.
 				return nil
 			}
-			// Read-only, so it cannot race a concurrent load: the removals
-			// still happen through the loaded shard below.
+			// A shard with nothing on disk has nothing this sweep owns, so
+			// skipping it loses nothing: state a concurrently starting task
+			// writes after the check belongs to that task and must not be
+			// swept. The OnAfterLsmInitAsync stale sentinel check named above
+			// is the backstop for whatever slips through.
 			if !lazy.isLoaded() &&
 				!hasStalePartialReindexState(shardPathLSM(i.path(), name), propName, indexType) {
 				return nil
@@ -152,6 +171,9 @@ func (i *Index) CleanStalePartialReindexState(
 		}
 		return nil
 	})
+	if shardErrs != nil {
+		shardErrs = fmt.Errorf("%w: %w", ErrCleanupShardFailed, shardErrs)
+	}
 	return errors.Join(shardErrs, classifyCloseCause(walkErr))
 }
 
@@ -164,11 +186,17 @@ func (i *Index) CleanStalePartialReindexState(
 // then finds; guessing "nothing to clean" would leave a stale started.mig for
 // the next task to resume against.
 //
-// A directory that is absent is the exception, and answers false. An inactive
-// tenant that was never populated has no directory yet, which is the common
-// case this whole check exists for. A tenant with no local data because it was
-// offloaded is not this case: freezing removes the shard from the index's shard
-// map before it removes the files, so the sweep never reaches one.
+// The shards this saves are the HOT tenants that have not been hydrated yet:
+// an inactive tenant is not in the index's shard map at all, so the sweep never
+// reaches one. For most of them the directory exists and holds no reindex
+// state, which is the common answer. A directory that is absent is the
+// exception — a shard nothing has written to yet — and answers false. A tenant
+// with no local data because it was offloaded is not that case either: the
+// FROZEN transition removes the shard from the shard map before it removes the
+// files, so a shard whose files are already gone is one the walk cannot hand
+// over. One the walk handed over just before the transition landed reads a
+// directory being emptied, and answers whatever it finds — a hydration this
+// sweep then fails on, never a silent skip.
 func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
@@ -188,7 +216,7 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep preserves. The preserve set
 	// costs its own .migrations walk, so it is only computed once a candidate
-	// sidecar turned up, which on a cold shard it almost never does.
+	// sidecar turned up, which on an untouched shard it almost never does.
 	if len(sidecarSuffixes) > 0 {
 		preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
 		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
@@ -202,16 +230,22 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
 		}
 	}
 
-	// Migration tracker dirs, minus the deferred-finalize generations.
+	// Migration tracker dirs, minus the deferred-finalize generations. The
+	// preserve set is deferred the same way the sidecar one is: it walks
+	// .migrations a second time, and a shard with no tracker dir for this
+	// property never needs the answer.
 	prefixes := migrationDirsForPropertyIndex(propName, indexType)
-	preservedGens := completedMigrationGens(lsmPath, prefixes)
 	entries, err = os.ReadDir(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
+	var preservedGens map[int]bool
 	for _, entry := range entries {
 		if !entry.IsDir() || !isMigrationDirOf(entry.Name(), prefixes) {
 			continue
+		}
+		if preservedGens == nil {
+			preservedGens = completedMigrationGens(lsmPath, prefixes)
 		}
 		if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preservedGens[gen] {
 			continue

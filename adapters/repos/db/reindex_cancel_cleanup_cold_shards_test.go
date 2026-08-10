@@ -157,22 +157,25 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 // removed there stays on disk until someone else finds it. This runs both over
 // the same fixtures and pins them together.
 func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
-	const propName = "category"
-
 	// A completed-but-deferred migration: the tracker carries tidied.mig and
 	// its ingest sidecar is the live bucket, which the sweep preserves.
 	deferredFinalize := map[string][]string{
 		"enable_filterable_category_1": {"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
 	}
+	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
 
 	tests := []struct {
 		name      string
+		propName  string
 		indexType string
 		// trackers are .migrations dirs, mapped to the sentinels inside them.
 		trackers map[string][]string
 		// sidecars are dirs at the LSM root.
-		sidecars  []string
-		wantStale bool
+		sidecars []string
+		// unreadable is a dir the gate is denied access to, relative to the
+		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
+		unreadable string
+		wantStale  bool
 	}{
 		{
 			name:      "a shard with no reindex state at all",
@@ -217,16 +220,77 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			trackers:  map[string][]string{"enable_filterable_other_1": {"started.mig"}},
 			sidecars:  []string{"property_other__enable_filterable_ingest_1"},
 		},
+		// A class-level migration in deferred-finalize state leaves a live
+		// sidecar on EVERY tenant of the collection. A gate that does not
+		// preserve those hydrates the whole collection, which is the one thing
+		// it exists to stop.
+		{
+			name:      "filterable: a class-level roaringset refresh awaiting finalize",
+			indexType: "filterable",
+			trackers:  map[string][]string{"filterable_roaringset_refresh_2": completed},
+			sidecars:  []string{"property_category__roaringset_ingest_2"},
+		},
+		{
+			name:      "searchable: a class-level map_to_blockmax awaiting finalize",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"searchable_map_to_blockmax_2": completed},
+			sidecars:  []string{"property_descr_searchable__blockmax_ingest_2"},
+		},
+		{
+			name:      "filterable: a cancelled class-level attempt is still stale",
+			indexType: "filterable",
+			trackers:  map[string][]string{"filterable_roaringset_refresh_3": {"started.mig"}},
+			sidecars:  []string{"property_category__roaringset_ingest_3"},
+			wantStale: true,
+		},
+		// rangeable has no class-level strategy, so the preserve set is the
+		// per-property one on its own.
+		{
+			name:      "rangeable: a per-property migration awaiting finalize",
+			indexType: "rangeable",
+			trackers:  map[string][]string{"filterable_to_rangeable_category_1": completed},
+			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
+		},
+		{
+			name:      "rangeable: a sidecar a cancelled run left behind",
+			indexType: "rangeable",
+			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
+			wantStale: true,
+		},
 		{
 			name:      "an index type this build cannot map to a bucket",
 			indexType: "an-index-type-this-build-does-not-know",
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
 			wantStale: true,
 		},
+		// A question the gate could not ask is not an answer of "nothing to
+		// clean": that would leave a stale started.mig for the next task to
+		// resume against, the short-circuit this whole sweep guards against.
+		{
+			name:       "an LSM dir the gate cannot enumerate",
+			indexType:  "filterable",
+			unreadable: ".",
+			wantStale:  true,
+		},
+		{
+			name:       "a .migrations dir the gate cannot enumerate",
+			indexType:  "filterable",
+			unreadable: ".migrations",
+			trackers:   map[string][]string{"enable_filterable_category_1": completed},
+			wantStale:  true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.unreadable != "" && os.Geteuid() == 0 {
+				t.Skip("root reads a directory whatever its mode says")
+			}
+			propName := tc.propName
+			if propName == "" {
+				propName = "category"
+			}
 			ctx := testCtx()
 			className := "ColdSweepEquiv_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
@@ -241,6 +305,13 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			}
 			for _, name := range tc.sidecars {
 				mkSidecarDir(t, lsm, name)
+			}
+			if tc.unreadable != "" {
+				denied := filepath.Join(lsm, tc.unreadable)
+				// Restored before the shard shuts down, which needs the dir
+				// back: defers run in reverse order of registration.
+				defer func() { require.NoError(t, os.Chmod(denied, 0o755)) }()
+				require.NoError(t, os.Chmod(denied, 0o000))
 			}
 
 			require.Equal(t, tc.wantStale, hasStalePartialReindexState(lsm, propName, tc.indexType))
