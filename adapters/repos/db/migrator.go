@@ -209,6 +209,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			StartupShards:                                &m.db.startupShards,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
+			NamespacesExister:                            m.db.namespacesExister,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
 			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
 			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,

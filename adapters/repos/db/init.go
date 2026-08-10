@@ -185,6 +185,7 @@ func (db *DB) init(ctx context.Context) error {
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				StartupShards:                                &db.startupShards,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
+				NamespacesExister:                            db.namespacesExister,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
 				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
 				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,

@@ -91,7 +91,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 		TrackVectorDimensions:     true,
 		AsyncIndexingEnabled:      asyncEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 
 	repo.SetSchemaGetter(schemaGetter)
