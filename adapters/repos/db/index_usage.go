@@ -225,7 +225,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 				release := lazyShard.blockLoading()
 				defer release()
 
-				if lazyShard.loaded {
+				if lazyShard.loaded.Load() {
 					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
 					if err2 != nil {
 						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)

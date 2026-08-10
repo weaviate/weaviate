@@ -1307,11 +1307,18 @@ func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1
 }
 
-// ensureShardLocallyReady rejects reads of a loading shard so the caller retries
-// on a replica. With replication off there is none, so the shard is used as it is
-// rather than failing a read that would otherwise only be slow.
+// ensureShardLocallyReady rejects reads of a loading or lazily unloaded shard
+// so the caller retries on a replica. A lazy shard also gets a background load
+// kicked off, since the rejected read would otherwise have been what loads it.
+// With replication off there is no replica to retry on, so the shard is used
+// as it is rather than failing a read that would otherwise only be slow.
 func (i *Index) ensureShardLocallyReady(shard ShardLike) error {
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
+	status := shard.GetStatus()
+	if (status == storagestate.StatusLoading || status == storagestate.StatusLazyLoading) &&
+		i.replicationEnabled() {
+		if lazyShard, ok := shard.(*LazyLoadShard); ok {
+			lazyShard.LoadAsync()
+		}
 		return enterrors.NewErrUnprocessable(
 			fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
@@ -1535,6 +1542,11 @@ func (i *Index) withShardOrRemote(ctx context.Context, tenantName, shardName str
 		return err
 	}
 	if shard == nil {
+		return remote()
+	}
+	// Reads deflect to a replica rather than waiting on a shard that is still
+	// loading; writes must run locally and force the load if needed.
+	if operation == localShardOperationRead && i.ensureShardLocallyReady(shard) != nil {
 		return remote()
 	}
 	return local(shard)
@@ -2657,7 +2669,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if err != nil {
 			return nil, nil, err
 		}
-		if shard != nil {
+		// A not-ready local shard falls through to the replica fan-out below
+		// instead of failing the query.
+		if shard != nil && i.ensureShardLocallyReady(shard) == nil {
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
@@ -2709,7 +2723,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 		defer release()
 
-		if shard != nil {
+		if shard != nil && i.ensureShardLocallyReady(shard) == nil {
 			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
 			if err1 != nil {
 				return fmt.Errorf(

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -57,9 +58,11 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	// loaded is atomic so status checks never block on mutex while a load is
+	// in flight; it is written under mutex, after shard is published.
+	loaded           atomic.Bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -120,7 +123,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
+	if l.loaded.Load() {
 		return nil
 	}
 
@@ -157,9 +160,29 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	shard.metricsRegistered.Store(true)
 
 	l.shard = shard
-	l.loaded = true
+	l.loaded.Store(true)
 
 	return nil
+}
+
+// LoadAsync starts loading the shard in the background unless it is already
+// loaded or a load is in flight (the TryLock probe fails while one holds the
+// mutex). Reads rejected by the readiness gate use it so a lazily cold replica
+// still becomes ready, without any caller blocking on the load.
+func (l *LazyLoadShard) LoadAsync() {
+	if l.loaded.Load() {
+		return
+	}
+	if !l.mutex.TryLock() {
+		return
+	}
+	l.mutex.Unlock()
+	enterrors.GoWrapper(func() {
+		if err := l.Load(context.Background()); err != nil {
+			l.shardOpts.index.logger.WithField("shard", l.shardOpts.name).
+				Errorf("background load of lazy shard failed: %v", err)
+		}
+	}, l.shardOpts.index.logger)
 }
 
 func (l *LazyLoadShard) Index() *Index {
@@ -188,21 +211,17 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
+// GetStatus deliberately does not take the load mutex: the read-readiness gate
+// consults it to fail fast exactly while a load is in flight.
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	if l.loaded {
+	if l.loaded.Load() {
 		return l.shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
 }
 
 func (l *LazyLoadShard) GetStatusReason() string {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	if l.loaded {
+	if l.loaded.Load() {
 		return l.shard.GetStatusReason()
 	}
 	return storagestate.StatusLazyLoading.String()
@@ -237,7 +256,7 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
-	if l.loaded {
+	if l.loaded.Load() {
 		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
@@ -327,7 +346,7 @@ func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config Async
 
 func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 	l.mutex.Lock()
-	loaded := l.loaded
+	loaded := l.loaded.Load()
 	l.mutex.Unlock()
 	if !loaded {
 		return nil
@@ -337,7 +356,7 @@ func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 
 func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
 	l.mutex.Lock()
-	loaded := l.loaded
+	loaded := l.loaded.Load()
 	l.mutex.Unlock()
 	if !loaded {
 		// An unloaded shard holds no in-memory overrides.
@@ -348,7 +367,7 @@ func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
 
 func (l *LazyLoadShard) removePersistedHashtree() error {
 	l.mutex.Lock()
-	loaded := l.loaded
+	loaded := l.loaded.Load()
 	l.mutex.Unlock()
 	if !loaded {
 		return nil // not loaded: a stale .ht is discarded on next load
@@ -482,7 +501,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	if !l.loaded.Load() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -692,7 +711,7 @@ func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Obj
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
-	if l.loaded {
+	if l.loaded.Load() {
 		l.mutex.Unlock()
 		return l.shard.Dimensions(ctx, targetVector)
 	}
@@ -787,7 +806,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	if !l.loaded.Load() {
 		return nil
 	}
 
@@ -796,7 +815,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	}
 
 	// Mark as unloaded so drop() knows the correct state
-	l.loaded = false
+	l.loaded.Store(false)
 	return nil
 }
 
@@ -1041,16 +1060,13 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 }
 
 func (l *LazyLoadShard) isLoaded() bool {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	return l.loaded
+	return l.loaded.Load()
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
 	var loaded bool
 	l.mutex.Lock()
-	loaded = l.loaded
+	loaded = l.loaded.Load()
 	l.mutex.Unlock()
 
 	if !loaded {
