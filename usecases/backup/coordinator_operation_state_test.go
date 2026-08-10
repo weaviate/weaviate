@@ -216,9 +216,8 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 		freed  = make(chan struct{})
 		unfini = func(*StatusRequest) bool { return !o.finished.Load() }
 		fini   = func(*StatusRequest) bool { return o.finished.Load() }
-		// Each restore polls with its own request value, so counting the
-		// distinct ones seen is how the test knows both goroutines are running
-		// at the same time rather than one after the other.
+		// Counting distinct request values seen is how the test knows both
+		// goroutines polled at the same time, not one after the other.
 		mu      sync.Mutex
 		pollers = map[*StatusRequest]struct{}{}
 	)

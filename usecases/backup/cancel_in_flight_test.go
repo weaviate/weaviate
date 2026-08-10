@@ -179,9 +179,8 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 	schemaManager := &countingSchemaManager{}
 	s.restorer.schema = schemaManager
 
-	// ListClasses runs between the cancel's two slot stamps, so it is where the
-	// first one can be observed. Which of the two it reads is a race with the
-	// restore goroutine, so only the cancellation itself is asserted.
+	// ListClasses runs between the cancel's two slot stamps, so only the first
+	// is reliably observed here.
 	var (
 		once    sync.Once
 		stamped backup.Status
@@ -361,9 +360,7 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 			wantMsg:   "restore slot stamped with the cancellation",
 		},
 		{
-			// A cancel in flight is a cancellation too, which is the whole
-			// reason Status.IsCancellation exists: this must not read as the
-			// anomaly the next row down is.
+			// A cancel in flight must not read as the anomaly the next row is.
 			name:      "the restore is already cancelling",
 			st:        backup.Cancelling,
 			held:      reqState{ID: backupID, Status: backup.Cancelling},
