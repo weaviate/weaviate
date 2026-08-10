@@ -231,6 +231,10 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 	if o.stat == nil || o.stat.log == nil {
 		return
 	}
+	msg := "slot write dropped: this operation no longer holds the slot"
+	if o.owns() {
+		msg = "slot write dropped: the slot already reads a cancellation, which is its last word"
+	}
 	o.stat.log.WithFields(logrus.Fields{
 		"action":         "backup_slot_write",
 		"dropped_status": st,
@@ -238,7 +242,7 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 		"slot_claim":     o.stat.generation,
 		"slot_holder":    o.stat.reqState.ID,
 		"slot_status":    o.stat.reqState.Status,
-	}).Debug("slot write dropped: this operation no longer holds the slot")
+	}).Debug(msg)
 }
 
 // set publishes a status on the slot. Reports whether it wrote.
