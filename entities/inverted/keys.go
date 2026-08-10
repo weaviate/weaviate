@@ -24,7 +24,9 @@ import (
 // carry the width instead of offsets, since key i then starts at i*w.
 //
 // Only a builder's Build returns one, so the order cannot be lost downstream
-// and no consumer re-checks it. Build verifies it instead.
+// and no consumer re-checks it. Build verifies it instead, while dropping
+// duplicates — so a list holds distinct keys, and can be shorter than the
+// values a filter named.
 //
 // The zero value is a valid empty list.
 type SortedKeys struct {
@@ -187,10 +189,14 @@ func (b *VarKeyBuilder) AppendString(key string) {
 	b.n++
 }
 
-// Build orders the keys and returns the finished list, consuming the builder.
+// Build orders the keys, drops duplicates, and returns the finished list,
+// consuming the builder.
 //
 // Ordering here, rather than in a Sort the producer has to remember to call,
-// leaves no way to skip the invariant [SortedKeys] is named for.
+// leaves no way to skip the invariant [SortedKeys] is named for. Dropping
+// duplicates is then a linear pass over the same comparisons — see [dedupFixed]
+// and [dedupVariable] — so the list can be shorter than the appends that filled
+// it, and a caller needing its own count must not take this one for it.
 //
 // Keys that share a width come back in the layout carrying no offsets. The sort
 // scans them to choose its method regardless, so the layout costs nothing to
@@ -226,9 +232,22 @@ func (b *VarKeyBuilder) Build() (SortedKeys, error) {
 	}
 	slab, offs, w := sortKeys(b.slab, b.offs)
 	if w > 0 {
-		return SortedKeys{slab: slab, w: w}, nil
+		n, err := dedupFixed(slab, w, b.n)
+		if err != nil {
+			return SortedKeys{}, err
+		}
+		// Capped at the last surviving key so an index past Len cannot reach the
+		// deduped tail, and copied down when that tail is most of the array.
+		return SortedKeys{slab: shrinkKeys(slab, n*w), w: w}, nil
 	}
-	return SortedKeys{slab: slab, offs: offs}, nil
+	n, err := dedupVariable(slab, offs, b.n)
+	if err != nil {
+		return SortedKeys{}, err
+	}
+	return SortedKeys{
+		slab: shrinkKeys(slab, int(offs[n])),
+		offs: shrinkOffs(offs, n+1),
+	}, nil
 }
 
 // FixedKeyBuilder fills a [SortedKeys] whose keys are all one width. It records
@@ -245,7 +264,7 @@ type FixedKeyBuilder struct {
 // keyWidth is the width of one key, not the batch's total — the neighbouring
 // [NewVarKeyBuilder] takes a total, and the two are otherwise identical in
 // shape. Passing a total here is accepted by the compiler and produces keys of
-// the wrong width that sort normally, so it is refused at the point
+// the wrong width that sort and dedup normally, so it is refused at the point
 // the mistake is made: a width past the widest key any family encodes is
 // rejected here rather than diagnosed inside an encoder writing into a buffer
 // of the wrong size.
@@ -297,8 +316,49 @@ func (b *FixedKeyBuilder) AppendBuf() []byte {
 // not just the bound — AppendBuf extends the slab from it and sizes nothing.
 var zeroKey [16]byte
 
-// Build orders the keys in place and returns the finished list, consuming the
-// builder, for the reasons given on [VarKeyBuilder.Build].
+// shrinkFloor is the array size below which reclaiming a deduped tail is not
+// worth a copy. Small batches are the common ones and would pay the copy for
+// bytes nobody misses.
+const shrinkFloor = 4 << 10
+
+// shrinkKeys ends the slab at the last surviving key, and copies it onto its
+// own array when what is left behind is most of it.
+//
+// An aliased result is capped at that key so an index past it cannot reach the
+// dropped tail. A copied one may carry spare capacity, which append rounds up
+// to a size class — but those bytes are a fresh allocation, not the tail.
+//
+// Dedup can leave a handful of keys inside an allocation sized for the whole
+// batch — a boolean filter over 100,000 values keeps two — and the finished
+// list is held for as long as the query runs, so the dead tail is held with it.
+// Capping alone does not release it, and hides it: the returned slice reports
+// the small capacity while the whole array stays reachable. So the decision is
+// made from the array the keys came in, before it is capped.
+//
+// The ratio keeps a batch that dropped nothing from copying at all, and leaves
+// a worst case of three quarters wasted: a batch dedupping 100,000 keys to
+// 26,000 holds 800KB for 208KB of keys rather than pay the copy.
+func shrinkKeys(slab []byte, end int) []byte {
+	if cap(slab) < shrinkFloor || cap(slab) <= 4*end {
+		return slab[:end:end]
+	}
+	return append([]byte(nil), slab[:end]...)
+}
+
+// shrinkOffs is shrinkKeys for the offsets, which are sized to the pre-dedup key
+// count and go dead in the same proportion. Its floor is the same number of
+// bytes, not of entries, so the two decide independently: 4095 offsets are worth
+// reclaiming where 4095 bytes are not.
+func shrinkOffs(offs []uint32, end int) []uint32 {
+	if 4*cap(offs) < shrinkFloor || cap(offs) <= 4*end {
+		return offs[:end:end]
+	}
+	return append([]uint32(nil), offs[:end]...)
+}
+
+// Build orders the keys in place, drops duplicates, and returns the finished
+// list, consuming the builder. Both happen here for the reasons given on
+// [VarKeyBuilder.Build].
 //
 // At one width key i sits at offset i*w, so ordering moves only the slab and
 // there are no offsets to reorder alongside it. That is also what lets these
@@ -312,5 +372,11 @@ func (b *FixedKeyBuilder) Build() (SortedKeys, error) {
 			"NewFixedKeyBuilder was not used", ErrInternal, b.w)
 	}
 	sortFixedWidth(b.slab, b.w)
-	return SortedKeys{slab: b.slab, w: b.w}, nil
+	n, err := dedupFixed(b.slab, b.w, len(b.slab)/b.w)
+	if err != nil {
+		return SortedKeys{}, err
+	}
+	// Capped at the last surviving key so an index past Len cannot reach the
+	// deduped tail, and copied down when that tail is most of the array.
+	return SortedKeys{slab: shrinkKeys(b.slab, n*b.w), w: b.w}, nil
 }

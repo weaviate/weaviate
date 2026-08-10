@@ -62,10 +62,11 @@ func TestEncodeKeys(t *testing.T) {
 	// and that each key's capacity is capped to keyLen, so appending to one
 	// cannot reach the next.
 	//
-	// The expectation is built from every input value and then ordered the way
-	// the builders do, and its length is asserted. Sizing it from keys.Len()
-	// instead would make it agree with whatever the encoder produced —
-	// including nothing at all, since the range body would simply not run.
+	// The expectation is built from every input value and then ordered and
+	// deduplicated the way the builders do, and its length is asserted. Sizing
+	// it from keys.Len() instead would make it agree with whatever the encoder
+	// produced — including nothing at all, since the range body would simply
+	// not run.
 	assertKeysMatch := func(t *testing.T, keys ent.SortedKeys, keyLen, numValues int, want func(i int) []byte) {
 		t.Helper()
 		expected := make([][]byte, numValues)
@@ -73,8 +74,9 @@ func TestEncodeKeys(t *testing.T) {
 			expected[i] = want(i)
 		}
 		slices.SortFunc(expected, bytes.Compare)
+		expected = slices.CompactFunc(expected, bytes.Equal)
 
-		require.Equal(t, len(expected), keys.Len(), "one key per value")
+		require.Equal(t, len(expected), keys.Len(), "one key per distinct value")
 		for i, key := range keys.All() {
 			assert.Equalf(t, expected[i], key, "key %d bytes", i)
 			assert.Equalf(t, keyLen, cap(key), "key %d capacity must be capped to its own %d-byte end", i, keyLen)
@@ -106,6 +108,7 @@ func TestEncodeKeys(t *testing.T) {
 	})
 
 	t.Run("bool", func(t *testing.T) {
+		// Three values, two distinct keys: the shape where dedup shrinks the list.
 		values := []bool{true, false, true}
 		keys, err := encodeBoolKeys(values)
 		require.NoError(t, err)

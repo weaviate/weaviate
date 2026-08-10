@@ -338,7 +338,9 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeResolve := time.Now()
-	// Children on the desugared path, keys on the batched one.
+	// Children on the desugared path, distinct keys on the batched one — the
+	// latter can be fewer than the values the filter named, since the builders
+	// drop duplicates.
 	n := len(pv.children)
 	if ln := pv.containsValues.Len(); ln > 0 {
 		n = ln
@@ -1139,6 +1141,11 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 // filled, and the fixed-width encoders sort theirs in place, where a key's
 // position is its rank. The fold that consumes them walks the bucket once in
 // key order.
+//
+// The key count is at least one. extractContains only reaches a batched arm at
+// len(values) >= 2 and every arm turns one value into one key, but the builders
+// drop duplicates, so a filter repeating a value — or a boolean one, which has
+// only two distinct keys — arrives with fewer keys than values.
 //
 // A leaf must hold at least one key, and that is checked here because the
 // routing predicate downstream is a key count rather than a presence test: a

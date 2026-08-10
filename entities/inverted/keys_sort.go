@@ -16,6 +16,7 @@ import (
 	"cmp"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 )
@@ -579,6 +580,94 @@ func insertionSortFixed(slab []byte, w, d int, swap []byte) {
 			copy(b, swap)
 		}
 	}
+}
+
+// dedupFixed collapses runs of equal keys in a sorted fixed-width slab and
+// reports how many distinct keys remain.
+//
+// Duplicates are free to drop because every consumer treats the list as a set —
+// visiting a key twice changes nothing observable. What is not free is keeping
+// them: each duplicate is another key a lookup has to visit. Booleans are the
+// clearest case, with at most two distinct keys however many values arrive.
+//
+// The pass doubles as the only runtime check that the sort worked. It already
+// compares each key against the one before it, so asking for the sign rather
+// than for equality costs nothing and turns an out-of-order key — which no
+// consumer can detect, and which narrows a filter's result silently — into an
+// error the query can report.
+//
+// An inversion is returned rather than panicked because the condition depends
+// on the filter's values: a shape that reaches it would take the process down
+// on every replay of the query, where an error fails just that query.
+//
+// TestDedupRejectsAnInversion drives this by hand, since a correct sort never
+// produces one.
+func dedupFixed(slab []byte, w, n int) (int, error) {
+	if n < 2 {
+		return n, nil
+	}
+	out := 1
+	for i := 1; i < n; i++ {
+		cur := slab[i*w : i*w+w]
+		switch c := bytes.Compare(slab[(out-1)*w:out*w], cur); {
+		case c == 0:
+			continue
+		case c > 0:
+			return 0, fmt.Errorf("%w: key %d of %d sorts before its predecessor "+
+				"(%x after %x) in the %d-byte fixed-width branch",
+				ErrInternal, i, n, headOf(cur), headOf(slab[(out-1)*w:out*w]), w)
+		}
+		if out != i {
+			copy(slab[out*w:], cur)
+		}
+		out++
+	}
+	return out, nil
+}
+
+// headOf trims a key for an error message. The batch is gone by the time anyone
+// reads the log, so the two keys that disagreed are the only evidence of which
+// encoding broke.
+func headOf(key []byte) []byte {
+	const most = 16
+	if len(key) > most {
+		return key[:most]
+	}
+	return key
+}
+
+// dedupVariable is dedupFixed for keys of differing lengths, packing the
+// survivors back down the slab and rewriting their offsets as it goes.
+func dedupVariable(slab []byte, offs []uint32, n int) (int, error) {
+	if n < 2 {
+		return n, nil
+	}
+	out := 1
+	pos := offs[1]
+	for i := 1; i < n; i++ {
+		cur := slab[offs[i]:offs[i+1]]
+		prev := slab[offs[out-1]:pos]
+		switch c := bytes.Compare(prev, cur); {
+		case c == 0:
+			continue
+		case c > 0:
+			return 0, fmt.Errorf("%w: key %d of %d sorts before its predecessor "+
+				"(%x after %x) in the variable-width branch",
+				ErrInternal, i, n, headOf(cur), headOf(prev))
+		}
+		// Survivors only ever move towards the front of the slab, so the write
+		// cursor trails the key being read and cannot overwrite it. Skipped
+		// when nothing has been dropped yet, which is the whole batch when the
+		// filter had no duplicates.
+		if pos != offs[i] {
+			copy(slab[pos:], cur)
+		}
+		offs[out] = pos
+		pos += uint32(len(cur))
+		offs[out+1] = pos
+		out++
+	}
+	return out, nil
 }
 
 // countingSort1 is the boolean path: one pass to count, one to write back.

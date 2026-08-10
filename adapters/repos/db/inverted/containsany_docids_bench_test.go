@@ -172,10 +172,10 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, dateBucket.RoaringSetAddList(sharedDateKey, containsFamilySharedDocIDs))
 	require.NoError(tb, dateBucket.FlushAndSwitch())
 
-	// Booleans have only two distinct keys however many values a filter names,
-	// so it is the family where a batch is most likely to repeat one. Even docs
-	// are false and odd ones true; the shared docs hold both, so ContainsAll
-	// over true and false is non-empty.
+	// Booleans have only two distinct keys however many values a filter
+	// names, which is the family where a batch is most likely to hold
+	// duplicates. Even docs are false and odd ones true; the shared docs hold
+	// both, so ContainsAll over true and false is non-empty.
 	boolBucketName := helpers.BucketFromPropNameLSM(benchBoolPropName)
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), boolBucketName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
@@ -789,8 +789,8 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 				leafValues:  []interface{}{benchDateValue(1), containsSharedDateValue()},
 				contains:    []uint64{2, 3}, notContains: []uint64{1, 7, 9},
 			},
-			// Booleans draw on two distinct keys however many values a filter
-			// names, and the rows below name more than two.
+			// Booleans collapse the most: at most two keys survive however many
+			// values a filter names, and the rows below name more than two.
 			{
 				name: "bool ContainsAny, duplicate values", prop: benchBoolPropName, dt: schema.DataTypeBoolean,
 				op:          filters.ContainsAny,
