@@ -26,9 +26,10 @@ import (
 // The REST pre-check answers the same question as the apply-path gate in
 // [db.ReindexProvider.CheckPropertyUpdate], one hop earlier, and it is the
 // first refusal a caller sees. It must therefore carry the same status-aware
-// remedy: cancel only while the task is STARTED, no promise that the wait ends
-// once it is past that point, and no claim either way for a status this build
-// does not know.
+// remedy: cancel wherever the cancel endpoint accepts it, with the cost of
+// cancelling past the units spelled out, no URL for a task the endpoint
+// cannot be keyed on, and no claim either way for a status this build does
+// not know.
 func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -37,14 +38,26 @@ func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T
 	})
 	require.NoError(t, err)
 
-	cancelWorks := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
-		"or wait for it to finish",
+	// Empty Properties means "all properties" to the pre-check, so a
+	// whole-collection task reaches this refusal with no property to name.
+	wholeCollectionPayload, err := json.Marshal(db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeChangeTokenization,
+		Collection:    "C",
+	})
+	require.NoError(t, err)
+
+	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
+	cancelWhileRunning := []string{
+		cancelCall + ", or wait for it to finish",
 	}
-	cancelRefused := []string{
-		"past the point where cancel works",
-		"can only be waited out",
-		"wedges it here for good",
+	cancelPastUnits := []string{
+		cancelCall,
+		"its per-shard work is already done",
+		"skips the schema change and leaves the property needing a rebuild",
+	}
+	cancelUnnameable := []string{
+		"the cancel endpoint is keyed on one collection, property and index type",
+		"it can only be waited out",
 	}
 	cancelUnknown := []string{
 		"this build does not know that status",
@@ -59,25 +72,28 @@ func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T
 	}
 
 	tests := []struct {
+		name    string
 		status  distributedtask.TaskStatus
+		payload []byte
 		want    []string
 		notWant []string
 	}{
-		{distributedtask.TaskStatusStarted, cancelWorks, concat(cancelRefused, cancelUnknown)},
-		{distributedtask.TaskStatusPreparing, cancelRefused, concat(cancelWorks, cancelUnknown)},
-		{distributedtask.TaskStatusSwapping, cancelRefused, concat(cancelWorks, cancelUnknown)},
-		{distributedtask.TaskStatus("VALIDATING"), cancelUnknown, concat(cancelWorks, cancelRefused)},
+		{"STARTED", distributedtask.TaskStatusStarted, payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"STARTED whole-collection", distributedtask.TaskStatusStarted, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
+		{"VALIDATING", distributedtask.TaskStatus("VALIDATING"), payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
 	}
 
 	for _, tc := range tests {
-		t.Run(string(tc.status), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			h := &schemaHandlers{
 				reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 					db.ReindexNamespace: {{
 						Namespace:      db.ReindexNamespace,
 						TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
 						Status:         tc.status,
-						Payload:        payload,
+						Payload:        tc.payload,
 					}},
 				}},
 			}
@@ -96,12 +112,17 @@ func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T
 	}
 }
 
-// The two property gates exist as one helper plus two format strings that
-// must stay word-for-word equal — the pre-check and the apply path answer the
-// same question, and an operator who retries after the pre-check refusal must
-// not get a second, differently-worded answer. Substring assertions elsewhere
-// in this file catch drift in the remedy; this one catches drift anywhere in
-// the sentence, including the prefix around it.
+// The two property gates answer the same question one hop apart, and an
+// operator who retries after the pre-check refusal must not get a second,
+// differently-worded answer. Substring assertions elsewhere in this file
+// catch drift in the remedy; this one catches drift anywhere in the sentence,
+// including the prefix around it.
+//
+// Driven over both dimensions the two layers branch on — the task's status
+// and the shape of its payload — because the layers reach their refusals by
+// different code: the pre-check matches properties with an inline loop, the
+// apply gate with db.ReindexPropsOverlap, and each renders the payload-level
+// rejections from its own format string.
 func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	statuses := []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
@@ -110,36 +131,86 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 		distributedtask.TaskStatus("VALIDATING"),
 	}
 
-	payloadStruct := db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeChangeTokenization,
-		Collection:    "C",
-		Properties:    []string{"name"},
+	marshal := func(t *testing.T, p db.ReindexTaskPayload) []byte {
+		t.Helper()
+		payload, err := json.Marshal(p)
+		require.NoError(t, err)
+		return payload
 	}
-	payload, err := json.Marshal(payloadStruct)
-	require.NoError(t, err)
 
-	for _, status := range statuses {
-		t.Run(string(status), func(t *testing.T) {
-			task := &distributedtask.Task{
-				Namespace:      db.ReindexNamespace,
-				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
-				Status:         status,
-				Payload:        payload,
-			}
+	payloads := []struct {
+		name  string
+		build func(*testing.T) []byte
+	}{
+		{
+			name: "the property by name",
+			build: func(t *testing.T) []byte {
+				return marshal(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization,
+					Collection:    "C",
+					Properties:    []string{"name"},
+				})
+			},
+		},
+		{
+			name: "the property among several",
+			build: func(t *testing.T) []byte {
+				return marshal(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization,
+					Collection:    "C",
+					Properties:    []string{"other", "name"},
+				})
+			},
+		},
+		{
+			// Empty Properties is "all properties" on both sides. The two
+			// layers spell that out differently (an explicit case here, a
+			// length check inside ReindexPropsOverlap there), so it is the
+			// row most likely to drift.
+			name: "no properties means all of them",
+			build: func(t *testing.T) []byte {
+				return marshal(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization,
+					Collection:    "C",
+				})
+			},
+		},
+		{
+			name: "a payload written by an older binary",
+			build: func(t *testing.T) []byte {
+				return marshal(t, db.ReindexTaskPayload{Collection: "C", Properties: []string{"name"}})
+			},
+		},
+		{
+			name:  "a payload that will not parse",
+			build: func(t *testing.T) []byte { return []byte("{not json") },
+		},
+	}
 
-			h := &schemaHandlers{
-				reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
-					db.ReindexNamespace: {task},
-				}},
-			}
-			preCheck := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "name")
+	for _, p := range payloads {
+		for _, status := range statuses {
+			t.Run(p.name+"/"+string(status), func(t *testing.T) {
+				task := &distributedtask.Task{
+					Namespace:      db.ReindexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
+					Status:         status,
+					Payload:        p.build(t),
+				}
 
-			applyGate := (&db.ReindexProvider{}).CheckPropertyUpdate(
-				"C", "name", []*distributedtask.Task{task})
-			require.Error(t, applyGate)
+				h := &schemaHandlers{
+					reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
+						db.ReindexNamespace: {task},
+					}},
+				}
+				preCheck := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "name")
 
-			require.Equal(t, applyGate.Error(), preCheck)
-		})
+				applyGate := (&db.ReindexProvider{}).CheckPropertyUpdate(
+					"C", "name", []*distributedtask.Task{task})
+				require.Error(t, applyGate)
+
+				require.Equal(t, applyGate.Error(), preCheck)
+			})
+		}
 	}
 }
 

@@ -537,14 +537,15 @@ func (s *Scheduler) tick() {
 				// State-machine dispatch by effectiveStatus.
 				//
 				// CANCELLED is a first-class branch: today the Manager's
-				// CancelTask only accepts cancel from STARTED (see
-				// manager.go:CancelTask), so a CANCELLED task by
-				// construction has not yet hit PREP / SWAP / any ack
-				// barrier. Skipping those phases on this branch is the
-				// FSM rule, not an in-scheduler optimization — making it
-				// a named case (instead of a `if !cancelled` wrapper)
-				// keeps the dispatch readable and surfaces the
-				// dependency on the FSM rule for any future change.
+				// CancelTask accepts every non-terminal status (see
+				// manager.go:CancelTask), so a CANCELLED task may have
+				// been anywhere from STARTED to mid-SWAP when the cancel
+				// landed. Skipping PREP / SWAP / the ack barriers is
+				// therefore what makes cancel stop the migration: no
+				// further per-shard swap runs and no schema flip
+				// follows, whatever phase the task was in. Shards whose
+				// swap already committed keep it — the gate messages in
+				// db.ReindexGateRemedy say so.
 				//
 				// All other branches (STARTED, PREPARING, SWAPPING,
 				// FAILED, FINISHED) fall through to the in-flight ack

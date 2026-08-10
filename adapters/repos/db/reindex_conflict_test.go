@@ -796,15 +796,15 @@ func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
 }
 
 // TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that all three
-// schema gates only tell the operator to cancel while cancel still works.
-// DTM cancels a task while it is STARTED. Past that point the cancel endpoint
-// matches no task and answers 202 with Status NO_OP, so a PREPARING or
-// SWAPPING refusal naming cancel hands the operator a success-shaped reply
-// for a migration that is still running. Past STARTED the text must also stop
-// short of promising the wait ends: a node that owned part of the task
-// leaving the cluster wedges it there for good. A status this build does not
-// know reaches the gates too (they admit everything non-terminal), and must
-// claim nothing about cancel in either direction.
+// schema gates name cancel exactly where the API accepts it. Both
+// findCancelTarget and DTM's CancelTask refuse only a terminal task, so
+// STARTED, PREPARING and SWAPPING all take it; past the units the text must
+// also say what cancel costs there, since the schema change is skipped and
+// already-swapped shards need a rebuild. The remaining two arms print no URL:
+// a task the cancel endpoint cannot be keyed on (here the reserved
+// whole-collection rebuild, which has no property to name), and a status this
+// build does not know, which the gates admit because they admit everything
+// non-terminal and which must claim nothing about cancel either way.
 func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -812,6 +812,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
+	})
+
+	// Empty Properties is "all properties" on both sides of the gate, so a
+	// whole-collection task reaches these refusals — and findCancelTarget
+	// requires a named property, so cancel genuinely cannot reach it.
+	wholeCollectionPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
 	})
 
 	gates := []struct {
@@ -842,14 +850,19 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	// message describes: an operator can paste it as printed. A placeholder
 	// they have to guess would land on the 202 NO_OP this test exists to
 	// keep them away from.
-	cancelWorks := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
+	cancelWhileRunning := []string{
+		cancelCall + ", or wait for it to finish",
+	}
+	cancelPastUnits := []string{
+		cancelCall,
+		"its per-shard work is already done",
+		"skips the schema change and leaves the property needing a rebuild",
 		"or wait for it to finish",
 	}
-	cancelRefused := []string{
-		"past the point where cancel works",
-		"can only be waited out",
-		"wedges it here for good",
+	cancelUnnameable := []string{
+		"the cancel endpoint is keyed on one collection, property and index type",
+		"it can only be waited out",
 	}
 	cancelUnknown := []string{
 		"this build does not know that status",
@@ -857,23 +870,27 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	}
 
 	statuses := []struct {
+		name    string
 		status  distributedtask.TaskStatus
+		payload []byte
 		want    []string
 		notWant []string
 	}{
-		{distributedtask.TaskStatusStarted, cancelWorks, concat(cancelRefused, cancelUnknown)},
-		{distributedtask.TaskStatusPreparing, cancelRefused, concat(cancelWorks, cancelUnknown)},
-		{distributedtask.TaskStatusSwapping, cancelRefused, concat(cancelWorks, cancelUnknown)},
-		{unknownFutureStatus, cancelUnknown, concat(cancelWorks, cancelRefused)},
+		{"STARTED", distributedtask.TaskStatusStarted, payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"STARTED whole-collection", distributedtask.TaskStatusStarted, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
+		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
+		{string(unknownFutureStatus), unknownFutureStatus, payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
 	}
 
 	for _, gate := range gates {
 		for _, st := range statuses {
-			t.Run(gate.name+"/"+string(st.status), func(t *testing.T) {
+			t.Run(gate.name+"/"+st.name, func(t *testing.T) {
 				tasks := []*distributedtask.Task{{
 					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy", Version: 1},
 					Status:         st.status,
-					Payload:        payload,
+					Payload:        st.payload,
 				}}
 				err := gate.call(tasks)
 				require.Error(t, err)
@@ -916,13 +933,24 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 			want:    `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
 		},
 		{
+			// Cancel is task-scoped: the handler matches on any one of the
+			// task's properties and then cancels the whole task, so naming
+			// the first one is a working call, not a partial one.
+			name:    "several properties, the first one cancels all of them",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			want:    `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
+		},
+		{
+			// The whole-collection rebuild. findCancelTarget matches on a
+			// named property, so there is no request to render and none the
+			// endpoint would accept either.
 			name:    "no property to name",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable},
 			want:    "",
 		},
 		{
-			name:    "several properties, no single URL",
-			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			name:    "no collection to address",
+			payload: ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
 			want:    "",
 		},
 		{

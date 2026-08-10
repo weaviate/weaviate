@@ -274,9 +274,16 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
-// epistemics as the schema FSM's MutationGuard at apply time, just
-// earlier in the request lifecycle for operator UX.
+// any non-terminal state — same epistemics as the schema FSM's
+// MutationGuard at apply time, just earlier in the request lifecycle
+// for operator UX. Non-terminal is everything
+// [distributedtask.TaskStatus.IsActive] accepts, so besides STARTED,
+// PREPARING and SWAPPING that includes a status this build does not
+// recognize, which a newer node can report during a rolling upgrade.
+//
+// Every refusal it can produce is worded exactly as the apply-path
+// gate words it, so a caller who retries past this one is not told
+// something different by the second refusal.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -298,23 +305,32 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// PREPARING and SWAPPING count as in-flight (via
+		// Every non-terminal status counts as in-flight (via
 		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
 		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during either phase would race the in-flight per-
-		// shard bucket-pointer flip.
+		// property during a coordination phase would race the in-flight
+		// per-shard bucket-pointer flip.
 		if !task.Status.IsActive() {
 			continue
 		}
+		// The next two refusals mirror the apply gate's, word for word,
+		// so the REST caller doesn't get a spurious "ok-then-FAILED"
+		// two-step on a payload the apply gate will reject.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			// Unparseable payload in flight is a hard reject reason on
-			// the apply side; mirror that here so the REST caller
-			// doesn't get a spurious "ok-then-FAILED" two-step.
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"in-flight reindex task %q has an unparseable payload; "+
+					"cannot verify whether property update on %s.%s would "+
+					"conflict: %v",
+				task.ID, className, propertyName, err)
+		}
+		if payload.Collection == "" || payload.MigrationType == "" {
+			return fmt.Sprintf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether property update "+
+					"on %s.%s would conflict",
+				task.ID, className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
