@@ -286,7 +286,7 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 		{
 			name:    "every shard swept",
 			outcome: terminalSweepClean,
-			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node",
+			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards",
 		},
 		{
 			name:    "the collection is not on this node",

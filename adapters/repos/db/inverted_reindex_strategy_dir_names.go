@@ -288,8 +288,7 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 }
 
 // taskProperties returns the property list the task recorded in its tracker
-// dir. Reports ok=false when no payload is readable there, and for a
-// class-level task, which records no property list.
+// dir. Reports ok=false when no payload is readable there.
 func (s migrationDirScope) taskProperties(name string) ([]string, bool) {
 	props, ok := readRecoveryPropertyNames(filepath.Join(s.lsmPath, ".migrations", name))
 	if !ok || len(props) == 0 {

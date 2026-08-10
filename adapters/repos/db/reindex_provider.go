@@ -1723,10 +1723,16 @@ func sweepTerminalTuples(
 // terminalSweepOutcome is what one sweep left for the operator, ordered by
 // how much of the collection is unaccounted for; the max across a run's
 // sweeps is what's reported.
+//
+// "Every shard" throughout means every shard in the index's shard map. A
+// deactivated (COLD) tenant is not in that map at all — HOT→COLD removes the
+// entry before this walk ever sees it — so its on-disk partial state is
+// neither swept nor reported. It is swept when the tenant is activated again
+// (the OnAfterLsmInitAsync stale-sentinel check).
 type terminalSweepOutcome int
 
 const (
-	// terminalSweepClean: every shard was swept.
+	// terminalSweepClean: every shard in the map was swept.
 	terminalSweepClean terminalSweepOutcome = iota
 	// terminalSweepDropped: no shard was swept and none had to be — the
 	// collection is not on this node, so its partial state is not here either.
@@ -1771,7 +1777,7 @@ func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool
 	case terminalSweepDropped:
 		return "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either", false
 	default:
-		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
+		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
 	}
 }
 

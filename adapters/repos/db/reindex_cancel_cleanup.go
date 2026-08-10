@@ -96,8 +96,13 @@ func (db *DB) cleanStalePartialReindexState(
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
 // ran out of time, started on a closing index, hit an unmappable index type,
 // or a shard left the map before the walk reached it. Those shards are
-// "unknown", not "failed" — this is routine (not an anomaly) on multi-tenant
-// collections, where a HOT→COLD transition can remove a tenant mid-walk.
+// "unknown", not "failed".
+//
+// The cause is often benign — a HOT→COLD transition removing a tenant
+// mid-walk is ordinary on multi-tenant collections — but the outcome is not:
+// the unvisited shards' state was never checked, so callers still report it
+// at Error level and ask for operator inspection. Benign cause, unverified
+// result.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -217,13 +222,19 @@ func (i *Index) cleanStalePartialReindexState(
 // on-disk state [Shard.CleanStalePartialReindexState] would remove, without
 // loading the shard.
 //
-// Fails open (returns true) on anything it can't read — an unmappable index
-// type, an unlistable directory — since a false "clean" would leave a stale
-// started.mig for the next task to resume against.
+// Fails open (returns true) on anything it can't read — an unlistable
+// directory, or an unmappable index type, which the only production caller
+// refuses before the walk and only a direct call can reach — since a false
+// "clean" would leave a stale started.mig for the next task to resume
+// against.
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
 // one caught mid-transition reads a directory being emptied and fails open.
+//
+// A deactivated (COLD) tenant is likewise absent from the map, but its files
+// stay on disk: the sweep never sees it, and the state is cleared when the
+// tenant is activated again (OnAfterLsmInitAsync's stale-sentinel check).
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
@@ -284,10 +295,14 @@ const maxCachedDirNames = 100_000
 // reads the filesystem every time; the zero value caches. Not safe for
 // concurrent use.
 //
-// Staleness is safe in one direction only: a name removed since caching makes
-// the gate over-report "state here" (an extra hydration, never a skipped
-// shard) — because a sweep that removes a dir also hydrates that shard, which
-// is then swept unconditionally and never asked about again.
+// A name removed since caching makes the gate over-report "state here", which
+// costs an extra hydration and nothing else: the shard is then swept, and a
+// sweep removes strictly more than it needs to.
+//
+// A name added since caching makes the gate under-report, so a shard that now
+// has state is skipped. That is bounded two ways: a cache lives at most one
+// HTTP request or one [reindexTerminalCleanupTimeout] window, and the
+// stale-sentinel check on the shard's next load sweeps what was missed.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].
