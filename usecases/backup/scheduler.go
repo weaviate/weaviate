@@ -540,7 +540,14 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
+		// stamped says whether this node's restore slot took the status. False
+		// means the slot holds some other restore, which is why an operator who
+		// cancelled sees no change in what this node reports.
+		stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
+		s.logger.WithField("action", "cancel_restore").
+			WithField("backup_id", backupID).
+			WithField("slot_stamped", stamped).
+			Debug("marked restore cancelling")
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -560,7 +567,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// Only when this node's restore slot is still held by the restore being
 	// cancelled: the slot is one per node and shared by every restore this node
 	// coordinates, and OnStatus reads it only for a matching id anyway.
-	s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
+	stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
+	s.logger.WithField("action", "cancel_restore").
+		WithField("backup_id", backupID).
+		WithField("slot_stamped", stamped).
+		Debug("marked restore cancelled")
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {
