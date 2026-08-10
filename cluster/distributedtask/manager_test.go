@@ -725,10 +725,8 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			tasks, err := h.manager.ListDistributedTasks(context.Background())
 			require.NoError(t, err)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
-			// An operator reading FAILED needs a reason, and the
-			// repair-guidance logging needs something to quote. Same
-			// handle as the per-unit failure path: the unit's name and
-			// its own error.
+			// Same shape as the per-unit failure path: the unit's name and
+			// its own error, so repair-guidance logging has something to quote.
 			assert.Contains(t, tasks["ns"][0].Error, "refusing to advance past STARTED")
 			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
 		})

@@ -75,9 +75,8 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			},
 		},
 		{
-			// Empty Properties is "all properties" on both sides, but each
-			// layer spells that out with different code — most likely row
-			// to drift.
+			// Empty Properties means "all properties" via different code on
+			// each side — the row most likely to drift.
 			name: "no properties means all of them",
 			build: func(t *testing.T) []byte {
 				return marshal(t, db.ReindexTaskPayload{
@@ -182,16 +181,9 @@ func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 	}
 }
 
-// TestTheRenderedCallReachesBothKindsOfCaller pins the reason the gate keeps
-// the namespace prefix in the URL it renders. The two callers need opposite
-// things from the same message, and only one of them can be served by the
-// renderer: the confined caller is served by the REST error path, which
-// removes their own prefix from the whole message.
-//
-// Stripping in the renderer instead would be a no-op for the confined caller
-// (their prefix comes off either way) and would hand the global operator a
-// short name, which QualifyClass leaves short and which then resolves to no
-// collection at all.
+// TestTheRenderedCallReachesBothKindsOfCaller pins that the rendered URL
+// keeps its namespace prefix: the REST error path strips a confined
+// caller's own prefix, but a global operator needs it to reach the class.
 func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,

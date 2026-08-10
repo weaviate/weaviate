@@ -58,20 +58,15 @@ func (db *DB) CleanStalePartialReindexState(
 	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
 }
 
-// HasPromotableReindexState reports whether any local shard of the collection
-// carries a migration generation for this (property, index type) that
-// [FinalizeCompletedMigrations] would promote to the canonical bucket on the
-// next start. Read-only, and it never loads a shard.
+// HasPromotableReindexState reports whether any local shard carries a
+// migration generation for (property, indexType) that
+// [FinalizeCompletedMigrations] would promote on the next restart. Read-only;
+// never loads a shard.
 //
-// "Promotable" is the same set the cancel cleanup preserves: a tracker dir
-// carrying tidied.mig OR merged.mig. merged.mig is the load-bearing half —
-// finalize promotes on it alone, and it is written during PREPARING, before
-// any shard swaps. So this answers true from the merge onward, not from the
-// swap onward.
-//
-// Answers true on a directory it cannot read, for the same reason
-// [hasStalePartialReindexState] does: a question it could not ask is not an
-// answer of "nothing here".
+// "Promotable" = a tracker dir with tidied.mig or merged.mig, the same set
+// cancel cleanup preserves. merged.mig alone triggers promotion and is
+// written during PREPARING, so this goes true at the merge, not the swap.
+// Unreadable directories answer true, same as [hasStalePartialReindexState].
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {

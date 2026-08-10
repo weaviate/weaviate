@@ -463,9 +463,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// --- Multi-tenancy handling ---
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	tenants := params.Tenants
-	// Also the task's NeedsPreparationBarrier (passed to AddDistributedTask
-	// below). Format-only types are false: they skip PREPARING, and their
-	// per-shard swaps commit while the task is still STARTED.
+	// Also drives NeedsPreparationBarrier below: format-only types skip
+	// PREPARING and can swap while the task still reads STARTED.
 	semantic := db.IsSemanticMigration(migrationType)
 
 	// Validate MT + tenants combination.
@@ -940,29 +939,18 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 }
 
 // indexTypesFromMigrationType is [db.ReindexTargetIndexes] shaped for
-// cleanup callers: the index types a migration type targets, plus whether
-// this build knows the type. Returns (nil, false) only for unknown types.
-//
-// change-tokenization targets both searchable and filterable buckets, each
-// with its own on-disk sentinel dir; pre-submit cleanup must wipe both, or a
-// stale tidied.mig from one short-circuits its sub-task while the schema
-// still flips, leaving schema and on-disk state disagreeing.
-//
-// Callers run CleanStalePartialReindexState once per returned indexType.
-// Safe to call when no stale state exists.
+// cleanup callers, plus whether this build knows the type. Pre-submit
+// cleanup must wipe every returned indexType — for change-tokenization
+// that's both searchable and filterable, or a stale sentinel from one
+// disagrees with the schema.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	indexTypes := db.ReindexTargetIndexes(mt)
 	return indexTypes, len(indexTypes) > 0
 }
 
-// migrationTypeTargetsIndex asks [db.ReindexTargetIndexes] whether mt
-// writes to indexType's bucket:
-//
-//   - matches: true if mt targets indexType.
-//   - isKnown: true if this build recognizes mt at all.
-//
-// An mt unmapped in ReindexTargetIndexes returns (false, false); cancel-path
-// callers can treat that as "not a cancel target".
+// migrationTypeTargetsIndex reports whether mt writes to indexType's bucket
+// (matches) and whether this build recognizes mt at all (isKnown), per
+// [db.ReindexTargetIndexes].
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	indexTypes := db.ReindexTargetIndexes(mt)
 	return slices.Contains(indexTypes, indexType), len(indexTypes) > 0
@@ -1461,9 +1449,6 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	return "", nil
 }
 
-// The helpers the pre-flight check above uses live in the db package:
-// [db.TypesConflictReason] (the conflict predicate),
-// [db.ReindexPropsOverlap] (property-set overlap), and
-// [db.ReindexTargetIndexes] (which buckets a type writes to). The
-// FSM-deterministic conflict check at apply time reads the same three,
-// so the two paths cannot drift on what counts as a conflict.
+// The pre-flight check above shares [db.TypesConflictReason],
+// [db.ReindexPropsOverlap], and [db.ReindexTargetIndexes] with the
+// FSM-deterministic conflict check at apply time, so the two can't drift.

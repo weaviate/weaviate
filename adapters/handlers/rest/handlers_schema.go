@@ -272,26 +272,16 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
-// checkReindexConflictForPropertyMutation is the REST-handler
-// pre-flight for the mutation guard. Returns a non-empty conflict
-// reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (per [distributedtask.TaskStatus.IsActive],
-// which also covers a status this build doesn't recognize, seen
-// during a rolling upgrade) — same epistemics as the schema FSM's
-// MutationGuard at apply time, just earlier in the request lifecycle
-// for operator UX.
+// checkReindexConflictForPropertyMutation is the REST-handler pre-flight for
+// the mutation guard: returns a non-empty reason if a reindex migration on
+// (className, propertyName) is non-terminal (per
+// [distributedtask.TaskStatus.IsActive]), mirroring the schema FSM's
+// MutationGuard at apply time but earlier, for operator UX.
 //
-// Per-node, in-memory: two REST handlers on different nodes can both
-// observe "no conflict" and both forward to RAFT — that's expected,
-// the apply-time [MutationGuard] is what closes that multi-node
-// race. This check exists purely to short-circuit the common
-// single-node case with a clean 4xx instead of an apply-time
-// rejection.
-//
-// Degrades gracefully: a TaskLister error returns "" (no conflict
-// detected) so the request proceeds to RAFT and the apply-time guard
-// handles correctness. We never spuriously reject due to a transient
-// local error.
+// Per-node and best-effort: two nodes can both see "no conflict" and race to
+// RAFT, which the apply-time [MutationGuard] closes for real. A TaskLister
+// error or unreadable payload returns "" so the request falls through to
+// RAFT rather than spuriously rejecting.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
@@ -300,10 +290,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if err != nil {
 		return ""
 	}
-	// Sort by task ID for the same reason the apply gate does
-	// (Manager.sortedTasksWithLock): with two or more matching tasks the
-	// two layers would otherwise name different ones in an
-	// otherwise-identical message.
+	// Sorted by task ID, like Manager.sortedTasksWithLock, so this layer
+	// and the apply gate never name different tasks in the same message.
 	tasks := slices.Clone(tasksByNamespace[db.ReindexNamespace])
 	slices.SortFunc(tasks, func(a, b *distributedtask.Task) int {
 		return strings.Compare(a.ID, b.ID)
@@ -319,9 +307,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		// something different on the second pass.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			// The task ID is withheld: an unreadable payload also means an
-			// unknown collection, so this task may belong to a namespace the
-			// caller cannot see. GET /v1/tasks names it for those who can.
+			// Task ID withheld: an unreadable payload also hides which
+			// namespace the task belongs to.
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+

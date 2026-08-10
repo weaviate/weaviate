@@ -1845,22 +1845,15 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// logOperatorRepairGuidanceOnTerminalSemanticMigration logs the exact REST
-// command an operator should issue to recover from a semantic migration
-// that reached `outcome` (FAILED or CANCELLED) without the cluster-wide
-// schema flip: sub-tasks that merged or swapped before terminalizing leave
-// their bucket NEW-tokenized against an unflipped schema, so affected
-// queries return 0 until rebuilt.
+// logOperatorRepairGuidanceOnTerminalSemanticMigration logs the REST command
+// to recover from a semantic migration that reached `outcome` (FAILED or
+// CANCELLED) with a bucket left NEW-tokenized under an unflipped schema.
 //
-// The message asserts that inversion as fact, so the caller owes it
-// evidence. FAILED carries its own: a unit died mid-work. CANCELLED does
-// not — a cancel at STARTED stops a barrier migration before anything is
-// written — so [ReindexProvider.OnTaskCompleted] gates it on the on-disk
-// state instead. See [ReindexGateRemedy] for how far a task has to have got.
-//
-// Names the collection exactly as stored, qualified prefix included: this
-// goes to the server log, whose only reader is an operator who has to type
-// that prefix. Same rendering rule as [ReindexCancelCall].
+// FAILED always has evidence (a unit died mid-work); CANCELLED only logs
+// this when [ReindexProvider.promotableReindexStateOnThisNode] confirms
+// something merged, since a STARTED cancel wrote nothing. See
+// [ReindexGateRemedy] for the phase reasoning; same collection-naming rule
+// as [ReindexCancelCall].
 func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -1892,20 +1885,15 @@ func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLog
 	}
 }
 
-// promotableReindexStateOnThisNode reports whether this node still holds
-// reindex state the next restart would promote to the canonical bucket. It is
-// the evidence behind the CANCELLED repair guidance: cancel is offered at
-// every non-terminal status, and at STARTED a barrier migration has written
-// nothing, so an unconditional "your buckets are inverted, rebuild the
-// property" would be a false alarm on the very path [ReindexGateRemedy]
-// recommends.
+// promotableReindexStateOnThisNode reports whether this node holds reindex
+// state the next restart would promote — the evidence gate for CANCELLED
+// repair guidance, since an unconditional "buckets are inverted" would be a
+// false alarm at STARTED, which [ReindexGateRemedy] calls safe to cancel.
 //
-// Per-node on purpose. In a cancel at SWAPPING one replica can have merged
-// while another has not, and the guidance belongs in the log of the node that
-// actually has to be repaired.
-//
-// Answers true when it cannot tell (no local store). Staying silent about
-// data that may be inverted is the worse error of the two.
+// Per-node: at SWAPPING one replica can have merged while another hasn't,
+// and guidance belongs on the node that needs repairing. Answers true when
+// it cannot tell (no local store) — silence about possibly-inverted data is
+// the worse error.
 func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
 	if p.db == nil {
 		return true

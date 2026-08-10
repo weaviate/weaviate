@@ -22,36 +22,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart
-// documents what cancelling a reindex actually does to a node that already
-// merged its new-format data. It is a description of today's behavior, not
-// an endorsement: the end state it pins is a bucket↔schema inversion, and
-// it exists so the operator-facing wording in [ReindexGateRemedy] can be
-// checked against something other than an assumption.
-//
-// The sequence, in the order the code runs it:
-//
-//  1. The shard merged its new-format data into the ingest sidecar. On disk
-//     that is a tracker dir carrying merged.mig, plus the sidecar.
-//  2. Cancel fires OnTaskCompleted with status CANCELLED. It skips the
-//     cluster-wide schema flip, so the schema still says OLD, and calls
-//     CleanStalePartialReindexState, which deliberately preserves that
-//     generation (wiping it is #10675-shape data loss).
-//  3. Restart. FinalizeCompletedMigrations promotes the sidecar to the
-//     canonical bucket name and removes the tracker dir.
-//
-// Result: canonical buckets hold NEW-format data under a schema that says
-// OLD, with no marker on disk. FinalizeCompletedMigrations' own godoc
-// justifies the promotion on the premise that "the cluster-wide schema flip
-// has likely already committed" — on the cancel path it has not.
-//
-// The window opens at the MERGE, which is what the two rows are for.
-// Finalize promotes on merged.mig alone, and merged.mig is written during
-// PREPARING, before any shard swaps. The PREPARING row therefore ends in the
-// same inversion as the SWAPPING row, on a node that never set
-// [Shard.tokenizationOverlay] — so there is no in-memory mask to lose there,
-// and making that overlay survive restart would not close this on its own.
-// Tracked in https://github.com/weaviate/weaviate/issues/12575 .
+// TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart pins
+// that cancelling once a generation has merged (PREPARING or later) leaves
+// canonical buckets NEW-tokenized under an unflipped OLD schema after
+// restart: cancel skips the schema flip but FinalizeCompletedMigrations
+// still promotes on merged.mig alone. Tracked at
+// weaviate/weaviate#12575.
 func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *testing.T) {
 	const (
 		propName  = "descr"
@@ -95,7 +71,7 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			// Step 1: the work this node had already done when cancel arrived.
+			// State already on disk when cancel arrives.
 			mkTrackerDir(t, lsm, tracker, tc.sentinels...)
 			require.NoError(t, os.WriteFile(
 				filepath.Join(lsm, ".migrations", tracker, "properties.mig"),
@@ -110,7 +86,6 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 			require.True(t, idx.HasPromotableReindexState(propName, indexType),
 				"a merged generation is what the next restart promotes")
 
-			// Step 2: the cleanup the CANCELLED path runs on every node.
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, indexType))
 
 			require.True(t, dirExistsAt(t, lsm, sidecar),
@@ -118,16 +93,15 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 			require.DirExists(t, filepath.Join(lsm, ".migrations", tracker),
 				"the merged generation's tracker survives cancel cleanup")
 
-			// Step 3: only a committed swap leaves an in-memory mask. At
-			// PREPARING the canonical bucket still holds OLD data, so there
-			// is nothing to mask yet.
+			// Only a committed swap leaves an in-memory mask; at PREPARING
+			// the canonical bucket still holds OLD data.
 			wantBefore := oldTok
 			if tc.hasOverlay {
 				wantBefore = newTok
 			}
 			require.Equal(t, wantBefore, shard.TokenizationFor(propName, oldTok))
 
-			// Step 4: restart. This runs before bucket loading on every startup.
+			// Restart: FinalizeCompletedMigrations runs before bucket loading.
 			FinalizeCompletedMigrations(lsm, logrus.New())
 
 			require.True(t, dirExistsAt(t, lsm, canonical),

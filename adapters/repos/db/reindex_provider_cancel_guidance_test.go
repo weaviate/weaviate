@@ -26,15 +26,10 @@ import (
 )
 
 // TestOnTaskCompleted_TerminalRepairGuidance pins which terminal outcomes
-// reach the operator with "your buckets are inverted, rebuild the property".
-//
-// The message asserts data corruption as fact, so it must not fire for a
-// cancel that did nothing. Cancel is offered at every non-terminal status,
-// including STARTED where a barrier migration has written nothing at all —
-// and STARTED is the status [ReindexGateRemedy] tells the operator it is safe
-// to cancel at, so an unconditional message would turn the PR's own advice
-// into a false corruption alarm. FAILED carries its own evidence: a unit died
-// mid-work.
+// log "your buckets are inverted, rebuild the property": FAILED always (a
+// unit died mid-work), CANCELLED only once something actually merged — a
+// STARTED cancel wrote nothing, so an unconditional message would falsely
+// claim corruption on the status [ReindexGateRemedy] calls safe to cancel.
 func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 	const (
 		propName  = "descr"

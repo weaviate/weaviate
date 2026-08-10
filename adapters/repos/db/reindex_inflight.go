@@ -139,22 +139,16 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
 }
 
-// reindexInFlightError formats the operator-facing rejection. The
-// `preWire` flag distinguishes "DTM lookup says live" from "lookup not
-// yet installed" so the error body can hint at the right next step.
+// reindexInFlightError formats the operator-facing rejection. `preWire`
+// distinguishes "DTM lookup says live" from "lookup not yet installed" so
+// the body can hint at the right next step.
 //
-// Unlike the schema gates, this can't print a cancel call: the lookup
-// behind it only knows a shard is live, not the task, so it has no
-// property/index-type to key the cancel endpoint on. It points at the GET
-// poll instead — a guessed pair would 202 NO_OP and look like it worked.
+// Unlike the schema gates, it has no task to key a cancel call on — only
+// that a shard is live — so it points at the GET poll instead of guessing a
+// property/index-type pair that could 202 NO_OP.
 //
-// The URLs name the collection exactly as stored. `collection` is
-// [Index.Config.ClassName], which on a namespace-enabled cluster is qualified
-// ("customer1:MyClass"), and a global operator has to type that prefix for
-// the request to reach the right collection. A namespace-confined caller has
-// their own prefix removed from the whole message by
-// [namespacing.StripErrorMessage] on the REST error path. Same rendering rule
-// as [ReindexCancelCall].
+// `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
+// stored; same rendering rule as [ReindexCancelCall].
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

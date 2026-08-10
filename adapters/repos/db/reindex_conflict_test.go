@@ -951,15 +951,10 @@ func concat(sets ...[]string) []string {
 }
 
 // TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
-// migration type crashes the conflict check. CheckConflict runs on the RAFT
-// apply path on every node and replays from the log on restart, so a panic
-// there is a cluster-wide crash loop rather than a rejected request.
-//
-// The "not known to this build" row is the one that generalizes: a newer
-// node can submit a type this binary has never heard of during a rolling
-// upgrade, which is exactly how rebuild-searchable crashed the apply path
-// before. The nine concrete types can only catch a regression in types
-// that already exist.
+// migration type crashes the conflict check, which runs on the RAFT apply
+// path, so a panic there is a cluster-wide crash loop. The "not known to
+// this build" row is the one that generalizes to a newer node's type during
+// a rolling upgrade — exactly how rebuild-searchable once crashed this path.
 func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
 	migrationTypes := append(allDeclaredReindexMigrationTypes(t),
 		"a-type-from-a-newer-node")
