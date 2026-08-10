@@ -627,6 +627,21 @@ func (s *Scheduler) tick() {
 		// propose a cleanup for a task still mid-coordination.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
+				// STARTED and the coordination phases are expected here.
+				// Anything else non-terminal is a status this build cannot
+				// explain — most likely one a newer node introduced. It
+				// blocks schema mutations, new reindexes and backups on its
+				// collection, and nothing else in the system names it, so
+				// the operator would otherwise only see rejections quoting a
+				// status they cannot look up.
+				if !task.Status.IsCoordinationPhase() && task.Status != TaskStatusStarted {
+					s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+						s.loggerWithTask(namespace, task.TaskDescriptor).
+							Warnf("distributed task is in unrecognized status %q; treating it as in flight. "+
+								"It blocks schema mutations and backups on its collection until it reaches a "+
+								"terminal state or is cancelled", task.Status)
+					})
+				}
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)

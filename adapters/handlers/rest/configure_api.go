@@ -1013,10 +1013,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// That cancellation propagates into Store.PauseCompaction and
 		// surfaces as a misleading "context canceled" error.
 		auditCtx := serverShutdownCtx
-		type taskKey struct {
-			id      string
-			version uint64
-		}
 		// buildKnownTask returns an error on ListDistributedTasks
 		// failure. Callers MUST propagate the error rather than
 		// substitute a soft default — prior versions returned a
@@ -1028,13 +1024,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
-			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				live[taskKey{task.ID, task.Version}] = db.IsLiveReindexTaskStatus(task.Status)
-			}
-			return func(taskID string, taskVersion uint64) bool {
-				return live[taskKey{taskID, taskVersion}]
-			}, nil
+			return liveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
@@ -1083,10 +1073,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		type shardKey struct {
-			collection string
-			shardName  string
-		}
 		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
@@ -1094,25 +1080,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 				return func(string, string) bool { return true }
 			}
-			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
-					continue
-				}
-				var payload db.ReindexTaskPayload
-				if err := json.Unmarshal(task.Payload, &payload); err != nil {
-					appState.Logger.WithField("action", "backup_reindex_gate").
-						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-					continue
-				}
-				for _, shardName := range payload.UnitToShard {
-					live[shardKey{payload.Collection, shardName}] = true
-				}
-			}
-			return func(collection, shardName string) bool {
-				return live[shardKey{collection, shardName}]
-			}
+			return shardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
@@ -2831,5 +2799,54 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				appState.Logger.WithField("action", "runtime config manager startup").Fatalf("runtime config manager stopped: %v", err)
 			}
 		}, appState.Logger)
+	}
+}
+
+// liveReindexTrackerLookup answers, for the startup orphan audit, which
+// tasks still own their on-disk tracker dirs. Every non-terminal status
+// counts, including one a newer node introduced: the audit's other answer
+// is os.RemoveAll on a live migration's trackers, and that is the one
+// outcome nothing downstream can undo.
+func liveReindexTrackerLookup(tasks []*distributedtask.Task) db.KnownReindexTaskLookup {
+	type taskKey struct {
+		id      string
+		version uint64
+	}
+	live := make(map[taskKey]bool, len(tasks))
+	for _, task := range tasks {
+		live[taskKey{task.ID, task.Version}] = task.Status.IsActive()
+	}
+	return func(taskID string, taskVersion uint64) bool {
+		return live[taskKey{taskID, taskVersion}]
+	}
+}
+
+// shardReindexActivityLookup answers, for the backup gate, which shards a
+// reindex is currently working on. Same liveness rule as the orphan audit:
+// a status this build cannot prove is done keeps its shards busy, so the
+// backup is refused rather than capturing a half-migrated shard.
+func shardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) db.ShardReindexActivityLookup {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	live := make(map[shardKey]bool)
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("action", "backup_reindex_gate").
+				WithField("task_id", task.ID).
+				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+			continue
+		}
+		for _, shardName := range payload.UnitToShard {
+			live[shardKey{payload.Collection, shardName}] = true
+		}
+	}
+	return func(collection, shardName string) bool {
+		return live[shardKey{collection, shardName}]
 	}
 }

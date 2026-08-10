@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -566,6 +567,7 @@ type testHarness struct {
 	schedulerTickInterval time.Duration
 	clock                 *clockwork.FakeClock
 	logger                logrus.FieldLogger
+	loggerHook            *logrustest.Hook
 	completionRecorder    *MockTaskCompletionRecorder
 	cleaner               *MockTaskCleaner
 	provider              *testTaskProvider
@@ -582,7 +584,7 @@ func newTestHarness(t *testing.T) *testHarness {
 	var (
 		defaultNamespace = "tasks-namespace"
 		defaultProvider  = newTestTaskProvider(t, nil)
-		logger, _        = logrustest.NewNullLogger()
+		logger, hook     = logrustest.NewNullLogger()
 	)
 
 	return &testHarness{
@@ -593,6 +595,7 @@ func newTestHarness(t *testing.T) *testHarness {
 		schedulerTickInterval: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
 		logger:                logger,
+		loggerHook:            hook,
 		completionRecorder:    NewMockTaskCompletionRecorder(t),
 		cleaner:               NewMockTaskCleaner(t),
 		provider:              defaultProvider,
@@ -1770,4 +1773,46 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	require.Len(t, remaining, 1,
 		"a task in an unrecognized status must survive the TTL sweep")
 	require.Equal(t, "unknown", remaining[0].ID)
+}
+
+// TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus pins the operator
+// signal. A task in a status this build cannot explain blocks schema
+// mutations, new reindexes and backups on its collection, and nothing else
+// in the system names it — the operator would only see rejections quoting
+// a status they cannot look up. STARTED and the coordination phases are
+// expected and must stay quiet, or the warn drowns in normal operation.
+func TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status   TaskStatus
+		wantWarn bool
+	}{
+		{unknownFutureStatus, true},
+		{TaskStatus(""), true},
+		{TaskStatusStarted, false},
+		{TaskStatusPreparing, false},
+		{TaskStatusSwapping, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			defer leaktest.Check(t)()
+
+			h := newTestHarness(t).init(t)
+
+			addTaskWithUnits(t, h, h.tasksNamespace, "1", 10, []string{"su-1"})
+			h.manager.tasks[h.tasksNamespace]["1"].Status = tc.status
+
+			h.startScheduler(t)
+			defer h.Close()
+
+			h.advanceClock(h.schedulerTickInterval)
+
+			var warned bool
+			for _, e := range h.loggerHook.AllEntries() {
+				if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+					warned = true
+				}
+			}
+			require.Equal(t, tc.wantWarn, warned,
+				"status %q: warn fired=%v, want %v", tc.status, warned, tc.wantWarn)
+		})
+	}
 }

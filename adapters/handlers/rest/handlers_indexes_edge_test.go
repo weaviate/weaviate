@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -896,5 +897,68 @@ func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 			require.Equal(t, "T1", target.ID)
 			require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
 		})
+	}
+}
+
+// Every REST-tier gate that asks "is a reindex in flight" must give the
+// same answer for a status this build cannot recognize. These four flip
+// on that answer, and each one alone is enough to let a second migration
+// land on a property a newer node is still migrating — or, for the orphan
+// audit, to os.RemoveAll a live migration's tracker dirs.
+func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+		UnitToShard:   map[string]string{"u1": "shard-1"},
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+
+	gates := []struct {
+		name string
+		// inFlight reports whether the gate considers the task live.
+		inFlight func(task *distributedtask.Task) bool
+	}{
+		{"cap counter", func(task *distributedtask.Task) bool {
+			return countStartedTasksForCollection("C", []*distributedtask.Task{task}) == 1
+		}},
+		{"PUT rejection", func(task *distributedtask.Task) bool {
+			reason, err := checkReindexConflict("C", db.ReindexTypeChangeTokenization,
+				[]string{"foo"}, []*distributedtask.Task{task})
+			require.NoError(t, err)
+			return reason != ""
+		}},
+		{"backup gate", func(task *distributedtask.Task) bool {
+			return shardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
+		}},
+		{"orphan audit", func(task *distributedtask.Task) bool {
+			return liveReindexTrackerLookup([]*distributedtask.Task{task})("T1", 1)
+		}},
+	}
+
+	statuses := []struct {
+		status   distributedtask.TaskStatus
+		inFlight bool
+	}{
+		{distributedtask.TaskStatusStarted, true},
+		{distributedtask.TaskStatusPreparing, true},
+		{distributedtask.TaskStatusSwapping, true},
+		{unknownFutureStatus, true},
+		{distributedtask.TaskStatus(""), true},
+		{distributedtask.TaskStatus("started"), true}, // wrong case is not STARTED
+		{distributedtask.TaskStatusFinished, false},
+		{distributedtask.TaskStatusFailed, false},
+		{distributedtask.TaskStatusCancelled, false},
+	}
+
+	for _, g := range gates {
+		for _, s := range statuses {
+			t.Run(g.name+"/"+string(s.status), func(t *testing.T) {
+				task := buildTask(t, "T1", s.status, payload, nil)
+				require.Equal(t, s.inFlight, g.inFlight(task),
+					"%s must read %q as in-flight=%v", g.name, s.status, s.inFlight)
+			})
+		}
 	}
 }
