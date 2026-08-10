@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -102,8 +103,8 @@ func classifyCloseCause(err error) error {
 
 // CleanStalePartialReindexState iterates every local shard of this index
 // and calls the per-shard cleanup. Per-shard errors are collected and
-// returned together so the caller can decide whether to refuse the submit
-// or proceed with a warning.
+// returned together, capped at [maxReportedErrors], so the caller can decide
+// whether to refuse the submit or proceed with a warning.
 //
 // Errors do NOT stop iteration: a stuck shard must not prevent the other
 // shards from being cleaned, otherwise a one-shard failure would
@@ -131,7 +132,10 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
-	var shardErrs error
+	// Capped at [maxReportedErrors] for the same reason the unvisited-shard
+	// list is: the failures that scale with a node's tenant count are the ones
+	// a full disk produces on every shard at once.
+	shardErrs := errorcompounder.New()
 	// forEachShardStrict rather than ForEachShard, which answers a closing
 	// index with a silent nil that is indistinguishable here from a sweep that
 	// reached every shard.
@@ -160,21 +164,22 @@ func (i *Index) CleanStalePartialReindexState(
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
 			if unwrapErr != nil {
-				shardErrs = errors.Join(shardErrs,
+				shardErrs.Add(
 					fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr))
 				return nil
 			}
 			shard = unwrapped
 		}
 		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
-			shardErrs = errors.Join(shardErrs, fmt.Errorf("shard %q: %w", name, err))
+			shardErrs.Add(fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil
 	})
-	if shardErrs != nil {
-		shardErrs = fmt.Errorf("%w: %w", ErrCleanupShardFailed, shardErrs)
+	var failedShards error
+	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
+		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
 	}
-	return errors.Join(shardErrs, classifyCloseCause(walkErr))
+	return errors.Join(failedShards, classifyCloseCause(walkErr))
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has

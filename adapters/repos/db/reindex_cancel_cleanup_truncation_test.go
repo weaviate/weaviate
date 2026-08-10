@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -49,6 +50,16 @@ func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reserva
 
 func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
 
+// tenantShardNames builds n shard names, for the cases that need more of them
+// than an operator-facing message is allowed to carry.
+func tenantShardNames(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("tenant-%03d", i)
+	}
+	return out
+}
+
 // Pins CleanStalePartialReindexState's three outcomes — clean, truncated, and
 // collection-dropped — against a walk that fails, aborts, or never starts. See
 // the function doc for why each is reported differently.
@@ -76,6 +87,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantDropped   bool
 		// wantShardErr expects the failing shard to still be named.
 		wantShardErr bool
+		// wantShardsNamed is how many failing shards the message may name; 0
+		// skips the check.
+		wantShardsNamed int
 	}{
 		{
 			name:      "no shards is a clean sweep",
@@ -94,6 +108,16 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantErr:       true,
 			wantShardErr:  true,
 			wantTruncated: false,
+		},
+		{
+			// A full disk fails every tenant of the node at once, and the
+			// result is rendered into an operator-facing log line.
+			name:            "more failing shards than a message can carry",
+			shards:          tenantShardNames(15),
+			indexType:       "an-index-type-this-build-does-not-know",
+			wantErr:         true,
+			wantShardErr:    true,
+			wantShardsNamed: maxReportedErrors,
 		},
 		{
 			name:          "the abort lands on the first of two shards",
@@ -253,6 +277,14 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				require.NotErrorIs(t, err, ErrCleanupShardFailed,
 					"no shard was reached and failed, so nothing was left on one")
 			}
+			if tc.wantShardsNamed > 0 {
+				require.Equal(t, tc.wantShardsNamed,
+					strings.Count(err.Error(), "unwrap for partial-reindex cleanup"),
+					"an operator cannot read a message with one entry per tenant")
+				require.Contains(t, err.Error(),
+					fmt.Sprintf("(and %d more)", len(tc.shards)-tc.wantShardsNamed),
+					"the count is what says how many shards were left behind")
+			}
 			require.Equal(t, tc.wantDropped && !tc.wantShardErr, IsCleanupCollectionDropped(err),
 				"a delete only speaks for the whole sweep when the sweep left nothing behind")
 		})
@@ -406,13 +438,7 @@ func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
 // runs tens of thousands of tenants. The count has to survive the cap: it is
 // what says how much of the collection is unaccounted for.
 func TestUnvisitedShards(t *testing.T) {
-	names := func(n int) []string {
-		out := make([]string, n)
-		for i := range out {
-			out[i] = fmt.Sprintf("tenant-%03d", i)
-		}
-		return out
-	}
+	names := tenantShardNames
 	visitedSet := func(names ...string) map[string]struct{} {
 		out := map[string]struct{}{}
 		for _, name := range names {
