@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -335,6 +336,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      replicationFactor,
 			NumberOfReplicas:       replicaCountOf(name),
+			VectorCommitLogStats:   shardVectorCommitLogStats(shard),
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
@@ -372,6 +374,38 @@ func isAnyVectorIndexCompressed(shard ShardLike) bool {
 		return nil
 	})
 	return compressed
+}
+
+// shardVectorCommitLogStats collects the per-vector commit log summaries the
+// compactors publish at the end of each compaction cycle. Reading one is an
+// atomic pointer load, so this path does no disk I/O regardless of shard
+// count. Vector indexes without a compacting commit log (flat, geo) and
+// indexes whose first cycle has not completed yet contribute nothing.
+func shardVectorCommitLogStats(shard ShardLike) []*models.VectorCommitLogStats {
+	var stats []*models.VectorCommitLogStats
+	shard.ForEachVectorIndex(func(name string, index VectorIndex) error {
+		provider, ok := index.(interface{ CommitlogStats() *compact.Stats })
+		if !ok {
+			return nil
+		}
+		s := provider.CommitlogStats()
+		if s == nil {
+			return nil
+		}
+		stats = append(stats, &models.VectorCommitLogStats{
+			Name:              name,
+			RawFiles:          int64(s.RawFiles),
+			CondensedFiles:    int64(s.CondensedFiles),
+			SortedFiles:       int64(s.SortedFiles),
+			SnapshotTimestamp: s.SnapshotTimestamp,
+			TotalSizeBytes:    s.TotalSizeBytes,
+			CompactionCycles:  int64(s.Cycles),
+		})
+		return nil
+	})
+	// ForEachVectorIndex iterates a map; sort so repeated reads keep a stable order
+	sort.Slice(stats, func(i, j int) bool { return stats[i].Name < stats[j].Name })
+	return stats
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -857,6 +858,19 @@ func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 		return nil, errors.New("index is not hnsw")
 	}
 	return h.Stats()
+}
+
+// CommitlogStats delegates to the underlying index. It returns nil while the
+// underlying index is flat (no commit log) or before the first compaction
+// cycle after the upgrade to hnsw completes.
+func (dynamic *dynamic) CommitlogStats() *compact.Stats {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	if h, ok := dynamic.index.(interface{ CommitlogStats() *compact.Stats }); ok {
+		return h.CommitlogStats()
+	}
+	return nil
 }
 
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {

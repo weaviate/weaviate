@@ -54,6 +54,9 @@ type NodeShardStatus struct {
 	// Minimum number of replicas for the shard.
 	ReplicationFactor int64 `json:"replicationFactor,omitempty"`
 
+	// Commit log statistics per vector index of this shard on this node, as of the vector index's last completed compaction cycle. Omitted for unloaded shards, for vector index types without a compacting commit log, and before the first compaction cycle completes.
+	VectorCommitLogStats []*VectorCommitLogStats `json:"vectorCommitLogStats"`
+
 	// The status of the vector indexing process.
 	VectorIndexingStatus string `json:"vectorIndexingStatus"`
 
@@ -66,6 +69,10 @@ func (m *NodeShardStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAsyncReplicationStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVectorCommitLogStats(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -101,11 +108,41 @@ func (m *NodeShardStatus) validateAsyncReplicationStatus(formats strfmt.Registry
 	return nil
 }
 
+func (m *NodeShardStatus) validateVectorCommitLogStats(formats strfmt.Registry) error {
+	if swag.IsZero(m.VectorCommitLogStats) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.VectorCommitLogStats); i++ {
+		if swag.IsZero(m.VectorCommitLogStats[i]) { // not required
+			continue
+		}
+
+		if m.VectorCommitLogStats[i] != nil {
+			if err := m.VectorCommitLogStats[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("vectorCommitLogStats" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("vectorCommitLogStats" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 // ContextValidate validate this node shard status based on the context it is used
 func (m *NodeShardStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateAsyncReplicationStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVectorCommitLogStats(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -125,6 +162,26 @@ func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Cont
 					return ve.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *NodeShardStatus) contextValidateVectorCommitLogStats(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.VectorCommitLogStats); i++ {
+
+		if m.VectorCommitLogStats[i] != nil {
+			if err := m.VectorCommitLogStats[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("vectorCommitLogStats" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("vectorCommitLogStats" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

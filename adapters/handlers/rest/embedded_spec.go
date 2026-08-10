@@ -9276,6 +9276,13 @@ func init() {
           "format": "int64",
           "x-omitempty": true
         },
+        "vectorCommitLogStats": {
+          "description": "Commit log statistics per vector index of this shard on this node, as of the vector index's last completed compaction cycle. Omitted for unloaded shards, for vector index types without a compacting commit log, and before the first compaction cycle completes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorCommitLogStats"
+          }
+        },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
           "type": "string",
@@ -11305,6 +11312,52 @@ func init() {
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "object"
+    },
+    "VectorCommitLogStats": {
+      "description": "Commit log statistics of a single vector index, as of its last completed compaction cycle.",
+      "properties": {
+        "compactionCycles": {
+          "description": "The number of compaction cycles completed since the shard was loaded.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "condensedFiles": {
+          "description": "The number of condensed commit log files awaiting conversion.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "name": {
+          "description": "The name of the vector index. Empty for the legacy unnamed vector.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "rawFiles": {
+          "description": "The number of unsorted commit log files awaiting conversion, excluding the actively written file.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "snapshotTimestamp": {
+          "description": "The newest commit timestamp absorbed into the current snapshot, taken from the snapshot filename (unix seconds). 0 when no snapshot exists.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "sortedFiles": {
+          "description": "The number of sorted commit log files awaiting merge or snapshot.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "totalSizeBytes": {
+          "description": "The combined size in bytes of all commit log files of this vector index, including the actively written file.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
     },
     "VectorConfig": {
       "type": "object",
@@ -21189,6 +21242,13 @@ func init() {
           "format": "int64",
           "x-omitempty": true
         },
+        "vectorCommitLogStats": {
+          "description": "Commit log statistics per vector index of this shard on this node, as of the vector index's last completed compaction cycle. Omitted for unloaded shards, for vector index types without a compacting commit log, and before the first compaction cycle completes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorCommitLogStats"
+          }
+        },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
           "type": "string",
@@ -23411,6 +23471,52 @@ func init() {
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "object"
+    },
+    "VectorCommitLogStats": {
+      "description": "Commit log statistics of a single vector index, as of its last completed compaction cycle.",
+      "properties": {
+        "compactionCycles": {
+          "description": "The number of compaction cycles completed since the shard was loaded.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "condensedFiles": {
+          "description": "The number of condensed commit log files awaiting conversion.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "name": {
+          "description": "The name of the vector index. Empty for the legacy unnamed vector.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "rawFiles": {
+          "description": "The number of unsorted commit log files awaiting conversion, excluding the actively written file.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "snapshotTimestamp": {
+          "description": "The newest commit timestamp absorbed into the current snapshot, taken from the snapshot filename (unix seconds). 0 when no snapshot exists.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "sortedFiles": {
+          "description": "The number of sorted commit log files awaiting merge or snapshot.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "totalSizeBytes": {
+          "description": "The combined size in bytes of all commit log files of this vector index, including the actively written file.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
     },
     "VectorConfig": {
       "type": "object",

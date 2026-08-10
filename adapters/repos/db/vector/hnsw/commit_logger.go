@@ -115,6 +115,13 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	return l, nil
 }
 
+// CompactionStats returns the compactor's summary of the commit log
+// directory as of the last completed compaction cycle, or nil before the
+// first cycle completes.
+func (l *hnswCommitLogger) CompactionStats() *compact.Stats {
+	return l.compactor.Stats()
+}
+
 func (l *hnswCommitLogger) InitMaintenance() {
 	id := func(elems ...string) string {
 		elems = append([]string{"commit_logger"}, elems...)
