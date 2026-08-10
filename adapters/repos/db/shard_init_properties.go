@@ -206,14 +206,7 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 			continue
 		}
 		name := entry.Name()
-		matches := false
-		for _, p := range prefixes {
-			if name == p || strings.HasPrefix(name, p+"_") {
-				matches = true
-				break
-			}
-		}
-		if !matches {
+		if !isMigrationDirOf(name, prefixes) {
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
@@ -289,18 +282,10 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	}
 	preserveSidecars := completedMigrationSidecarSuffixes(s.pathLSM(), preservePrefixes)
 
-	prefix := mainBucketName + "__"
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
 	for bucketName := range loaded {
-		if !strings.HasPrefix(bucketName, prefix) {
-			continue
-		}
-		// Defensive: never shut down the main bucket itself. mainBucketName
-		// is the exact name, prefix is mainBucketName+"__" — but a future
-		// helper that uses underscores differently could break this; keep
-		// the guard.
-		if bucketName == mainBucketName {
+		if !isSidecarDirOf(bucketName, mainBucketName) {
 			continue
 		}
 		// Skip live sidecar buckets backing a completed-but-deferred
@@ -407,12 +392,11 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 			Error(fmt.Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %w; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err))
 		return
 	}
-	prefix := mainBucketName + "__"
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		if !strings.HasPrefix(entry.Name(), prefix) {
+		if !isSidecarDirOf(entry.Name(), mainBucketName) {
 			continue
 		}
 		if suffix := strings.TrimPrefix(entry.Name(), mainBucketName); preserveSidecars[suffix] {
@@ -434,6 +418,29 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 				Error(fmt.Errorf("failed to remove stale sidecar bucket dir after index DELETE: %w", err))
 		}
 	}
+}
+
+// isSidecarDirOf reports whether name is a per-property sidecar of
+// mainBucketName — the same name on disk and in the bucket registry. Never the
+// main bucket itself: mainBucketName is the exact name and the sidecars carry a
+// "__" separator, but a future helper that uses underscores differently would
+// otherwise tear down the live bucket.
+//
+// Shared with [hasStalePartialReindexState], which decides from the same rule
+// whether a cold shard has to be loaded at all.
+func isSidecarDirOf(name, mainBucketName string) bool {
+	return name != mainBucketName && strings.HasPrefix(name, mainBucketName+"__")
+}
+
+// isMigrationDirOf reports whether name is a migration tracker dir of one of
+// prefixes, in any generation.
+func isMigrationDirOf(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if name == p || strings.HasPrefix(name, p+"_") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
