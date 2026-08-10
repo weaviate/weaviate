@@ -56,8 +56,9 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false},
-		{TaskStatus(""), false},
+		// Unrecognized statuses are active: see TestTaskStatus_UnknownIsActive.
+		{TaskStatus("UNKNOWN_FUTURE_STATE"), true},
+		{TaskStatus(""), true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -86,8 +87,8 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 		{TaskStatusFinished, false, false},
 		{TaskStatusFailed, false, false},
 		{TaskStatusCancelled, false, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, false},
-		{TaskStatus(""), false, false},
+		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, true},
+		{TaskStatus(""), false, true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
