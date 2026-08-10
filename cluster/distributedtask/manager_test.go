@@ -691,14 +691,9 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
-// TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed pins the
-// fail-closed rule for a task/unit combination this node's own apply path
-// cannot produce but Restore can install: STARTED, one unit already FAILED,
-// one still PENDING. Completing the pending unit makes every unit terminal,
-// and the task must land in FAILED rather than advance into the swap phases —
-// SWAPPING is what runs the cluster-wide schema flip, and running it on a
-// half-failed migration is the bucket/schema inversion the reindex gates
-// exist to prevent.
+// TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed pins that a
+// STARTED task with one FAILED unit (state only Restore can produce) stays
+// FAILED instead of advancing into the schema-flip phases.
 func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T) {
 	for _, barrier := range []bool{false, true} {
 		name := "swapping path"
@@ -706,9 +701,8 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			name = "preparation-barrier path"
 		}
 		t.Run(name, func(t *testing.T) {
-			// Built as a snapshot rather than through AddTask + failUnit:
-			// the failure path sets the task to FAILED itself, so the state
-			// under test is only reachable the way Restore delivers it.
+			// AddTask + failUnit can't reach this state: the failure path
+			// sets the task to FAILED itself. Restore is the only way in.
 			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
 				"ns": {{
 					Namespace:               "ns",

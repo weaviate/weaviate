@@ -936,43 +936,30 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 	return errs
 }
 
-// indexTypesFromMigrationType is [db.ReindexTargetIndexes] in the shape the
-// cleanup callers want: the inverted-index types ("filterable", "searchable",
-// "rangeable") a migration type targets, plus whether this build knows the
-// type at all. Returns (nil, false) only for unknown migration types — every
-// known type targets at least one index.
+// indexTypesFromMigrationType is [db.ReindexTargetIndexes] shaped for
+// cleanup callers: the index types a migration type targets, plus whether
+// this build knows the type. Returns (nil, false) only for unknown types.
 //
-// Most migration types target exactly one index. change-tokenization (both
-// indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
-// (searchable + filterable) via createReindexTasks, and each leaves its own
-// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
-// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
-// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
-// change_tok_delete_journeys_test.go): a prior filterable-only retokenize
-// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
-// next change-tokenization-both submit did not clean it, and its
-// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
-// IsTidied check while OnMigrationComplete still flipped the schema's
-// Tokenization. Schema and on-disk state then disagreed.
+// change-tokenization targets both searchable and filterable buckets, each
+// with its own on-disk sentinel dir; pre-submit cleanup must wipe both, or a
+// stale tidied.mig from one short-circuits its sub-task while the schema
+// still flips, leaving schema and on-disk state disagreeing.
 //
-// Callers iterate the returned slice and run CleanStalePartialReindexState
-// once per indexType. Safe to call when no stale state exists: missing
-// directories and unloaded buckets are silently skipped.
+// Callers run CleanStalePartialReindexState once per returned indexType.
+// Safe to call when no stale state exists.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	indexTypes := db.ReindexTargetIndexes(mt)
 	return indexTypes, len(indexTypes) > 0
 }
 
-// migrationTypeTargetsIndex asks [db.ReindexTargetIndexes] the cancel
-// matcher's question and returns:
+// migrationTypeTargetsIndex asks [db.ReindexTargetIndexes] whether mt
+// writes to indexType's bucket:
 //
-//   - matches: true if the migration type writes to the named index bucket.
-//   - isKnown: true if the migration type is one this build can map.
+//   - matches: true if mt targets indexType.
+//   - isKnown: true if this build recognizes mt at all.
 //
-// A new ReindexMigrationType added without an arm there returns (false,
-// false). Callers that need to log/alert on that case can check the second
-// return; cancel-path callers can ignore it because a (false, false) result
-// still means "this task is not a cancel target".
+// A mt unmapped in ReindexTargetIndexes returns (false, false); cancel-path
+// callers can treat that as "not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	indexTypes := db.ReindexTargetIndexes(mt)
 	return slices.Contains(indexTypes, indexType), len(indexTypes) > 0

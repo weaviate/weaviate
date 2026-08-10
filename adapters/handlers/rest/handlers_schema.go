@@ -274,16 +274,11 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state — same epistemics as the schema FSM's
+// any non-terminal state (per [distributedtask.TaskStatus.IsActive],
+// which also covers a status this build doesn't recognize, seen
+// during a rolling upgrade) — same epistemics as the schema FSM's
 // MutationGuard at apply time, just earlier in the request lifecycle
-// for operator UX. Non-terminal is everything
-// [distributedtask.TaskStatus.IsActive] accepts, so besides STARTED,
-// PREPARING and SWAPPING that includes a status this build does not
-// recognize, which a newer node can report during a rolling upgrade.
-//
-// Every refusal it can produce is worded exactly as the apply-path
-// gate words it, so a caller who retries past this one is not told
-// something different by the second refusal.
+// for operator UX.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -305,17 +300,14 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// Every non-terminal status counts as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
-		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during a coordination phase would race the in-flight
-		// per-shard bucket-pointer flip.
+		// Every non-terminal status counts as in-flight — see
+		// [checkReindexConflict]'s godoc for why (races the in-flight
+		// per-shard bucket-pointer flip).
 		if !task.Status.IsActive() {
 			continue
 		}
-		// The next two refusals mirror the apply gate's, word for word,
-		// so the REST caller doesn't get a spurious "ok-then-FAILED"
-		// two-step on a payload the apply gate will reject.
+		// Mirrors the apply gate's wording so a retry isn't told
+		// something different on the second pass.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			return fmt.Sprintf(
@@ -347,10 +339,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !matches {
 			continue
 		}
-		// Same wording as the apply-path gate in
-		// [db.ReindexProvider.CheckPropertyUpdate], from the same helper: a
-		// caller that hits this pre-check and a caller that gets past it must
-		// not be told two different things about the same task.
+		// Matches the apply gate's wording too, for the same reason.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+

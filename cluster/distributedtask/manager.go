@@ -429,19 +429,11 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
-			// Unreachable through this node's own apply path: the failure
-			// path above is the only way a unit reaches FAILED, and it
-			// returns having already put the task in FAILED, which
-			// findStartedUnitWithLock then refuses further reports against.
-			//
-			// Kept as a fail-closed check because the task did not have to
-			// come from this node's apply path: Manager.Restore installs a
-			// peer's snapshot verbatim and never validates that task and
-			// unit statuses agree. Without this branch a STARTED task
-			// carrying a FAILED unit would advance to SWAPPING and run the
-			// cluster-wide schema flip on a half-failed migration; FAILED
-			// instead takes OnTaskCompleted's early return, which skips the
-			// flip, cleans the partial state and logs repair guidance.
+			// Fail-closed: AnyUnitFailed only trips here via a restored
+			// snapshot (see its godoc), never this node's own apply path.
+			// Without this branch a STARTED task with a FAILED unit would
+			// advance to SWAPPING and run the schema flip on a half-failed
+			// migration.
 			task.Status = TaskStatusFailed
 		} else if task.NeedsPreparationBarrier {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.

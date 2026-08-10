@@ -211,16 +211,13 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 }
 
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
-// to, or nil for a type this build does not know.
+// to, or nil for an unknown type.
 //
-// The single source of truth for that mapping. Three questions are answered
-// from it and must never diverge: which index key a printed cancel URL names
-// ([ReindexCancelCall]), whether a cancel request matches a task
-// (migrationTypeTargetsIndex in the REST handlers), and which index types get
-// cleaned off disk on cancel and pre-submit (indexTypesFromMigrationType,
-// same package) — where a mismatch is the Sev 1 silent data loss that
-// function's godoc describes. A new ReindexMigrationType therefore only has
-// to be added here.
+// Single source of truth for that mapping — it backs the cancel URL's index
+// key ([ReindexCancelCall]), the cancel matcher (migrationTypeTargetsIndex),
+// and disk cleanup (indexTypesFromMigrationType, both in the REST handlers
+// package). A mismatch between them risks silent data loss, so new
+// migration types are added only here.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
@@ -238,26 +235,18 @@ func ReindexTargetIndexes(t ReindexMigrationType) []string {
 }
 
 // ReindexCancelCall renders a request that cancels the task described by p,
-// or "" when this build cannot name one.
+// or "" when this build cannot name one. Callers must not print a
+// placeholder for "": the cancel endpoint 202s with NO_OP on a
+// non-matching request, so a guessed URL would look like success for a
+// task that's still running.
 //
-// A caller that gets "" must print no URL at all. The cancel endpoint matches
-// a task only when collection, property and index key all line up, and
-// answers 202 with Status NO_OP otherwise — so a placeholder an operator has
-// to guess buys them a success-shaped response for a task that is still
-// running. The three inputs that can be missing:
+// "" happens when p.Collection is empty, p.Properties is empty (the
+// reserved whole-collection rebuild has no property to name), or
+// p.MigrationType maps to no index via [ReindexTargetIndexes].
 //
-//   - Collection: nothing to address the request to.
-//   - Properties: the endpoint matches on one named property, so a task with
-//     none (the reserved whole-collection rebuild) cannot be cancelled
-//     through it at all.
-//   - MigrationType: a type this build cannot map has no index key, and the
-//     endpoint's own matcher will not recognize it either.
-//
-// One property and one index key are named even when the task touches
-// several. Cancel is task-scoped, not property-scoped: the handler matches on
-// any one of the task's properties and any index key the migration targets,
-// then cancels the whole task, and the post-terminal sweep cleans every
-// property it touched. So naming the first of each cancels all of it.
+// Only the first property and index key are named even when the task
+// touches more — cancel is task-scoped: it matches on any one of them and
+// cancels (and cleans up) everything the task touched.
 func ReindexCancelCall(p ReindexTaskPayload) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
@@ -267,40 +256,23 @@ func ReindexCancelCall(p ReindexTaskPayload) string {
 		p.Collection, p.Properties[0], indexes[0])
 }
 
-// ReindexGateRemedy is the closing sentence every reindex schema gate ends
-// with, in one place so the refusals cannot drift apart. Exported because the
-// REST property-mutation pre-check answers the same question one hop before
-// the RAFT apply path reaches the gates below, and the two must agree.
+// ReindexGateRemedy is the closing sentence every reindex schema gate — the
+// RAFT apply path and the REST pre-check — appends to its refusal, kept in
+// one place so the two can't drift apart. The backup gate is not one of
+// these: it's shard-keyed and never sees the task, so it can't name a
+// cancel call (its wording is in reindexInFlightError).
 //
-// The backup gate refuses on the same migrations but is not one of these: it
-// is keyed on a shard and never sees the task, so it cannot name a cancel
-// call at all. Its wording is in reindexInFlightError.
+// cancelCall is [ReindexCancelCall] for the offending task, or "" when none
+// can be named.
 //
-// Cancel works for every status the gates block on: both the REST handler's
-// findCancelTarget and DTM's Manager.CancelTask refuse only a terminal task,
-// so STARTED, PREPARING and SWAPPING are all cancellable. What differs is
-// what cancel does, which is why the sentence is status-aware.
-//
-// In PREPARING and SWAPPING the per-shard work is already done and the task
-// is in the scheduler's coordination phases. Cancelling there stops the
-// cluster-wide schema flip (OnTaskCompleted runs it only for SWAPPING) and
-// each node clears the partial state it can. Shards whose swap already
-// committed keep their new buckets while the schema stays pre-migration, so
-// the property may need a rebuild afterwards — unlike the FAILED path, a
-// cancel logs no repair guidance.
-//
-// The one case with no remedy to name is a task [ReindexCancelCall] cannot
-// address, which for the most part means the endpoint cannot match it either
-// — see that function for which input is missing and why.
-//
-// A status this build does not know reaches here too: the gates admit
-// anything [distributedtask.TaskStatus.IsActive] accepts, which is every
-// status that is not terminal, so a newer node's status during a rolling
-// upgrade lands in the default arm. It gets a sentence that claims nothing
-// about cancel either way.
-//
-// cancelCall is [ReindexCancelCall] for the offending task, or "" when the
-// caller cannot name one.
+// Sentence depends on status:
+//   - unrecognized (non-terminal but not STARTED/PREPARING/SWAPPING, e.g. a
+//     newer node's status during a rolling upgrade): claims nothing about
+//     cancel.
+//   - cancelCall == "": cancel can't be named; task can only be waited out.
+//   - STARTED: cancel or wait, no side effects yet.
+//   - PREPARING/SWAPPING: per-shard work is already done, so cancelling
+//     skips the schema flip and may leave the property needing a rebuild.
 func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {

@@ -143,13 +143,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // `preWire` flag distinguishes "DTM lookup says live" from "lookup not
 // yet installed" so the error body can hint at the right next step.
 //
-// Unlike the schema gates, this one cannot print a cancel call: the
-// lookup behind it answers "is any reindex live on this shard" and
-// carries no task, so the property and index type the cancel endpoint
-// is keyed on are not available here. It names the poll that supplies
-// them rather than a URL with placeholders in it — the endpoint
-// answers 202 with Status NO_OP for a request whose property does not
-// match, so a guessed one reads as a cancel that went through.
+// Unlike the schema gates, this can't print a cancel call: the lookup
+// behind it only knows a shard is live, not the task, so it has no
+// property/index-type to key the cancel endpoint on. It points at the GET
+// poll instead — a guessed pair would 202 NO_OP and look like it worked.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

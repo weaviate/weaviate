@@ -174,10 +174,8 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
 
-	// The collection is known here, so it is filled in. The property and
-	// index type are not, and a guessed pair costs the operator a 202
-	// NO_OP that reads like the cancel went through — so the message
-	// names the poll that supplies them instead of a <placeholder> URL.
+	// Property/index type aren't known here, so the message points at the
+	// poll instead of a guessable <placeholder> URL that would 202 NO_OP.
 	require.Contains(t, err.Error(), "GET /v1/schema/MyClass/indexes")
 	require.Contains(t, err.Error(), "PUT /v1/schema/MyClass/indexes/{that property}")
 	require.NotContains(t, err.Error(), "<class>")

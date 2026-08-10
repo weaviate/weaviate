@@ -796,16 +796,9 @@ func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
 	}
 }
 
-// TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that all three
-// schema gates name cancel exactly where the API accepts it. Both
-// findCancelTarget and DTM's CancelTask refuse only a terminal task, so
-// STARTED, PREPARING and SWAPPING all take it; past the units the text must
-// also say what cancel costs there, since the schema change is skipped and
-// already-swapped shards need a rebuild. The remaining two arms print no URL:
-// a task the cancel endpoint cannot be keyed on (here the reserved
-// whole-collection rebuild, which has no property to name), and a status this
-// build does not know, which the gates admit because they admit everything
-// non-terminal and which must claim nothing about cancel either way.
+// TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that each schema
+// gate's remedy sentence matches what cancel actually offers for that
+// status: nameable vs. not, and mid-run vs. past-units cost.
 func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -815,9 +808,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	// Empty Properties is "all properties" on both sides of the gate, so a
-	// whole-collection task reaches these refusals — and findCancelTarget
-	// requires a named property, so cancel genuinely cannot reach it.
+	// findCancelTarget requires a named property, so a whole-collection
+	// task (empty Properties) can't be cancelled through it.
 	wholeCollectionPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
@@ -847,10 +839,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		},
 	}
 
-	// Every part of the cancel call is filled in from the same task the
-	// message describes: an operator can paste it as printed. A placeholder
-	// they have to guess would land on the 202 NO_OP this test exists to
-	// keep them away from.
+	// Every part is filled in from the task; a guessed placeholder would
+	// land the operator on a 202 NO_OP.
 	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
 	cancelWhileRunning := []string{
 		cancelCall + ", or wait for it to finish",
@@ -915,14 +905,9 @@ func concat(sets ...[]string) []string {
 }
 
 // TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
-// migration type a submit can produce panics the conflict check.
-//
-// typesConflictReason sanity-checks both types through TouchesSearchable and
-// TouchesFilterable, whose default arms panic on a type they do not list.
-// rebuild-searchable was missing from both, so submitting
-// {"searchable":{"rebuild":true}} against a collection with any reindex in
-// flight panicked — on the REST pre-check and, worse, inside the schema FSM's
-// apply path, where CheckConflict runs.
+// migration type panics TouchesSearchable/TouchesFilterable's exhaustive
+// switches: rebuild-searchable was missing from both and panicked the
+// schema FSM's apply path on any submit against an in-flight reindex.
 func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
 	migrationTypes := []ReindexMigrationType{
 		ReindexTypeChangeAlgorithm,
@@ -968,17 +953,9 @@ func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) 
 	}
 }
 
-// TestReindexTargetIndexes pins every arm of the mapping the cancel URL, the
-// cancel matcher and the on-disk cleanup all read. A wrong arm here is the
-// Sev 1 the cleanup path guards against: a migration that wrote two index
-// types with only one of them cleaned.
-//
-// Each row is also cross-checked against TouchesSearchable and
-// TouchesFilterable, which answer the same question from their own exhaustive
-// switches and panic on a type they do not know. A migration type added to
-// the const block reaches those two on its first request, so pairing them
-// here is what turns a forgotten arm into a test failure rather than a
-// mapping that silently answers nil.
+// TestReindexTargetIndexes pins every arm of the mapping cancel and on-disk
+// cleanup rely on, cross-checked against TouchesSearchable/TouchesFilterable
+// so a forgotten arm fails loud instead of silently returning nil.
 func TestReindexTargetIndexes(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
@@ -1029,17 +1006,15 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 			want:    `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
 		},
 		{
-			// Cancel is task-scoped: the handler matches on any one of the
-			// task's properties and then cancels the whole task, so naming
-			// the first one is a working call, not a partial one.
+			// Cancel is task-scoped, so naming the first property cancels
+			// the whole task.
 			name:    "several properties, the first one cancels all of them",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
 			want:    `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
 		},
 		{
-			// The whole-collection rebuild. findCancelTarget matches on a
-			// named property, so there is no request to render and none the
-			// endpoint would accept either.
+			// Whole-collection rebuild: findCancelTarget requires a named
+			// property, so there's nothing to render.
 			name:    "no property to name",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable},
 			want:    "",

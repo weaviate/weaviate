@@ -23,13 +23,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// The REST pre-check answers the same question as the apply-path gate in
-// [db.ReindexProvider.CheckPropertyUpdate], one hop earlier, and it is the
-// first refusal a caller sees. It must therefore carry the same status-aware
-// remedy: cancel wherever the cancel endpoint accepts it, with the cost of
-// cancelling past the units spelled out, no URL for a task the endpoint
-// cannot be keyed on, and no claim either way for a status this build does
-// not know.
+// TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate pins that
+// the REST pre-check's remedy sentence matches
+// [db.ReindexProvider.CheckPropertyUpdate]'s for every status/payload shape.
 func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -112,17 +108,9 @@ func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T
 	}
 }
 
-// The two property gates answer the same question one hop apart, and an
-// operator who retries after the pre-check refusal must not get a second,
-// differently-worded answer. Substring assertions elsewhere in this file
-// catch drift in the remedy; this one catches drift anywhere in the sentence,
-// including the prefix around it.
-//
-// Driven over both dimensions the two layers branch on — the task's status
-// and the shape of its payload — because the layers reach their refusals by
-// different code: the pre-check matches properties with an inline loop, the
-// apply gate with db.ReindexPropsOverlap, and each renders the payload-level
-// rejections from its own format string.
+// TestPropertyGateMessagesAreByteIdenticalAcrossLayers pins that the
+// pre-check and apply gate produce byte-identical refusals across every
+// status/payload-shape combination, not just matching substrings.
 func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	statuses := []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
@@ -163,10 +151,9 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			},
 		},
 		{
-			// Empty Properties is "all properties" on both sides. The two
-			// layers spell that out differently (an explicit case here, a
-			// length check inside ReindexPropsOverlap there), so it is the
-			// row most likely to drift.
+			// Empty Properties is "all properties" on both sides, but each
+			// layer spells that out with different code — most likely row
+			// to drift.
 			name: "no properties means all of them",
 			build: func(t *testing.T) []byte {
 				return marshal(t, db.ReindexTaskPayload{
@@ -214,14 +201,9 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	}
 }
 
-// Both helpers in this package answer their question by reading
-// db.ReindexTargetIndexes, so that one mapping decides which index key a
-// printed cancel URL names, whether a cancel request matches a task, and
-// which index types get cleaned off disk. This pins the delegation: a copy
-// re-forked into either helper would print a URL that answers 202 NO_OP, or
-// clean one index type of a migration that wrote two.
-//
-// The mapping's own arms are pinned in the db package, next to the mapping.
+// TestTheCancelHelpersReadTheSharedIndexTypeMapping pins that both REST
+// helpers delegate to db.ReindexTargetIndexes rather than forking their own
+// copy of the mapping. (The mapping's own arms are pinned in the db package.)
 func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 	migrationTypes := []db.ReindexMigrationType{
 		db.ReindexTypeChangeTokenization, // two index types
