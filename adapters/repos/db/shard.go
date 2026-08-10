@@ -506,6 +506,9 @@ type Shard struct {
 	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
 	// or incorrect metric updates during partial initialization cleanup.
 	metricsRegistered atomic.Bool
+
+	// tornStoreReported keeps reportTornStoreAccess to one line per shard
+	tornStoreReported atomic.Bool
 }
 
 func (s *Shard) ID() string {
@@ -622,6 +625,31 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
+}
+
+// objectsBucket returns the shard's objects bucket, or an error once the store
+// is torn down
+func (s *Shard) objectsBucket() (*lsmkv.Bucket, error) {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, errAlreadyShutdown)
+		s.reportTornStoreAccess(err)
+		return nil, err
+	}
+	return b, nil
+}
+
+// reportTornStoreAccess makes an outrun drain visible
+func (s *Shard) reportTornStoreAccess(err error) {
+	if !s.tornStoreReported.CompareAndSwap(false, true) {
+		return
+	}
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "objects_bucket_missing",
+		"class":  s.index.Config.ClassName.String(),
+		"shard":  s.name,
+	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun "+
+		"(further occurrences on this shard are suppressed): %v", err)
 }
 
 // ObjectCount returns the exact count at any moment

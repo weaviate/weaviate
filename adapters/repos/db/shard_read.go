@@ -949,7 +949,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return err
+	}
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
