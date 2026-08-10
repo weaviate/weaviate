@@ -106,7 +106,7 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 		// A free slot (empty ID) is the only one renew takes, so it is stamped
 		// directly here rather than through a failure the slot still owns.
 		var s backupStat
-		s.reqState.Err = reason
+		s.Err = reason
 
 		require.Empty(t, s.renew("2", "bucket/backups/2", "", ""))
 
