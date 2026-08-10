@@ -78,9 +78,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -344,6 +346,12 @@ type Index struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
+	// namespacesExister is inherited from the owning DB at index creation; a
+	// namespaced class refuses every shard decision without it. namespace is
+	// empty for an unqualified class name.
+	namespacesExister namespaces.Exister
+	namespace         string
+
 	closed bool
 
 	shardReindexer ShardReindexerV3
@@ -469,6 +477,8 @@ func NewIndex(
 		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
+		namespacesExister:       cfg.NamespacesExister,
+		namespace:               namespacing.NamespaceFromQualified(string(cfg.ClassName)),
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
@@ -563,6 +573,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
+	// db.indices does not receive this Index until every one of its shards has
+	// loaded, so shards are tallied onto the DB here, as each is stored.
+	startupShards := i.Config.StartupShards
+	if startupShards == nil {
+		startupShards = &startupShardCounters{}
+	}
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -580,6 +597,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
+				startupShards.lazy.Add(1)
 				return nil
 			default:
 				// avoid footprint of empty shards
@@ -587,6 +605,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
+					startupShards.lazy.Add(1)
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -604,6 +623,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				startupShards.eager.Add(1)
 				return nil
 			}
 		}, shardName)
@@ -1167,7 +1187,9 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
+	NamespacesExister                   namespaces.Exister
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -1819,7 +1841,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 }
 
 // return value []error gives the error for the index with the positions
-// matching the inputs
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
@@ -1944,7 +1966,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	return shard.PutObjectBatch(ctx, objects)
 }
 
-// return value map[int]error gives the error for the index as it received it
+// return value []error gives the error for the index with the positions
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {

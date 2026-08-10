@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -1481,6 +1484,68 @@ func TestStoreDBLoadProgressFields(t *testing.T) {
 	}
 }
 
+// TestStoreDBLoadProgressFieldsRecomputesPerCall pins that each call re-reads
+// the progress source. The schema arrives from RAFT while the shards are still
+// loading, so a value read once would describe the pre-schema state for the
+// whole load.
+func TestStoreDBLoadProgressFieldsRecomputesPerCall(t *testing.T) {
+	var calls int64
+	st := &Store{cfg: Config{DBLoadProgress: func() *db.StartupProgressSnapshot {
+		calls++
+		return &db.StartupProgressSnapshot{Loaded: calls, Total: 10}
+	}}}
+
+	assert.Equal(t, "10%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, "20%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, int64(2), calls)
+}
+
+// TestStoreReloadDBFromSchemaReportsProgressDuringReload pins that the reload is
+// bracketed by the progress tracker. The snapshot-path reload runs inside
+// raft.NewRaft, before WaitToRestoreDB starts its heartbeat, so a tracker
+// started any later reports nothing for that whole phase.
+func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), 9092)
+	logHook := logrustest.NewLocal(ms.logger)
+	logged := func(msg string) bool {
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				return true
+			}
+		}
+		return false
+	}
+
+	ms.store.cfg.DBLoadProgress = func() *db.StartupProgressSnapshot {
+		return &db.StartupProgressSnapshot{Loaded: 3, Total: 10}
+	}
+
+	st := ms.Store(func(m *MockStore) {
+		// TriggerSchemaUpdateCallbacks runs inside the reload. Holding it open
+		// until the tracker has logged proves the sampling happens while the
+		// reload is in flight, not after.
+		m.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+			if !tryNTimesWithWait(3000, 10*time.Millisecond, func() bool {
+				return logged("loading local DB from schema")
+			}) {
+				t.Error("no progress logged while the reload was in flight")
+			}
+		}).Return()
+	})
+
+	st.reloadDBFromSchema()
+
+	require.True(t, st.dbLoaded.Load())
+	require.True(t, logged("local DB loaded from schema"))
+	for _, e := range logHook.AllEntries() {
+		if e.Message == "local DB loaded from schema" {
+			assert.Equal(t, "30%", e.Data["progress"])
+		}
+	}
+}
+
 type MockStore struct {
 	indexer        *fakes.MockSchemaExecutor
 	parser         *fakes.MockParser
@@ -1579,4 +1644,48 @@ func cmdAsBytes(class string,
 	}
 
 	return data
+}
+
+// TestStoreWaitToRestoreDBAnnouncesOnce pins that the wait is reported as a
+// phase, not a heartbeat. Progress belongs to trackDBLoadProgress: on a restart
+// into a live cluster the waiter is still waiting while the load runs, so a
+// per-tick line here would report the same startup twice.
+func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	logHook := logrustest.NewLocal(ms.logger)
+	st := ms.store
+
+	countMsg := func(msg string) int {
+		n := 0
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
+	}, ms.logger)
+
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, func() bool {
+		return countMsg("waiting for database to be restored") > 0
+	}), "the waiter must announce itself while the DB is not loaded")
+
+	// Many further ticks pass at 10ms; none of them may add another line.
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, 1, countMsg("waiting for database to be restored"),
+		"announced once, not once per tick")
+
+	st.dbLoaded.Store(true)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+	}
 }

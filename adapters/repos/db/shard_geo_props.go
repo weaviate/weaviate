@@ -78,10 +78,15 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
+	// read-only once built, so all lookups can share it
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
 	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
-		obj, err := s.objectByIndexID(ctx, id, true)
+		obj, err := s.objectByIndexIDWithProps(ctx, id, propExtraction)
 		if err != nil {
-			return nil, storobj.NewErrNotFoundf(id, "retrieve object")
+			// reporting a read or decode failure as a not-found would make the
+			// geo index tombstone a doc that is still there
+			return nil, err
 		}
 
 		if obj.Properties() == nil {

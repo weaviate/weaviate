@@ -21,8 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/loadlimiter"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -36,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -45,6 +44,7 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -66,7 +66,7 @@ type DB struct {
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	startupComplete           atomic.Bool
-	startupProgress           atomic.Pointer[StartupProgressSnapshot]
+	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -143,6 +143,11 @@ type DB struct {
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
 	// nil disables the check. See docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
+
+	// namespacesExister is propagated to each Index when it is created, so a
+	// shard decision can read its namespace's state. nil is only for tests
+	// that build no namespaced class; a namespaced one then fails closed.
+	namespacesExister namespaces.Exister
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -177,9 +182,6 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
-	stop := db.trackStartupProgress(ctx)
-	defer stop()
-
 	err := db.init(ctx)
 	if err != nil {
 		return err
@@ -193,54 +195,25 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
-const startupProgressUpdateInterval = 5 * time.Second
-
 // StartupProgressSnapshot is a consistent reading of eager shard-loading progress
 type StartupProgressSnapshot struct {
 	Loaded int64
 	Total  int64
 }
 
-// StartupLoadingProgress reports the most recently computed eager shard-loading
-// progress: how many eagerly-loaded local shards have finished loading (loaded)
-// against how many are expected to load eagerly (total).
+// StartupLoadingProgress reports eager shard-loading progress: how many
+// eagerly-loaded local shards have finished loading (loaded) against how many
+// are expected to load eagerly (total). Calling it also publishes the pair to
+// the startup gauges.
+//
+// Safe to call while the DB is still loading.
 func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
-	return db.startupProgress.Load()
+	loaded, total := db.scanStartupProgress(db.startupClassNames())
+	db.promMetrics.SetStartupShardProgress(loaded, total)
+	return &StartupProgressSnapshot{Loaded: loaded, Total: total}
 }
 
-// trackStartupProgress recomputes eager shard-loading progress on a ticker and
-// caches it. It returns a stop function that halts the ticker and pins the
-// final value; callers should defer it. The goroutine also exits if ctx is done.
-func (db *DB) trackStartupProgress(ctx context.Context) func() {
-	classNames := db.startupClassNames()
-
-	// Publish immediately so a value is available before the first log tick.
-	db.updateStartupProgress(classNames)
-
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		ticker := time.NewTicker(startupProgressUpdateInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				db.updateStartupProgress(classNames)
-			}
-		}
-	}, db.logger)
-
-	return func() {
-		close(done)
-		// Pin the final value now that loading has finished.
-		db.updateStartupProgress(classNames)
-	}
-}
-
-// startupClassNames snapshots the current class names for the startup progress scan
+// startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
 	s := db.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
@@ -253,37 +226,33 @@ func (db *DB) startupClassNames() []string {
 	return names
 }
 
-// updateStartupProgress recomputes progress once and publishes it to the cached
-// snapshot and the Prometheus gauges.
-func (db *DB) updateStartupProgress(classNames []string) {
-	loaded, total := db.scanStartupProgress(classNames)
-	db.startupProgress.Store(&StartupProgressSnapshot{Loaded: loaded, Total: total})
-	db.promMetrics.SetStartupShardProgress(loaded, total)
+// startupShardCounters tallies shards as they are stored during startup loading.
+type startupShardCounters struct {
+	eager atomic.Int64
+	lazy  atomic.Int64
 }
 
 // scanStartupProgress computes eager shard-loading progress from scratch for the
 // given classes.
 //
-// total starts from every HOT local shard known to the schema (eager and lazy);
-// lazy shards are then discounted as they are encountered in the index maps,
-// leaving the eager total. Safe to call while the DB is still loading.
+// total starts from every HOT local shard known to the schema (eager and lazy).
+// Both come from initAndStoreShards rather than db.indices, which an
+// Index only reaches once all of its shards have loaded — counting published
+// indices would advance a whole collection at a time, reporting 0% for the
+// entire load of a collection that holds every shard.
 func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 	for _, className := range classNames {
 		total += db.localShardsToLoad(className)
 	}
 
-	for _, idx := range db.copyIndices() {
-		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
-			if _, ok := shard.(*LazyLoadShard); ok {
-				total--
-				return nil
-			}
-			loaded++
-			return nil
-		})
+	// The lazy count is monotonic while total is recomputed from the live schema,
+	// so a class dropped or a tenant deactivated after its shards were counted
+	// can push this below zero.
+	if total -= db.startupShards.lazy.Load(); total < 0 {
+		total = 0
 	}
 
-	return loaded, total
+	return db.startupShards.eager.Load(), total
 }
 
 // localShardsToLoad returns the number of local shards that count toward eager
@@ -324,6 +293,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
+	namespacesExister namespaces.Exister,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -373,6 +343,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
+		namespacesExister:         namespacesExister,
 		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,

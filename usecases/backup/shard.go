@@ -29,9 +29,13 @@ const (
 )
 
 type reqState struct {
-	Starttime      time.Time
-	ID             string
-	Status         backup.Status
+	Starttime time.Time
+	ID        string
+	Status    backup.Status
+	// Err is why the operation ended, for the statuses that need one. It lives
+	// only as long as the slot; a poll arriving after that is answered from
+	// backupStat.rememberedFailure.
+	Err            string
 	Path           string
 	OverrideBucket string
 	OverridePath   string
@@ -40,7 +44,20 @@ type reqState struct {
 type backupStat struct {
 	sync.Mutex
 	reqState
+
+	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
+	// for the one failure that leaves nothing else to read: the slot is
+	// released as soon as the operation returns, and a later poll is answered
+	// from the descriptor on the backend, which does not exist when writing it
+	// is what failed. Memory only: after a restart such a poll is back to
+	// being answered with "metadata not found".
+	rememberedFailureID     string
+	rememberedFailureReason string
 }
+
+// failureWithoutReason stands in for a failure reported with no text at all,
+// which reads to a poller as no failure.
+const failureWithoutReason = "backup failed without a reported reason"
 
 func (s *backupStat) get() reqState {
 	s.Lock()
@@ -62,6 +79,12 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.OverridePath = overridePath
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
+	s.reqState.Err = ""
+	if s.rememberedFailureID == id {
+		// A retry under the same id: the earlier failure is no longer the
+		// answer to a poll for it.
+		s.rememberedFailureID, s.rememberedFailureReason = "", ""
+	}
 	return ""
 }
 
@@ -70,9 +93,45 @@ func (s *backupStat) reset() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
+	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
 	s.Unlock()
+}
+
+// setFailed ends the operation as failed together with the reason. Failed with
+// no reason is worse than useless to a poller: the coordinator latches whatever
+// a participant reports and stops asking, so an empty reason becomes the
+// permanent answer for a failure that does have one. A reason-less failure is
+// therefore substituted here rather than at the call sites, so that every
+// caller gets the guarantee, including the ones passing on a reason a
+// participant gave them.
+func (s *backupStat) setFailed(reason string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
+	if reason == "" {
+		reason = failureWithoutReason
+	}
+	s.reqState.Status = backup.Failed
+	s.reqState.Err = reason
+	s.rememberedFailureID = s.reqState.ID
+	s.rememberedFailureReason = reason
+}
+
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.rememberedFailureID != id {
+		return "", false
+	}
+	return s.rememberedFailureReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
@@ -83,6 +142,11 @@ func (s *backupStat) set(st backup.Status) {
 		return
 	}
 	s.reqState.Status = st
+	// Every status other than Failed is reached through here, and none of them
+	// has a reason. Keeping an earlier one would serve it next to a status it
+	// does not belong to. The remembered failure is unaffected: it is what a
+	// poll arriving after the slot is gone reads.
+	s.reqState.Err = ""
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

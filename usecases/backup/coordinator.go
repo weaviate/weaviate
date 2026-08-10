@@ -375,7 +375,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
+		c.publishStatus()
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -461,7 +461,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
 	if req.Method == OpRestore {
@@ -487,7 +487,21 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		Size:         float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		BaseBackupID: meta.BaseBackupID,
 	}
+	if reason, ok := c.lastOp.rememberedFailure(req.ID); ok && !isFinalStatus(meta.Status) {
+		// The operation ended failed and writing that outcome to the backend
+		// is what failed, so the descriptor still reads as in progress. Serving
+		// it would report a failed backup as running for as long as this node
+		// is up.
+		status.Status = backup.Failed
+		status.Err = reason
+	}
 	return status, nil
+}
+
+// isFinalStatus reports whether a stored descriptor status is the operation's
+// last word, and so must not be second-guessed from memory.
+func isFinalStatus(st backup.Status) bool {
+	return st == backup.Success || st == backup.Failed || st == backup.Cancelled
 }
 
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
@@ -723,9 +737,20 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
+	c.publishStatus()
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// publishStatus mirrors the descriptor's outcome on the slot, which is what a
+// poll reads until the descriptor is written to object storage. A failure goes
+// through setFailed so it is never published without the reason next to it.
+func (c *coordinator) publishStatus() {
+	if c.descriptor.Status == backup.Failed {
+		c.lastOp.setFailed(c.descriptor.Error)
+		return
+	}
+	c.lastOp.set(c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally

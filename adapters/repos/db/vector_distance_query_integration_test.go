@@ -61,7 +61,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		EnableLazyLoadShards:      boolPtr(false), // need access to the shard directly to convert UUIDs to docIds
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
 	class := &models.Class{
