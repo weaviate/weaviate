@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -74,6 +75,73 @@ func TestReplicaCandidates(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRemoveRefusesNamespaceHomeNode(t *testing.T) {
+	ctx := context.Background()
+
+	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort())
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Maybe()
+
+	ns := m.cfg.NamespacesController
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "tenant-a", HomeNodes: []string{"node-3"}}, 1))
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "zeta", HomeNodes: []string{"node-4"}}, 2))
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "alpha", HomeNodes: []string{"node-4"}}, 3))
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "paused", HomeNodes: []string{"node-5"}}, 4))
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "going", HomeNodes: []string{"node-6"}}, 5))
+	require.NoError(t, ns.ChangeState("paused", cmd.NamespaceStateSuspended,
+		usecasesNamespaces.StateChange{AppliedIndex: 6}))
+	require.NoError(t, ns.ChangeState("going", cmd.NamespaceStateDeleting,
+		usecasesNamespaces.StateChange{AppliedIndex: 7}))
+
+	r := NewRaft(mocks.NewMockNodeSelector("node-1", "node-2", "node-3", "node-4"), m.store, nil)
+	require.NoError(t, r.Open(ctx, m.indexer))
+	defer r.Close(ctx)
+	require.NoError(t, r.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, r.store.IsLeader))
+
+	tests := []struct {
+		name        string
+		removedNode string
+		wantErr     string
+	}{
+		{
+			name:        "refuses the home node of a single namespace",
+			removedNode: "node-3",
+			wantErr:     `cannot remove node "node-3": it is the home_node of namespace(s) tenant-a`,
+		},
+		{
+			name:        "names every namespace pinned to the node, sorted",
+			removedNode: "node-4",
+			wantErr:     `cannot remove node "node-4": it is the home_node of namespace(s) alpha, zeta`,
+		},
+		{
+			name:        "refuses the home node of a suspended namespace",
+			removedNode: "node-5",
+			wantErr:     `cannot remove node "node-5": it is the home_node of namespace(s) paused`,
+		},
+		{
+			name:        "a namespace being deleted does not pin its home node",
+			removedNode: "node-6",
+		},
+		{
+			name:        "no namespace pins the node",
+			removedNode: "node-2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := r.Remove(ctx, tt.removedNode)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
