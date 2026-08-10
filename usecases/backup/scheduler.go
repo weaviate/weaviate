@@ -596,10 +596,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// is still held by the restore being cancelled.
 	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 	logCancelStamp(s.logger, backupID, backup.Cancelled, stamped, held)
-	// The restore reached schema apply after the pre-check above, the race that
-	// check exists for. Stamping CANCELLED on the descriptor now would be
-	// overwritten by the outcome the restore actually has, so the caller is
-	// told the cancel did not land instead of being answered 204.
+	// The restore reached schema apply after the pre-check above. Stamping
+	// CANCELLED here would be overwritten by the restore's real outcome, so
+	// report failure instead of a false 204.
 	if !stamped && held.ID == backupID && held.Status == backup.Finalizing {
 		return errRestoreFinalizing(backupID)
 	}

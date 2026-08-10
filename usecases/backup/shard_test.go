@@ -483,9 +483,7 @@ func TestBackupStatCancellationIsNotOverwritten(t *testing.T) {
 	}
 }
 
-// Pins that a refused write says why it was refused. Without it, "the status
-// stopped updating" is indistinguishable from the node having gone quiet, and
-// the three reasons call for three different answers from an operator.
+// Pins that a refused write logs why, so silence isn't confused with a refusal.
 func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 	t.Parallel()
 

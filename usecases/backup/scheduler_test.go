@@ -1322,10 +1322,8 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	return c
 }
 
-// newCancelRestoreFixture wires everything a cancel needs to reach the one
-// node holding the one class of the restore it is aimed at. The stored
-// descriptor is left to [storedRestoreMeta], which the caller may have to
-// answer differently for the re-read a claim verifies itself against.
+// newCancelRestoreFixture wires a cancel that reaches the one node holding
+// the one class of the restore. Callers add stored state via [storedRestoreMeta].
 func newCancelRestoreFixture(t *testing.T, ctx context.Context) *fakeScheduler {
 	t.Helper()
 	fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
@@ -1354,8 +1352,7 @@ func storedRestoreMeta(fs *fakeScheduler, backupID string, statuses ...backup.St
 }
 
 // recordRestoreMetaWrites captures the status of every restore descriptor
-// write, which is the order the two steps of a cancel have to land in.
-// onWrite, when set, runs before each write is recorded.
+// write, in order. onWrite, if set, runs before each write is recorded.
 func recordRestoreMetaWrites(fs *fakeScheduler, backupID string, onWrite func()) *[]backup.Status {
 	statuses := &[]backup.Status{}
 	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).
@@ -1629,9 +1626,8 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingStandsDownWhenAnotherCoordinatorAlreadyFinishedIt", func(t *testing.T) {
-		// The claim write lands, but the re-read shows another coordinator got
-		// there first. Aborting again and rewriting CANCELLED is a second
-		// coordinator acting on an operation it does not own.
+		// The re-read shows another coordinator already finished the cancel;
+		// this one must stand down instead of rewriting CANCELLED.
 		fs := newCancelRestoreFixture(t, ctx)
 		backend := &restoreMetaBackend{}
 		backend.setStored(t, backup.DistributedBackupDescriptor{
@@ -1655,9 +1651,8 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingRefusedAtFinalizingIsNotReportedAsDone", func(t *testing.T) {
-		// The restore reaches schema apply between the pre-check and the final
-		// stamp. Answering 204 here promises a cancel that never landed, and
-		// the restore goes on to store its own SUCCESS.
+		// The restore begins finalizing between the pre-check and the final
+		// stamp; the caller must not get a false 204.
 		fs := newCancelRestoreFixture(t, ctx)
 		storedRestoreMeta(fs, backupID, backup.Transferring)
 
@@ -2945,10 +2940,8 @@ func TestSchedulerBackupResponseDoesNotReadAStrangersSlot(t *testing.T) {
 		Path:    path,
 	}, resp)
 
-	// The backup goroutine outlives the response, so wait for the descriptor
-	// write it ends on rather than leaving it running after the test. That it
-	// then leaves the stranger's slot alone is the same guarantee from the
-	// goroutine's side.
+	// The backup goroutine outlives the response; wait for it to store its
+	// outcome before asserting it left the stranger's slot alone.
 	select {
 	case <-fs.backend.doneChan:
 	case <-time.After(20 * time.Second):

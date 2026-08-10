@@ -198,9 +198,7 @@ func (o *overlappingRestores) finish(t *testing.T) {
 }
 
 // Pins that a cancelled restore's goroutine and the retry that took its slot
-// share no operation state. The overlap below is what makes the two write the
-// same fields at the same time; the race detector is what catches it, so this
-// test only carries its guarantee under `go test -race`.
+// share no operation state (race-detected; requires `go test -race`).
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()
 	const (
