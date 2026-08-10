@@ -322,7 +322,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 				require.NoError(t, os.Chmod(denied, 0o000))
 			}
 
-			require.Equal(t, tc.wantStale, hasStalePartialReindexState(lsm, propName, tc.indexType))
+			require.Equal(t, tc.wantStale, hasStalePartialReindexState(lsm, propName, tc.indexType, nil))
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
 				// it is the sweep's own business — the other tests here cover
@@ -371,4 +371,69 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 		"another property's completed migration is live state, not this sweep's to remove")
 	assert.True(t, dirExistsAt(t, lsm, theirSidecar),
 		"the bucket that tracker still points at")
+}
+
+// The sweeps after a terminal task ask the same unhydrated shards the same
+// question about a different tuple, so they share one listing per directory.
+func TestDirNamesCache(t *testing.T) {
+	newDir := func(t *testing.T, entries ...string) string {
+		t.Helper()
+		root := t.TempDir()
+		for _, name := range entries {
+			require.NoError(t, os.Mkdir(filepath.Join(root, name), 0o755))
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(root, "a-file"), nil, 0o644))
+		return root
+	}
+
+	t.Run("files are not listed", func(t *testing.T) {
+		root := newDir(t, "bucket-a", "bucket-b")
+		names, err := (&dirNamesCache{}).list(root)
+		require.NoError(t, err)
+		require.Equal(t, []string{"bucket-a", "bucket-b"}, names)
+	})
+
+	t.Run("a missing dir keeps its error", func(t *testing.T) {
+		cache := &dirNamesCache{}
+		missing := filepath.Join(t.TempDir(), "never-written-to")
+		for range 2 {
+			_, err := cache.list(missing)
+			require.True(t, os.IsNotExist(err),
+				"a shard nothing has written to yet is not a shard the gate cannot read")
+		}
+	})
+
+	t.Run("a second look does not touch the filesystem", func(t *testing.T) {
+		root := newDir(t, "bucket-a")
+		cache := &dirNamesCache{}
+		_, err := cache.list(root)
+		require.NoError(t, err)
+		require.NoError(t, os.RemoveAll(filepath.Join(root, "bucket-a")))
+
+		names, err := cache.list(root)
+		require.NoError(t, err)
+		require.Equal(t, []string{"bucket-a"}, names)
+	})
+
+	t.Run("nil caches nothing", func(t *testing.T) {
+		root := newDir(t, "bucket-a")
+		var cache *dirNamesCache
+		_, err := cache.list(root)
+		require.NoError(t, err)
+		require.NoError(t, os.RemoveAll(filepath.Join(root, "bucket-a")))
+
+		names, err := cache.list(root)
+		require.NoError(t, err)
+		require.Empty(t, names)
+	})
+
+	t.Run("a full cache stops holding listings", func(t *testing.T) {
+		root := newDir(t, "bucket-a")
+		cache := &dirNamesCache{names: maxCachedDirNames}
+		_, err := cache.list(root)
+		require.NoError(t, err)
+		require.Empty(t, cache.listings,
+			"a node runs tens of thousands of tenants, and the gate exists to not "+
+				"spend that memory")
+	})
 }

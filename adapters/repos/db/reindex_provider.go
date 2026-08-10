@@ -1681,10 +1681,14 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
 	worst := terminalSweepClean
+	// Every sweep in this loop asks the same unhydrated shards the same
+	// question about a different tuple, and the answer comes from a directory
+	// listing. Sharing one cache across the loop reads each shard's dirs once.
+	dirs := &dirNamesCache{}
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
 			outcome, failure := classifyTerminalSweep(
-				p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType))
+				p.db.cleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType, dirs))
 			worst = max(worst, outcome)
 			if failure != nil {
 				logger.WithField("property", propName).WithField("index_type", indexType).

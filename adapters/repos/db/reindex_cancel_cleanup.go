@@ -51,6 +51,14 @@ func (db *DB) CleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
 ) error {
+	return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, nil)
+}
+
+func (db *DB) cleanStalePartialReindexState(
+	ctx context.Context,
+	collection, propName, indexType string,
+	dirs *dirNamesCache,
+) error {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
 		// The collection is not on this node, so there is nothing to sweep and
@@ -61,7 +69,7 @@ func (db *DB) CleanStalePartialReindexState(
 		return fmt.Errorf("%w: no local index for collection %q",
 			ErrCleanupCollectionDropped, collection)
 	}
-	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
+	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
 }
 
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
@@ -140,6 +148,17 @@ func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
+	return i.cleanStalePartialReindexState(ctx, propName, indexType, nil)
+}
+
+// cleanStalePartialReindexState is [Index.CleanStalePartialReindexState] with
+// the directory listings the cold-shard gate reads shareable across a run of
+// sweeps. A nil cache reads the filesystem every time.
+func (i *Index) cleanStalePartialReindexState(
+	ctx context.Context,
+	propName, indexType string,
+	dirs *dirNamesCache,
+) error {
 	// Capped at [maxReportedErrors] for the same reason the unvisited-shard
 	// list is: the failures that scale with a node's tenant count are the ones
 	// a full disk produces on every shard at once.
@@ -167,7 +186,7 @@ func (i *Index) CleanStalePartialReindexState(
 			// swept. The OnAfterLsmInitAsync stale sentinel check named above
 			// is the backstop for whatever slips through.
 			if !lazy.isLoaded() &&
-				!hasStalePartialReindexState(shardPathLSM(i.path(), name), propName, indexType) {
+				!hasStalePartialReindexState(shardPathLSM(i.path(), name), propName, indexType, dirs) {
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
@@ -210,20 +229,20 @@ func (i *Index) CleanStalePartialReindexState(
 // over. One the walk handed over just before the transition landed reads a
 // directory being emptied, and answers whatever it finds — a hydration this
 // sweep then fails on, never a silent skip.
-func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
+func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return true
 	}
 
-	entries, err := os.ReadDir(lsmPath)
+	names, err := dirs.list(lsmPath)
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
 	var sidecarSuffixes []string
-	for _, entry := range entries {
-		if entry.IsDir() && isSidecarDirOf(entry.Name(), mainBucketName) {
-			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(entry.Name(), mainBucketName))
+	for _, name := range names {
+		if isSidecarDirOf(name, mainBucketName) {
+			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
 		}
 	}
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
@@ -248,22 +267,82 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
 	// .migrations a second time, and a shard with no tracker dir for this
 	// property never needs the answer.
 	prefixes := migrationDirsForPropertyIndex(propName, indexType)
-	entries, err = os.ReadDir(filepath.Join(lsmPath, ".migrations"))
+	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
 	var preservedGens map[int]bool
-	for _, entry := range entries {
-		if !entry.IsDir() || !isMigrationDirOf(entry.Name(), prefixes) {
+	for _, name := range names {
+		if !isMigrationDirOf(name, prefixes) {
 			continue
 		}
 		if preservedGens == nil {
 			preservedGens = completedMigrationGens(lsmPath, prefixes)
 		}
-		if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preservedGens[gen] {
+		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+// maxCachedDirNames bounds what one [dirNamesCache] holds. A node runs tens of
+// thousands of tenants, and keeping every one of their listings alive for a
+// whole cleanup is the memory the cold-shard gate exists not to spend.
+const maxCachedDirNames = 100_000
+
+// dirNamesCache remembers the directory names under a path, so a run of sweeps
+// over the same shards reads each of them once instead of once per sweep. A nil
+// cache reads the filesystem every time; the zero value caches.
+//
+// Only valid for sweeps that cannot invalidate each other's listings. The
+// (property, index type) loop after a terminal task qualifies: a sweep removes
+// only the bucket dirs and tracker dirs of its own tuple, and no two tuples
+// share either name.
+//
+// Not safe for concurrent use. The sweeps sharing one run in sequence.
+type dirNamesCache struct {
+	listings map[string]dirNamesListing
+	names    int
+}
+
+type dirNamesListing struct {
+	names []string
+	err   error
+}
+
+func (c *dirNamesCache) list(path string) ([]string, error) {
+	if c == nil {
+		return listDirNames(path)
+	}
+	if listing, ok := c.listings[path]; ok {
+		return listing.names, listing.err
+	}
+	names, err := listDirNames(path)
+	if c.names+len(names) <= maxCachedDirNames {
+		if c.listings == nil {
+			c.listings = map[string]dirNamesListing{}
+		}
+		c.listings[path] = dirNamesListing{names: names, err: err}
+		c.names += len(names)
+	}
+	return names, err
+}
+
+// listDirNames names the directories directly under path. The callers only ever
+// ask about directories, so the files are dropped here rather than at each of
+// them.
+func listDirNames(path string) ([]string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
 }
