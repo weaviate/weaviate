@@ -1698,6 +1698,7 @@ func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
 		s := &Shard{class: &models.Class{Class: "C"}}
 		s.asyncRepWg.Add(1)
 		entries[i] = &asyncSchedulerEntry{shard: s}
+		entries[i].pendingDone.Store(true)
 	}
 
 	sched.runBatch(&entries, newBatchScratch())
@@ -1875,6 +1876,108 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 	}
 }
 
+// TestPrefilterCtxCancelledByIndexClose pins the deadlock regression: a pre-filter
+// rooted only at sched.ctx outlives index.drop() and blocks every replica.
+func TestPrefilterCtxCancelledByIndexClose(t *testing.T) {
+	newIndex := func() (*Index, context.CancelFunc) {
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+		return idx, idx.closingCancel
+	}
+
+	tests := []struct {
+		name     string
+		stop     func(sched *AsyncReplicationScheduler, closeIndex context.CancelFunc)
+		wantDone bool
+	}{
+		{
+			name:     "index closes",
+			stop:     func(_ *AsyncReplicationScheduler, closeIndex context.CancelFunc) { closeIndex() },
+			wantDone: true,
+		},
+		{
+			name:     "scheduler shuts down",
+			stop:     func(sched *AsyncReplicationScheduler, _ context.CancelFunc) { sched.cancel() },
+			wantDone: true,
+		},
+		{
+			name:     "nothing stops",
+			stop:     func(*AsyncReplicationScheduler, context.CancelFunc) {},
+			wantDone: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx, sched.cancel = context.WithCancel(context.Background())
+			defer sched.cancel()
+
+			idx, closeIndex := newIndex()
+			defer closeIndex()
+			// time.Hour: a done ctx can only mean a stop signal propagated.
+			ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+			defer cancel()
+			require.NoError(t, ctx.Err())
+
+			tc.stop(sched, closeIndex)
+
+			if !tc.wantDone {
+				time.Sleep(50 * time.Millisecond)
+				assert.NoError(t, ctx.Err(), "ctx must stay live while the index is open")
+				return
+			}
+
+			select {
+			case <-ctx.Done():
+				assert.ErrorIs(t, ctx.Err(), context.Canceled)
+			case <-time.After(5 * time.Second):
+				t.Fatal("pre-filter ctx was not cancelled; index.drop() would deadlock the replicas")
+			}
+		})
+	}
+}
+
+func TestPrefilterCtxHonoursTimeout(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx, sched.cancel = context.WithCancel(context.Background())
+	defer sched.cancel()
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	defer idx.closingCancel()
+
+	ctx, cancel := sched.prefilterCtx(idx, 50*time.Millisecond)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		assert.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("pre-filter ctx ignored its timeout")
+	}
+}
+
+// TestPrefilterCtxNilIndex: unit-test shards carry no index.
+func TestPrefilterCtxNilIndex(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx, sched.cancel = context.WithCancel(context.Background())
+	defer sched.cancel()
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+
+	ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+	defer cancel()
+	require.NoError(t, ctx.Err())
+
+	sched.cancel()
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("a nil index must fall back to the scheduler context")
+	}
+}
+
 func TestEffectiveBatchSize(t *testing.T) {
 	t.Run("configured value is used", func(t *testing.T) {
 		sched := newBareScheduler(256, 1)
@@ -2019,4 +2122,159 @@ func TestDescendDirectSurvivesFullChannel(t *testing.T) {
 	sched.dispatchDueLocked()
 	assert.ElementsMatch(t, []int{1, 1}, drainBatchSizes(sched.workCh),
 		"remaining divergers keep dispatching as singletons")
+}
+
+func awaitAsyncRepWg(t *testing.T, s *Shard, msg string) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { s.asyncRepWg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// TestDeregisterSettlesQueuedDone: deregistration settles a queued batch's pending Done instead of pinning asyncRepWg until Close.
+func TestDeregisterSettlesQueuedDone(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		descendDirect bool
+	}{
+		{name: "bucket dispatch"},
+		{name: "descendDirect dispatch", descendDirect: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 4)
+			sched.ctx = context.Background()
+			sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			sched.onAddLocked(s)
+			sched.entries[s].descendDirect = tc.descendDirect
+
+			sched.dispatchDueLocked()
+			batches := drainBatches(sched.workCh)
+			require.Len(t, batches, 1)
+
+			sched.onRemoveLocked(s)
+			awaitAsyncRepWg(t, s, "asyncRepWg must drain once deregistration settles the queued Done")
+
+			sched.runBatch(batches[0], newBatchScratch())
+			assert.Empty(t, drainResults(sched.resultCh), "released entry must not produce a result")
+			s.asyncRepWg.Wait()
+		})
+	}
+}
+
+// TestDrainSkipsSettledDones: Close's drain must not settle a Done that deregistration already settled.
+func TestDrainSkipsSettledDones(t *testing.T) {
+	sched := newBareScheduler(512, 4)
+	sched.ctx = context.Background()
+
+	s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+	sched.onAddLocked(s)
+	sched.dispatchDueLocked()
+
+	sched.onRemoveLocked(s)
+	awaitAsyncRepWg(t, s, "asyncRepWg must drain on deregistration")
+
+	sched.drainWorkChOnExit()
+	s.asyncRepWg.Wait()
+	assert.Empty(t, drainBatches(sched.workCh))
+}
+
+// TestStaleBatchDroppedAfterReRegister: a previous registration's stranded batch is dropped; the new one runs once.
+func TestStaleBatchDroppedAfterReRegister(t *testing.T) {
+	sched := newBareScheduler(512, 4)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+	sched.onAddLocked(s)
+	e1 := sched.entries[s]
+	sched.dispatchDueLocked()
+	b1 := drainBatches(sched.workCh)
+	require.Len(t, b1, 1)
+
+	sched.onRemoveLocked(s)
+	awaitAsyncRepWg(t, s, "asyncRepWg must drain on deregistration")
+
+	sched.onAddLocked(s)
+	e2 := sched.entries[s]
+	require.NotSame(t, e1, e2)
+	sched.dispatchDueLocked()
+	b2 := drainBatches(sched.workCh)
+	require.Len(t, b2, 1)
+
+	sched.runBatch(b1[0], newBatchScratch())
+	assert.Empty(t, drainResults(sched.resultCh), "stale batch must be dropped without a result")
+
+	sched.runBatch(b2[0], newBatchScratch())
+	results := drainResults(sched.resultCh)
+	require.Len(t, results, 1)
+	assert.Same(t, e2, results[0].entry)
+	s.asyncRepWg.Wait()
+}
+
+// TestRollbackSettlesPendingDone: full-workCh rollback re-queues the entry with asyncRepWg balanced and no pending Done.
+func TestRollbackSettlesPendingDone(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		descendDirect bool
+	}{
+		{name: "bucket dispatch"},
+		{name: "descendDirect dispatch", descendDirect: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 0)
+			sched.ctx = context.Background()
+
+			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			sched.onAddLocked(s)
+			e := sched.entries[s]
+			e.descendDirect = tc.descendDirect
+
+			sched.dispatchDueLocked()
+
+			assert.False(t, e.inFlight)
+			assert.GreaterOrEqual(t, e.heapIdx, 0, "entry must be re-queued")
+			assert.False(t, e.pendingDone.Load())
+			s.asyncRepWg.Wait()
+		})
+	}
+}
+
+// TestDeregisterDrainsWithSingleWorker: every deregistered shard's asyncRepWg drains before Close despite batches queued behind one worker.
+func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:       configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:               configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSize: configRuntime.NewDynamicValue(3),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	shards := make([]*Shard, 30)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%02d", i)}
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sched.Register(s)
+			time.Sleep(2 * time.Millisecond)
+			_ = sched.Deregister(s)
+		}()
+	}
+	wg.Wait()
+
+	for _, s := range shards {
+		awaitAsyncRepWg(t, s, "asyncRepWg must drain after Deregister without Close")
+	}
+	sched.Close()
 }
