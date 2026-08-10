@@ -29,9 +29,13 @@ const (
 )
 
 type reqState struct {
-	Starttime      time.Time
-	ID             string
-	Status         backup.Status
+	Starttime time.Time
+	ID        string
+	Status    backup.Status
+	// Err is why the operation ended, for the statuses that need one. It lives
+	// only as long as the slot; a poll arriving after that is answered from
+	// backupStat.rememberedFailure.
+	Err            string
 	Path           string
 	OverrideBucket string
 	OverridePath   string
@@ -40,6 +44,14 @@ type reqState struct {
 type backupStat struct {
 	sync.Mutex
 	reqState
+
+	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
+	// for the one failure that leaves nothing else to read: the slot is
+	// released as soon as the operation returns, and a later poll is answered
+	// from the descriptor on the backend, which does not exist when writing it
+	// is what failed.
+	rememberedFailureID     string
+	rememberedFailureReason string
 }
 
 func (s *backupStat) get() reqState {
@@ -62,6 +74,12 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.OverridePath = overridePath
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
+	s.reqState.Err = ""
+	if s.rememberedFailureID == id {
+		// A retry under the same id: the earlier failure is no longer the
+		// answer to a poll for it.
+		s.rememberedFailureID, s.rememberedFailureReason = "", ""
+	}
 	return ""
 }
 
@@ -70,9 +88,42 @@ func (s *backupStat) reset() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
+	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
 	s.Unlock()
+}
+
+// setFailed ends the operation as failed together with the reason. Failed with
+// no reason is worse than useless to a poller: the coordinator latches whatever
+// a participant reports and stops asking, so an empty reason becomes the
+// permanent answer for a failure that does have one.
+func (s *backupStat) setFailed(reason string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
+	s.reqState.Status = backup.Failed
+	s.reqState.Err = reason
+	if reason == "" {
+		return
+	}
+	s.rememberedFailureID = s.reqState.ID
+	s.rememberedFailureReason = reason
+}
+
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.rememberedFailureID != id {
+		return "", false
+	}
+	return s.rememberedFailureReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
