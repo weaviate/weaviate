@@ -321,12 +321,10 @@ func (c *coordinator) Restore(
 	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
-	// From here the slot is ours until the goroutine below takes it over, so
-	// every error return has to give it back. A leaked slot blocks every later
-	// backup and restore this node coordinates, until restart. Not a plain
-	// reset: unlike the backup coordinator's slot, this one has writers outside
-	// Restore (a cancel, and a retry's early return), so by the time an error
-	// return runs it may already belong to a newer restore.
+	// The slot is ours until the goroutine below takes over, so every error
+	// return must give it back or it blocks all later ops until restart. Uses
+	// release(), not a plain reset, because a cancel or a retry's early return
+	// may already have taken the slot by the time an error return runs.
 	defer func() {
 		if err != nil {
 			slot.release()
