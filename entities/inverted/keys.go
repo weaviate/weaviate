@@ -14,7 +14,6 @@ package inverted
 import (
 	"bytes"
 	"iter"
-	"sort"
 )
 
 // SortedKeys is an ascending, immutable list of encoded index keys held as one
@@ -128,6 +127,22 @@ func (b *KeyBuilder) AppendString(key string) {
 	b.offs = append(b.offs, uint32(len(b.slab)))
 }
 
+// Sort orders the keys, establishing the invariant [SortedKeys] is named for.
+//
+// Variable-width keys cannot be ordered in place — a key's position is not its
+// rank, and the offsets have to move with the slab. But the width is a property
+// of the data, not of the builder, and the producers that reach here in
+// practice append keys of one length: one scan of the offsets says which, and
+// uniform keys then take the same in-place path the fixed-width builder does.
+//
+// Scratch is sized to the batch and released with it rather than pooled.
+// Pooling measured no faster at any batch size — these are two large slices,
+// which the allocator hands out without per-object bookkeeping — and a pool
+// would hold a large batch's buffers for the lifetime of the process.
+func (b *KeyBuilder) Sort() {
+	sortKeys(b.slab, b.offs)
+}
+
 func (b *KeyBuilder) Build() SortedKeys {
 	return SortedKeys{slab: b.slab, offs: b.offs, n: len(b.offs) - 1}
 }
@@ -168,24 +183,21 @@ var zeroKey [16]byte
 // Sort orders the keys in place.
 //
 // At one width a key's position is its rank, so ordering them means moving only
-// the slab: nothing indexes it that would have to move too. That is what makes
-// this allocation-free, where ordering variable-width keys could not be done in
-// place at all.
+// the slab: nothing indexes it that would have to move too. That is also what
+// lets the keys be radix sorted rather than compared — see sortFixedWidth,
+// which picks its method from the keys' width and shared prefix.
 func (b *FixedKeyBuilder) Sort() {
-	n := len(b.slab) / b.w
-	if n < 2 {
-		return
-	}
-	sort.Sort(&fixedWidthKeys{slab: b.slab, w: b.w, n: n, scratch: make([]byte, b.w)})
+	sortFixedWidth(b.slab, b.w)
 }
 
 func (b *FixedKeyBuilder) Build() SortedKeys {
 	return SortedKeys{slab: b.slab, w: b.w, n: len(b.slab) / b.w}
 }
 
-// fixedWidthKeys sorts a slab of equal-width keys in place. sort.Sort is
-// pdqsort, so this pays a function call per comparison and per swap but no
-// allocation and no per-key descriptor.
+// fixedWidthKeys sorts a slab of equal-width keys in place through
+// sort.Interface. That costs a call per comparison AND per swap, so it is now
+// the fallback [SortFixedWidth] uses for batches too small for a radix pass to
+// amortise, not the path a large batch takes.
 type fixedWidthKeys struct {
 	slab    []byte
 	w, n    int

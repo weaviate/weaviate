@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"iter"
 	"math"
-	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -137,19 +136,19 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 	}
 }
 
-// SortSingleTokens orders the batch's tokens ascending, in place and without
-// allocating, and reports their total byte length.
+// SingleTokenBytes checks that every value produced exactly one token and
+// reports the tokens' total byte length, which sizes the key builder's slab.
 //
-// Every value must have produced exactly one token, which is what FIELD
-// tokenization guarantees. That is not a convenience: sorting flat scrambles
-// which value a token came from, and ends survives that only when every group
-// holds exactly one — so the precondition is what makes the operation
-// meaningful, and it is checked rather than assumed.
+// Exactly one token per value is what FIELD tokenization guarantees, and the
+// caller depends on it: it builds one key per value from that value's single
+// token, so a value that tokenized into none or several has no key to stand
+// for it. The precondition is checked rather than assumed.
 //
-// Callers building keys from a whole batch want the tokens ordered, not the
-// values, and this leaves the batch usable through Tokens and All exactly as
-// before, only in token order.
-func (b *AnalyzedBatch) SortSingleTokens() (totalBytes int, err error) {
+// Ordering is deliberately not done here. The keys are ordered once they are
+// in the builder's slab, where equal-width records can be radix sorted several
+// times faster than string headers can be compared — and where a key's
+// position is its rank, so nothing has to be permuted alongside it.
+func (b *AnalyzedBatch) SingleTokenBytes() (totalBytes int, err error) {
 	start := uint32(0)
 	for i, end := range b.ends {
 		if end-start != 1 {
@@ -160,7 +159,6 @@ func (b *AnalyzedBatch) SortSingleTokens() (totalBytes int, err error) {
 	for _, tok := range b.flat {
 		totalBytes += len(tok)
 	}
-	slices.Sort(b.flat)
 	return totalBytes, nil
 }
 

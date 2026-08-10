@@ -1180,18 +1180,21 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	if err != nil {
 		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
-	// FIELD gives one token per value, and the key is that token's bytes — so
-	// ordering the tokens is ordering the keys, and it happens in the batch the
-	// tokenizer already allocated rather than over a copy of it.
-	total, err := batch.SortSingleTokens()
+	// FIELD gives one token per value, and the key is that token's bytes.
+	total, err := batch.SingleTokenBytes()
 	if err != nil {
 		return nil, fmt.Errorf("extract contains values: %w", err)
 	}
 
+	// Fill first, order afterwards — the same shape the fixed-width encoders
+	// use. Ordering the tokens here instead would mean a comparison sort over
+	// string headers, which chases pointers around the tokenizer's backing
+	// array; ordering the slab lets equal-width keys go through a radix.
 	kb := inverted.NewKeyBuilder(batch.Len(), total)
 	for _, valueTokens := range batch.All() {
 		kb.AppendString(valueTokens[0])
 	}
+	kb.Sort()
 	return newBatchedContainsPair(property, operator, class, kb.Build())
 }
 
