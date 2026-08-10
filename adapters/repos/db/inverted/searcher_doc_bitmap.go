@@ -359,7 +359,17 @@ func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
 		return docBitmap{}, false
 	}
 	res.ApplyMemtableMatches(matches)
-	bm, put := s.bitmapFactory.BufPool().SortedListToBuf(res.SortedDocs())
+
+	// The resolution holds its documents 32 bits wide, and hands them over that
+	// way when they all fit — which is what keeps the narrow form from being
+	// widened again here, and is every shard whose document IDs have stayed
+	// under 2^32.
+	pool := s.bitmapFactory.BufPool()
+	if docs, ok := res.SortedDocs32(); ok {
+		bm, put := pool.SortedList32ToBuf(docs)
+		return docBitmap{docIDs: bm, release: put, isDenyList: denyList}, true
+	}
+	bm, put := pool.SortedListToBuf(res.SortedDocs())
 	return docBitmap{docIDs: bm, release: put, isDenyList: denyList}, true
 }
 

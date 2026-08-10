@@ -71,6 +71,10 @@ func (p *BitmapBufPoolTrackingForTests) SortedListToBuf(vals []uint64) (bm *sroa
 	return sortedListToBuf(p, vals)
 }
 
+func (p *BitmapBufPoolTrackingForTests) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
+}
+
 // Outstanding returns the number of buffers that have been allocated but not
 // yet released. A non-zero value at the end of a test indicates a leak.
 func (p *BitmapBufPoolTrackingForTests) Outstanding() int64 {

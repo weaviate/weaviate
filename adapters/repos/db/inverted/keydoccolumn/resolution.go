@@ -28,51 +28,140 @@ import (
 // holds several — a property whose values were meant to be unique but are not —
 // so those documents are still answered rather than lost.
 //
-// An empty slot holds noDoc, so a slot and an extra express absence the same
-// way: a slot empties by returning to noDoc, an extra by being removed from the
-// list.
+// An empty slot holds no document, so a slot and an extra express absence the
+// same way: a slot empties by returning to its sentinel, an extra by being
+// removed from the list.
+//
+// Documents are held as they are everywhere else, 64 bits wide, except on shards
+// whose documents all fit in 32 — where the slots take that form instead and
+// halve the largest allocation a query makes. There is one slot per query key,
+// so a 100,000-key filter carries 400KB rather than 800KB, on every shard it
+// touches at once.
+//
+// Which form a resolution takes is settled before anything is inserted, by every
+// source naming the largest document it is about to contribute: the shard
+// counter up front, an unflushed layer as it is applied, since it cannot be
+// asked any earlier. Inserting therefore never changes the form, and never has
+// to ask whether it should — which is what keeps it cheap enough for the
+// compiler to fold into the scan that calls it once per matched row.
 type Resolution struct {
+	// exactly one of docs and docs32 is non-nil
 	docs   []uint64
+	docs32 []uint32
 	extras []extraDoc
 }
 
-// extraDoc is one document beyond the first held by the query key at qi.
+// extraDoc is one document beyond the first held by the query key at qi. Always
+// 64 bits, whichever form the slots take, so a document that outgrew the slots
+// still has somewhere to go.
 type extraDoc struct {
 	qi  int32
 	doc uint64
 }
 
-// noDoc marks a slot holding nothing. Out of the range of real documents, which
-// come from a counter starting at zero.
-const noDoc = math.MaxUint64
+// noDoc and noDoc32 mark a slot holding nothing, each out of the range of
+// documents its form can hold: a resolution whose documents can reach noDoc32
+// takes the 64-bit form, so no slot ever carries its sentinel as a document.
+const (
+	noDoc   = math.MaxUint64
+	noDoc32 = math.MaxUint32
+)
 
-// newResolution sizes a working set for numKeys query keys.
-func newResolution(numKeys int) *Resolution {
-	docs := make([]uint64, numKeys)
-	for i := range docs {
-		docs[i] = noDoc
+// newResolution sizes a working set for numKeys query keys, holding documents up
+// to maxID.
+func newResolution(numKeys int, maxID uint64) *Resolution {
+	if maxID >= noDoc32 {
+		docs := make([]uint64, numKeys)
+		for i := range docs {
+			docs[i] = noDoc
+		}
+		return &Resolution{docs: docs}
 	}
-	return &Resolution{docs: docs}
+	docs32 := make([]uint32, numKeys)
+	for i := range docs32 {
+		docs32[i] = noDoc32
+	}
+	return &Resolution{docs32: docs32}
 }
 
 // insert records that the key at qi holds doc. Adding, not replacing: a layer
 // that supersedes an earlier document does so by deleting it, which is how
 // roaringset layers express an update.
+//
+// A key already holding another document sends this one to the extras, as does —
+// defensively — a document too large for the slots, which cannot arrive: the
+// callers settle the form with [Resolution.ensureFits] before inserting
+// anything. Truncating it into a slot would answer a different document,
+// silently, which is not a way to discover that a caller stopped doing that.
+//
+// Deliberately one function, out of line from nothing. It is small enough for
+// the compiler to fold into the scan that calls it per matched row, and every
+// case it could delegate is one the compiler would fold back in anyway.
 func (r *Resolution) insert(qi int, doc uint64) {
-	switch r.docs[qi] {
-	case noDoc:
-		r.docs[qi] = doc
-	case doc: // already held
-	default:
-		r.extras = append(r.extras, extraDoc{qi: int32(qi), doc: doc})
+	if r.docs32 != nil && doc < noDoc32 {
+		doc32 := uint32(doc)
+		switch r.docs32[qi] {
+		case noDoc32:
+			r.docs32[qi] = doc32
+			return
+		case doc32: // already held
+			return
+		}
 	}
+	if r.docs != nil {
+		switch r.docs[qi] {
+		case noDoc:
+			r.docs[qi] = doc
+			return
+		case doc: // already held
+			return
+		}
+	}
+	r.extras = append(r.extras, extraDoc{qi: int32(qi), doc: doc})
+}
+
+// ensureFits moves the slots to their 64-bit form if the 32-bit one could not
+// hold maxDoc, so that inserting it — and anything below it — never has to.
+// Callers name the largest document they are about to insert, before they insert
+// any of it.
+//
+// The alternative, converting on demand from the insert itself, costs more than
+// it looks: the conversion loop then sits in the budget the compiler weighs when
+// deciding whether to inline the insert into the scan, so a path taken on shards
+// past four billion documents is paid for once per matched row on every other
+// shard.
+func (r *Resolution) ensureFits(maxDoc uint64) {
+	if r.docs32 != nil && maxDoc >= noDoc32 {
+		r.normalize()
+	}
+}
+
+// normalize re-homes the slots from their 32-bit form into the ordinary 64-bit
+// one, once, when a document turns up that the smaller form cannot express.
+// Every slot keeps what it held, and the empty ones change sentinel.
+func (r *Resolution) normalize() {
+	docs := make([]uint64, len(r.docs32))
+	for i, held := range r.docs32 {
+		if held == noDoc32 {
+			docs[i] = noDoc
+			continue
+		}
+		docs[i] = uint64(held)
+	}
+	r.docs = docs
+	r.docs32 = nil
 }
 
 // delete retires doc from the key at qi, wherever that key holds it. Naming a
 // document the key does not hold is a no-op, which is what makes a deletion
 // left behind by an already-superseded document harmless.
 func (r *Resolution) delete(qi int, doc uint64) {
-	if r.docs[qi] == doc {
+	if r.docs32 != nil {
+		if doc < noDoc32 && r.docs32[qi] == uint32(doc) {
+			r.docs32[qi] = noDoc32
+			return
+		}
+	} else if r.docs[qi] == doc {
 		r.docs[qi] = noDoc
 		return
 	}
@@ -116,7 +205,15 @@ func (r *Resolution) applyLayerBitmap(bm *sroar.Bitmap, qi int, adds bool) {
 	if bm.IsEmpty() {
 		return
 	}
-	if first := bm.Minimum(); bm.Maximum() == first {
+	last := bm.Maximum()
+	if adds {
+		// A memtable is the one source that can hold a document the resolution
+		// was not sized for: it was sized from a counter read before this layer
+		// was, and a write can land in between. Settling the form here costs the
+		// maximum already at hand, and leaves the insert with nothing to check.
+		r.ensureFits(last)
+	}
+	if first := bm.Minimum(); last == first {
 		r.apply(qi, first, adds)
 		return
 	}
@@ -133,16 +230,64 @@ func (r *Resolution) apply(qi int, doc uint64, adds bool) {
 	}
 }
 
-// SortedDocs returns every document still held, ascending, with duplicates
-// left in — one document can be reached through several query keys, and both
-// sroar constructors collapse them while building. It consumes the resolution:
-// nothing may read or amend it afterwards, and the returned slice aliases its
-// storage.
+// SortedDocs32 returns every document still held, ascending, with duplicates
+// left in — one document can be reached through several query keys, and the
+// sroar constructors collapse them while building. The second return is false
+// when the resolution holds its documents in the ordinary 64-bit form, in which
+// case the caller must use [Resolution.SortedDocs]; nothing is consumed then.
 //
-// The survivors are compacted into the slot array itself rather than gathered
-// into a second one of the same size — which is what consumes it, and is safe
-// because both cursors walk in order and the write never overtakes the read.
+// It consumes the resolution otherwise: nothing may read or amend it
+// afterwards, and the returned slice aliases its storage. The survivors are
+// compacted into the slot array itself rather than gathered into a second one
+// of the same size — which is what consumes it, and is safe because both
+// cursors walk in order and the write never overtakes the read. Keeping the
+// result in the slots is also what makes the smaller form worth having: copying
+// it out at this point would give back what it saved.
+func (r *Resolution) SortedDocs32() ([]uint32, bool) {
+	if r.docs32 == nil {
+		return nil, false
+	}
+	for _, e := range r.extras {
+		if e.doc >= noDoc32 {
+			// Only reachable if a caller inserted without settling the form
+			// first, which [Resolution.insert] parks in the extras rather than
+			// truncating. Refusing here is the other half of not truncating.
+			return nil, false
+		}
+	}
+	out := r.docs32[:0]
+	for _, held := range r.docs32 {
+		if held != noDoc32 {
+			out = append(out, held)
+		}
+	}
+	for _, e := range r.extras {
+		out = append(out, uint32(e.doc))
+	}
+	slices.Sort(out)
+	return out, true
+}
+
+// SortedDocs is [Resolution.SortedDocs32] at the ordinary width, and answers
+// whichever form the slots take — a caller that does not want the smaller one
+// can always use it. The 64-bit slots compact in place as the 32-bit ones do;
+// the 32-bit slots cannot, since the result is wider than they are, so that case
+// allocates. It consumes the resolution either way.
 func (r *Resolution) SortedDocs() []uint64 {
+	if r.docs32 != nil {
+		out := make([]uint64, 0, len(r.docs32)+len(r.extras))
+		for _, held := range r.docs32 {
+			if held != noDoc32 {
+				out = append(out, uint64(held))
+			}
+		}
+		for _, e := range r.extras {
+			out = append(out, e.doc)
+		}
+		slices.Sort(out)
+		return out
+	}
+
 	out := r.docs[:0]
 	for _, held := range r.docs {
 		if held != noDoc {

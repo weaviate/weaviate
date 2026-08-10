@@ -86,7 +86,9 @@ func (c *mockCursor) Seek([]byte) ([]byte, roaringset.BitmapLayer, error) {
 // background flattening needs.
 func newTestIndex(base *segment) *Index {
 	logger, _ := test.NewNullLogger()
-	idx := &Index{logger: logger}
+	// a bound comfortably inside what a narrow slot holds, so resolutions here
+	// take the narrow path; the wide one has its own tests
+	idx := &Index{logger: logger, maxID: func() uint64 { return 1_000_000 }}
 	idx.state.Store(&indexState{base: base})
 	return idx
 }

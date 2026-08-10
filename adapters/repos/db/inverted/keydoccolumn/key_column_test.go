@@ -117,14 +117,12 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 			require.Equal(t, tt.merge, mergeScanCheaper(tt.keys.Len(), corpusSize),
 				"test case must exercise the branch it claims")
 
-			res := newResolution(tt.keys.Len())
+			res := newResolution(tt.keys.Len(), 1_000_000)
 			seg.scanInto(tt.keys, res, true)
 
-			var got []uint64
-			for _, held := range res.docs {
-				if held != noDoc {
-					got = append(got, held)
-				}
+			got := res.SortedDocs()
+			if len(got) == 0 {
+				got = nil // the cases that match nothing want no documents, not an empty slice
 			}
 			require.Equal(t, tt.want, got)
 		})

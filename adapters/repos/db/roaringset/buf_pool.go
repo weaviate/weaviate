@@ -57,6 +57,9 @@ type BitmapBufPool interface {
 	// cost of a buffer sized for the input rather than for the distinct
 	// count.
 	SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func())
+	// SortedList32ToBuf is SortedListToBuf for documents that fit in 32 bits,
+	// which is what lets a caller hold them half as wide up to this point.
+	SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func())
 }
 
 func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -104,6 +107,18 @@ func sortedListToBuf(pool BitmapBufPool, vals []uint64) (bm *sroar.Bitmap, put f
 	// short-circuits without invoking the allocation callback
 	put = func() {}
 	bm = sroar.InitFromSortedListToBuf(vals, func(sizeBytes int) (*sroar.Bitmap, []byte) {
+		buf, dst, p := pool.getWithBitmap(sizeBytes)
+		put = p
+		return dst, buf
+	})
+	return bm, put
+}
+
+func sortedList32ToBuf(pool BitmapBufPool, vals []uint32) (bm *sroar.Bitmap, put func()) {
+	// noop default so put stays callable even if a future sroar version
+	// short-circuits without invoking the allocation callback
+	put = func() {}
+	bm = sroar.InitFromSortedList32ToBuf(vals, func(sizeBytes int) (*sroar.Bitmap, []byte) {
 		buf, dst, p := pool.getWithBitmap(sizeBytes)
 		put = p
 		return dst, buf
@@ -171,6 +186,10 @@ func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.
 
 func (p *bitmapBufPoolNoop) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func()) {
 	return sortedListToBuf(p, vals)
+}
+
+func (p *bitmapBufPoolNoop) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
 }
 
 // -----------------------------------------------------------------------------
@@ -271,6 +290,10 @@ func (p *bitmapBufPoolRanged) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, 
 	return sortedListToBuf(p, vals)
 }
 
+func (p *bitmapBufPoolRanged) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
+}
+
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
 	cleaned := map[int]int{}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
@@ -333,6 +356,10 @@ func (p *bitmapBufPoolFactorWrapper) AccumulatorToBuf(acc *sroar.Accumulator) (b
 
 func (p *bitmapBufPoolFactorWrapper) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func()) {
 	return sortedListToBuf(p, vals)
+}
+
+func (p *bitmapBufPoolFactorWrapper) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
 }
 
 // -----------------------------------------------------------------------------

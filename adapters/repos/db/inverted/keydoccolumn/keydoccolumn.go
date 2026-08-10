@@ -331,6 +331,12 @@ type Index struct {
 	state      atomic.Pointer[indexState]
 	flattening atomic.Bool // a flattening is in flight; see flattenIntoBase
 	logger     logrus.FieldLogger
+	// maxID reports an upper bound on the shard's document IDs, read per
+	// resolution to size its working set. The bound only rises, and it counts
+	// unflushed documents too, which the built index's own maximum does not —
+	// so a shard that has just crossed what a narrow slot can hold is sized
+	// correctly before a memtable proves it.
+	maxID func() uint64
 }
 
 // MergedCursor walks keys in order, yielding each key's net document set with
@@ -364,9 +370,10 @@ type MergedCursor interface {
 // A key holding several documents is kept in full: the first goes in the column
 // and the rest into overflow, with a warning naming the scale of the problem.
 // Past overflowLimit the build fails instead, leaving ContainsAny on the fold.
-func BuildFromCursor(cursor MergedCursor, maxDocID uint64,
+func BuildFromCursor(cursor MergedCursor, maxID func() uint64,
 	logger logrus.FieldLogger,
 ) (*Index, error) {
+	maxDocID := maxID()
 	builder := newSegmentBuilder()
 	builder.docs.w = bytesForMax(maxDocID)
 
@@ -392,7 +399,7 @@ func BuildFromCursor(cursor MergedCursor, maxDocID uint64,
 				"for one document per value", keys, extras)
 	}
 
-	idx := &Index{logger: logger}
+	idx := &Index{logger: logger, maxID: maxID}
 	idx.state.Store(&indexState{base: builder.segment()})
 	return idx, nil
 }
@@ -619,7 +626,12 @@ func (idx *Index) Info() Info {
 // memtables on the same terms before materializing once.
 func (idx *Index) Resolve(sortedKeys entinverted.SortedKeys) *Resolution {
 	state := idx.state.Load()
-	res := newResolution(sortedKeys.Len())
+	// Read after the state, not before: every document the state holds was
+	// assigned before the state was published, so a counter read after loading it
+	// bounds all of them. Unflushed layers are the exception — they can take IDs
+	// issued after this read — and they settle the resolution's form themselves,
+	// as they are applied.
+	res := newResolution(sortedKeys.Len(), idx.maxID())
 
 	state.base.scanInto(sortedKeys, res, true)
 	for _, r := range state.layers {

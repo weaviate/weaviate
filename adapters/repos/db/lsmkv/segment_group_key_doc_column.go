@@ -39,7 +39,7 @@ func (sg *SegmentGroup) initKeyDocColumn(maxIdGetter roaringset.MaxIdGetterFunc)
 	defer release()
 
 	merged := roaringset.NewCombinedCursor(cursors, false, concurrency.SROAR_MERGE)
-	idx, err := keydoccolumn.BuildFromCursor(merged, maxIdGetter(), sg.logger)
+	idx, err := keydoccolumn.BuildFromCursor(merged, maxIdGetter, sg.logger)
 	if err != nil {
 		return err
 	}
