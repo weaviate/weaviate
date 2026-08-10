@@ -604,6 +604,22 @@ func (t *Task) AllUnitsTerminal() bool {
 	return true
 }
 
+// AnyUnitFailed returns true if any unit has FAILED status.
+//
+// The FSM writes a unit's FAILED status and the task's FAILED status in one
+// critical section, so a live task should never be STARTED while one of its
+// units is FAILED. This predicate is the fail-closed check for the case where
+// it happens anyway: [Manager.Restore] installs a peer's snapshot verbatim,
+// with no validation that task and unit statuses agree.
+func (t *Task) AnyUnitFailed() bool {
+	for _, u := range t.Units {
+		if u.Status == UnitStatusFailed {
+			return true
+		}
+	}
+	return false
+}
+
 // LocalUnitIDs returns the IDs of units assigned to the given node.
 func (t *Task) LocalUnitIDs(nodeID string) []string {
 	var ids []string

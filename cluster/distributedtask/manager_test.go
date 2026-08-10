@@ -691,6 +691,50 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
+// TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed pins the
+// fail-closed rule for a task/unit combination this node's own apply path
+// cannot produce but Restore can install: STARTED, one unit already FAILED,
+// one still PENDING. Completing the pending unit makes every unit terminal,
+// and the task must land in FAILED rather than advance into the swap phases —
+// SWAPPING is what runs the cluster-wide schema flip, and running it on a
+// half-failed migration is the bucket/schema inversion the reindex gates
+// exist to prevent.
+func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T) {
+	for _, barrier := range []bool{false, true} {
+		name := "swapping path"
+		if barrier {
+			name = "preparation-barrier path"
+		}
+		t.Run(name, func(t *testing.T) {
+			// Built as a snapshot rather than through AddTask + failUnit:
+			// the failure path sets the task to FAILED itself, so the state
+			// under test is only reachable the way Restore delivers it.
+			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+				"ns": {{
+					Namespace:               "ns",
+					TaskDescriptor:          TaskDescriptor{ID: "task1", Version: 10},
+					Status:                  TaskStatusStarted,
+					NeedsPreparationBarrier: barrier,
+					Units: map[string]*Unit{
+						"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom"},
+						"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+					},
+				}},
+			}})
+			require.NoError(t, err)
+
+			h := newTestHarness(t).init(t)
+			require.NoError(t, h.manager.Restore(snap))
+
+			completeUnit(t, h, "ns", "task1", 10, "node-2", "su-pending")
+
+			tasks, err := h.manager.ListDistributedTasks(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+		})
+	}
+}
+
 // TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty: completing a
 // unit that was never claimed (e.g. CLAIM dropped by throttler) must
 // still populate NodeID so LocalGroupUnitIDs doesn't orphan it.
