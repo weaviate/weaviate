@@ -25,14 +25,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// failToLoadMonitor makes every shard load fail, and cancels the sweep's
-// context on the nth attempt so the walk aborts on the shard after it.
-// cancelOnCall of 0 never cancels.
+// failToLoadMonitor makes every shard load fail, and runs onNthCall on the nth
+// attempt so a cancellation or a collection delete can land in the middle of
+// the walk. nthCall of 0 never runs it.
 type failToLoadMonitor struct {
-	mu           sync.Mutex
-	cancel       context.CancelFunc
-	cancelOnCall int
-	calls        int
+	mu        sync.Mutex
+	onNthCall func()
+	nthCall   int
+	calls     int
 }
 
 func (m *failToLoadMonitor) CheckAlloc(sizeInBytes int64) error { return nil }
@@ -41,8 +41,8 @@ func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reserva
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
-	if m.calls == m.cancelOnCall && m.cancel != nil {
-		m.cancel()
+	if m.calls == m.nthCall && m.onNthCall != nil {
+		m.onNthCall()
 	}
 	return errors.New("memory pressure")
 }
@@ -59,6 +59,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// cancelOnCall aborts the sweep's context on the nth shard load; 0
 		// lets the walk run to the end.
 		cancelOnCall int
+		// dropOnCall deletes the collection on the nth shard load, so the
+		// delete lands after that shard has already failed.
+		dropOnCall int
 		// closing closes the index, which is what makes the shard walk visit
 		// nothing. closeCause is what the close was signalled with; nil stands
 		// for a close nobody named a cause for.
@@ -135,6 +138,19 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantDropped: true,
 		},
 		{
+			// The delete removes the state of every shard the sweep never
+			// reached, but not of the one it already failed on: that shard's
+			// files are gone only once the delete gets to them, and a caller
+			// that reads this as a plain delete stops looking.
+			name:         "a shard fails and the collection is deleted before the walk ends",
+			shards:       []string{"shard-a", "shard-b"},
+			dropOnCall:   1,
+			indexType:    "an-index-type-this-build-does-not-know",
+			wantErr:      true,
+			wantDropped:  true,
+			wantShardErr: true,
+		},
+		{
 			// A close nobody named a cause for could still be a shutdown, and
 			// the shards would then really be left behind.
 			name:          "a close with no cause is treated as a shutdown",
@@ -151,7 +167,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			monitor := &failToLoadMonitor{cancel: cancel, cancelOnCall: tc.cancelOnCall}
+			monitor := &failToLoadMonitor{}
 
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
@@ -166,9 +182,19 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				signalCloseRequested: signalCloseRequested,
 				logger:               logger,
 			}
+			// The real teardowns signal the cause first and cancel closingCtx
+			// once they hold the lock.
+			dropCollection := func() {
+				signalCloseRequested(errIndexDropped)
+				closeIndex()
+			}
+			switch {
+			case tc.cancelOnCall > 0:
+				monitor.nthCall, monitor.onNthCall = tc.cancelOnCall, cancel
+			case tc.dropOnCall > 0:
+				monitor.nthCall, monitor.onNthCall = tc.dropOnCall, dropCollection
+			}
 			if tc.closing {
-				// The real teardowns signal the cause first and cancel
-				// closingCtx once they hold the lock.
 				if tc.closeCause != nil {
 					signalCloseRequested(tc.closeCause)
 				}
@@ -217,9 +243,18 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 					"the collection is not being deleted, so its state outlives this sweep")
 			}
 			if tc.wantShardErr {
+				require.ErrorIs(t, err, ErrCleanupShardFailed,
+					"a shard the sweep reached and could not sweep has to be tagged as one, "+
+						"or a caller that asks only about the delete reports state as gone "+
+						"while that shard's is still on disk")
 				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
 					"the shard that failed before the abort must still be reported")
+			} else {
+				require.NotErrorIs(t, err, ErrCleanupShardFailed,
+					"no shard was reached and failed, so nothing was left on one")
 			}
+			require.Equal(t, tc.wantDropped && !tc.wantShardErr, IsCleanupCollectionDropped(err),
+				"a delete only speaks for the whole sweep when the sweep left nothing behind")
 		})
 	}
 }
