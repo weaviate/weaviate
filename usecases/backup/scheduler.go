@@ -198,15 +198,21 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
 	} else {
-		st := s.backupper.lastOp.get()
-		status := string(st.Status)
+		// The slot only answers for this backup while it still holds it. It may
+		// already have been given back, or taken by the next backup, in which
+		// case the request itself is what the response is built from, the same
+		// way Restore does it.
+		status := string(backup.Started)
+		if st := s.backupper.lastOp.get(); st.ID == req.ID {
+			status = string(st.Status)
+		}
 		return &models.BackupCreateResponse{
 			Classes: sel.classes,
 			ID:      req.ID,
 			Backend: req.Backend,
 			Status:  &status,
-			Path:    st.Path, // The HomeDir, not the override path
-			Bucket:  st.OverrideBucket,
+			Path:    store.HomeDir(req.Bucket, req.Path),
+			Bucket:  req.Bucket,
 		}, nil
 	}
 }
@@ -538,36 +544,25 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	if metaErr == nil {
 		switch meta.Status {
-		case backup.Cancelled, backup.Cancelling:
-			// Cancellation already in progress or complete
+		case backup.Cancelled:
+			// Nothing left to do, the cancellation is complete.
 			return nil
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
 		case backup.Finalizing:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+		case backup.Cancelling:
+			// Claimed already, by another coordinator or by an earlier call of
+			// this one that did not get as far as writing CANCELLED. Cancelling
+			// again is how the second case gets finished: a descriptor stuck on
+			// CANCELLING makes every later restore of this id refuse to start,
+			// and repeating the cancel is the only way out of it from the API.
 		default:
 			// Transferring, Started - attempt to claim cancellation
+			if !s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath) {
+				return nil
+			}
 		}
-
-		// Attempt to claim cancellation by writing CANCELLING status first.
-		// This acts as a distributed lock - the first coordinator to write CANCELLING wins.
-		meta.Status = backup.Cancelling
-		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
-			s.logger.WithField("action", "cancel_restore").
-				WithField("backup_id", backupID).
-				Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
-			// Another coordinator may have won, let them handle it
-			return nil
-		}
-
-		// Re-read to verify we won the race (another coordinator may have written simultaneously)
-		verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
-		if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
-			// Another coordinator already completed cancellation
-			return nil
-		}
-		stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
-		logCancelStamp(s.logger, backupID, backup.Cancelling, stamped, held)
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -597,11 +592,44 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			s.logger.WithField("action", "cancel_restore").
 				WithField("backup_id", backupID).
 				Errorf("failed to write canceled status to restore_config.json: %v", err)
-			// Don't return error - cancellation signal has been sent to nodes
+			// The nodes have been told to stop, but the descriptor is stuck on
+			// CANCELLING, which refuses every later restore of this id. The
+			// caller has to know that, because repeating the cancel is what
+			// clears it.
+			return fmt.Errorf("restore %q was cancelled on all nodes but the cancellation could not be recorded, "+
+				"restores of this id are refused until the cancel is repeated: %w", backupID, err)
 		}
 	}
 
 	return nil
+}
+
+// claimCancellation takes ownership of cancelling this restore by writing
+// CANCELLING to the descriptor, which is the lock the coordinators race for:
+// the first to write it is the one that carries the cancellation out. Reports
+// whether this call won; when it did not, there is nothing left for the caller
+// to do.
+func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
+	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
+) bool {
+	meta.Status = backup.Cancelling
+	if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+		s.logger.WithField("action", "cancel_restore").
+			WithField("backup_id", backupID).
+			Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
+		// Another coordinator may have won, let them handle it
+		return false
+	}
+
+	// Re-read to verify we won the race (another coordinator may have written simultaneously)
+	verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
+		// Another coordinator already completed cancellation
+		return false
+	}
+	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
+	logCancelStamp(s.logger, backupID, backup.Cancelling, stamped, held)
+	return true
 }
 
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {
