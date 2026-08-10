@@ -33,9 +33,16 @@ If you open an external pull request our CI pipeline will get started. This exte
 Please note that this project is released with a Contributor Code of Conduct. By participating in this project you agree to abide by its terms. 
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 
+We close the following without review:
+
+- PRs with no linked, accepted issue — including cosmetic-only changes (typos, formatting, whitespace, unrequested dependency bumps) and bulk automated or AI-generated changes;
+- anything promoting a product, service, or link, whether in code, docs, or issue threads.
+
+Accounts that repeatedly do either are blocked and reported to GitHub as spam. This repository does not take part in Hacktoberfest or other contribution-count events.
+
 ### Contributor License Agreement
 
-Contributions to Weaviate must be accompanied by a Contributor License Agreement. You (or your employer) retain the copyright to your contribution; this simply gives us permission to use and redistribute your contributions as part of Weaviate. Go to [this page](https://www.semi.technology/playbooks/misc/contributor-license-agreement.html) to read the current agreement.
+Contributions to Weaviate must be accompanied by a Contributor License Agreement. You (or your employer) retain the copyright to your contribution; this simply gives us permission to use and redistribute your contributions as part of Weaviate. Go to [this page](https://weaviate.io/service/contributor-license-agreement) to read the current agreement.
 
 The process works as follows:
 
