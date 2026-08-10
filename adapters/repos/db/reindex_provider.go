@@ -211,7 +211,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 	return envelope
 }
 
-// reindexTimings holds the three bounds the cancel and cleanup paths wait out.
+// reindexTimings holds the four bounds the cancel and cleanup paths wait out.
 // [NewReindexProvider] fills it from [defaultReindexTimings]; a provider built
 // by struct literal has to supply its own.
 type reindexTimings struct {
@@ -224,6 +224,11 @@ type reindexTimings struct {
 	// terminalCleanupDrainTimeout bounds the drain in
 	// [ReindexProvider.autoCleanupAfterTerminal].
 	terminalCleanupDrainTimeout time.Duration
+	// cancelApplyGateCap bounds the gate parked by
+	// [ReindexProvider.holdCleanupGateUntilTeardown], and doubles as the
+	// retention window of the settled set in
+	// [ReindexProvider.adoptCancelApplyGate].
+	cancelApplyGateCap time.Duration
 }
 
 // defaultReindexTimings is what every production provider runs with. Each
@@ -233,6 +238,7 @@ func defaultReindexTimings() reindexTimings {
 		workerExitGateCap:           reindexWorkerExitGateCap,
 		cancelConfirmWindow:         reindexCancelConfirmWindow,
 		terminalCleanupDrainTimeout: reindexTerminalCleanupDrainTimeout,
+		cancelApplyGateCap:          reindexCancelApplyGateCap,
 	}
 }
 
@@ -1803,55 +1809,44 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 			}
 		}
 	}
+	msg, warn := terminalCleanupOutcome(swept, dropped)
+	if warn {
+		logger.Warn(msg)
+	} else {
+		logger.Info(msg)
+	}
+}
+
+// terminalCleanupOutcome is what the operator is told after the post-terminal
+// sweep. State left on disk is the only outcome worth a warning: a collection
+// being deleted takes its partial state with it, so there is nothing to act on
+// even though no shard was swept.
+func terminalCleanupOutcome(swept, dropped bool) (msg string, warn bool) {
 	switch {
 	case !swept:
-		logger.Warn("auto-cleanup after terminal status: some partial sidecar state is still on this node")
+		return "auto-cleanup after terminal status: some partial sidecar state is still on this node", true
 	case dropped:
-		logger.Info("auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it")
+		return "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it", false
 	default:
-		logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
 	}
 }
 
-// uniqueShardsFromPayload returns the distinct shard names referenced
-// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
-// each shard exactly once in [cleanupInProgress] — multiple units can
-// map to the same shard for multi-property migrations.
-func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
-	if len(payload.UnitToShard) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(payload.UnitToShard))
-	out := make([]string, 0, len(payload.UnitToShard))
-	for _, shardName := range payload.UnitToShard {
-		if shardName == "" {
-			continue
-		}
-		if _, ok := seen[shardName]; ok {
-			continue
-		}
-		seen[shardName] = struct{}{}
-		out = append(out, shardName)
-	}
-	return out
-}
-
-// MarkCleanupInProgress holds the backup and restore gates closed on every shard
-// the task touched, and returns the release; caller must defer it. This is the
-// only thing stopping a backup from capturing half-removed __reindex/__ingest dirs.
+// MarkCleanupInProgress holds the backup and restore gates closed on the whole
+// collection while a terminal task's sidecars are torn down, and returns the
+// release; caller must defer it. This is the only thing stopping a backup from
+// capturing half-removed __reindex/__ingest dirs.
+//
+// The sweep it guards ([Index.CleanStalePartialReindexState]) takes no shard
+// list and walks every local shard, so gating only the shards the payload names
+// would leave the rest of the collection open. A multi-tenant submission scoped
+// to one tenant is exactly that case: the payload names that tenant's shard, the
+// sweep removes every tenant's sidecars. Same reasoning, and the same single
+// key, as [ReindexProvider.MarkSubmitInProgress].
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
-	shards := uniqueShardsFromPayload(payload)
-	if len(shards) == 0 {
-		// No named shard: close the gate on the whole collection instead.
-		shards = []string{cleanupWholeCollection}
-	}
-	for _, shardName := range shards {
-		p.registerCleanup(payload.Collection, shardName)
-	}
+	p.registerCleanup(payload.Collection, cleanupWholeCollection)
 	return func() {
-		for _, shardName := range shards {
-			p.unregisterCleanup(payload.Collection, shardName)
-		}
+		p.unregisterCleanup(payload.Collection, cleanupWholeCollection)
 	}
 }
 
@@ -1919,9 +1914,9 @@ func (p *ReindexProvider) registerCleanup(collection, shard string) {
 // task lifetimes.
 //
 // Calling unregisterCleanup without a matching registerCleanup is a
-// programming error and would underflow the count; the [autoCleanup
-// AfterTerminal] defer pairs every register with one unregister via
-// the same shard slice so this cannot happen in practice.
+// programming error and would underflow the count; every register goes
+// through [ReindexProvider.MarkCleanupInProgress], whose release pairs
+// it with exactly one unregister on the same key.
 func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
@@ -2655,10 +2650,11 @@ func (p *ReindexProvider) holdCleanupGateUntilTeardown(
 // means a gate was about to leak.
 func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescriptor) {
 	logger := p.goroutineLogger()
+	gateCap := p.timings.cancelApplyGateCap
 	enterrors.GoWrapper(func() {
 		shuttingDown := false
 		select {
-		case <-time.After(reindexCancelApplyGateCap):
+		case <-time.After(gateCap):
 		case <-p.shutdownCtx().Done():
 			shuttingDown = true
 		}
@@ -2674,7 +2670,7 @@ func (p *ReindexProvider) startCancelApplyGateCap(desc distributedtask.TaskDescr
 		} else {
 			logger.WithField("taskID", desc.ID).Errorf(
 				"reindex provider: no teardown claimed the cancel-apply cleanup gate within %s; releasing it",
-				reindexCancelApplyGateCap)
+				gateCap)
 		}
 		adopted()
 	}, logger)
@@ -2692,7 +2688,7 @@ func (p *ReindexProvider) adoptCancelApplyGate(desc distributedtask.TaskDescript
 	now := time.Now()
 	p.cancelTeardownSettled[desc] = now
 	for other, at := range p.cancelTeardownSettled {
-		if now.Sub(at) > reindexCancelApplyGateCap {
+		if now.Sub(at) > p.timings.cancelApplyGateCap {
 			delete(p.cancelTeardownSettled, other)
 		}
 	}

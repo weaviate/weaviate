@@ -57,12 +57,6 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
-	// Before the backend, because the backend has nothing to say about the
-	// failure remembered here.
-	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
-		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
-	}
-
 	// The backup might have been already created.
 	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -71,6 +65,13 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 
 	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 	if err != nil {
+		// Only once the descriptor turns out to have nothing to say. It is the
+		// durable record of the operation; the remembered failure covers the
+		// single case that leaves none, which is a descriptor that was never
+		// written.
+		if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
+			return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
+		}
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)
 	}
@@ -84,6 +85,15 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		Path:      store.HomeDir(store.bucket, store.path),
 		Status:    backup.Status(meta.Status),
 	}, nil
+}
+
+// publishFailure ends the operation on the slot with its reason. The paths that
+// fail before any descriptor is written have nowhere else to leave one, so
+// without this the operator polls a backup that failed minutes ago and is told
+// only that its metadata is missing.
+func (b *backupper) publishFailure(err error) {
+	b.lastAsyncError = err
+	b.lastOp.setFailed(publishableErrMsg(err))
 }
 
 // backup checks if the node is ready to back up (can commit phase)
@@ -104,7 +114,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID, _ := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -115,7 +125,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
-			b.lastAsyncError = err
+			b.publishFailure(err)
 			return
 		}
 
@@ -125,7 +135,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		compressionType, err := CompressionTypeFromLevel(req.Level)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").Error(err)
-			b.lastAsyncError = err
+			b.publishFailure(err)
 			return
 		}
 
@@ -141,7 +151,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)
-				b.lastAsyncError = err
+				b.publishFailure(err)
 				return
 			}
 			// This node was absent from the base backup (it joined the cluster

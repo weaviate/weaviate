@@ -755,10 +755,11 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 }
 
 // closeCause reports why the index is closing, or nil while it is still open.
-// It tells a collection being deleted apart from a node shutting down: a
-// deleted collection takes its on-disk state with it, a shut-down one leaves it
-// for the next start. A close nobody signalled a cause for reads as
-// errIndexClosed, which callers must treat like a shutdown.
+// Walking the shards of a closing index risks a panic, so every walk asks this
+// first. The cause tells a collection being deleted apart from a node shutting
+// down: a deleted collection takes its on-disk state with it, a shut-down one
+// leaves it for the next start. A close nobody signalled a cause for reads as
+// [errIndexClosed], which callers must treat like a shutdown.
 func (i *Index) closeCause() error {
 	// Calling Err on a nil context panics, and an Index built without either
 	// context is still one this has to answer for. Nothing has closed an index
@@ -777,13 +778,22 @@ func (i *Index) closeCause() error {
 
 // forEachShardStrict is [Index.ForEachShard] for callers that cannot read a
 // closing index as a walk that reached every shard: it returns the close cause
-// where ForEachShard returns nil. The check and the walk live together so a
-// caller cannot check one and walk the other.
+// where ForEachShard returns nil.
+//
+// Asked again after the walk, because a close that lands mid-walk is the same
+// false clean: [Index.drop] deletes each shard from the map as it goes, and a
+// sync.Map range may skip entries deleted while it runs, so the walk can end
+// early with nothing to report. The second check catches those, because a drop
+// signals its cause before it deletes the first entry — any entry the walk can
+// miss was already preceded by a visible cause.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeCause(); cause != nil {
 		return cause
 	}
-	return i.shards.Range(f)
+	if err := i.shards.Range(f); err != nil {
+		return err
+	}
+	return i.closeCause()
 }
 
 // ForEachShard applies func f on each shard in the index.

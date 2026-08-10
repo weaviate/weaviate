@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
@@ -47,9 +49,8 @@ import (
 //      one tuple never bleeds into a sibling tuple.
 //   5. The builder closure exposes a fresh probe each time so the
 //      backup gate sees the live state, not a stale snapshot.
-//   6. uniqueShardsFromPayload dedupes shards across UnitToShard
-//      entries (multi-property migrations route multiple units to
-//      the same shard).
+//   6. MarkCleanupInProgress gates the whole collection, because the
+//      sweep it guards walks every local shard.
 
 // newCleanupRegistryProvider builds a minimal *ReindexProvider with
 // only the cleanup registry initialized. Mirrors the literal-
@@ -229,55 +230,8 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// TestUniqueShardsFromPayload_Dedupes pins that the helper used by
-// [autoCleanupAfterTerminal] to enumerate shards collapses duplicates
-// — multi-property semantic migrations route N units to the same
-// shard, and we must register each shard exactly once so the
-// matching unregister loop releases the slot symmetrically.
-func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "shardB",
-			"u3": "shardA", // dup
-			"u4": "shardB", // dup
-			"u5": "shardC",
-		},
-	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA", "shardB", "shardC"}, out,
-		"unique shards must include each distinct value exactly once")
-}
-
-// TestUniqueShardsFromPayload_EmptyPayload pins the boundary: an
-// empty UnitToShard returns a nil slice (callers iterate it with
-// range, so nil is correct).
-func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
-	payload := &ReindexTaskPayload{Collection: "C", UnitToShard: nil}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-
-	payload = &ReindexTaskPayload{Collection: "C", UnitToShard: map[string]string{}}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-}
-
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins defensive
-// handling of a UnitToShard entry whose value is an empty string —
-// a malformed payload should not produce a zero-string registration
-// that the gate would silently never match.
-func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "",
-		},
-	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA"}, out)
-}
-
-// TestMarkCleanupInProgress pins that all shards a task touched get gated, and released together.
+// TestMarkCleanupInProgress pins that the gate covers the collection, and that
+// one release reopens it.
 func TestMarkCleanupInProgress(t *testing.T) {
 	p := newCleanupRegistryProvider()
 	payload := &ReindexTaskPayload{
@@ -290,7 +244,6 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	release := p.MarkCleanupInProgress(payload)
 	assert.True(t, p.IsCleanupInProgress("C", "shard1"))
 	assert.True(t, p.IsCleanupInProgress("C", "shard2"))
-	assert.False(t, p.IsCleanupInProgress("C", "shard3"))
 	assert.True(t, p.AnyCleanupInProgress(),
 		"the restore gate asks the collection-blind question")
 
@@ -299,6 +252,28 @@ func TestMarkCleanupInProgress(t *testing.T) {
 		"a shard named by two units must not need two releases")
 	assert.False(t, p.IsCleanupInProgress("C", "shard2"))
 	assert.False(t, p.AnyCleanupInProgress())
+}
+
+// A multi-tenant submission scoped to one tenant produces a payload naming only
+// that tenant's shard, but the sweep it guards
+// ([Index.CleanStalePartialReindexState]) takes no shard list and removes every
+// local shard's __reindex / __ingest dirs. Gating only the named shard let a
+// backup hardlink a sibling tenant mid-delete.
+func TestMarkCleanupInProgressGatesShardsThePayloadDoesNotName(t *testing.T) {
+	p := newCleanupRegistryProvider()
+
+	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "t1"},
+	})
+
+	assert.True(t, p.IsCleanupInProgress("Movies", "t2"),
+		"the sweep deletes t2's sidecars too, so a backup of t2 must be refused")
+	assert.Equal(t, ReindexHoldCleanup, p.HoldForShard("Movies", "t2"),
+		"the refusal must name the teardown, not fall through to no hold")
+
+	release()
+	assert.False(t, p.IsCleanupInProgress("Movies", "t2"))
 }
 
 // TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
@@ -333,14 +308,6 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 			registerAs:     "movies",
 			probeAs:        "Actors",
 			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: false,
-		},
-		{
-			name:           "shard names stay exact",
-			registerAs:     "Movies",
-			probeAs:        "Movies",
-			shards:         map[string]string{"u1": "Shard1"},
 			probeShard:     "shard1",
 			wantInProgress: false,
 		},
@@ -570,6 +537,84 @@ func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 		"the gate must reopen at the cap rather than wait for a process restart")
 }
 
+// The gate the cancel apply parks is claimed by the teardown that follows it.
+// When no teardown ever runs on this node the cap is the only thing that
+// reopens it, and reaching the cap means the gate was about to leak, so it is
+// reported at Error. The teardown arm is here to show that message is not
+// logged on the ordinary path.
+func TestCancelApplyGateCap(t *testing.T) {
+	const gateCap = 50 * time.Millisecond
+	const leakMessage = "no teardown claimed the cancel-apply cleanup gate"
+
+	tests := []struct {
+		name           string
+		teardownAdopts bool
+		wantLeakLogged bool
+	}{
+		{
+			name:           "no teardown on this node",
+			teardownAdopts: false,
+			wantLeakLogged: true,
+		},
+		{
+			name:           "the teardown claims the gate first",
+			teardownAdopts: true,
+			wantLeakLogged: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := distributedtask.TaskDescriptor{ID: "task-parked", Version: 1}
+			logger, hook := logrustest.NewNullLogger()
+			p := &ReindexProvider{
+				cleanupInProgress: make(map[reindexCleanupKey]int),
+				// Never cancelled, so the cap is the only way out.
+				serverCtx: context.Background(),
+				timings:   defaultReindexTimings(),
+				logger:    logger,
+			}
+			p.timings.cancelApplyGateCap = gateCap
+
+			p.holdCleanupGateUntilTeardown(desc, &ReindexTaskPayload{
+				Collection:  "Movies",
+				UnitToShard: map[string]string{"u1": "shard1"},
+			})
+			require.True(t, p.AnyCleanupInProgress(),
+				"the gate must be shut from the apply until the teardown runs")
+
+			if tc.teardownAdopts {
+				adopted := p.adoptCancelApplyGate(desc)
+				require.NotNil(t, adopted, "the teardown must receive the parked gate")
+				adopted()
+			}
+
+			require.Eventually(t, func() bool {
+				return !p.AnyCleanupInProgress()
+			}, 5*time.Second, 5*time.Millisecond,
+				"the gate must reopen rather than refuse every restore until a restart")
+
+			leakLogged := func() bool {
+				for _, entry := range hook.AllEntries() {
+					if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, leakMessage) {
+						return true
+					}
+				}
+				return false
+			}
+			if tc.wantLeakLogged {
+				require.Eventually(t, leakLogged, 5*time.Second, 5*time.Millisecond,
+					"a gate nobody claimed must be reported as the leak it is")
+				assert.Contains(t, hook.LastEntry().Message, gateCap.String(),
+					"the message must name the bound that fired")
+			} else {
+				assert.Never(t, leakLogged, 10*gateCap, gateCap,
+					"the ordinary teardown path must not report a leak")
+			}
+		})
+	}
+}
+
 // Pins the two things that decide whether the gate is held: what the payload
 // says there is to tear down, and whether the task's units show a worker ever
 // ran. FAILED with nothing claimed still holds the gate, since a failed task
@@ -671,6 +716,49 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 				time.Second, 5*time.Millisecond,
 				"the sidecars are still coming down, so the backup must be refused")
 			<-done
+		})
+	}
+}
+
+// A dropped collection is not a failed sweep. Nothing was swept either way, so
+// the difference is only visible in what the operator is told.
+func TestTerminalCleanupOutcome(t *testing.T) {
+	tests := []struct {
+		name     string
+		swept    bool
+		dropped  bool
+		wantWarn bool
+		wantMsg  string
+	}{
+		{
+			name:    "every shard swept",
+			swept:   true,
+			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node",
+		},
+		{
+			name:    "the collection is being deleted",
+			swept:   true,
+			dropped: true,
+			wantMsg: "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it",
+		},
+		{
+			name:     "state is left on disk",
+			wantWarn: true,
+			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+		},
+		{
+			name:     "a failure on one property and a delete on another still warns",
+			dropped:  true,
+			wantWarn: true,
+			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, warn := terminalCleanupOutcome(tc.swept, tc.dropped)
+			require.Equal(t, tc.wantMsg, msg)
+			require.Equal(t, tc.wantWarn, warn)
 		})
 	}
 }

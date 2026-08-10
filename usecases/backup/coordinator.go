@@ -194,14 +194,16 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	prevID, slotGeneration := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	// From here the slot is ours until the goroutine below takes it over, so
-	// every error return must give it back, or it stays leaked until restart.
+	// every error return has to give it back. A leaked slot blocks every later
+	// backup and restore this node coordinates, until restart.
 	defer func() {
 		if err != nil {
-			c.lastOp.reset()
+			c.lastOp.resetIfOwned(slotGeneration)
 		}
 	}()
 
@@ -249,7 +251,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	f := func() {
-		defer c.lastOp.resetIfOwned(req.ID)
+		defer c.lastOp.resetIfOwned(slotGeneration)
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -293,7 +295,8 @@ func (c *coordinator) Restore(
 	}
 
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	prevID, slotGeneration := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
@@ -307,7 +310,10 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		c.lastOp.resetIfOwned(desc.ID)
+		// Not a plain reset: unlike the backupper slot, this one has writers
+		// outside Restore (a cancel, and a retry's early return), so by the
+		// time we get here it may already belong to a newer restore.
+		c.lastOp.resetIfOwned(slotGeneration)
 		return err
 	}
 
@@ -320,7 +326,7 @@ func (c *coordinator) Restore(
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.resetIfOwned(desc.ID)
+		c.lastOp.resetIfOwned(slotGeneration)
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
@@ -328,7 +334,7 @@ func (c *coordinator) Restore(
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
-		defer c.lastOp.resetIfOwned(desc.ID)
+		defer c.lastOp.resetIfOwned(slotGeneration)
 		ctx := context.Background()
 
 		// checkStorageCancelled reads from storage to check if restore was cancelled.
@@ -396,7 +402,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.setIfOwned(desc.ID, c.descriptor.Status)
+		c.publishStatus(desc.ID)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -482,7 +488,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
 	if req.Method == OpRestore {
@@ -785,9 +791,22 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.setIfOwned(req.ID, c.descriptor.Status)
 	c.descriptor.Error = reason
+	c.publishStatus(req.ID)
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// publishStatus mirrors the descriptor's outcome on the slot, which is what a
+// poll reads until the descriptor is written to object storage. A failure goes
+// through setFailedIfOwned so it is never published without the reason next to
+// it. Ownership-checked like every other slot write here: the operation may
+// have been cancelled and the slot handed on since.
+func (c *coordinator) publishStatus(id string) {
+	if c.descriptor.Status == backup.Failed {
+		c.lastOp.setFailedIfOwned(id, c.descriptor.Error)
+		return
+	}
+	c.lastOp.setIfOwned(id, c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally

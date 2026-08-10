@@ -45,6 +45,13 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
+	// generation counts the claims this slot has handed out. Backup ids are
+	// user-supplied and reusable — cancelling an operation and retrying it
+	// under the same id is a normal flow — so the id alone does not identify a
+	// claim. renew gives the claiming operation the generation of its own
+	// claim, and that is what the release paths match on.
+	generation uint64
+
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
 	// for the one failure that leaves nothing else to read: the slot is
 	// released as soon as the operation returns, and a later poll is answered
@@ -60,14 +67,17 @@ func (s *backupStat) get() reqState {
 	return s.reqState
 }
 
-// renew state if and only it is not in use
-// it returns "" in case of success and current id in case of failure
-func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) string {
+// renew claims the slot if and only if it is not in use. On success it returns
+// "" and the generation of the new claim, which the caller hands back to
+// resetIfOwned to release it. On failure it returns the id already holding the
+// slot and a generation of 0, which no claim ever has.
+func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) (string, uint64) {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqState.ID != "" {
-		return s.reqState.ID
+		return s.reqState.ID, 0
 	}
+	s.generation++
 	s.reqState.ID = id
 	s.reqState.Path = path
 	s.reqState.OverrideBucket = overrideBucket
@@ -80,7 +90,7 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 		// answer to a poll for it.
 		s.rememberedFailureID, s.rememberedFailureReason = "", ""
 	}
-	return ""
+	return "", s.generation
 }
 
 func (s *backupStat) reset() {
@@ -99,9 +109,10 @@ func (s *backupStat) clear() {
 	s.reqState.OverridePath = ""
 }
 
-// resetIfCancelled clears the slot only if id owns it and its status is
-// cancelled; an operation still running must keep its slot. Check-and-clear
-// happens under one lock so a concurrent renew can't be lost. Reports whether it cleared.
+// resetIfCancelled gives back the slot only when id owns it and that operation
+// was cancelled. An operation still running under the same id is writing files,
+// so its slot must survive. Checks and clears under one lock so a renew cannot
+// slip in between and lose its claim. Reports whether the slot was cleared.
 func (s *backupStat) resetIfCancelled(id string) bool {
 	s.Lock()
 	defer s.Unlock()
@@ -115,21 +126,6 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 	return true
 }
 
-// resetIfOwned clears the slot only if id still holds it. An operation whose
-// slot was already handed to a newer one must not free the newcomer's claim:
-// the slot is the node's busy signal, so a false idle lets a runtime-reindex
-// start on top of a live backup or restore. Check-and-clear happens under one
-// lock so a concurrent renew can't be lost. Reports whether it cleared.
-func (s *backupStat) resetIfOwned(id string) bool {
-	s.Lock()
-	defer s.Unlock()
-	if s.reqState.ID != id {
-		return false
-	}
-	s.clear()
-	return true
-}
-
 // setFailed ends the operation as failed together with the reason. Failed with
 // no reason is worse than useless to a poller: the coordinator latches whatever
 // a participant reports and stops asking, so an empty reason becomes the
@@ -137,6 +133,27 @@ func (s *backupStat) resetIfOwned(id string) bool {
 func (s *backupStat) setFailed(reason string) {
 	s.Lock()
 	defer s.Unlock()
+	s.setFailedLocked(reason)
+}
+
+// setFailedIfOwned is [backupStat.setFailed] under the ownership rule of
+// [backupStat.setIfOwned], for the callers that publish a failure they may no
+// longer own the slot for. Reports whether it wrote.
+func (s *backupStat) setFailedIfOwned(id string, reason string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.setFailedLocked(reason)
+	return true
+}
+
+// setFailedLocked must be called with the lock held.
+func (s *backupStat) setFailedLocked(reason string) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
@@ -147,6 +164,24 @@ func (s *backupStat) setFailed(reason string) {
 	}
 	s.rememberedFailureID = s.reqState.ID
 	s.rememberedFailureReason = reason
+}
+
+// resetIfOwned clears the slot only if generation is still the claim holding
+// it. An operation whose slot was already handed to a newer one must not free
+// the newcomer's claim: the slot is what keeps two operations from running on
+// this node at once, so a false idle lets a second one claim it alongside the
+// live one. Matching on the backup id would not be enough — the newer claim can
+// carry the same id, since retrying a cancelled operation is a normal flow.
+// Check-and-clear happens under one lock so a concurrent renew can't be lost.
+// Reports whether it cleared.
+func (s *backupStat) resetIfOwned(generation uint64) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.generation != generation || s.reqState.ID == "" {
+		return false
+	}
+	s.clear()
+	return true
 }
 
 // rememberedFailure reports why the operation with this id ended failed, for
@@ -178,6 +213,16 @@ func (s *backupStat) set(st backup.Status) {
 // storage — would otherwise stamp whichever operation happens to hold it, and a
 // slot reading Cancelled makes coordinator.commit abort the operation as
 // "cancelled externally". Reports whether it wrote.
+//
+// Matches on the id, not on the generation resetIfOwned takes: a cancel is not
+// the holder and has no claim of its own, and cancelling whichever operation
+// currently runs under that id is what a cancel is asking for. The same is true
+// of [backupStat.resetIfCancelled], whose caller is a fresh restore attempt that
+// has not claimed anything yet — which is why that one checks the status
+// instead. The restore coordinator's own status writes use the id they claimed
+// with: keying those on the generation would mean threading it through
+// [coordinator.commit], and an id match already stops a write landing on an
+// unrelated operation.
 func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
 	s.Lock()
 	defer s.Unlock()
