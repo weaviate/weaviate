@@ -229,6 +229,17 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			wantStatus: backup.Cancelled,
 		},
 		{
+			// The cancel endpoint's own write, aimed at a restore that has
+			// started applying its schema and can no longer be stopped.
+			name:       "a schema apply refuses the cancel stamp",
+			claimedID:  "op-1",
+			status:     backup.Finalizing,
+			setID:      "op-1",
+			set:        backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
 			name:       "slot is free",
 			claimedID:  "",
 			setID:      "op-1",
@@ -265,7 +276,7 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	require.Empty(t, prevID)
 	slot.set(backup.Cancelled)
 
-	requireSlotNotFreed(t, &s, "cancelled-restore")
+	requireSlotNotFreed(t, &s, "cancelled-restore", "live-restore")
 
 	got := s.get()
 	require.Equal(t, "live-restore", got.ID)
@@ -340,10 +351,8 @@ func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
 			name:  "failure",
 			write: func(slot slotOwner) bool { return slot.setFailed("late failure") },
 		},
-		{
-			name:  "release",
-			write: func(slot slotOwner) bool { return slot.release() },
-		},
+		// release is the third write a lost claim can make; it has its own
+		// table in TestSlotOwnerRelease.
 	}
 
 	for _, tc := range tests {
@@ -449,6 +458,29 @@ func TestBackupStatCancellationIsNotOverwritten(t *testing.T) {
 			next:       backup.Finalizing,
 			wantOK:     true,
 			wantStatus: backup.Finalizing,
+		},
+		{
+			// A schema apply over RAFT cannot be undone, so a cancel landing on
+			// it would report CANCELLED for classes that do get restored.
+			name:       "a schema apply refuses a cancel in flight",
+			status:     backup.Finalizing,
+			next:       backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
+			name:       "a schema apply refuses a finished cancel",
+			status:     backup.Finalizing,
+			next:       backup.Cancelled,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
+			name:       "a schema apply still reports its own outcome",
+			status:     backup.Finalizing,
+			next:       backup.Success,
+			wantOK:     true,
+			wantStatus: backup.Success,
 		},
 	}
 

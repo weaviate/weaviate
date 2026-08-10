@@ -480,9 +480,10 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 // logCancelStamp records whether a cancel reached this node's restore slot.
 // held is the state the slot was in when the stamp was decided, which is what
-// separates the one anomaly here from the two ordinary outcomes: a slot holding
-// a different restore means the cancel did nothing on this node, while a slot
-// that is empty or already cancelled means the restore got there first.
+// tells the outcomes apart: an empty slot means the restore already finished
+// and gave it back, a slot on this restore says the cancel is either already
+// recorded or too late to record, and a slot on a different restore says the
+// cancel did nothing on this node.
 func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
 	entry := logger.WithFields(logrus.Fields{
 		"action":        "cancel_restore",
@@ -495,8 +496,10 @@ func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status
 	switch {
 	case stamped:
 		entry.Info("restore slot stamped with the cancellation")
-	case held.ID == backupID:
+	case held.ID == backupID && held.Status.IsCancellation():
 		entry.Info("restore slot already carries the cancellation")
+	case held.ID == backupID:
+		entry.Warn("restore slot not stamped: the restore is applying its schema and can no longer be cancelled")
 	case held.ID == "":
 		entry.Info("restore slot not stamped: the restore has already finished and given it back")
 	default:
@@ -540,6 +543,16 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return fmt.Errorf("init uploader: %w", err)
+	}
+
+	// The stored descriptor below can still read TRANSFERRING while the restore
+	// applies its schema: the FINALIZING put is logged, not acted on. The slot
+	// is the reliable answer on the node coordinating the restore, and claiming
+	// the cancellation there would abort nothing and leave the descriptor
+	// stuck on CANCELLING.
+	if held := s.restorer.lastOp.get(); held.ID == backupID && held.Status == backup.Finalizing {
+		return backup.NewErrUnprocessable(
+			fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
 	}
 
 	if metaErr == nil {

@@ -137,12 +137,19 @@ func (s *backupStat) resetIfCancelled(id string) (bool, reqState) {
 // in flight may only go on to Cancelled. Any other status walks a cancel the
 // operator already asked for back to a running one, which is what a poll then
 // reports.
+//
+// Finalizing is the mirror image: a restore applying its schema over RAFT can
+// no longer be stopped, and accepting a cancellation there would report
+// CANCELLED for classes that do get restored. The cancel is refused instead, so
+// the restore goes on to report the outcome it actually had.
 func (s *backupStat) canAdvanceTo(next backup.Status) bool {
 	switch s.reqState.Status {
 	case backup.Cancelled:
 		return false
 	case backup.Cancelling:
 		return next == backup.Cancelled
+	case backup.Finalizing:
+		return !next.IsCancellation()
 	default:
 		return true
 	}
@@ -307,7 +314,8 @@ func (o slotOwner) status() (backup.Status, bool) {
 //
 // Every caller is handing the slot back and none of them acts on the result,
 // which is deliberate: false means somebody else owns the slot, and it is
-// theirs to give back. The result is there for tests to assert on.
+// theirs to give back. What the callers depend on is the refusal itself, which
+// is why the result is asserted on in tests.
 func (o slotOwner) release() bool {
 	if o.stat == nil {
 		return false

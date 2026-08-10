@@ -317,8 +317,13 @@ func (c *coordinator) Restore(
 			// terminal status. A participant that notices refuses with the
 			// same wording, but that refusal reaches the client as a 500,
 			// not this 422.
-			return backup.NewErrUnprocessable(
-				fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", desc.ID))
+			// Waiting is the answer for a live cancel, but a cancel whose final
+			// write failed leaves this descriptor on CANCELLING for good, and
+			// nothing clears it, not even a restart. Repeating the cancel is
+			// what finishes it, so the message has to say both.
+			return backup.NewErrUnprocessable(fmt.Errorf(
+				"restore %s cancellation in progress, please wait for it to complete; "+
+					"if it does not, repeat the cancel to clear it", desc.ID))
 		}
 	}
 
@@ -430,7 +435,9 @@ func (c *coordinator) Restore(
 		// and it refuses one from an operation that no longer holds the slot.
 		// Reading the status first and writing after would let a cancel land
 		// between the two and be dropped, and the restore would go on to apply
-		// the schema and report SUCCESS.
+		// the schema and report SUCCESS. A cancel arriving after the write is
+		// refused by the slot in turn, since a schema apply over RAFT cannot be
+		// undone; see [backupStat.canAdvanceTo].
 		if op.descriptor.Status == backup.Transferred {
 			if !slot.set(backup.Finalizing) {
 				op.descriptor.Status = backup.Cancelled
@@ -464,9 +471,10 @@ func (c *coordinator) Restore(
 		// cancellation the slot already carries is neither, so that one goes on
 		// to be written.
 		//
-		// CancelRestore normally cannot reach that first case, because it
-		// refuses a restore whose stored descriptor reads FINALIZING, but that
-		// descriptor is best effort: the put above is logged, not acted on.
+		// A cancel cannot reach that first case on this node: the slot refuses
+		// one once this restore reads FINALIZING. On another node it can, since
+		// the slot is memory-only there and the stored descriptor CancelRestore
+		// falls back to is best effort, the put above being logged, not acted on.
 		published := op.publishStatus(slot)
 		agreesWithTheCancellation := op.descriptor.Status.IsCancellation() && slot.holds()
 		if !published && !agreesWithTheCancellation {
