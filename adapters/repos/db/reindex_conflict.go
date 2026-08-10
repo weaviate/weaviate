@@ -178,7 +178,10 @@ func ReindexPropsOverlap(a, b []string) bool {
 // [firstUnknownMigrationType], the REST cancel matcher and submit-time
 // cleanup, and the two disk-deleting cleanup paths (autoCleanupAfterTerminal,
 // the restart orphan audit) all read it. A mismatch between them risks
-// silent data loss, so new migration types are added only here.
+// silent data loss, so this is the only place that maps a type to an index.
+// A new type still needs an arm in [reindexRepairBody] as well, which maps
+// the same constants onto submit bodies; both tables are pinned against the
+// declared set in reindex_conflict_test.go.
 //
 // Not semanticMigrationIndexTypes (reindex_provider.go), which answers a
 // different question — which types cross the swap barrier — and returns
@@ -259,13 +262,22 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 // type. Exactly one index group per body — validateBodyExclusivity in the
 // REST handlers refuses a body naming two.
 //
-// "" for an unrecognized type, and for a tokenization change whose payload
-// carries no target (written by an older binary) — guessing would
-// retokenize the property to the wrong value.
+// Every arm has to clear the per-type precondition the REST handler runs on
+// the post-terminal state, not just the group-exclusivity check.
+// enable-searchable therefore carries its tokenization: the handler reads the
+// target from the same body and rejects an empty one.
+//
+// "" for an unrecognized type, for enable-rangeable (see below), and for a
+// body whose payload carries no target tokenization (written by an older
+// binary) — guessing would retokenize the property to the wrong value.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:
-		return `{"searchable":{"enabled":true}}`
+		if p.TargetTokenization == "" {
+			return ""
+		}
+		return fmt.Sprintf(`{"searchable":{"enabled":true,"tokenization":%q}}`,
+			p.TargetTokenization)
 	case ReindexTypeRebuildSearchable:
 		return `{"searchable":{"rebuild":true}}`
 	case ReindexTypeChangeAlgorithm:
@@ -285,7 +297,11 @@ func reindexRepairBody(p ReindexTaskPayload) string {
 	case ReindexTypeRepairFilterable:
 		return `{"filterable":{"rebuild":true}}`
 	case ReindexTypeEnableRangeable:
-		return `{"rangeable":{"enabled":true}}`
+		// No body the API accepts in every terminal state: the strategy
+		// flips IndexRangeFilters per shard as it goes, so `enabled` 400s
+		// once any shard finished and `rebuild` 400s while none has. It is
+		// format-only, so no caller renders a repair for it today.
+		return ""
 	case ReindexTypeRepairRangeable:
 		return `{"rangeable":{"rebuild":true}}`
 	}
@@ -317,11 +333,13 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //   - no cancel call nameable: task can only be waited out.
 //   - STARTED on a semantic (barrier) migration: nothing is on disk yet, so
 //     cancel or wait are both safe.
-//   - STARTED on a format-only migration: PREPARING never exists
-//     ([distributedtask.Task.NeedsPreparationBarrier] == [IsSemanticMigration]),
-//     so per-shard swaps can already have committed while status still
-//     reads STARTED — cancelling leaves some shards rebuilt, others not.
-//   - PREPARING/SWAPPING: steer toward waiting and name the repair cancel
+//   - any status on a format-only migration: PREPARING never exists
+//     ([distributedtask.Task.NeedsPreparationBarrier] == [IsSemanticMigration])
+//     but SWAPPING does, and per-shard swaps commit independently in both
+//     STARTED and SWAPPING — cancelling leaves some shards rebuilt, others
+//     not. There is no schema flip to skip, so none of the inversion wording
+//     below applies.
+//   - PREPARING/SWAPPING on a semantic migration: steer toward waiting and name the repair cancel
 //     makes necessary ([ReindexRepairCall], not a rebuild — see there).
 //     The window opens at the MERGE, not the swap:
 //     [FinalizeCompletedMigrations] promotes on merged.mig alone, which
@@ -333,6 +351,10 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //     generation (wiping it is #10675-shape data loss), so the next restart
 //     promotes it into the same bucket↔schema inversion [CheckClassMutation]
 //     calls catastrophic. Tracked at weaviate/weaviate#12575.
+//
+// The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true
+// to be accepted — the sentence names it. Cancel is exempt from that flag
+// (requestsCancel in the REST handler), so the cancel half always applies.
 func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {
@@ -346,15 +368,15 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"index type, and this task names none this build can fill in, " +
 			"so it can only be waited out"
 	}
-	if started && IsSemanticMigration(p.MigrationType) {
-		return "cancel it via " + cancelCall + ", or wait for it to finish"
-	}
-	if started {
+	if !IsSemanticMigration(p.MigrationType) {
 		return "cancel it via " + cancelCall + ", or wait for it to finish; " +
 			"this migration has no cluster-wide cutover, so its shards commit " +
-			"one by one while it still reads STARTED and cancelling leaves the " +
+			"one by one rather than at a single point and cancelling leaves the " +
 			"ones that already finished rebuilt and the rest untouched — " +
 			"re-submit the same request to finish the remainder"
+	}
+	if started {
+		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
 	inversion := "wait for it to finish: its per-shard work is already merged " +
 		"on disk, so cancelling now skips the schema change but does not drop " +
@@ -367,7 +389,8 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"cancel it via " + cancelCall
 	}
 	return inversion + "only by re-running the migration via " + repairCall +
-		" — if you accept that, cancel it via " + cancelCall
+		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel) — if you " +
+		"accept that, cancel it via " + cancelCall
 }
 
 // CheckPropertyUpdate implements

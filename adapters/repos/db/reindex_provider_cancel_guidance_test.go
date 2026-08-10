@@ -16,10 +16,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -46,42 +44,42 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 		// migrationType defaults to change-tokenization when empty.
 		migrationType ReindexMigrationType
 		// properties defaults to the single propName when nil.
-		properties   []string
-		wantGuidance bool
+		properties        []string
+		wantRepairCommand bool
 		// notInLog must appear in no entry the terminal path emits.
 		notInLog []string
 	}{
 		{
-			name:         "cancelled at STARTED, nothing on disk",
-			sentinels:    nil,
-			status:       distributedtask.TaskStatusCancelled,
-			wantGuidance: false,
+			name:              "cancelled at STARTED, nothing on disk",
+			sentinels:         nil,
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: false,
 		},
 		{
-			name:         "cancelled with a started-only generation",
-			sentinels:    []string{"started.mig"},
-			status:       distributedtask.TaskStatusCancelled,
-			wantGuidance: false,
+			name:              "cancelled with a started-only generation",
+			sentinels:         []string{"started.mig"},
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: false,
 		},
 		{
-			name:         "cancelled after the generation merged",
-			sentinels:    []string{"started.mig", "merged.mig"},
-			status:       distributedtask.TaskStatusCancelled,
-			wantGuidance: true,
+			name:              "cancelled after the generation merged",
+			sentinels:         []string{"started.mig", "merged.mig"},
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: true,
 		},
 		{
-			name:         "cancelled after the swap committed",
-			sentinels:    []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
-			status:       distributedtask.TaskStatusCancelled,
-			wantGuidance: true,
+			name:              "cancelled after the swap committed",
+			sentinels:         []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: true,
 		},
 		{
 			// A unit died mid-work whatever the disk shows, so FAILED does
 			// not have to earn the message.
-			name:         "failed with nothing on disk",
-			sentinels:    nil,
-			status:       distributedtask.TaskStatusFailed,
-			wantGuidance: true,
+			name:              "failed with nothing on disk",
+			sentinels:         nil,
+			status:            distributedtask.TaskStatusFailed,
+			wantRepairCommand: true,
 		},
 		{
 			// A format-only migration flips no schema, so a cancel cannot
@@ -103,13 +101,8 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "CancelGuidance_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
+			shard, idx := newReindexTestShard(t, "CancelGuidance", propName)
+			className := string(idx.Config.ClassName)
 
 			if len(tc.sentinels) > 0 {
 				mkTrackerDir(t, shard.pathLSM(), tracker, tc.sentinels...)
@@ -156,7 +149,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 					require.NotContains(t, entry.Message, unwanted)
 				}
 			}
-			if tc.wantGuidance {
+			if tc.wantRepairCommand {
 				require.Equal(t, 1, repairCommands,
 					"expected one repair_command entry, got the log: %v", hook.AllEntries())
 				return
@@ -215,13 +208,8 @@ func TestPromotableReindexStateOnThisNode_AnswersYesWhenItCannotLook(t *testing.
 func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
 	const propName = "descr"
 
-	ctx := testCtx()
-	className := "CancelDrain_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{propName})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	_, idx := newReindexTestShard(t, "CancelDrain", propName)
+	className := string(idx.Config.ClassName)
 
 	desc := distributedtask.TaskDescriptor{ID: "T_drain", Version: 1}
 

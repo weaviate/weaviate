@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -119,6 +120,16 @@ func validateEnableFilterableProperty(prop *models.Property) error {
 	}
 }
 
+// validateRebuildFilterableProperty is the full repair-filterable
+// precondition: the property needs a filterable index to rebuild, and a data
+// type that has an inverted bucket at all.
+func validateRebuildFilterableProperty(prop *models.Property) error {
+	if prop.IndexFilterable != nil && !*prop.IndexFilterable {
+		return fmt.Errorf("property %q does not have a filterable index", prop.Name)
+	}
+	return validateRebuildFilterableDataType(prop)
+}
+
 // validateRebuildFilterableDataType guards repair-filterable against
 // property types whose schema-default flips IndexFilterable=true but
 // which have no inverted bucket on disk: blob (skipped by the schema
@@ -217,6 +228,64 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 	return nil
 }
 
+// validateRebuildSearchableProperty guards searchable.rebuild: the property
+// needs a searchable index, and a WAND index cannot be rebuilt — the only
+// supported next step for it is the BlockMax migration.
+func validateRebuildSearchableProperty(class *models.Class, prop *models.Property) error {
+	if prop.IndexSearchable != nil && !*prop.IndexSearchable {
+		return errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))
+	}
+	if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first")
+	}
+	return nil
+}
+
+// validateChangeAlgorithmProperty guards searchable.algorithm: the property
+// needs a searchable index, the target must be one this build can migrate
+// to, and the index must not already be there.
+//
+// The explicit switch is deliberately stricter than an equality check: when a
+// second searchable algorithm ships, the swagger enum accepts it and unrelated
+// call sites start passing it here. A missing case then surfaces at the diff
+// site instead of being silently accepted with no migration type wired up.
+func validateChangeAlgorithmProperty(class *models.Class, prop *models.Property, algorithm string) error {
+	if prop.IndexSearchable != nil && !*prop.IndexSearchable {
+		return errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))
+	}
+	switch normalizeSearchableAlgorithm(algorithm) {
+	case models.IndexStatusAlgorithmBlockmax:
+		// The one supported target.
+	case models.IndexStatusAlgorithmWand:
+		return fmt.Errorf("algorithm %q is deprecated; only %q is accepted as a target",
+			models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)
+	default:
+		return fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
+			algorithm, models.IndexStatusAlgorithmBlockmax)
+	}
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return errors.New("searchable index is already on blockmax")
+	}
+	return nil
+}
+
+// validateSearchableTokenizationChange is the schema-only half of
+// [validateTokenizationChange] — everything decidable from the property and
+// the target alone, without reading a bucket strategy off a live store.
+func validateSearchableTokenizationChange(prop *models.Property, targetTokenization string) error {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return fmt.Errorf("property %q is not a text type", prop.Name)
+	}
+	if !entschema.IsValidTokenization(targetTokenization) {
+		return fmt.Errorf("invalid tokenization %q", targetTokenization)
+	}
+	if prop.Tokenization == targetTokenization {
+		return fmt.Errorf("property %q already uses tokenization %q", prop.Name, targetTokenization)
+	}
+	return nil
+}
+
 func validateTokenizationChange(
 	appState *state.State,
 	class *models.Class,
@@ -234,18 +303,8 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q not found", propName)
 	}
 
-	dt, ok := entschema.AsPrimitive(targetProp.DataType)
-	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
-		return "", fmt.Errorf("property %q is not a text type", propName)
-	}
-
-	// Validate target tokenization.
-	if !entschema.IsValidTokenization(targetTokenization) {
-		return "", fmt.Errorf("invalid tokenization %q", targetTokenization)
-	}
-
-	if targetProp.Tokenization == targetTokenization {
-		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
+	if err := validateSearchableTokenizationChange(targetProp, targetTokenization); err != nil {
+		return "", err
 	}
 
 	// Detect bucket strategy from the first shard's searchable bucket.

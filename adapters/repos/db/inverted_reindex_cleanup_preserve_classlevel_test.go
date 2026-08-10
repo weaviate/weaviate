@@ -22,6 +22,20 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// newReindexTestShard is the fixture the reindex cancel/remedy tests start
+// from: one shard of a collection carrying propNames, under a class name no
+// other test in the run shares, with shutdown already registered.
+func newReindexTestShard(t *testing.T, classPrefix string, propNames ...string) (*Shard, *Index) {
+	t.Helper()
+	ctx := testCtx()
+	class := newTestClassWithProps(classPrefix+"_"+uuid.NewString()[:8], propNames)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { _ = shard.Shutdown(ctx) })
+	return shard, idx
+}
+
 func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
 	t.Helper()
 	dir := filepath.Join(lsmPath, ".migrations", name)

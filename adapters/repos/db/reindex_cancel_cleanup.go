@@ -80,9 +80,12 @@ func (db *DB) HasPromotableReindexState(collection, propName, indexType string) 
 // generation.
 func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 	var found bool
-	// ForEachShard rather than forEachShardStrict: a closing index answers
-	// false here, and the caller (repair guidance on a cancelled task) has
-	// nothing to act on while the index is going away anyway.
+	// ForEachShard rather than forEachShardStrict: a closing index walks no
+	// shards and answers false, the one non-fail-closed answer in this
+	// predicate. The cost is a suppressed CANCELLED warning on a node that
+	// is shutting down with genuinely promotable state on disk — which the
+	// next start promotes. Accepted because the alternative, failing the
+	// whole shutdown path on a strict walk, is worse.
 	_ = i.ForEachShard(func(name string, _ ShardLike) error {
 		if found {
 			return nil

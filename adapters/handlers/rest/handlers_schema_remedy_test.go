@@ -238,21 +238,104 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	}
 }
 
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall checks that every
-// rendered repair/cancel call passes the real group-exclusivity check.
+// TestEveryDeclaredTypeRendersAnAcceptedRepairCall runs every rendered
+// repair/cancel call through the checks the real handler would run on it:
+// group exclusivity first, then the per-type precondition for the verb in the
+// body. The property state each row carries is the one the remedy is printed
+// in — the migration terminalized, so the schema bit its flip would have set
+// has not moved. Exclusivity alone is not enough: a body can be
+// well-formed and still be rejected by its own validator.
 func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
-	// The full declared set; a type added without a repair body fails the
-	// "renders something" assertion rather than silently rendering nothing.
-	migrationTypes := []db.ReindexMigrationType{
-		db.ReindexTypeChangeAlgorithm,
-		db.ReindexTypeRebuildSearchable,
-		db.ReindexTypeRepairFilterable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable,
-		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableSearchable,
-		db.ReindexTypeChangeTokenization,
-		db.ReindexTypeChangeTokenizationFilterable,
+	const targetTok = "word"
+	// The tokenization every retokenize row is migrating away from.
+	const oldTok = "whitespace"
+
+	enabled, disabled := true, false
+	textProp := func(name string, searchable, filterable *bool, tok string) *models.Property {
+		return &models.Property{
+			Name: name, DataType: []string{"text"},
+			IndexSearchable: searchable, IndexFilterable: filterable,
+			Tokenization: tok,
+		}
+	}
+	numericProp := func(name string, rangeable *bool) *models.Property {
+		return &models.Property{Name: name, DataType: []string{"int"}, IndexRangeFilters: rangeable}
+	}
+
+	// The full declared set. accept runs the same validator updateIndex runs
+	// for the verb this type's repair body carries.
+	cases := []struct {
+		migrationType db.ReindexMigrationType
+		prop          *models.Property
+		usingBlockMax bool
+		// wantNoRepair marks a type that deliberately renders no repair call.
+		wantNoRepair string
+		accept       func(*models.Class, *models.Property, *models.IndexUpdateRequest) error
+	}{
+		{
+			migrationType: db.ReindexTypeChangeAlgorithm,
+			prop:          textProp("name", &enabled, nil, targetTok),
+			accept: func(c *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
+				return validateChangeAlgorithmProperty(c, p, b.Searchable.Algorithm)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeRebuildSearchable,
+			prop:          textProp("name", &enabled, nil, targetTok),
+			usingBlockMax: true,
+			accept: func(c *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
+				return validateRebuildSearchableProperty(c, p)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeRepairFilterable,
+			prop:          textProp("name", nil, &enabled, targetTok),
+			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
+				return validateRebuildFilterableProperty(p)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeEnableRangeable,
+			prop:          numericProp("name", &disabled),
+			// The flag flips per shard as the migration runs, so no single
+			// body is accepted in every terminal state.
+			wantNoRepair: "enable-rangeable has no repairable terminal state",
+		},
+		{
+			migrationType: db.ReindexTypeRepairRangeable,
+			prop:          numericProp("name", &enabled),
+			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
+				return validateRebuildRangeableProperty(p)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeEnableFilterable,
+			prop:          textProp("name", nil, &disabled, targetTok),
+			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
+				return validateEnableFilterableProperty(p)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeEnableSearchable,
+			prop:          textProp("name", &disabled, &disabled, ""),
+			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
+				return validateEnableSearchableProperty(p, b.Searchable.Tokenization)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeChangeTokenization,
+			prop:          textProp("name", &enabled, nil, oldTok),
+			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
+				return validateSearchableTokenizationChange(p, b.Searchable.Tokenization)
+			},
+		},
+		{
+			migrationType: db.ReindexTypeChangeTokenizationFilterable,
+			prop:          textProp("name", nil, &enabled, oldTok),
+			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
+				return validateFilterableTokenizationChange(p, b.Filterable.Tokenization)
+			},
+		},
 	}
 
 	bodyOf := func(t *testing.T, call string) *models.IndexUpdateRequest {
@@ -265,19 +348,35 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 		return &body
 	}
 
-	for _, mt := range migrationTypes {
-		t.Run(string(mt), func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
 			payload := db.ReindexTaskPayload{
 				Collection:         "C",
-				MigrationType:      mt,
+				MigrationType:      tc.migrationType,
 				Properties:         []string{"name"},
-				TargetTokenization: "word",
+				TargetTokenization: targetTok,
+			}
+			class := &models.Class{
+				Class:      "C",
+				Properties: []*models.Property{tc.prop},
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					UsingBlockMaxWAND: tc.usingBlockMax,
+				},
 			}
 
 			repair := db.ReindexRepairCall(payload, "name")
-			require.NotEmpty(t, repair, "every declared type needs a repair call")
-			require.NoError(t, validateBodyExclusivity(bodyOf(t, repair)))
+			if tc.wantNoRepair != "" {
+				require.Empty(t, repair, tc.wantNoRepair)
+			} else {
+				require.NotEmpty(t, repair, "every other declared type needs a repair call")
+				body := bodyOf(t, repair)
+				require.NoError(t, validateBodyExclusivity(body))
+				require.NoError(t, tc.accept(class, tc.prop, body),
+					"the rendered repair call is rejected by the handler that receives it")
+			}
 
+			// Cancel is dispatched before every per-type precondition, so
+			// exclusivity is the whole check it has to pass.
 			cancel := db.ReindexCancelCall(payload, "name")
 			require.NotEmpty(t, cancel, "every declared type needs a cancel call")
 			require.NoError(t, validateBodyExclusivity(bodyOf(t, cancel)))

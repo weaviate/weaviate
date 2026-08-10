@@ -362,58 +362,19 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
 		// rebuild preserves the current BM25 algorithm and tokenization.
-		// WAND searchable indexes cannot be rebuilt — the only supported
-		// next step for them is migration to BlockMax via
-		// {"searchable":{"algorithm":"blockmax"}}.
-		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first"))
-		}
 		migrationType = db.ReindexTypeRebuildSearchable
 		properties = []string{propertyName}
+		if err := validateRebuildSearchableProperty(class, targetProp); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
+		}
 
 	case body.Searchable != nil && body.Searchable.Algorithm != "":
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
-		// Canonicalise the algorithm name through normalizeSearchableAlgorithm,
-		// then dispatch on the canonical value with an explicit allowlist.
-		//
-		// The explicit `switch` is deliberately stricter than an equality
-		// check: when a second searchable algorithm eventually ships, the
-		// swagger enum will accept it and unrelated handler call sites will
-		// silently start receiving the new value here. With an inline
-		// `if x != "blockmax"` the new algorithm would either be silently
-		// rejected (bad UX) or silently accepted with no migration type
-		// wired up (data corruption). The `switch` instead surfaces every
-		// added algorithm as a missing case the compiler / reviewers can
-		// see at the diff site. WAND is explicitly listed as the deprecated
-		// arm so the error message stays accurate when it lands as input.
-		normalized := normalizeSearchableAlgorithm(body.Searchable.Algorithm)
-		switch normalized {
-		case models.IndexStatusAlgorithmBlockmax:
-			// supported target — fall through to submit
-		case models.IndexStatusAlgorithmWand:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("algorithm %q is deprecated; only %q is accepted as a target",
-					models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)))
-		default:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
-					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
-		}
-		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"searchable index is already on blockmax"))
-		}
 		migrationType = db.ReindexTypeChangeAlgorithm
 		properties = []string{propertyName}
+		if err := validateChangeAlgorithmProperty(class, targetProp, body.Searchable.Algorithm); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
+		}
 
 	case body.Filterable != nil && body.Filterable.Enabled:
 		migrationType = db.ReindexTypeEnableFilterable
@@ -425,11 +386,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	case body.Filterable != nil && body.Filterable.Rebuild:
 		migrationType = db.ReindexTypeRepairFilterable
 		properties = []string{propertyName}
-		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
-		}
-		if err := validateRebuildFilterableDataType(targetProp); err != nil {
+		if err := validateRebuildFilterableProperty(targetProp); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 

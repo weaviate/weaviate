@@ -831,35 +831,26 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		TargetTokenization: "word",
 	})
 
-	gates := []struct {
-		name string
-		call func(className string, tasks []*distributedtask.Task) error
-	}{
-		{
-			name: "property update",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate(className, "name", tasks)
-			},
-		},
-		{
-			name: "delete class",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation(className, tasks)
-			},
-		},
-		{
-			name: "tenant mutation",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
-			},
-		},
-	}
+	gates := schemaMutationGates(provider)
 
 	// Every part is filled in from the task; a guessed placeholder would
 	// land the operator on a 202 NO_OP.
 	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
 	cancelWhileRunning := []string{
 		cancelCall + ", or wait for it to finish",
+	}
+	// That sentence is a strict prefix of the format-only one, so the rows
+	// only tell the two apart by refusing its continuations.
+	notFormatOnly := []string{
+		"no cluster-wide cutover",
+		"re-submit the same request",
+	}
+	// A format-only migration flips no schema, so nothing it leaves behind
+	// can be inverted against one.
+	notInverted := []string{
+		"already merged on disk",
+		"the next restart promotes it",
+		"re-running the migration",
 	}
 	// Past STARTED the remedy leads with "wait" and names the repair (the
 	// original submit body, not a rebuild — see [ReindexRepairCall]).
@@ -883,16 +874,17 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		cancelCall,
 		"re-running the migration, which this build cannot name",
 	}
-	// A format-only migration has no PREPARING and no cutover, so STARTED
-	// cannot promise "nothing has happened yet".
+	// A format-only migration has no PREPARING and no cutover, so neither
+	// STARTED nor SWAPPING can promise "nothing has happened yet" — and
+	// SWAPPING, which it does reach, has no schema flip to skip either.
 	formatOnlyPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeRepairFilterable,
 		Properties:    []string{"name"},
 	})
-	formatOnlyStarted := []string{
+	formatOnly := []string{
 		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
-		"its shards commit one by one while it still reads STARTED",
+		"its shards commit one by one",
 		"re-submit the same request to finish the remainder",
 	}
 	cancelUnnameable := []string{
@@ -912,11 +904,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		want      []string
 		notWant   []string
 	}{
-		{"STARTED", distributedtask.TaskStatusStarted, "C", payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
-		{"PREPARING", distributedtask.TaskStatusPreparing, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"STARTED", distributedtask.TaskStatusStarted, "C", payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
+		{"PREPARING", distributedtask.TaskStatusPreparing, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
 		{"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload, repairUnnameable, concat(cancelUnnameable, cancelUnknown)},
-		{"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload, formatOnlyStarted, concat(cancelUnnameable, cancelUnknown)},
+		{"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted)},
+		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
+		// gates still see them.
+		{"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted)},
 		{"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
 		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
 		{string(unknownFutureStatus), unknownFutureStatus, "C", payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
@@ -956,6 +951,37 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// schemaMutationGate is one of the three gates that refuse a schema mutation
+// while a reindex task is in flight, reduced to a common call shape so a
+// table can exercise all three with the same rows.
+type schemaMutationGate struct {
+	name string
+	call func(className string, tasks []*distributedtask.Task) error
+}
+
+func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
+	return []schemaMutationGate{
+		{
+			name: "property update",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate(className, "name", tasks)
+			},
+		},
+		{
+			name: "delete class",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation(className, tasks)
+			},
+		},
+		{
+			name: "tenant mutation",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
+			},
+		},
 	}
 }
 
@@ -1234,31 +1260,7 @@ func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
 		{"a payload written by an older binary", emptyCollection, "empty Collection or MigrationType"},
 	}
 
-	gates := []struct {
-		name string
-		call func(className string, tasks []*distributedtask.Task) error
-	}{
-		{
-			name: "property update",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate(className, "name", tasks)
-			},
-		},
-		{
-			name: "delete class",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation(className, tasks)
-			},
-		},
-		{
-			name: "tenant mutation",
-			call: func(className string, tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
-			},
-		},
-	}
-
-	for _, gate := range gates {
+	for _, gate := range schemaMutationGates(provider) {
 		for _, p := range payloads {
 			t.Run(gate.name+"/"+p.name, func(t *testing.T) {
 				err := gate.call("C", []*distributedtask.Task{{
@@ -1281,14 +1283,17 @@ func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
 func TestReindexRepairCall(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
-		// why names the precondition a bare rebuild would fail on.
-		why  string
+		// why names the precondition a bare rebuild would fail on, or why
+		// no body is renderable at all.
+		why string
+		// want is the body, or "" when the type renders no repair call.
 		want string
 	}{
 		{
 			ReindexTypeEnableSearchable,
-			"IndexSearchable is still false, which searchable.rebuild rejects",
-			`{"searchable":{"enabled":true}}`,
+			"IndexSearchable is still false, which searchable.rebuild rejects; the " +
+				"tokenization is part of the enable verb and the handler rejects an empty one",
+			`{"searchable":{"enabled":true,"tokenization":"word"}}`,
 		},
 		{
 			ReindexTypeEnableFilterable,
@@ -1322,8 +1327,9 @@ func TestReindexRepairCall(t *testing.T) {
 		},
 		{
 			ReindexTypeEnableRangeable,
-			"IndexRangeFilters is still false",
-			`{"rangeable":{"enabled":true}}`,
+			"the strategy flips IndexRangeFilters per shard, so enabled 400s once " +
+				"any shard finished and rebuild 400s while none has",
+			"",
 		},
 		{
 			ReindexTypeRepairRangeable,
@@ -1340,6 +1346,10 @@ func TestReindexRepairCall(t *testing.T) {
 				Properties:         []string{"name"},
 				TargetTokenization: "word",
 			}, "name")
+			if tc.want == "" {
+				require.Empty(t, got, tc.why)
+				return
+			}
 			require.Equal(t, "PUT /v1/schema/C/indexes/name "+tc.want, got, tc.why)
 		})
 	}
@@ -1351,7 +1361,7 @@ func TestReindexRepairCall(t *testing.T) {
 		}
 		for _, mt := range allDeclaredReindexMigrationTypes(t) {
 			require.True(t, covered[mt],
-				"migration type %q is declared but has no repair body", mt)
+				"migration type %q is declared but is not pinned here", mt)
 		}
 	})
 
@@ -1366,6 +1376,10 @@ func TestReindexRepairCall(t *testing.T) {
 			}},
 			{"a tokenization change with no target", ReindexTaskPayload{
 				Collection: "C", MigrationType: ReindexTypeChangeTokenization,
+				Properties: []string{"name"},
+			}},
+			{"an enable-searchable with no target tokenization", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeEnableSearchable,
 				Properties: []string{"name"},
 			}},
 			{"no collection", ReindexTaskPayload{

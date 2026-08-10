@@ -16,10 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart pins
@@ -63,12 +61,7 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
-			className := "CancelMergedGen_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
+			shard, idx := newReindexTestShard(t, "CancelMergedGen", propName)
 			lsm := shard.pathLSM()
 
 			// State already on disk when cancel arrives.
@@ -143,13 +136,7 @@ func TestHasPromotableReindexState(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "PromotableState_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
+			shard, idx := newReindexTestShard(t, "PromotableState", propName)
 
 			if len(tc.sentinels) > 0 {
 				mkTrackerDir(t, shard.pathLSM(), tracker, tc.sentinels...)
