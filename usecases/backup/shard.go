@@ -45,12 +45,8 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
-	// generation counts the claims this slot has handed out, and is what
-	// identifies one. Backup ids are user-supplied and reusable — cancelling an
-	// operation and retrying it under the same id is a normal flow — so the id
-	// alone does not tell two claims apart. renew hands the generation of the
-	// new claim to its holder as a [slotOwner], which every read and write from
-	// that operation goes through.
+	// generation counts the claims handed out; see [slotOwner] for why identity
+	// is the generation and not the (reusable) backup id.
 	generation uint64
 
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
@@ -255,11 +251,9 @@ func (o slotOwner) status() (backup.Status, bool) {
 	return o.stat.reqState.Status, true
 }
 
-// release gives the slot back, and only while this claim still holds it. An
-// operation whose slot was already handed to a newer one must not free the
-// newcomer's claim: the slot is what keeps two operations from running on this
-// node at once, so a false idle lets a second one claim it alongside the live
-// one. Reports whether it cleared.
+// release gives the slot back, and only while this claim still holds it: an
+// outlived claim must not free the newer operation's, which would let a second
+// one claim the slot alongside the live one. Reports whether it cleared.
 func (o slotOwner) release() bool {
 	if o.stat == nil {
 		return false

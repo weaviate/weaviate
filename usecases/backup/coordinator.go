@@ -273,13 +273,8 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it holds a restore that has been
-			// cancelled. Another restore owns it otherwise — even one carrying
-			// this same id, since the cancel could have been claimed by a
-			// different coordinator — and clearing it makes this node report
-			// itself idle while it is still writing files. The check and the
-			// clear share one lock acquisition so a restore that claims the slot
-			// in between does not lose it.
+			// Only give back the slot when it still holds this cancelled restore;
+			// another restore (even a retry under the same id) may already own it.
 			released := c.lastOp.resetIfCancelled(desc.ID)
 			held := c.lastOp.get()
 			c.log.WithFields(logrus.Fields{
@@ -375,10 +370,8 @@ func (c *coordinator) Restore(
 		// Block cancellation by setting status to Finalizing before schema apply
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
-			// Check for external cancellation via the slot (same-node
-			// cancellation). A cancel that is still in flight counts: it has
-			// already been claimed, and moving on to Finalizing is past the
-			// point where CancelRestore can still be refused.
+			// A cancel still in flight counts too: past this point
+			// CancelRestore can no longer refuse it.
 			if st, ok := slot.status(); ok && st.IsCancellation() {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = errCancelled.Error()
@@ -772,13 +765,10 @@ func (c *coordinator) commit(ctx context.Context,
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
 
-// cancelledExternally reports whether somebody outside this operation has
-// cancelled it, which the operation learns by finding a cancellation on its own
-// slot. A cancel that has only been claimed so far (Cancelling) counts: the
-// operator has asked and CancelRestore is already aborting the participants.
-//
-// A slot this operation no longer holds says nothing about it, so it reads as
-// not cancelled: the newer claim's status belongs to the newer operation.
+// cancelledExternally reports whether this operation's own slot has been
+// cancelled, counting a cancel still in flight (Cancelling). A slot this
+// operation no longer holds reads as not cancelled: its status belongs to
+// whichever operation claimed it next.
 func cancelledExternally(slot slotOwner) bool {
 	st, ok := slot.status()
 	return ok && st.IsCancellation()
