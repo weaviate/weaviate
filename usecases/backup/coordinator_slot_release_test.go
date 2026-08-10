@@ -541,3 +541,75 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 		})
 	}
 }
+
+// countingSchemaManager counts the schema applies a restore performs, which is
+// the step a cancel has to land before.
+type countingSchemaManager struct {
+	fakeSchemaManger
+	applies atomic.Int32
+}
+
+func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool, bool) error {
+	c.applies.Add(1)
+	return nil
+}
+
+// CancelRestore stamps the coordinator's slot CANCELLING, aborts the
+// participants, and only then writes CANCELLED. A restore that reads its slot
+// for CANCELLED alone does not recognise that window, moves on to FINALIZING
+// and applies the schema — past the point where CancelRestore starts refusing,
+// so the operator gets a restore they cancelled applied anyway.
+func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		backupID    = "1"
+		ctx         = context.Background()
+		anyArg      = mock.Anything
+		node        = "N1"
+		classes     = []string{"C1"}
+	)
+
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
+	fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
+	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil)
+	fc.client.On("CanCommit", anyArg, node, anyArg).
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+	fc.client.On("Commit", anyArg, node, anyArg).Return(nil)
+
+	c := fc.coordinator()
+	c.timeoutNextRound = time.Millisecond
+	schemaManager := &countingSchemaManager{}
+	c.schema = schemaManager
+
+	var once sync.Once
+	fc.client.On("Status", anyArg, node, anyArg).
+		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
+		Run(func(mock.Arguments) {
+			// What CancelRestore does to the slot before it aborts the
+			// participants. assert, not require: Goexit inside a mock callback
+			// surfaces as a hang instead of this failure.
+			once.Do(func() {
+				assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelling))
+			})
+		})
+
+	desc := &backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		Version:       Version,
+		ServerVersion: config.ServerVersion,
+		Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: classes}},
+	}
+	req := newReq(nil, backendName, backupID)
+	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+	require.NoError(t, c.Restore(ctx, store, &req, desc,
+		[]backup.ClassDescriptor{{Name: classes[0]}}))
+
+	require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
+		10*time.Second, 10*time.Millisecond, "the restore goroutine never released its slot")
+
+	require.Zero(t, schemaManager.applies.Load(),
+		"a restore cancelled while it was staging must not go on to apply the schema")
+	require.Equal(t, backup.Cancelled, c.descriptor.Status)
+}

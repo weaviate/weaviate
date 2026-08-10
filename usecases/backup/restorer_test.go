@@ -328,7 +328,9 @@ func TestRestoreAllCancellation(t *testing.T) {
 		// which is what a cancel-then-retry does. The claim restoreAll was
 		// given is stale from then on, and stamping the slot CANCELLED
 		// through it would cancel a restore nobody cancelled.
-		stolen     bool
+		stolen bool
+		// newID is the id the newer restore claims with.
+		newID      string
 		wantSlotID string
 		wantStatus backup.Status
 	}{
@@ -340,7 +342,18 @@ func TestRestoreAllCancellation(t *testing.T) {
 		{
 			name:       "slot taken over by a newer restore",
 			stolen:     true,
+			newID:      "newer-restore",
 			wantSlotID: "newer-restore",
+			wantStatus: backup.Started,
+		},
+		{
+			// Cancel and retry under the same id is a normal flow, and the one
+			// an id-keyed ownership check cannot tell from the first attempt
+			// still holding the slot.
+			name:       "slot taken over by a retry of the same id",
+			stolen:     true,
+			newID:      backupID,
+			wantSlotID: backupID,
 			wantStatus: backup.Started,
 		},
 	}
@@ -360,7 +373,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 			slot.set(backup.Transferring)
 			if tc.stolen {
 				require.True(t, slot.release())
-				prevID, _ := restorer.lastOp.renew("newer-restore", "test/path", "", "")
+				prevID, _ := restorer.lastOp.renew(tc.newID, "test/path", "", "")
 				require.Empty(t, prevID)
 			}
 
