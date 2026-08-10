@@ -1562,9 +1562,7 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingAlreadyInCancellingStateFinishesIt", func(t *testing.T) {
-		// A descriptor stuck on CANCELLING refuses every later restore of the
-		// id, so repeating the cancel has to finish it rather than report
-		// success on a state that never moves.
+		// A cancel repeated on a stuck CANCELLING descriptor must finish it.
 		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 		ds := backup.DistributedBackupDescriptor{
 			Status: backup.Cancelling,
@@ -1596,9 +1594,8 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingReportsAStuckFinalWrite", func(t *testing.T) {
-		// The nodes are told to stop, but the descriptor keeps reading
-		// CANCELLING, which refuses every later restore of this id. The caller
-		// has to be told, because repeating the cancel is what clears it.
+		// A failed final write must surface as an error: the descriptor is
+		// still stuck on CANCELLING.
 		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 		ds := backup.DistributedBackupDescriptor{
 			Status: backup.Transferring,
@@ -2836,12 +2833,8 @@ func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
 	})
 }
 
-// Pins the API answer a client gets for a restore refused because the same
-// restore is being cancelled: 422, the code the REST layer maps
-// backup.ErrUnprocessable to, rather than the 200-STARTED it used to be. Only
-// the coordinator's refusal answers 422; a participant that is the one to
-// notice reports through its CanCommit response and reaches the client as a
-// 500.
+// Pins that a restore refused during an in-progress cancellation answers 422,
+// not the 500 a participant's own refusal would produce.
 func TestSchedulerRestoreRefusesWhileACancellationIsInProgress(t *testing.T) {
 	t.Parallel()
 	var (
@@ -2891,11 +2884,8 @@ func TestSchedulerRestoreRefusesWhileACancellationIsInProgress(t *testing.T) {
 	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Pins that the create-backup response describes the backup that was asked
-// for, even when the slot it used to be read from has moved on. The slot is
-// the node's single operation slot: by the time the response is built it may
-// already have been given back, or taken by the next backup, and the answer
-// then described that one instead.
+// Pins that the create-backup response describes the requested backup even
+// when the slot it used to be read from has since moved on to another one.
 func TestSchedulerBackupResponseDoesNotReadAStrangersSlot(t *testing.T) {
 	t.Parallel()
 	var (

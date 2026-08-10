@@ -300,16 +300,10 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Give the slot back on the way out, and only while it still holds
-			// this cancelled restore: another restore (even a retry under the
-			// same id) may already own it.
-			//
-			// Freeing it from a request that is then refused is intended, not a
-			// side effect. The cancel does not free it, because the cancelled
-			// operation is still unwinding and the slot is what keeps a new
-			// restore from starting underneath it. Normally that operation's
-			// own release hands it on; this shortens the wait for the client
-			// that is already asking again.
+			// Give the slot back only if it still holds this cancelled restore;
+			// a retry under the same id may already own it. The cancel itself
+			// doesn't free the slot since the cancelled operation is still
+			// unwinding; this shortens the wait for a client already retrying.
 			released, held := c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithFields(logrus.Fields{
 				"action":      OpRestore,
@@ -318,12 +312,11 @@ func (c *coordinator) Restore(
 				"slot_holder": held.ID,
 				"slot_status": held.Status,
 			}).Info("restore cancellation already in progress, nothing started")
-			// Refused, not started. Returning nil here would reach the caller
-			// as STARTED, and the id it then polls would answer with the
-			// terminal status of the restore being cancelled. A participant
-			// that is the one to notice refuses with the same wording, but its
-			// refusal travels back inside a CanCommit response and reaches the
-			// client as a 500, not as this 422.
+			// Refused, not started: returning nil here would surface as
+			// STARTED, and polling would answer with the cancelling restore's
+			// terminal status. A participant that notices refuses with the
+			// same wording, but that refusal reaches the client as a 500,
+			// not this 422.
 			return backup.NewErrUnprocessable(
 				fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", desc.ID))
 		}
