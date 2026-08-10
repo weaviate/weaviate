@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -216,11 +217,139 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 				&StatusRequest{Method: OpCreate, ID: backupID})
 
 			require.Equal(t, backup.Failed, res.Status)
+			require.Equal(t, backup.Failed, desc.Status,
+				"the persisted descriptor must not claim the backup was still transferring")
 			for _, want := range tc.wantIn {
 				require.Contains(t, res.Err, want)
 			}
 		})
 	}
+}
+
+// The descriptor is the whole backup: with no descriptor there is nothing to
+// restore from. Publishing SUCCESS because the file uploads went fine has the
+// coordinator count the node done and report an unrestorable backup as good.
+func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+	)
+	metaErr := errors.New("meta write rejected by object storage")
+
+	cases := []struct {
+		name       string
+		metaErr    error
+		wantStatus backup.Status
+		wantErr    string
+	}{
+		{
+			name:       "the descriptor lands",
+			wantStatus: backup.Success,
+		},
+		{
+			name:       "the descriptor does not land",
+			metaErr:    metaErr,
+			wantStatus: backup.Failed,
+			wantErr:    metaErr.Error(),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- backup.ClassDescriptor{Name: class}
+			close(descriptors)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
+
+			logger, _ := test.NewNullLogger()
+			bp := &backupper{logger: logger}
+			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+			desc := backup.BackupDescriptor{ID: backupID}
+			err := uploader.all(context.Background(), []string{class}, &desc, nil, "", "")
+
+			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+				&StatusRequest{Method: OpCreate, ID: backupID})
+
+			require.Equal(t, tc.wantStatus, res.Status,
+				"a node the coordinator counts as done must really be done")
+			require.Contains(t, res.Err, tc.wantErr)
+			if tc.metaErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.metaErr)
+		})
+	}
+}
+
+// An operator abort reaches the uploader as a cancelled context, but the error
+// that comes back from the work it interrupted does not always wrap it. The
+// operation's own context is the signal that says which one it was.
+func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+	)
+
+	descriptors := make(chan backup.ClassDescriptor, 1)
+	descriptors <- backup.ClassDescriptor{Name: class}
+	close(descriptors)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(descriptors))
+	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+	backend := newFakeBackend()
+	backend.On("SourceDataPath").Return(t.TempDir())
+	backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The abort lands while the roles are being snapshotted, and what comes back
+	// is that step's own error, which says nothing about a cancellation.
+	rbac := &abortingSnapshotter{cancel: cancel, err: errors.New("roles snapshot interrupted")}
+
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, rbac, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+	desc := backup.BackupDescriptor{ID: backupID}
+	require.Error(t, uploader.all(ctx, []string{class}, &desc, nil, "", ""))
+
+	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpCreate, ID: backupID})
+
+	require.Equal(t, backup.Cancelled, res.Status,
+		"an operator who aborted a backup must not be told it failed")
+	require.Equal(t, backup.Cancelled, desc.Status)
+}
+
+type abortingSnapshotter struct {
+	cancel context.CancelFunc
+	err    error
+}
+
+func (s *abortingSnapshotter) Snapshot(roles ...string) ([]byte, error) {
+	s.cancel()
+	return nil, s.err
+}
+
+func (s *abortingSnapshotter) Restore(snapshot []byte, stripNamespaces bool) error {
+	return nil
 }
 
 // The goroutine that runs a create owns the slot and releases it on the way
@@ -281,4 +410,208 @@ func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T
 	require.Equal(t, backup.Failed, res.Status)
 	require.Contains(t, res.Err, uploadErr.Error())
 	require.Contains(t, res.Err, metaErr.Error())
+}
+
+// A create can fail before it ever reaches the upload, and those paths write no
+// descriptor at all. The slot is then the only place the reason can live, and
+// the diagnostics from the base-backup chain are the ones an operator most
+// needs: they say what is wrong with the request.
+func TestHandlerOnStatusServesTheReasonACreateFailedWithBeforeUploading(t *testing.T) {
+	const (
+		backupID    = "before-upload"
+		baseID      = "base"
+		backendName = "s3"
+		class       = "Article"
+	)
+	var (
+		ctx      = context.Background()
+		nodeHome = backupID + "/" + nodeName
+		baseHome = baseID + "/" + nodeName
+		path     = "bucket/backups/" + nodeHome
+	)
+
+	base := func(d backup.BackupDescriptor) []byte {
+		b, err := json.Marshal(d)
+		require.NoError(t, err)
+		return b
+	}
+	gzip := backup.CompressionGZIP
+	zstd := backup.CompressionZSTD
+
+	cases := []struct {
+		name     string
+		commit   bool
+		level    CompressionLevel
+		baseID   string
+		baseMeta []byte
+		wantIn   string
+	}{
+		{
+			name:   "the coordinator never commits",
+			level:  GzipDefaultCompression,
+			wantIn: "timed out waiting for coordinator to commit",
+		},
+		{
+			name:   "the compression level is not one this build knows",
+			commit: true,
+			level:  CompressionLevel(99),
+			wantIn: "invalid compression level: 99",
+		},
+		{
+			name:   "the base backup was taken with another compression type",
+			commit: true,
+			level:  GzipDefaultCompression,
+			baseID: baseID,
+			baseMeta: base(backup.BackupDescriptor{
+				ID: baseID, Status: backup.Success, CompressionType: &zstd,
+				StartedAt: time.Now().Add(-time.Hour),
+			}),
+			wantIn: `has compression type "zstd", expected "gzip"`,
+		},
+		{
+			name:   "the base backup chain points back at itself",
+			commit: true,
+			level:  GzipDefaultCompression,
+			baseID: baseID,
+			baseMeta: base(backup.BackupDescriptor{
+				ID: baseID, Status: backup.Success, CompressionType: &gzip,
+				StartedAt: time.Now().Add(-time.Hour), BaseBackupID: baseID,
+			}),
+			wantIn: "circular references in backup ids detected",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sourcer := &fakeSourcer{}
+			sourcer.On("Backupable", mock.Anything, []string{class}).Return(nil)
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, mock.Anything).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("Initialize", mock.Anything, nodeHome).Return(nil)
+			// No descriptor for this backup: the operation failed before writing one.
+			backend.On("GetObject", mock.Anything, nodeHome, BackupFile).Return(nil, errNotFound)
+			backend.On("GetObject", mock.Anything, backupID, BackupFile).Return(nil, errNotFound)
+			backend.On("GetObject", mock.Anything, baseHome, BackupFile).Return(tc.baseMeta, nil)
+
+			m := createManager(sourcer, nil, backend, nil)
+			req := Request{
+				Method:       OpCreate,
+				ID:           backupID,
+				Classes:      []string{class},
+				Backend:      backendName,
+				Duration:     50 * time.Millisecond,
+				Compression:  Compression{Level: tc.level, CPUPercentage: DefaultCPUPercentage},
+				BaseBackupID: tc.baseID,
+			}
+			require.Empty(t, m.OnCanCommit(ctx, &req).Err)
+			if tc.commit {
+				require.NoError(t, m.OnCommit(ctx, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}))
+			}
+
+			require.Eventually(t, func() bool { return m.backupper.lastOp.get().ID == "" },
+				10*time.Second, 5*time.Millisecond, "the create goroutine never released the slot")
+
+			res := m.OnStatus(ctx, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName})
+
+			require.Equal(t, backup.Failed, res.Status)
+			require.Contains(t, res.Err, tc.wantIn,
+				"the reason exists, and the slot is the only place a poll can find it")
+		})
+	}
+}
+
+// The remembered failure is a fallback, not an override. A descriptor on the
+// backend is the durable record of what happened to that backup, and answering
+// a poll from memory instead would report a backup that finished as failed.
+func TestHandlerOnStatusPrefersTheDescriptorOverARememberedFailure(t *testing.T) {
+	const (
+		backupID    = "descriptor-wins"
+		backendName = "s3"
+	)
+	var (
+		ctx      = context.Background()
+		nodeHome = backupID + "/" + nodeName
+		path     = "bucket/backups/" + nodeHome
+	)
+
+	meta, err := json.Marshal(backup.BackupDescriptor{
+		ID: backupID, Status: backup.Success, StartedAt: time.Now(),
+	})
+	require.NoError(t, err)
+
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+	backend.On("GetObject", mock.Anything, nodeHome, BackupFile).Return(meta, nil)
+
+	m := createManager(nil, nil, backend, nil)
+	require.Empty(t, m.backupper.lastOp.renew(backupID, path, "", ""))
+	m.backupper.lastOp.setFailed("object storage unreachable")
+	m.backupper.lastOp.reset()
+
+	res := m.OnStatus(ctx, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName})
+
+	require.Equal(t, backup.Success, res.Status)
+	require.Empty(t, res.Err)
+}
+
+// The coordinator publishes the outcome on its slot and only then writes the
+// global descriptor, which is a round trip to object storage. A user polling
+// GET /backups/{backend}/{id} in between is answered from the slot, so a FAILED
+// with no reason there is the same bug one level up, on the path an operator
+// actually hits.
+func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t *testing.T) {
+	const (
+		backupID    = "coordinated"
+		backendName = "s3"
+		reason      = "no space left on device"
+	)
+	ctx := context.Background()
+
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1"}))
+	c := fc.coordinator()
+	c.timeoutNextRound = time.Millisecond
+	c.descriptor = &backup.DistributedBackupDescriptor{
+		ID:          backupID,
+		NodeMapping: map[string]string{},
+		Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
+	}
+	c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+	require.Empty(t, c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
+
+	fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
+	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(&StatusResponse{
+		Status: backup.Failed, Err: reason, ID: backupID, Method: OpCreate,
+	}, nil)
+	fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
+
+	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
+	c.commit(ctx, req, map[string]string{"N1": "N1"}, false)
+
+	st, err := c.OnStatus(ctx, coordStore{}, req)
+
+	require.NoError(t, err)
+	require.Equal(t, backup.Failed, st.Status)
+	require.Contains(t, st.Err, reason,
+		"the descriptor is not on the backend yet, so the slot is the only answer")
+}
+
+// Same window on the restore side.
+func TestHandlerOnStatusServesTheReasonARestoreFailedWith(t *testing.T) {
+	const (
+		backupID = "restoring"
+		reason   = "restore class Article: schema apply rejected"
+	)
+
+	r := &restorer{}
+	require.Empty(t, r.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
+	r.lastOp.setFailed(reason)
+
+	res := (&Handler{restorer: r}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpRestore, ID: backupID})
+
+	require.Equal(t, backup.Failed, res.Status)
+	require.Equal(t, reason, res.Err)
 }

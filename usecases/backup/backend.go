@@ -267,16 +267,24 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
 
-		//  make sure context is not cancelled when uploading metadata
-		ctx := context.Background()
+		//  make sure context is not cancelled when uploading metadata. Its own
+		//  name, so the cancellation check below still reads the operation's
+		//  context rather than this one, which can never be cancelled.
+		metaCtx := context.Background()
 
 		// Handle success case first
 		if err == nil {
 			u.log.Info("start uploading metadata")
-			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
+			if err = u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); err != nil {
+				// Nothing to restore from without the descriptor, so this ends
+				// as a failure. Publishing SUCCESS here would have the
+				// coordinator count the node done and report a backup that
+				// cannot be restored as good.
 				desc.Status = backup.Transferred
+				u.slot.setFailed(publishableErrMsg(err))
+			} else {
+				u.slot.set(backup.Success)
 			}
-			u.slot.set(backup.Success)
 			u.log.Info("finish uploading metadata")
 			return
 		}
@@ -284,24 +292,26 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		if cancelled {
 			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
+			desc.Status = backup.Failed
 			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		// After the meta write either way, since it's the operation that may
-		// have just failed and the reason must survive it. err is published
-		// rather than desc.Error, which was fixed before the write and so says
-		// nothing when the write is what failed.
-		if desc.Status != backup.Cancelled {
+		// After the meta write, which has to carry the reason by the time a
+		// poll can see FAILED. err is published rather than desc.Error, which
+		// was fixed before the write and so says nothing when the write is
+		// what failed.
+		if !cancelled {
 			u.slot.setFailed(publishableErrMsg(err))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")

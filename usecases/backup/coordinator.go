@@ -375,7 +375,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
+		c.publishStatus()
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -461,7 +461,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
 	if req.Method == OpRestore {
@@ -723,9 +723,20 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
+	c.publishStatus()
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// publishStatus mirrors the descriptor's outcome on the slot, which is what a
+// poll reads until the descriptor is written to object storage. A failure goes
+// through setFailed so it is never published without the reason next to it.
+func (c *coordinator) publishStatus() {
+	if c.descriptor.Status == backup.Failed {
+		c.lastOp.setFailed(c.descriptor.Error)
+		return
+	}
+	c.lastOp.set(c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally
