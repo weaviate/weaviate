@@ -155,6 +155,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -676,7 +677,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
@@ -757,8 +758,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
+	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface
+	// leaves rbacSourcer non-nil, so the backupper's nil check misses it and an
+	// includeRoles request produces an empty RBAC blob instead of being rejected.
+	var rbacSourcer backup.RBACSnapshotter
+	if appState.RBAC != nil {
+		rbacSourcer = appState.RBAC
+	}
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
+		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
@@ -1609,12 +1617,21 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
+	// roleLister lets the scheduler resolve includeRoles selectors. Assign it only
+	// when RBAC is on: putting a nil *rbac.Manager into the interface would leave
+	// roleLister non-nil, so the scheduler's nil check would miss it and an
+	// includeRoles request would panic instead of being rejected with a clear error.
+	var roleLister backup.RoleLister
+	if appState.RBAC != nil {
+		roleLister = appState.RBAC
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, appState.Modules,
+		appState.DB, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
+		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		appState.Logger)
 	return backupScheduler
 }

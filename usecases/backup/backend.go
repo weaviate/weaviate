@@ -29,7 +29,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -214,10 +213,12 @@ func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBuck
 type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users   []string
+	users []string
+	// Resolved includeRoles names; empty → whole-cluster RBAC snapshot.
+	roles   []string
 	backend nodeStore
 	op      backup.Op
 	zipConfig
@@ -228,7 +229,7 @@ type uploader struct {
 	joinBudget time.Duration
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -237,6 +238,7 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		users:          users,
+		roles:          roles,
 		backend:        backend,
 		op:             backup.NewOp(backupID),
 		zipConfig: newZipConfig(Compression{
@@ -373,11 +375,13 @@ Loop:
 		return contextChecker(ctx)
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot()
+		descrp, err := u.rbacSourcer.Snapshot(u.roles...)
 		if err != nil {
 			return err
 		}
 		desc.RbacBackups = descrp
+	} else if len(u.roles) > 0 {
+		return fmt.Errorf("includeRoles requested but RBAC is not enabled")
 	}
 
 	if err := ctx.Err(); err != nil {
