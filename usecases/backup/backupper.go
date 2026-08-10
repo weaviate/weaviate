@@ -113,7 +113,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
