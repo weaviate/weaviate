@@ -936,10 +936,11 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 	return errs
 }
 
-// indexTypesFromMigrationType returns the canonical inverted-index types
-// ("filterable", "searchable", "rangeable") that a migration type targets,
-// for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
-// migration types — every known type returns at least one indexType.
+// indexTypesFromMigrationType is [db.ReindexTargetIndexes] in the shape the
+// cleanup callers want: the inverted-index types ("filterable", "searchable",
+// "rangeable") a migration type targets, plus whether this build knows the
+// type at all. Returns (nil, false) only for unknown migration types — every
+// known type targets at least one index.
 //
 // Most migration types target exactly one index. change-tokenization (both
 // indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
@@ -958,51 +959,23 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 // once per indexType. Safe to call when no stale state exists: missing
 // directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return []string{"searchable"}, true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return []string{"filterable"}, true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return []string{"rangeable"}, true
-	case db.ReindexTypeChangeTokenization:
-		// change-tokenization-both runs ONE task per inverted index
-		// (searchable + filterable). Each leaves its own per-property
-		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
-		// bucket state mismatch (Sev 1 silent data loss).
-		return []string{"searchable", "filterable"}, true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}, true
-	}
-	return nil, false
+	indexTypes := db.ReindexTargetIndexes(mt)
+	return indexTypes, len(indexTypes) > 0
 }
 
-// migrationTypeTargetsIndex returns:
+// migrationTypeTargetsIndex asks [db.ReindexTargetIndexes] the cancel
+// matcher's question and returns:
 //
 //   - matches: true if the migration type writes to the named index bucket.
-//   - isKnown: true if the migration type is one this function knows about.
+//   - isKnown: true if the migration type is one this build can map.
 //
-// A new ReindexType added to the codebase without being mapped here would
-// return (false, false). Callers that need to log/alert on that case can
-// check the second return; cancel-path callers can ignore it because a
-// (false, false) result still means "this task is not a cancel target".
+// A new ReindexMigrationType added without an arm there returns (false,
+// false). Callers that need to log/alert on that case can check the second
+// return; cancel-path callers can ignore it because a (false, false) result
+// still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return indexType == "searchable", true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable", true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable", true
-	case db.ReindexTypeChangeTokenization:
-		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable", true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return indexType == "filterable", true
-	}
-	return false, false
+	indexTypes := db.ReindexTargetIndexes(mt)
+	return slices.Contains(indexTypes, indexType), len(indexTypes) > 0
 }
 
 // normalizeSearchableAlgorithm maps an explicit searchable.algorithm

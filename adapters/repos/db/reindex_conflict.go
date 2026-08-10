@@ -210,10 +210,17 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
-// ReindexTargetIndexes lists the index keys the cancel endpoint accepts for
-// a migration type, or nil for a type this build does not know. Same mapping
-// as migrationTypeTargetsIndex in the REST handlers, which decides whether a
-// cancel request matches a task; a test in that package pins the two together.
+// ReindexTargetIndexes lists the inverted-index keys a migration type writes
+// to, or nil for a type this build does not know.
+//
+// The single source of truth for that mapping. Three questions are answered
+// from it and must never diverge: which index key a printed cancel URL names
+// ([ReindexCancelCall]), whether a cancel request matches a task
+// (migrationTypeTargetsIndex in the REST handlers), and which index types get
+// cleaned off disk on cancel and pre-submit (indexTypesFromMigrationType,
+// same package) — where a mismatch is the Sev 1 silent data loss that
+// function's godoc describes. A new ReindexMigrationType therefore only has
+// to be added here.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,

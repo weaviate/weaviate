@@ -214,28 +214,29 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	}
 }
 
-// The cancel URL the gate messages print is only correct while the index key
-// it names is the one the cancel endpoint matches on. That mapping lives here
-// in migrationTypeTargetsIndex and is mirrored in db.ReindexTargetIndexes so
-// the db package can render the URL; this pins them together, since a
-// divergence would print a URL that answers 202 NO_OP.
-func TestReindexTargetIndexesAgreesWithTheCancelMatcher(t *testing.T) {
+// Both helpers in this package answer their question by reading
+// db.ReindexTargetIndexes, so that one mapping decides which index key a
+// printed cancel URL names, whether a cancel request matches a task, and
+// which index types get cleaned off disk. This pins the delegation: a copy
+// re-forked into either helper would print a URL that answers 202 NO_OP, or
+// clean one index type of a migration that wrote two.
+//
+// The mapping's own arms are pinned in the db package, next to the mapping.
+func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 	migrationTypes := []db.ReindexMigrationType{
-		db.ReindexTypeChangeAlgorithm,
-		db.ReindexTypeRebuildSearchable,
-		db.ReindexTypeRepairFilterable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable,
-		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableSearchable,
-		db.ReindexTypeChangeTokenization,
-		db.ReindexTypeChangeTokenizationFilterable,
+		db.ReindexTypeChangeTokenization, // two index types
+		db.ReindexTypeEnableRangeable,    // one
 		db.ReindexMigrationType("invent-index"),
 	}
 
 	for _, mt := range migrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
 			targets := db.ReindexTargetIndexes(mt)
+
+			indexTypes, known := indexTypesFromMigrationType(mt)
+			require.Equal(t, targets, indexTypes)
+			require.Equal(t, len(targets) > 0, known)
+
 			for _, indexType := range []string{"searchable", "filterable", "rangeable"} {
 				matches, known := migrationTypeTargetsIndex(mt, indexType)
 				require.Equal(t, len(targets) > 0, known)

@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -965,6 +966,47 @@ func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) 
 			})
 		}
 	}
+}
+
+// TestReindexTargetIndexes pins every arm of the mapping the cancel URL, the
+// cancel matcher and the on-disk cleanup all read. A wrong arm here is the
+// Sev 1 the cleanup path guards against: a migration that wrote two index
+// types with only one of them cleaned.
+//
+// Each row is also cross-checked against TouchesSearchable and
+// TouchesFilterable, which answer the same question from their own exhaustive
+// switches and panic on a type they do not know. A migration type added to
+// the const block reaches those two on its first request, so pairing them
+// here is what turns a forgotten arm into a test failure rather than a
+// mapping that silently answers nil.
+func TestReindexTargetIndexes(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		want          []string
+	}{
+		{ReindexTypeEnableSearchable, []string{"searchable"}},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}},
+		{ReindexTypeEnableFilterable, []string{"filterable"}},
+		{ReindexTypeRepairFilterable, []string{"filterable"}},
+		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}},
+		{ReindexTypeEnableRangeable, []string{"rangeable"}},
+		{ReindexTypeRepairRangeable, []string{"rangeable"}},
+		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			got := ReindexTargetIndexes(tc.migrationType)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, TouchesSearchable(tc.migrationType), slices.Contains(got, "searchable"))
+			require.Equal(t, TouchesFilterable(tc.migrationType), slices.Contains(got, "filterable"))
+		})
+	}
+
+	t.Run("a type this build does not know", func(t *testing.T) {
+		require.Nil(t, ReindexTargetIndexes("invent-index"))
+	})
 }
 
 // TestReindexCancelCall_OnlyRendersWhatItCanFillIn pins the rule the gate
