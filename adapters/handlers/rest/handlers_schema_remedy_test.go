@@ -238,13 +238,9 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	}
 }
 
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall runs every rendered
-// repair/cancel call through the checks the real handler would run on it:
-// group exclusivity first, then the per-type precondition for the verb in the
-// body. The property state each row carries is the one the remedy is printed
-// in — the migration terminalized, so the schema bit its flip would have set
-// has not moved. Exclusivity alone is not enough: a body can be
-// well-formed and still be rejected by its own validator.
+// TestEveryDeclaredTypeRendersAnAcceptedRepairCall checks that every rendered
+// repair/cancel call also passes the real per-type validator, not just group
+// exclusivity — a well-formed body can still fail its own precondition.
 func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 	const targetTok = "word"
 	// The tokenization every retokenize row is migrating away from.

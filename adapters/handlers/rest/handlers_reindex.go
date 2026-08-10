@@ -242,13 +242,9 @@ func validateRebuildSearchableProperty(class *models.Class, prop *models.Propert
 }
 
 // validateChangeAlgorithmProperty guards searchable.algorithm: the property
-// needs a searchable index, the target must be one this build can migrate
-// to, and the index must not already be there.
-//
-// The explicit switch is deliberately stricter than an equality check: when a
-// second searchable algorithm ships, the swagger enum accepts it and unrelated
-// call sites start passing it here. A missing case then surfaces at the diff
-// site instead of being silently accepted with no migration type wired up.
+// needs a searchable index, the target must be a migratable algorithm, and
+// not already applied. The switch (not equality) turns a future new
+// algorithm into a compiler-visible missing case instead of a silent no-op.
 func validateChangeAlgorithmProperty(class *models.Class, prop *models.Property, algorithm string) error {
 	if prop.IndexSearchable != nil && !*prop.IndexSearchable {
 		return errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))
