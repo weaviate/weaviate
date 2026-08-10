@@ -45,11 +45,12 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
-	// generation counts the claims this slot has handed out. Backup ids are
-	// user-supplied and reusable — cancelling an operation and retrying it
-	// under the same id is a normal flow — so the id alone does not identify a
-	// claim. renew gives the claiming operation the generation of its own
-	// claim, and that is what the release paths match on.
+	// generation counts the claims this slot has handed out, and is what
+	// identifies one. Backup ids are user-supplied and reusable — cancelling an
+	// operation and retrying it under the same id is a normal flow — so the id
+	// alone does not tell two claims apart. renew hands the generation of the
+	// new claim to its holder as a [slotOwner], which every read and write from
+	// that operation goes through.
 	generation uint64
 
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
