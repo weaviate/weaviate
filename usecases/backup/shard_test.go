@@ -87,7 +87,8 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			t.Parallel()
 			var s backupStat
 			if tc.claimedID != "" {
-				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+				prevID, _ := s.renew(tc.claimedID, "path", "bucket", "override")
+				require.Empty(t, prevID)
 				s.set(tc.status)
 			}
 
@@ -98,47 +99,75 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 }
 
 // resetIfOwned is the release half: an operation gives the slot back only while
-// it still holds it. Unlike resetIfCancelled it does not look at the status,
-// because the caller is the holder itself and releases from every outcome.
+// it still holds it. Ownership is the generation renew handed out, not the
+// backup id, because ids are reusable — a cancelled operation retried under the
+// same id is a different claim, and the first one's release must not free it.
 func TestBackupStatResetIfOwned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		claimedID  string
-		status     backup.Status
-		resetID    string
+		name string
+		// arrange sets the slot up and returns the generation held by the
+		// operation that is about to release.
+		arrange    func(t *testing.T, s *backupStat) uint64
 		wantOK     bool
 		wantSlotID string
 	}{
 		{
-			name:       "holder releases its own slot",
-			claimedID:  "op-1",
-			status:     backup.Success,
-			resetID:    "op-1",
+			name: "holder releases its own slot",
+			arrange: func(t *testing.T, s *backupStat) uint64 {
+				_, gen := s.renew("op-1", "path", "", "")
+				s.set(backup.Success)
+				return gen
+			},
 			wantOK:     true,
 			wantSlotID: "",
 		},
 		{
-			name:       "holder releases after a cancel",
-			claimedID:  "op-1",
-			status:     backup.Cancelled,
-			resetID:    "op-1",
+			name: "holder releases after a cancel",
+			arrange: func(t *testing.T, s *backupStat) uint64 {
+				_, gen := s.renew("op-1", "path", "", "")
+				s.set(backup.Cancelled)
+				return gen
+			},
 			wantOK:     true,
 			wantSlotID: "",
 		},
 		{
-			name:       "slot already taken over by another operation",
-			claimedID:  "op-2",
-			status:     backup.Transferring,
-			resetID:    "op-1",
+			name: "slot taken over by a different operation",
+			arrange: func(t *testing.T, s *backupStat) uint64 {
+				_, gen := s.renew("op-1", "path", "", "")
+				s.reset()
+				prevID, _ := s.renew("op-2", "path", "", "")
+				require.Empty(t, prevID)
+				return gen
+			},
 			wantOK:     false,
 			wantSlotID: "op-2",
 		},
 		{
-			name:       "slot is free",
-			claimedID:  "",
-			resetID:    "op-1",
+			// Cancel a restore, then retry it under the same id: a normal
+			// flow, and the one an id-keyed check cannot tell apart from the
+			// first attempt still holding the slot.
+			name: "slot taken over by a retry of the same id",
+			arrange: func(t *testing.T, s *backupStat) uint64 {
+				_, gen := s.renew("op-1", "path", "", "")
+				s.set(backup.Cancelled)
+				require.True(t, s.resetIfCancelled("op-1"))
+				prevID, _ := s.renew("op-1", "path", "", "")
+				require.Empty(t, prevID, "the retry could not claim the freed slot")
+				return gen
+			},
+			wantOK:     false,
+			wantSlotID: "op-1",
+		},
+		{
+			name: "slot already released",
+			arrange: func(t *testing.T, s *backupStat) uint64 {
+				_, gen := s.renew("op-1", "path", "", "")
+				s.reset()
+				return gen
+			},
 			wantOK:     false,
 			wantSlotID: "",
 		},
@@ -148,12 +177,9 @@ func TestBackupStatResetIfOwned(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var s backupStat
-			if tc.claimedID != "" {
-				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
-				s.set(tc.status)
-			}
+			generation := tc.arrange(t, &s)
 
-			require.Equal(t, tc.wantOK, s.resetIfOwned(tc.resetID))
+			require.Equal(t, tc.wantOK, s.resetIfOwned(generation))
 			require.Equal(t, tc.wantSlotID, s.get().ID)
 		})
 	}
@@ -220,7 +246,8 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			t.Parallel()
 			var s backupStat
 			if tc.claimedID != "" {
-				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+				prevID, _ := s.renew(tc.claimedID, "path", "bucket", "override")
+				require.Empty(t, prevID)
 				s.set(tc.status)
 			}
 
@@ -236,7 +263,8 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	t.Parallel()
 
 	var s backupStat
-	require.Empty(t, s.renew("live-restore", "home/dir", "bucket", "override"))
+	prevID, _ := s.renew("live-restore", "home/dir", "bucket", "override")
+	require.Empty(t, prevID)
 	s.set(backup.Cancelled)
 
 	require.False(t, s.resetIfCancelled("cancelled-restore"))
@@ -261,7 +289,8 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 
 	for i := 0; i < 5000; i++ {
 		var s backupStat
-		require.Empty(t, s.renew(cancelled, "path", "", ""))
+		prevID, _ := s.renew(cancelled, "path", "", "")
+		require.Empty(t, prevID)
 		s.set(backup.Cancelled)
 
 		var (
@@ -279,7 +308,7 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 			defer wg.Done()
 			<-start
 			s.reset()
-			renewErr = s.renew(fresh, "path", "", "")
+			renewErr, _ = s.renew(fresh, "path", "", "")
 		}()
 		close(start)
 		wg.Wait()

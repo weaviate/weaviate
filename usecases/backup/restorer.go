@@ -89,7 +89,7 @@ func (r *restorer) restore(
 	}
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
+	if prevID, _ := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
