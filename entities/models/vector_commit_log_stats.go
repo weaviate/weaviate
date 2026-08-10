@@ -46,7 +46,7 @@ type VectorCommitLogStats struct {
 	// The number of sorted commit log files awaiting merge or snapshot.
 	SortedFiles int64 `json:"sortedFiles"`
 
-	// The combined size in bytes of all commit log files of this vector index, including the actively written file.
+	// The combined size in bytes of the commit log files the compactor tracks: the current snapshot, sorted, condensed and raw files, and the actively written file. A duplicate snapshot left behind by a crash is not counted until the next created snapshot supersedes it.
 	TotalSizeBytes int64 `json:"totalSizeBytes"`
 }
 

@@ -55,7 +55,7 @@ type NodeShardStatus struct {
 	ReplicationFactor int64 `json:"replicationFactor,omitempty"`
 
 	// Commit log statistics per vector index of this shard on this node, as of the vector index's last completed compaction cycle. Omitted for unloaded shards, for vector index types without a compacting commit log, and before the first compaction cycle completes.
-	VectorCommitLogStats []*VectorCommitLogStats `json:"vectorCommitLogStats"`
+	VectorCommitLogStats []*VectorCommitLogStats `json:"vectorCommitLogStats,omitempty"`
 
 	// The status of the vector indexing process.
 	VectorIndexingStatus string `json:"vectorIndexingStatus"`

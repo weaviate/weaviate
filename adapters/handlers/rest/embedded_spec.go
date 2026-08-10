@@ -9281,7 +9281,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/VectorCommitLogStats"
-          }
+          },
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -11352,7 +11353,7 @@ func init() {
           "x-omitempty": false
         },
         "totalSizeBytes": {
-          "description": "The combined size in bytes of all commit log files of this vector index, including the actively written file.",
+          "description": "The combined size in bytes of the commit log files the compactor tracks: the current snapshot, sorted, condensed and raw files, and the actively written file. A duplicate snapshot left behind by a crash is not counted until the next created snapshot supersedes it.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -21247,7 +21248,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/VectorCommitLogStats"
-          }
+          },
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -23511,7 +23513,7 @@ func init() {
           "x-omitempty": false
         },
         "totalSizeBytes": {
-          "description": "The combined size in bytes of all commit log files of this vector index, including the actively written file.",
+          "description": "The combined size in bytes of the commit log files the compactor tracks: the current snapshot, sorted, condensed and raw files, and the actively written file. A duplicate snapshot left behind by a crash is not counted until the next created snapshot supersedes it.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false

@@ -192,7 +192,7 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 	// Step 5: Decide action
 	action := c.decideAction(state)
 	if action == ActionNone {
-		c.publishStats(state)
+		c.publishStats(state, c.cycles.Add(1))
 		return ActionNone, nil
 	}
 
@@ -210,6 +210,11 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 		}
 	}
 
+	// The cycle is complete at this point, so count it before attempting to
+	// publish: a failed stats re-scan below must not make the counter skip a
+	// completed cycle.
+	cycles := c.cycles.Add(1)
+
 	// Re-scan so the published stats include the files the action just
 	// created or removed. The extra scan runs only on cycles that did work,
 	// where its cost is negligible next to the merge I/O; idle cycles reuse
@@ -219,7 +224,7 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 			WithField("action", "hnsw_compactor_stats").
 			Debug("skipping stats update: rescan after compaction action failed")
 	} else {
-		c.publishStats(state)
+		c.publishStats(state, cycles)
 	}
 
 	return action, nil
@@ -232,8 +237,8 @@ func (c *Compactor) Stats() *Stats {
 	return c.stats.Load()
 }
 
-func (c *Compactor) publishStats(state *DirectoryState) {
-	c.stats.Store(statsFromState(state, c.cycles.Add(1)))
+func (c *Compactor) publishStats(state *DirectoryState, cycles uint64) {
+	c.stats.Store(statsFromState(state, cycles))
 }
 
 // isAborted is a small helper that tolerates a nil callback.

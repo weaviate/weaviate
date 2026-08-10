@@ -14,11 +14,15 @@ package compact
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestCompactor_StatsPublishing(t *testing.T) {
@@ -58,6 +62,63 @@ func TestCompactor_StatsPublishing(t *testing.T) {
 	require.Equal(t, ActionNone, action)
 
 	stats = compactor.Stats()
+	require.NotNil(t, stats)
+	assert.Equal(t, uint64(2), stats.Cycles)
+	assert.Equal(t, int64(1000), stats.SnapshotTimestamp)
+}
+
+// failOnSnapshotFS fails every ReadDir that observes a .snapshot file while
+// armed. In a raw → sorted → snapshot cycle the first such ReadDir is the
+// post-action stats re-scan, so arming it makes exactly that scan fail.
+type failOnSnapshotFS struct {
+	common.FS
+	armed atomic.Bool
+}
+
+func (f *failOnSnapshotFS) ReadDir(name string) ([]os.DirEntry, error) {
+	entries, err := f.FS.ReadDir(name)
+	if err != nil || !f.armed.Load() {
+		return entries, err
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".snapshot") {
+			return nil, assert.AnError
+		}
+	}
+	return entries, nil
+}
+
+func TestCompactor_CycleCounterSurvivesFailedStatsScan(t *testing.T) {
+	dir := t.TempDir()
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	createWALFile(t, filepath.Join(dir, "1000"))
+	createEmptyFile(t, dir, "2000") // live file
+
+	fs := &failOnSnapshotFS{FS: common.NewOSFS()}
+	fs.armed.Store(true)
+
+	config := DefaultCompactorConfig(dir)
+	config.FS = fs
+	compactor := NewCompactor(config, logger)
+
+	// Cycle 1 creates a snapshot; the post-action stats re-scan fails.
+	// The cycle itself succeeded, so it must be counted anyway.
+	action, err := compactor.RunCycle(nil)
+	require.NoError(t, err)
+	require.Equal(t, ActionCreateSnapshot, action)
+	assert.Nil(t, compactor.Stats(), "a failed re-scan skips the publish")
+
+	fs.armed.Store(false)
+
+	// Cycle 2 is idle and publishes. It must report both completed cycles,
+	// not just the ones whose publish succeeded.
+	action, err = compactor.RunCycle(nil)
+	require.NoError(t, err)
+	require.Equal(t, ActionNone, action)
+
+	stats := compactor.Stats()
 	require.NotNil(t, stats)
 	assert.Equal(t, uint64(2), stats.Cycles)
 	assert.Equal(t, int64(1000), stats.SnapshotTimestamp)

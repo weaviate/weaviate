@@ -33,8 +33,11 @@ type Stats struct {
 	// 0 when no snapshot exists.
 	SnapshotTimestamp int64
 
-	// TotalSizeBytes is the combined size of all commit log files in the
-	// directory, including the actively written file.
+	// TotalSizeBytes is the combined size of the commit log files the
+	// compactor tracks: the current snapshot, sorted, condensed and raw
+	// files, and the actively written file. A duplicate snapshot left behind
+	// by a crash is not tracked (FileDiscovery keeps only the newest), so it
+	// is not counted until the next created snapshot supersedes it.
 	TotalSizeBytes int64
 
 	// Cycles is the number of compaction cycles completed since the
