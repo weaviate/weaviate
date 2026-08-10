@@ -812,8 +812,17 @@ func TestScanTargetedReplaceCallbackPanic(t *testing.T) {
 }
 
 // BenchmarkScanTargetedReplaceParallelism sweeps the worker count in pread, where
-// concurrent reads share one file descriptor. Raising it past a handful stops
-// paying, so a caller sizing this from core count picks the wrong number.
+// concurrent reads share one file descriptor and the answer turns out to depend
+// on the platform. Measured over 200k rows of 4 KiB across 8 segments, warm:
+//
+//	workers        1      4     16     64    256
+//	linux/amd64  309ms   91ms   40ms   35ms   35ms
+//	darwin/arm64 204ms   86ms  164ms  163ms  169ms
+//
+// Linux scales to roughly the core count and then flattens; Darwin peaks around
+// four workers and loses half its throughput beyond that. Size this for the
+// deployment target — a number tuned on a laptop is wrong on a server, and the
+// reverse.
 func BenchmarkScanTargetedReplaceParallelism(b *testing.B) {
 	ctx := context.Background()
 	bucket, rows := benchScanFixture(b, 8, 4096, WithPread(true), WithMinMMapSize(0))
