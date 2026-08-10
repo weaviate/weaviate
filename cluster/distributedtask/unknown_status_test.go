@@ -22,8 +22,9 @@ import (
 
 // unknownFutureStatus stands in for a status a newer release introduced
 // and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade.
-const unknownFutureStatus TaskStatus = "VALIDATING"
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // TestCleanUpTask_RefusesUnknownStatus pins the FSM-side eviction guard.
 // An unrecognized status has a zero FinishedAt, so the TTL comparison is
