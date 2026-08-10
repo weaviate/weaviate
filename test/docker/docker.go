@@ -235,18 +235,18 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+	}
+	// Published before the readiness wait: a wait that times out must not leave
+	// callers holding the ports the container had before it was stopped.
+	c.endpoints = endPoints
 
-		// wait until node is ready
-		if name != HTTP {
-			continue
-		}
+	if e, ok := endPoints[HTTP]; ok {
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
 		}
 	}
-	c.endpoints = endPoints
 	return nil
 }
 
@@ -289,17 +289,18 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 				c.name, e.port, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+	}
+	// Published before the readiness wait: a wait that times out must not leave
+	// callers holding the ports the container had before it was restarted.
+	c.endpoints = endPoints
 
-		if name != HTTP {
-			continue
-		}
+	if e, ok := endPoints[HTTP]; ok {
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
 		}
 	}
-	c.endpoints = endPoints
 	return nil
 }
 
