@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -321,37 +322,66 @@ func TestRestoreAllCancellation(t *testing.T) {
 		cls      = "TestClass"
 	)
 
-	t.Run("CancellationBeforeRestore", func(t *testing.T) {
-		backend := newFakeBackend()
-		sourcer := &fakeSourcer{}
-		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
+	tests := []struct {
+		name string
+		// slotHolder is the id holding the participant restorer slot when
+		// restoreAll runs. A different id means this restore's slot was
+		// already handed to a newer one, and stamping it CANCELLED would
+		// cancel a restore nobody cancelled.
+		slotHolder string
+		wantStatus backup.Status
+	}{
+		{
+			name:       "slot held by this restore",
+			slotHolder: backupID,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "slot held by a different restore",
+			slotHolder: "newer-restore",
+			wantStatus: backup.Transferring,
+		},
+	}
 
-		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
-		restorer.lastOp.set(backup.Transferring)
+	for _, tc := range tests {
+		t.Run("CancellationBeforeRestore/"+tc.name, func(t *testing.T) {
+			backend := newFakeBackend()
+			sourcer := &fakeSourcer{}
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-		desc := &backup.BackupDescriptor{
-			ID:            backupID,
-			ServerVersion: "1.23",
-			Version:       "1",
-			StartedAt:     time.Now().UTC(),
-			Classes: []backup.ClassDescriptor{
-				{Name: cls, Shards: []*backup.ShardDescriptor{}},
-			},
-		}
+			restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+			// restoreAll's slot writes are ownership-checked, so the slot has
+			// to be claimed the way restore() claims it before calling in.
+			prevID, _ := restorer.lastOp.renew(tc.slotHolder, "test/path", "", "")
+			require.Empty(t, prevID)
+			restorer.lastOp.set(backup.Transferring)
 
-		// Create a cancelled context
-		cancelledCtx, cancel := context.WithCancel(ctx)
-		cancel() // Cancel immediately
+			desc := &backup.BackupDescriptor{
+				ID:            backupID,
+				ServerVersion: "1.23",
+				Version:       "1",
+				StartedAt:     time.Now().UTC(),
+				Classes: []backup.ClassDescriptor{
+					{Name: cls, Shards: []*backup.ShardDescriptor{}},
+				},
+			}
 
-		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
-			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
+			// Create a cancelled context
+			cancelledCtx, cancel := context.WithCancel(ctx)
+			cancel() // Cancel immediately
 
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "restore cancelled")
-		assert.Equal(t, backup.Cancelled, restorer.lastOp.get().Status)
-	})
+			err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
+				objectStore: objectStore{backend: backend, backupId: backupID},
+			}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
+
+			assert.NotNil(t, err)
+			assert.Contains(t, err.Error(), "restore cancelled")
+			assert.Equal(t, tc.wantStatus, restorer.lastOp.get().Status)
+			assert.Equal(t, tc.slotHolder, restorer.lastOp.get().ID,
+				"restoreAll must never take a slot over")
+		})
+	}
 }
 
 // recordingRbacRestorer captures the stripNamespaces flag restoreAll forwards.
@@ -380,6 +410,10 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 			backend.On("SourceDataPath").Return(t.TempDir())
 			rec := &recordingRbacRestorer{}
 			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			// restoreAll's slot writes are ownership-checked, so the slot has
+			// to be claimed the way restore() claims it before calling in.
+			prevID, _ := restorer.lastOp.renew("rbac-strip", "test/path", "", "")
+			require.Empty(t, prevID)
 			restorer.lastOp.set(backup.Transferring)
 
 			desc := &backup.BackupDescriptor{

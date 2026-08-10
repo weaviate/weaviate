@@ -89,7 +89,8 @@ func (r *restorer) restore(
 	}
 
 	// make sure there is no active restore
-	if prevID, _ := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
+	prevID, slotGeneration := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path)
+	if prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
@@ -119,7 +120,7 @@ func (r *restorer) restore(
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
-			r.lastOp.reset()
+			r.lastOp.resetIfOwned(slotGeneration)
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
@@ -158,11 +159,11 @@ func (r *restorer) restoreAll(ctx context.Context,
 	stripNamespaces bool,
 ) error {
 	compressionType := desc.GetCompressionType()
-	r.lastOp.set(backup.Transferring)
+	r.lastOp.setIfOwned(desc.ID, backup.Transferring)
 
 	// Check for cancellation before starting restore operations
 	if err := ctx.Err(); err != nil {
-		r.lastOp.set(backup.Cancelled)
+		r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 		return fmt.Errorf("restore cancelled: %w", err)
 	}
 
@@ -172,7 +173,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 		// Check for cancellation after User restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.set(backup.Cancelled)
+			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 	}
@@ -183,7 +184,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 		// Check for cancellation after RBAC restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.set(backup.Cancelled)
+			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 	}
@@ -191,12 +192,12 @@ func (r *restorer) restoreAll(ctx context.Context,
 	for _, cdesc := range desc.Classes {
 		// Check for cancellation before each class restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.set(backup.Cancelled)
+			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
 			if errors.Is(err, context.Canceled) {
-				r.lastOp.set(backup.Cancelled)
+				r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
 			}
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
