@@ -239,6 +239,102 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 		"a restore cancelled while staging must not go on to apply the schema")
 }
 
+// Pins that a restore already applying its schema is refused a cancel even when
+// the stored descriptor still reads TRANSFERRING, which is what a failed
+// FINALIZING put leaves behind. Going ahead would abort nothing, since the
+// schema apply runs over RAFT, and would report CANCELLED for classes that do
+// get restored.
+func TestCancelRestoreRefusesARestoreThatIsApplyingItsSchema(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "1"
+		node        = "node1"
+		class       = "Class1"
+	)
+	ctx := context.Background()
+
+	stale := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+		ID:     backupID,
+		Status: backup.Transferring,
+		Nodes:  map[string]*backup.NodeDescriptor{node: {Classes: []string{class}}},
+	})
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(stale, nil)
+	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
+	fs.selector.On("ListClasses", ctx).Return([]string{class})
+	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	s := fs.scheduler()
+	prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Finalizing))
+
+	err := s.CancelRestore(ctx, nil, backendName, backupID, "", "")
+	require.Error(t, err)
+	require.IsType(t, backup.ErrUnprocessable{}, err)
+	require.Contains(t, err.Error(), "cannot be cancelled")
+
+	require.Equal(t, backup.Finalizing, s.restorer.lastOp.get().Status)
+	fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Pins the race the CANCELLING claim is read back for: a coordinator whose
+// claim is overtaken by one that has already finished cancelling must not carry
+// the cancellation out itself. The restore of that id may since have been
+// retried, and the abort would hit the retry.
+func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
+	t.Parallel()
+	const backupID = "1"
+
+	tests := []struct {
+		name string
+		// afterClaim is what storage reads once this coordinator has written
+		// its CANCELLING claim.
+		afterClaim backup.Status
+		wantWon    bool
+		wantSlot   backup.Status
+	}{
+		{
+			name:       "the claim stands",
+			afterClaim: backup.Cancelling,
+			wantWon:    true,
+			wantSlot:   backup.Cancelling,
+		},
+		{
+			name:       "another coordinator already finished the cancellation",
+			afterClaim: backup.Cancelled,
+			wantWon:    false,
+			wantSlot:   backup.Transferring,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			backend := &restoreMetaBackend{}
+			backend.onRead = func(int) {
+				backend.setStored(t, backup.DistributedBackupDescriptor{ID: backupID, Status: tc.afterClaim})
+			}
+			store := coordStore{objectStore{backend, backupID, "", "", ""}}
+
+			s := newFakeScheduler(newFakeNodeResolver([]string{"node1"})).scheduler()
+			prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+			require.Empty(t, prevID)
+			require.True(t, slot.set(backup.Transferring))
+
+			meta := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Transferring}
+			require.Equal(t, tc.wantWon, s.claimCancellation(context.Background(), store, meta, backupID, "", ""))
+			require.Equal(t, tc.wantSlot, s.restorer.lastOp.get().Status,
+				"a coordinator that did not win the claim must not stamp the slot")
+		})
+	}
+}
+
 // Pins that a cancel does not inherit the reason of the failure it lands on: a
 // restore can fail on disk while the cancel that overtakes it is in flight.
 func TestSetIfOwnedDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
@@ -292,6 +388,12 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 			held:      reqState{ID: backupID, Status: backup.Cancelled},
 			wantLevel: logrus.InfoLevel,
 			wantMsg:   "restore slot already carries the cancellation",
+		},
+		{
+			name:      "the restore is applying its schema",
+			held:      reqState{ID: backupID, Status: backup.Finalizing},
+			wantLevel: logrus.WarnLevel,
+			wantMsg:   "can no longer be cancelled",
 		},
 		{
 			name:      "the restore already finished and gave the slot back",

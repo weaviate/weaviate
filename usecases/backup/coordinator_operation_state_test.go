@@ -59,12 +59,17 @@ func (b *restoreMetaBackend) GetObject(_ context.Context, _, key, _, _ string) (
 	}
 	b.Lock()
 	b.reads++
-	n, stored, onRead := b.reads, b.stored, b.onRead
+	n, onRead := b.reads, b.onRead
 	b.Unlock()
 
 	if onRead != nil {
 		onRead(n)
 	}
+	// Read after the hook, so a hook standing in for another writer is what
+	// this read answers with.
+	b.Lock()
+	stored := b.stored
+	b.Unlock()
 	if stored == nil {
 		return nil, backup.ErrNotFound{}
 	}
@@ -95,6 +100,13 @@ func (b *restoreMetaBackend) setStored(t *testing.T, desc backup.DistributedBack
 	b.Lock()
 	defer b.Unlock()
 	b.stored = data
+}
+
+// readCount is how many times the global restore descriptor has been read.
+func (b *restoreMetaBackend) readCount() int {
+	b.Lock()
+	defer b.Unlock()
+	return b.reads
 }
 
 // storedStatuses is every status stored so far, in order.

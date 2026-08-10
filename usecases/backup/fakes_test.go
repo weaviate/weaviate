@@ -269,9 +269,12 @@ func requireSlotFreed(t *testing.T, stat *backupStat, id string) {
 	require.True(t, freed)
 }
 
-// requireSlotNotFreed asserts the slot stayed claimed.
-func requireSlotNotFreed(t *testing.T, stat *backupStat, id string) {
+// requireSlotNotFreed asserts that releasing id left the slot with holder. The
+// holder is part of the assertion because resetIfCancelled reports false both
+// for a slot somebody else owns and for one that is already empty.
+func requireSlotNotFreed(t *testing.T, stat *backupStat, id, holder string) {
 	t.Helper()
-	freed, _ := stat.resetIfCancelled(id)
+	freed, held := stat.resetIfCancelled(id)
 	require.False(t, freed)
+	require.Equal(t, holder, held.ID)
 }
