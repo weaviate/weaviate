@@ -55,8 +55,15 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 		return e.value[from:to:to], nil
 	}
 	return e.seg.readRange(nodeOffset{start: e.valueStart + from, end: e.valueStart + to},
-		"TargetedScanRange", &e.buf)
+		targetedScanRangeOp, &e.buf)
 }
+
+// The scan reads a few bytes per row, so its metric names are fixed rather than
+// joined per read. See readMetricName.
+const (
+	targetedScanPeekOp  = "TargetedScanPeek"
+	targetedScanRangeOp = "TargetedScanRange"
+)
 
 // maxScanParallelism bounds both the worker goroutines and the per-segment task
 // fan-out, so an oversized caller value cannot turn into a task per index node.
@@ -291,7 +298,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 		if headEnd > n.End {
 			headEnd = n.End
 		}
-		node, err := task.seg.readRange(nodeOffset{start: n.Start, end: headEnd}, "TargetedScanPeek", &head)
+		node, err := task.seg.readRange(nodeOffset{start: n.Start, end: headEnd}, targetedScanPeekOp, &head)
 		if err != nil {
 			return err
 		}

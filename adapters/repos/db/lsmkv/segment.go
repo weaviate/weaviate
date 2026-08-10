@@ -701,6 +701,19 @@ type nodeOffset struct {
 	start, end uint64
 }
 
+// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
+// per call allocates, and read paths that fetch a few bytes per row do this once
+// a row, so the operations used there are pre-joined.
+func readMetricName(operation string) string {
+	switch operation {
+	case targetedScanPeekOp:
+		return "ReadFromSegment" + targetedScanPeekOp
+	case targetedScanRangeOp:
+		return "ReadFromSegment" + targetedScanRangeOp
+	}
+	return "ReadFromSegment" + operation
+}
+
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r       io.Reader
@@ -715,7 +728,7 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
+		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)

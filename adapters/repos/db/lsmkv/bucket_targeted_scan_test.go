@@ -17,16 +17,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // targetedTestValue builds a value identifiable from its peek: 8-byte BE id, then a
@@ -351,47 +354,59 @@ func BenchmarkScanTargetedReplace(b *testing.B) {
 	ctx := context.Background()
 	const valueLen = 4096
 
-	for _, segments := range []int{1, 16} {
-		b.Run(fmt.Sprintf("segments=%d/targetedScan", segments), func(b *testing.B) {
-			bucket, rows := benchScanFixture(b, segments, valueLen)
-			defer bucket.Shutdown(ctx)
+	// pread is what ships (PERSISTENCE_LSM_ACCESS_STRATEGY); mmap serves reads as
+	// zero-copy subslices, so it hides the per-row reader stack the pread arm pays
+	modes := []struct {
+		name string
+		opts []BucketOption
+	}{
+		{"mmap", nil},
+		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+	}
 
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				var count atomic.Int64
-				err := bucket.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-					count.Add(1)
-					return nil
-				}, nullLogger())
-				if err != nil {
-					b.Fatal(err)
-				}
-				if count.Load() != int64(rows) {
-					b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
-				}
-			}
-		})
+	for _, mode := range modes {
+		for _, segments := range []int{1, 16} {
+			b.Run(fmt.Sprintf("%s/segments=%d/targetedScan", mode.name, segments), func(b *testing.B) {
+				bucket, rows := benchScanFixture(b, segments, valueLen, mode.opts...)
+				defer bucket.Shutdown(ctx)
 
-		b.Run(fmt.Sprintf("segments=%d/mergedCursor", segments), func(b *testing.B) {
-			bucket, rows := benchScanFixture(b, segments, valueLen)
-			defer bucket.Shutdown(ctx)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					var count atomic.Int64
+					err := bucket.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+						count.Add(1)
+						return nil
+					}, nullLogger())
+					if err != nil {
+						b.Fatal(err)
+					}
+					if count.Load() != int64(rows) {
+						b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
+					}
+				}
+			})
 
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				count := 0
-				c := bucket.Cursor()
-				for k, v := c.First(); k != nil; k, v = c.Next() {
-					_ = v[:16]
-					count++
+			b.Run(fmt.Sprintf("%s/segments=%d/mergedCursor", mode.name, segments), func(b *testing.B) {
+				bucket, rows := benchScanFixture(b, segments, valueLen, mode.opts...)
+				defer bucket.Shutdown(ctx)
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					count := 0
+					c := bucket.Cursor()
+					for k, v := c.First(); k != nil; k, v = c.Next() {
+						_ = v[:16]
+						count++
+					}
+					c.Close()
+					if count != rows {
+						b.Fatalf("cursor saw %d rows, want %d", count, rows)
+					}
 				}
-				c.Close()
-				if count != rows {
-					b.Fatalf("cursor saw %d rows, want %d", count, rows)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -581,4 +596,293 @@ func TestScanTargetedReplaceSlicesAreCapped(t *testing.T) {
 			require.Equal(t, int64(40), served.Load())
 		})
 	}
+}
+
+// TestScanTargetedReplaceSecondaryIndex is the objects-bucket shape: a secondary
+// index bounds the primary one before EOF, so the index blob the scan walks is
+// delimited by the first secondary offset rather than by the file end.
+func TestScanTargetedReplaceSecondaryIndex(t *testing.T) {
+	ctx := context.Background()
+
+	for _, mode := range []struct {
+		name string
+		opts []BucketOption
+	}{
+		{"mmap", nil},
+		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+		{"mmap/checksums", []BucketOption{WithSegmentsChecksumValidationEnabled(true)}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			opts := append([]BucketOption{WithSecondaryIndices(1)}, mode.opts...)
+			b := newReusableTestBucket(t, ctx, opts...)
+			defer b.Shutdown(ctx)
+
+			put := func(id uint64, fillerLen int) {
+				require.NoError(t, b.Put(
+					[]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen),
+					WithSecondaryKey(0, []byte(fmt.Sprintf("sec-%03d", id)))))
+			}
+
+			for i := uint64(0); i < 40; i++ {
+				put(i, int(i)*7%300)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			// second segment supersedes some rows and deletes one
+			for i := uint64(5); i < 15; i++ {
+				put(i, 500+int(i))
+			}
+			require.NoError(t, b.Delete([]byte("key-020"),
+				WithSecondaryKey(0, []byte("sec-020"))))
+			require.NoError(t, b.FlushAndSwitch())
+			// and a memtable generation on top
+			put(7, 900)
+
+			expected := collectMergedCursor(t, b)
+			require.NotEmpty(t, expected)
+			for _, parallel := range []int{1, 4, 16} {
+				require.Equal(t, expected, scanCollect(t, b, 16, parallel),
+					"parallel=%d", parallel)
+			}
+		})
+	}
+}
+
+// TestScanTargetedReplaceMemtableOnly: a bucket that has never flushed has no
+// segment to read the oldest memtable's keys back, so they are not collected.
+func TestScanTargetedReplaceMemtableOnly(t *testing.T) {
+	ctx := context.Background()
+	b := newReusableTestBucket(t, ctx)
+	defer b.Shutdown(ctx)
+
+	for i := uint64(0); i < 50; i++ {
+		targetedPut(t, b, i, 120)
+	}
+	targetedPutEmpty(t, b, 60)
+	require.NoError(t, b.Delete([]byte("key-010")))
+
+	require.Equal(t, collectMergedCursor(t, b), scanCollect(t, b, 16, 4))
+}
+
+// TestScanTargetedReplaceFullyShadowed: every row of the older segment is hidden
+// by newer tombstones, so the scan serves nothing from it while still walking it.
+func TestScanTargetedReplaceFullyShadowed(t *testing.T) {
+	ctx := context.Background()
+	b := newReusableTestBucket(t, ctx)
+	defer b.Shutdown(ctx)
+
+	const rows = 40
+	for i := uint64(0); i < rows; i++ {
+		targetedPut(t, b, i, 200)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	for i := uint64(0); i < rows; i++ {
+		require.NoError(t, b.Delete([]byte(fmt.Sprintf("key-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+
+	expected := collectMergedCursor(t, b)
+	require.Empty(t, expected, "fixture must leave nothing live")
+	require.Equal(t, expected, scanCollect(t, b, 16, 4))
+}
+
+func TestScanTargetedReplaceArgumentValidation(t *testing.T) {
+	ctx := context.Background()
+	b := newReusableTestBucket(t, ctx)
+	defer b.Shutdown(ctx)
+	for i := uint64(0); i < 20; i++ {
+		targetedPut(t, b, i, 100)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	expected := collectMergedCursor(t, b)
+
+	t.Run("peek size must be positive", func(t *testing.T) {
+		for _, peek := range []int{0, -1} {
+			err := b.ScanTargetedReplace(ctx, peek, 4, func(*TargetedScanEntry) error {
+				t.Error("callback must not run")
+				return nil
+			}, nullLogger())
+			require.ErrorContains(t, err, "peek size must be positive")
+		}
+	})
+
+	// parallel is clamped rather than rejected: every value >= 1 yields the same
+	// rows, and the upper bound keeps an oversized value from becoming a task per
+	// index node
+	t.Run("parallel is clamped", func(t *testing.T) {
+		for _, parallel := range []int{-1, 0, 1, 100000} {
+			require.Equal(t, expected, scanCollect(t, b, 16, parallel),
+				"parallel=%d", parallel)
+		}
+	})
+}
+
+// scanAbortFixture: enough rows across enough segments that a scan is still
+// running by the time a callback aborts it.
+func scanAbortFixture(t *testing.T, ctx context.Context) *Bucket {
+	t.Helper()
+	b := newReusableTestBucket(t, ctx)
+	t.Cleanup(func() { b.Shutdown(ctx) })
+	for seg := 0; seg < 4; seg++ {
+		for i := 0; i < 4000; i++ {
+			id := uint64(seg*4000 + i)
+			require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%08d", id)),
+				targetedTestValue(id, 40)))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+	}
+	return b
+}
+
+// TestScanTargetedReplaceCancelledMidScan reaches the periodic context checks,
+// which the already-cancelled case cannot: that one returns before the snapshot.
+func TestScanTargetedReplaceCancelledMidScan(t *testing.T) {
+	ctx := context.Background()
+	b := scanAbortFixture(t, ctx)
+
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var served atomic.Int64
+	err := b.ScanTargetedReplace(scanCtx, 16, 4, func(e *TargetedScanEntry) error {
+		if served.Add(1) == 2000 {
+			cancel()
+		}
+		return nil
+	}, nullLogger())
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, served.Load(), int64(16000), "scan should stop short of every row")
+}
+
+func TestScanTargetedReplaceCallbackError(t *testing.T) {
+	ctx := context.Background()
+	b := scanAbortFixture(t, ctx)
+	sentinel := errors.New("caller gave up")
+
+	for _, parallel := range []int{1, 8} {
+		t.Run(fmt.Sprintf("parallel=%d", parallel), func(t *testing.T) {
+			var served atomic.Int64
+			err := b.ScanTargetedReplace(ctx, 16, parallel, func(e *TargetedScanEntry) error {
+				if served.Add(1) == 100 {
+					return sentinel
+				}
+				return nil
+			}, nullLogger())
+
+			require.ErrorIs(t, err, sentinel)
+			// the remaining workers stop rather than draining the bucket
+			require.Less(t, served.Load(), int64(16000))
+		})
+	}
+}
+
+// TestScanTargetedReplaceCallbackPanic pins the containment claim: a panicking
+// worker becomes an error and cancels its siblings, so the scan returns instead
+// of leaving the caller blocked while segment references are held.
+func TestScanTargetedReplaceCallbackPanic(t *testing.T) {
+	ctx := context.Background()
+	b := scanAbortFixture(t, ctx)
+
+	for _, parallel := range []int{1, 8} {
+		t.Run(fmt.Sprintf("parallel=%d", parallel), func(t *testing.T) {
+			var served atomic.Int64
+			done := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				done <- b.ScanTargetedReplace(ctx, 16, parallel, func(e *TargetedScanEntry) error {
+					if served.Add(1) == 100 {
+						panic("boom")
+					}
+					return nil
+				}, nullLogger())
+			}, nullLogger())
+
+			select {
+			case err := <-done:
+				require.Error(t, err, "a panicking callback must surface as an error")
+			case <-time.After(30 * time.Second):
+				t.Fatal("scan did not return after a callback panic")
+			}
+		})
+	}
+}
+
+// BenchmarkScanTargetedReplaceParallelism sweeps the worker count in pread, where
+// concurrent reads share one file descriptor. Raising it past a handful stops
+// paying, so a caller sizing this from core count picks the wrong number.
+func BenchmarkScanTargetedReplaceParallelism(b *testing.B) {
+	ctx := context.Background()
+	bucket, rows := benchScanFixture(b, 8, 4096, WithPread(true), WithMinMMapSize(0))
+	defer bucket.Shutdown(ctx)
+
+	for _, parallel := range []int{1, 4, 16, 64, 256} {
+		b.Run(fmt.Sprintf("parallel=%d", parallel), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var count atomic.Int64
+				err := bucket.ScanTargetedReplace(ctx, 16, parallel,
+					func(e *TargetedScanEntry) error {
+						count.Add(1)
+						return nil
+					}, nullLogger())
+				if err != nil {
+					b.Fatal(err)
+				}
+				if count.Load() != int64(rows) {
+					b.Fatalf("scanned %d rows, want %d", count.Load(), rows)
+				}
+			}
+		})
+	}
+}
+
+// TestScanTargetedReplaceConcurrentWrites exercises the snapshot claim on
+// targetedScanSnapshot: memtable cursors flatten shallow node copies under the
+// memtable's read lock, so a same-key update reassigns the original node's
+// fields rather than the cursor's. Run with -race; the assertion is that the
+// detector stays quiet and the scan still completes.
+func TestScanTargetedReplaceConcurrentWrites(t *testing.T) {
+	ctx := context.Background()
+	b := newReusableTestBucket(t, ctx)
+	defer b.Shutdown(ctx)
+
+	const rows = 3000
+	for i := uint64(0); i < rows; i++ {
+		targetedPut(t, b, i, 150)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	// a memtable generation, which is the half that hands out live value slices
+	for i := uint64(0); i < 500; i++ {
+		targetedPut(t, b, i, 90)
+	}
+
+	writerCtx, stopWriter := context.WithCancel(ctx)
+	var writerDone sync.WaitGroup
+	writerDone.Add(1)
+	enterrors.GoWrapper(func() {
+		defer writerDone.Done()
+		for n := 0; writerCtx.Err() == nil; n++ {
+			targetedPut(t, b, uint64(n%500), 90+n%40)
+		}
+	}, nullLogger())
+
+	var served atomic.Int64
+	err := b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+		raw, err := e.ReadRange(0, 0)
+		if err != nil {
+			return err
+		}
+		// touch the bytes so the detector sees the read
+		if len(raw) > 0 {
+			_ = raw[len(raw)-1]
+		}
+		served.Add(1)
+		return nil
+	}, nullLogger())
+
+	stopWriter()
+	writerDone.Wait()
+
+	require.NoError(t, err)
+	require.Positive(t, served.Load())
 }
