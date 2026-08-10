@@ -12,7 +12,6 @@
 package objects
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -86,25 +85,18 @@ func (e ErrInternal) Error() string {
 	return e.msg
 }
 
-// Unwrap returns the cause wrapped with a %w verb, so callers can classify it
-// with errors.Is/As instead of matching on the message.
+// Unwrap returns the formatted error, through which every cause the format
+// wrapped with %w stays reachable for errors.Is/As. It is never nil, so it
+// cannot be used to probe whether there was a cause at all.
 func (e ErrInternal) Unwrap() error {
 	return e.err
 }
 
-// NewErrInternal with Errorf signature. An operand formatted with %w stays
-// reachable through Unwrap; %v flattens it to text.
+// NewErrInternal with Errorf signature. Operands formatted with %w stay
+// reachable through Unwrap; %v flattens them to text.
 func NewErrInternal(format string, args ...interface{}) ErrInternal {
 	formatted := fmt.Errorf(format, args...)
-	cause := errors.Unwrap(formatted)
-	if cause == nil {
-		// Several %w verbs unwrap to a slice, which errors.Unwrap reports as
-		// nil; keeping the formatted error preserves both causes.
-		if _, multi := formatted.(interface{ Unwrap() []error }); multi {
-			cause = formatted
-		}
-	}
-	return ErrInternal{msg: formatted.Error(), err: cause}
+	return ErrInternal{msg: formatted.Error(), err: formatted}
 }
 
 // ErrNotFound indicates the desired resource doesn't exist

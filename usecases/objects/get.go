@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
@@ -139,9 +138,6 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		case errors.As(err, &ErrMultiTenancy{}):
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return nil, fmt.Errorf("repo: object by id: %w", err)
-			}
 			return nil, NewErrInternal("repo: object by id: %w", err)
 		}
 	}
@@ -166,7 +162,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 	if after != nil {
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
@@ -180,7 +176,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	if m.modulesProvider != nil {
 		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams)
 		if err != nil {
-			return nil, NewErrInternal("list extend: %v", err)
+			return nil, NewErrInternal("list extend: %w", err)
 		}
 	}
 
