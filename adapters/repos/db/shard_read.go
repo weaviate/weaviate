@@ -515,8 +515,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	s.activityTrackerRead.Add(1)
 
-	// Admit filter/BM25 fan-out through the node budget; pure-vector search is
-	// not gated. The grant is held for the whole method.
+	// Admit filter/BM25 fan-out through the node budget. The grant is held
+	// for the whole method. Vector searches are gated in ObjectVectorSearch.
 	if filters != nil || keywordRanking != nil {
 		admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 		if err != nil {
@@ -634,19 +634,20 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	s.activityTrackerRead.Add(1)
 
+	// Admit the whole search through the node budget: the vector phase fans
+	// out too (rescoring and posting reads read their worker counts from the
+	// grant in the context), so seats are held from admission until the
+	// results are returned, exactly like ObjectSearch.
+	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+
 	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
-		// Admit only the filter phase; the closure releases the grant
-		// (panic-safe) before the vector phase, which must not hold budget.
-		list, err := func() (helpers.AllowList, error) {
-			admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
-			if err != nil {
-				return nil, err
-			}
-			defer release()
-			return s.buildAllowList(admittedCtx, filters, additional)
-		}()
+		list, err := s.buildAllowList(ctx, filters, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -753,7 +754,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if allowList != nil {
 		allowList.Close()
 	}

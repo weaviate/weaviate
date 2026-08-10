@@ -426,10 +426,11 @@ func admissionObjectVector(i int) []float32 {
 	}
 }
 
-// TestObjectVectorSearchReleasesGrantBeforeVectorPhase pins that the
-// allow-list grant is released before the vector-search phase runs, so a
-// slow vector search never holds node budget.
-func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
+// TestObjectVectorSearchHoldsGrantForWholeSearch pins that the admission
+// grant is held from admission until the search returns: the vector phase
+// fans out too (its worker counts come from the grant in the context), so
+// it must count against the node budget just like the allow-list phase.
+func TestObjectVectorSearchHoldsGrantForWholeSearch(t *testing.T) {
 	const (
 		budget     = 4
 		maxQueue   = 8
@@ -460,6 +461,7 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 	go func() {
 		ticker := time.NewTicker(100 * time.Microsecond)
 		defer ticker.Stop()
+		zeroStreak := 0
 		for {
 			select {
 			case <-stop:
@@ -467,14 +469,21 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 			case <-ticker.C:
 				if readAdmissionGauge(reg, "query_admission_used_budget") > 0 {
 					sawPositive.Store(true)
+					zeroStreak = 0
 					continue
 				}
-				// used==0 only counts once we've seen the grant, before the search returns.
+				// used==0 only counts once we've seen the grant, before the
+				// search returns. Debounced: the deferred release runs a hair
+				// before searchDone closes, so a single zero sample in that
+				// window is not a mid-flight drop.
 				if sawPositive.Load() {
 					select {
 					case <-searchDone:
 					default:
-						sawZeroWhileRunning.Store(true)
+						zeroStreak++
+						if zeroStreak >= 3 {
+							sawZeroWhileRunning.Store(true)
+						}
 					}
 				}
 			}
@@ -490,10 +499,58 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, sawPositive.Load(),
-		"expected the allow-list phase to hold an admission grant (used_budget > 0)")
-	require.True(t, sawZeroWhileRunning.Load(),
-		"used_budget must return to zero while ObjectVectorSearch is still running: "+
-			"the allow-list grant must be released before the vector phase")
+		"expected the search to hold an admission grant (used_budget > 0)")
+	require.False(t, sawZeroWhileRunning.Load(),
+		"used_budget dropped to zero while ObjectVectorSearch was still running: "+
+			"the grant must be held through the vector phase")
+	require.Eventually(t, func() bool {
+		return readAdmissionGauge(reg, "query_admission_used_budget") == 0
+	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
+}
+
+// TestPureVectorSearchIsAdmitted pins that a filterless vector search takes
+// an admission grant too — before, only the allow-list phase was gated and a
+// pure-vector search bypassed the node budget entirely.
+func TestPureVectorSearchIsAdmitted(t *testing.T) {
+	const (
+		budget     = 4
+		maxQueue   = 8
+		numAuthors = 10000 // enough vectors to make the vector phase samplable
+	)
+
+	ctx := context.Background()
+	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
+	defer repo.Shutdown(ctx)
+
+	searchVec := []models.Vector{[]float32{0.1, 0.2, 0.3}}
+
+	var sawPositive atomic.Bool
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(100 * time.Microsecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if readAdmissionGauge(reg, "query_admission_used_budget") > 0 {
+					sawPositive.Store(true)
+				}
+			}
+		}
+	}()
+
+	// No filter: the whole query is the vector phase. limit<0 forces a
+	// brute-force distance search over every vector so it runs long enough
+	// to be sampled.
+	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
+		nil, nil, nil, additional.Properties{}, nil, []string{"title"}, nil)
+	close(stop)
+	require.NoError(t, err)
+
+	require.True(t, sawPositive.Load(),
+		"expected the pure-vector search to hold an admission grant (used_budget > 0)")
 	require.Eventually(t, func() bool {
 		return readAdmissionGauge(reg, "query_admission_used_budget") == 0
 	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
