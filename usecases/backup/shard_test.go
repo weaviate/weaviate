@@ -13,8 +13,8 @@ package backup
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -285,23 +285,19 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 // caller is releasing the cancelled id. A check and a clear under separate lock
 // acquisitions throw the new claim away here; one acquisition cannot.
 //
-// The interleaving is staged rather than raced for: both callers are parked on
-// the slot's own lock before either runs, so the release goes first and the
-// takeover lands in the gap a two-acquisition check-and-clear would leave
-// between its check and its clear. Racing for that gap on timing alone finds it
-// about one run in three.
+// Both racers spin on the same flag rather than waking from a channel, which
+// lines them up closely enough that a two-acquisition check-and-clear loses a
+// claim often enough for the iterations below to catch it every run. Waking
+// them from a channel costs orders of magnitude in that rate: the same mutation
+// then survives 5000 iterations two runs out of three. The whole loop costs
+// 80ms, so the iteration count buys the margin cheaply.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
 	const (
-		cancelled = "cancelled-restore"
-		fresh     = "fresh-restore"
-		// One iteration is enough to stage the interleaving; the rest cover
-		// the runs where the goroutines reach the lock in the other order.
-		iterations = 200
-		// Long enough for a goroutine that has been started to reach the lock
-		// and block on it. Too short only costs the staging, never a false red.
-		parkFor = 200 * time.Microsecond
+		cancelled  = "cancelled-restore"
+		fresh      = "fresh-restore"
+		iterations = 20000
 	)
 
 	for i := 0; i < iterations; i++ {
@@ -312,23 +308,25 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 
 		var (
 			wg       sync.WaitGroup
+			gate     atomic.Bool
 			renewErr string
 		)
-		s.Lock()
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
+			for !gate.Load() {
+			}
 			s.resetIfCancelled(cancelled)
 		}()
-		time.Sleep(parkFor)
 		go func() {
 			defer wg.Done()
+			for !gate.Load() {
+			}
 			// Whichever of the two frees the slot, the fresh claim follows it.
 			slot.release()
 			renewErr, _ = s.renew(fresh, "path", "", "")
 		}()
-		time.Sleep(parkFor)
-		s.Unlock()
+		gate.Store(true)
 		wg.Wait()
 
 		require.Empty(t, renewErr)
