@@ -215,14 +215,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 // the fold reads and inject read errors and cancellation. Releasing is absent
 // deliberately: the caller owns the reader's lifetime.
 //
-// KeyDocColumn and MemtableReaders are the same view seen a second way: the
-// resident index covers what was flushed when it was built, the memtable
-// readers cover what the view holds unflushed, and together they answer the
-// same rows Get would.
+// KeyDocColumn and MemtableMatches are the same view seen a second way: the
+// resident index covers what was flushed when it was built, the memtable matches
+// cover what the view holds unflushed, and together they answer the same rows
+// Get would.
 type containsBatchReader interface {
 	Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error)
 	KeyDocColumn() *keydoccolumn.Index
-	MemtableReaders() []roaringset.LayerReader
+	MemtableMatches(keys entsInverted.SortedKeys) ([]roaringset.LayerMatches, error)
 }
 
 // mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
@@ -350,9 +350,11 @@ func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
 	// per-key terms, then materialize once — into a pooled buffer, so the result
 	// returns to the pool on release exactly as the fold's does.
 	res := idx.Resolve(pv.containsValues)
-	if err := res.ApplyMemtables(reader.MemtableReaders(), pv.containsValues); err != nil {
+	matches, err := reader.MemtableMatches(pv.containsValues)
+	if err != nil {
 		return docBitmap{}, false
 	}
+	res.ApplyMemtableMatches(matches)
 	bm, put := s.bitmapFactory.BufPool().SortedListToBuf(res.SortedDocs())
 	return docBitmap{docIDs: bm, release: put, isDenyList: false}, true
 }

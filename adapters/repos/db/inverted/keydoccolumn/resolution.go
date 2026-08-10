@@ -15,8 +15,6 @@ import (
 	"math"
 	"slices"
 
-	entinverted "github.com/weaviate/weaviate/entities/inverted"
-
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -87,27 +85,26 @@ func (r *Resolution) delete(qi int, doc uint64) {
 	}
 }
 
-// ApplyMemtables applies the bucket's unflushed layers over a resolution of the
-// flushed ones, so a query sees writes that have not reached a segment yet.
+// ApplyMemtableMatches applies the bucket's unflushed layers over a resolution of
+// the flushed ones, so a query sees writes that have not reached a segment yet.
 //
 // Each key is carried independently: a layer's deletions retire documents from
 // that key alone, then its additions are added to it. Deletions therefore reach
 // only the key they were issued under, which is what stops a document that also
-// sits under another key from vanishing from both. Readers arrive oldest first,
-// so replaying them in order settles a document added by one layer and deleted by
-// a later one as deleted.
-func (r *Resolution) ApplyMemtables(readers []roaringset.LayerReader, keys entinverted.SortedKeys) error {
-	for _, reader := range readers {
-		for i, key := range keys.All() {
-			layer, err := reader.Get(key)
-			if err != nil {
-				return err
-			}
-			r.applyLayerBitmap(layer.Deletions, i, false)
-			r.applyLayerBitmap(layer.Additions, i, true)
+// sits under another key from vanishing from both. The layers arrive oldest
+// first, so replaying them in order settles a document added by one and deleted
+// by a later one as deleted.
+//
+// Only the keys a layer actually holds arrive, each carrying the position it
+// answers — a memtable holding a hundred of a query's hundred thousand keys is
+// applied in a hundred steps, not a hundred thousand.
+func (r *Resolution) ApplyMemtableMatches(matches []roaringset.LayerMatches) {
+	for _, layer := range matches {
+		for j, qi := range layer.At {
+			r.applyLayerBitmap(layer.Layers[j].Deletions, int(qi), false)
+			r.applyLayerBitmap(layer.Layers[j].Additions, int(qi), true)
 		}
 	}
-	return nil
 }
 
 // applyLayerBitmap applies one layer's documents for a key into the working set.

@@ -70,8 +70,8 @@ func (r *spyContainsBatchReader) KeyDocColumn() *keydoccolumn.Index {
 	return r.reader.KeyDocColumn()
 }
 
-func (r *spyContainsBatchReader) MemtableReaders() []roaringset.LayerReader {
-	return r.reader.MemtableReaders()
+func (r *spyContainsBatchReader) MemtableMatches(keys entsInverted.SortedKeys) ([]roaringset.LayerMatches, error) {
+	return r.reader.MemtableMatches(keys)
 }
 
 func (r *spyContainsBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error) {
