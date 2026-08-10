@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -139,6 +140,47 @@ func TestUpdateVectorIndexConfigs_FailedInitRestoresStatus(t *testing.T) {
 
 	require.Eventually(t, func() bool { return s.GetStatus() == storagestate.StatusReady }, 5*time.Second, 20*time.Millisecond,
 		"shard left read-only after a failed vector index creation")
+}
+
+// Shard init must snapshot the index vector configs under
+// vectorIndexUserConfigLock. Ranging the live vectorIndexUserConfigs map while
+// updateVectorIndexConfigs writes it aborts the process with "concurrent map
+// read and map write" — a fatal error no recover can catch.
+func TestInitShardVectors_ConcurrentConfigUpdate(t *testing.T) {
+	ctx := context.Background()
+	shardLike, idx := testShard(t, ctx, "VectorConfigRace")
+	shard := underlyingShard(t, shardLike)
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	var applied atomic.Int64
+	go func() {
+		defer close(writerDone)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// UpdateVectorIndexConfigs flips the shard read-only and restores it
+			// asynchronously, so back-to-back calls legitimately bounce off it.
+			// Only the calls that get through reach the map write we care about.
+			if err := idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+				fmt.Sprintf("v%d", i%4): enthnsw.UserConfig{Skip: true},
+			}); err == nil {
+				applied.Add(1)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	for i := 0; i < 200; i++ {
+		require.NoError(t, shard.initShardVectors(ctx))
+	}
+
+	close(stop)
+	<-writerDone
+	require.NotZero(t, applied.Load(), "no config update ever landed, so nothing raced the reads")
 }
 
 // underlyingShard returns the concrete *Shard behind a ShardLike, loading it if
