@@ -272,6 +272,10 @@ func ReindexCancelCall(p ReindexTaskPayload) string {
 // REST property-mutation pre-check answers the same question one hop before
 // the RAFT apply path reaches the gates below, and the two must agree.
 //
+// The backup gate refuses on the same migrations but is not one of these: it
+// is keyed on a shard and never sees the task, so it cannot name a cancel
+// call at all. Its wording is in reindexInFlightError.
+//
 // Cancel works for every status the gates block on: both the REST handler's
 // findCancelTarget and DTM's Manager.CancelTask refuse only a terminal task,
 // so STARTED, PREPARING and SWAPPING are all cancellable. What differs is
