@@ -32,9 +32,9 @@ type reqState struct {
 	Starttime time.Time
 	ID        string
 	Status    backup.Status
-	// Err is why the operation ended, for the statuses that need one. The
-	// descriptor on the backend carries the same text, but only once it is
-	// written; a poll landing before that reads this slot instead.
+	// Err is why the operation ended, for the statuses that need one. It lives
+	// only as long as the slot; a poll arriving after that is answered from
+	// backupStat.rememberedFailure.
 	Err            string
 	Path           string
 	OverrideBucket string
@@ -44,6 +44,14 @@ type reqState struct {
 type backupStat struct {
 	sync.Mutex
 	reqState
+
+	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
+	// for the one failure that leaves nothing else to read: the slot is
+	// released as soon as the operation returns, and a later poll is answered
+	// from the descriptor on the backend, which does not exist when writing it
+	// is what failed.
+	rememberedFailureID     string
+	rememberedFailureReason string
 }
 
 func (s *backupStat) get() reqState {
@@ -67,6 +75,11 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
 	s.reqState.Err = ""
+	if s.rememberedFailureID == id {
+		// A retry under the same id: the earlier failure is no longer the
+		// answer to a poll for it.
+		s.rememberedFailureID, s.rememberedFailureReason = "", ""
+	}
 	return ""
 }
 
@@ -93,6 +106,24 @@ func (s *backupStat) setFailed(reason string) {
 	}
 	s.reqState.Status = backup.Failed
 	s.reqState.Err = reason
+	if reason == "" {
+		return
+	}
+	s.rememberedFailureID = s.reqState.ID
+	s.rememberedFailureReason = reason
+}
+
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.rememberedFailureID != id {
+		return "", false
+	}
+	return s.rememberedFailureReason, true
 }
 
 func (s *backupStat) set(st backup.Status) {
@@ -103,10 +134,6 @@ func (s *backupStat) set(st backup.Status) {
 		return
 	}
 	s.reqState.Status = st
-	// Every status other than Failed is reached through here, and none of them
-	// has a reason. Keeping an earlier one would serve it next to a status it
-	// does not belong to.
-	s.reqState.Err = ""
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

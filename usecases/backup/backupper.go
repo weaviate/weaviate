@@ -57,6 +57,12 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
+	// Before the backend, because the backend has nothing to say about the
+	// failure remembered here.
+	if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
+		return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
+	}
+
 	// The backup might have been already created.
 	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
