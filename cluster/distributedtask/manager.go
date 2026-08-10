@@ -163,7 +163,17 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 	if len(m.schemaMutationDetectors) == 0 {
 		return nil
 	}
-	for namespace, detector := range m.schemaMutationDetectors {
+	// Sorted, because this runs on the RAFT apply path and returns the FIRST
+	// error. Ranging the detector map directly would let two nodes applying
+	// the same log entry name conflicts from different namespaces.
+	namespaces := make([]string, 0, len(m.schemaMutationDetectors))
+	for namespace := range m.schemaMutationDetectors {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+
+	for _, namespace := range namespaces {
+		detector := m.schemaMutationDetectors[namespace]
 		if detector == nil {
 			continue
 		}
@@ -451,6 +461,12 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// to act on, and the repair-guidance logging has nothing to
 			// quote.
 			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
+			if unitID, unitErr, ok := task.FirstFailedUnit(); ok {
+				if unitErr == "" {
+					unitErr = "no error recorded"
+				}
+				task.Error = fmt.Sprintf("%s: unit %s failed: %s", task.Error, unitID, unitErr)
+			}
 		} else if task.NeedsPreparationBarrier {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
 			task.Status = TaskStatusPreparing

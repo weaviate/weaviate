@@ -439,7 +439,8 @@ func (t TaskStatus) String() string {
 // non-terminal and writes TaskStatusCancelled while a newer node sees
 // terminal and returns errTaskNotRunning: different FSM state at the same
 // log index. Inherited from the cancel design, not from this method, and
-// tracked for the distributed-task layer rather than fixed here.
+// tracked for the distributed-task layer rather than fixed here:
+// https://github.com/weaviate/weaviate/issues/12575
 //
 // So a new terminal status is only safe once every version in the
 // supported upgrade AND rollback range recognizes it, which means it
@@ -516,6 +517,10 @@ type Task struct {
 	// AllUnitsTerminal transitions to PREPARING (not SWAPPING), and the
 	// FSM gates PREPARING → SWAPPING on every node's PreparationCompleteAck.
 	// Set at AddTask time; immutable thereafter.
+	//
+	// False skips PREPARING entirely: the scheduler fires OnGroupCompleted as
+	// soon as a group's units are terminal, so such a task can already have
+	// committed per-shard swaps while its status is still STARTED.
 	NeedsPreparationBarrier bool `json:"needsPreparationBarrier"`
 
 	// Status is the current status of the task.
@@ -626,6 +631,23 @@ func (t *Task) AnyUnitFailed() bool {
 		}
 	}
 	return false
+}
+
+// FirstFailedUnit returns the lowest-ID FAILED unit and its recorded error,
+// or ok=false when no unit failed. Lowest ID rather than map order because
+// callers put the result in task.Error on the RAFT apply path, where every
+// node must produce the same string.
+func (t *Task) FirstFailedUnit() (unitID, unitErr string, ok bool) {
+	for id, u := range t.Units {
+		if u.Status != UnitStatusFailed {
+			continue
+		}
+		if ok && id >= unitID {
+			continue
+		}
+		unitID, unitErr, ok = id, u.Error, true
+	}
+	return unitID, unitErr, ok
 }
 
 // LocalUnitIDs returns the IDs of units assigned to the given node.

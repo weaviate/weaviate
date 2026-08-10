@@ -726,8 +726,71 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			require.NoError(t, err)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
 			// An operator reading FAILED needs a reason, and the
-			// repair-guidance logging needs something to quote.
-			assert.NotEmpty(t, tasks["ns"][0].Error)
+			// repair-guidance logging needs something to quote. Same
+			// handle as the per-unit failure path: the unit's name and
+			// its own error.
+			assert.Contains(t, tasks["ns"][0].Error, "refusing to advance past STARTED")
+			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
+		})
+	}
+}
+
+// TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit pins
+// that the fail-closed reason is the same on every node: two FAILED units
+// means the lowest ID is quoted, not whichever one map order surfaced.
+func TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit(t *testing.T) {
+	tests := []struct {
+		name      string
+		units     map[string]*Unit
+		wantUnit  string
+		wantCause string
+	}{
+		{
+			name: "two failed units → lowest ID",
+			units: map[string]*Unit{
+				"su-b":       {ID: "su-b", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom-b"},
+				"su-a":       {ID: "su-a", NodeID: "node-3", Status: UnitStatusFailed, Error: "boom-a"},
+				"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+			},
+			wantUnit:  "su-a",
+			wantCause: "boom-a",
+		},
+		{
+			name: "failed unit with empty error → placeholder cause",
+			units: map[string]*Unit{
+				"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed},
+				"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+			},
+			wantUnit:  "su-failed",
+			wantCause: "no error recorded",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+				"ns": {{
+					Namespace:      "ns",
+					TaskDescriptor: TaskDescriptor{ID: "task1", Version: 10},
+					Status:         TaskStatusStarted,
+					Units:          tc.units,
+				}},
+			}})
+			require.NoError(t, err)
+
+			// Repeated because Units is a map: a single run could pick the
+			// lowest ID by luck.
+			for range 20 {
+				h := newTestHarness(t).init(t)
+				require.NoError(t, h.manager.Restore(snap))
+				completeUnit(t, h, "ns", "task1", 10, "node-2", "su-pending")
+
+				tasks, err := h.manager.ListDistributedTasks(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+				require.Contains(t, tasks["ns"][0].Error,
+					fmt.Sprintf("unit %s failed: %s", tc.wantUnit, tc.wantCause))
+			}
 		})
 	}
 }
@@ -1653,6 +1716,48 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		for range 10 {
 			require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
 			require.Equal(t, want, detector.lastTaskIDs)
+		}
+	})
+
+	// The detector set is a map and the dispatch returns the FIRST
+	// rejection, so an unsorted walk lets two nodes applying the same RAFT
+	// entry refuse with a different namespace's message. The namespaces are
+	// walked in sorted order, so "alpha" always wins over "zulu".
+	t.Run("two rejecting detectors → lowest namespace always wins", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			detectors func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector
+		}{
+			{
+				name: "alpha registered first",
+				detectors: func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector {
+					return map[string]SchemaMutationDetector{"alpha": alpha, "zulu": zulu}
+				},
+			},
+			{
+				name: "zulu registered first",
+				detectors: func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector {
+					return map[string]SchemaMutationDetector{"zulu": zulu, "alpha": alpha}
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newTestHarness(t).init(t)
+				alpha := &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("conflict from alpha")}
+				zulu := &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("conflict from zulu")}
+				h.manager.SetSchemaMutationDetectors(tc.detectors(alpha, zulu))
+
+				// Repeated because Go randomizes map iteration per range:
+				// one call could match the sorted order by luck.
+				for range 50 {
+					err := h.manager.CheckPropertyUpdate("C", "name")
+					require.EqualError(t, err, "conflict from alpha")
+				}
+				require.Zero(t, zulu.called,
+					"dispatch must stop at the first rejection, so the later namespace is never consulted")
+			})
 		}
 	})
 
