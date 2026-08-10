@@ -29,7 +29,7 @@ import (
 
 // restoreMetaBackend serves and stores the global restore descriptor. It stands
 // in for fakeBackend, which closes a channel the first time a terminal
-// descriptor is stored — and a second terminal descriptor is exactly what the
+// descriptor is stored, and a second terminal descriptor is exactly what the
 // tests below are about.
 type restoreMetaBackend struct {
 	sync.Mutex
@@ -84,6 +84,17 @@ func (b *restoreMetaBackend) PutObject(_ context.Context, _, key, _, _ string, d
 	b.stored = append([]byte(nil), data...)
 	b.statuses = append(b.statuses, desc.Status)
 	return nil
+}
+
+// setStored replaces the stored descriptor, standing in for the write another
+// coordinator makes while this one is running.
+func (b *restoreMetaBackend) setStored(t *testing.T, desc backup.DistributedBackupDescriptor) {
+	t.Helper()
+	data, err := json.Marshal(desc)
+	require.NoError(t, err)
+	b.Lock()
+	defer b.Unlock()
+	b.stored = data
 }
 
 // storedStatuses is every status stored so far, in order.
@@ -174,7 +185,7 @@ func (o *overlappingRestores) finish(t *testing.T) {
 
 // Pins that a cancelled restore's goroutine and the retry that took the slot
 // over keep their operation state apart. They used to share the coordinator's,
-// and the overlapping map writes are a fatal error in production — here the
+// and the overlapping map writes are a fatal error in production; here the
 // race detector is what turns them into a test failure.
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()

@@ -145,7 +145,7 @@ func newCoordinator(
 		timeoutCanCommit:   _TimeoutCanCommit,
 		timeoutNextRound:   _NextRoundPeriod,
 	}
-	c.initSlot(log)
+	c.setSlotLogger(log)
 	return c
 }
 
@@ -170,12 +170,15 @@ func newOperation(desc *backup.DistributedBackupDescriptor) *operation {
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a
 // poll reads until the descriptor is written to object storage. A failure goes
 // through setFailed so it is never published without the reason next to it.
-func (op *operation) publishStatus(slot slotOwner) {
+//
+// Reports whether the slot took it. False means the outcome is not this
+// operation's to report: it was cancelled, or the slot has since been claimed
+// by the next one.
+func (op *operation) publishStatus(slot slotOwner) bool {
 	if op.descriptor.Status == backup.Failed {
-		slot.setFailed(op.descriptor.Error)
-		return
+		return slot.setFailed(op.descriptor.Error)
 	}
-	slot.set(op.descriptor.Status)
+	return slot.set(op.descriptor.Status)
 }
 
 func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]string, error) {
@@ -297,8 +300,16 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it still holds this cancelled restore;
-			// another restore (even a retry under the same id) may already own it.
+			// Give the slot back on the way out, and only while it still holds
+			// this cancelled restore: another restore (even a retry under the
+			// same id) may already own it.
+			//
+			// Freeing it from a request that is then refused is intended, not a
+			// side effect. The cancel does not free it, because the cancelled
+			// operation is still unwinding and the slot is what keeps a new
+			// restore from starting underneath it. Normally that operation's
+			// own release hands it on; this shortens the wait for the client
+			// that is already asking again.
 			released, held := c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithFields(logrus.Fields{
 				"action":      OpRestore,
@@ -307,10 +318,12 @@ func (c *coordinator) Restore(
 				"slot_holder": held.ID,
 				"slot_status": held.Status,
 			}).Info("restore cancellation already in progress, nothing started")
-			// Refused, not started: a nil error here reaches the caller as
-			// STARTED, and the id it then polls answers with the terminal
-			// status of the restore being cancelled. The participants refuse
-			// the same request with the same wording.
+			// Refused, not started. Returning nil here would reach the caller
+			// as STARTED, and the id it then polls would answer with the
+			// terminal status of the restore being cancelled. A participant
+			// that is the one to notice refuses with the same wording, but its
+			// refusal travels back inside a CanCommit response and reaches the
+			// client as a 500, not as this 422.
 			return backup.NewErrUnprocessable(
 				fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", desc.ID))
 		}
@@ -341,7 +354,9 @@ func (c *coordinator) Restore(
 		return err
 	}
 
-	// Set status to Transferring now that staging has begun
+	// Set status to Transferring now that staging has begun. A refusal is
+	// nothing to act on: it says a cancel of this restore is already stamped,
+	// which the goroutine below checks for on its own.
 	op.descriptor.Status = backup.Transferring
 	slot.set(backup.Transferring)
 
@@ -376,6 +391,9 @@ func (c *coordinator) Restore(
 				if op.descriptor.Error == "" {
 					op.descriptor.Error = errCancelled.Error()
 				}
+				// Mirrors the cancellation storage already carries. Refused
+				// means the slot says the same thing or has moved on, and the
+				// caller stops either way.
 				slot.set(backup.Cancelled)
 				return true
 			}
@@ -411,17 +429,21 @@ func (c *coordinator) Restore(
 			return
 		}
 
-		// Block cancellation by setting status to Finalizing before schema apply
-		// Only proceed if staging was successful (Transferred = staging complete)
+		// Block cancellation by setting status to Finalizing before schema apply.
+		// Only proceed if staging was successful (Transferred = staging complete).
+		//
+		// Whether the slot took the write is the answer: it refuses one that
+		// would walk back a cancellation, including a cancel still in flight,
+		// and it refuses one from an operation that no longer holds the slot.
+		// Reading the status first and writing after would let a cancel land
+		// between the two and be dropped, and the restore would go on to apply
+		// the schema and report SUCCESS.
 		if op.descriptor.Status == backup.Transferred {
-			// A cancel still in flight counts too: past this point
-			// CancelRestore can no longer refuse it.
-			if st, ok := slot.status(); ok && st.IsCancellation() {
+			if !slot.set(backup.Finalizing) {
 				op.descriptor.Status = backup.Cancelled
 				op.descriptor.Error = errCancelled.Error()
 			} else {
 				op.descriptor.Status = backup.Finalizing
-				slot.set(backup.Finalizing)
 				if err := store.PutMeta(ctx, GlobalRestoreFile, op.descriptor, overrideBucket, overridePath); err != nil {
 					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 				}
@@ -441,11 +463,27 @@ func (c *coordinator) Restore(
 				op.descriptor.Status = backup.Success
 			}
 		}
-		op.publishStatus(slot)
-
-		// Note: No need to check for cancellation after schema apply.
-		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
-		// so CANCELLED cannot be written to storage during schema apply.
+		// A refused publish is the holds() guard above one step later. It means
+		// the outcome is not this restore's to report: either a cancel landed
+		// while the schema was being applied, and its CANCELLED stands rather
+		// than this SUCCESS, or the slot has moved on and the descriptor in
+		// object storage belongs to the restore that took it. Reporting a
+		// cancellation the slot already carries is neither, so that one goes on
+		// to be written.
+		//
+		// CancelRestore normally cannot reach that first case, because it
+		// refuses a restore whose stored descriptor reads FINALIZING, but that
+		// descriptor is best effort: the put above is logged, not acted on.
+		published := op.publishStatus(slot)
+		agreesWithTheCancellation := op.descriptor.Status.IsCancellation() && slot.holds()
+		if !published && !agreesWithTheCancellation {
+			c.log.WithFields(logrus.Fields{
+				"action":       OpRestore,
+				"backup_id":    desc.ID,
+				"final_status": op.descriptor.Status,
+			}).Info("restore outcome refused by the slot, stopping without publishing")
+			return
+		}
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, op.descriptor, overrideBucket, overridePath); err != nil {
@@ -807,6 +845,9 @@ func (c *coordinator) commit(ctx context.Context,
 		}
 	}
 	op.descriptor.Error = reason
+	// Ignoring the refusal is deliberate: this publishes the staging outcome
+	// for polls, and the caller that has something to decide (Restore) asks
+	// again right after, through holds() and the Finalizing write.
 	op.publishStatus(slot)
 	op.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
