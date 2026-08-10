@@ -75,7 +75,8 @@ func putUUIDKey(dst []byte, v string) error {
 
 // encodeFixedWidthKeys encodes every already-typed value into its fixed-width
 // slot of one shared slab, wrapping the first failure with its position so the
-// caller can report which element was malformed.
+// caller can report which element was malformed. Build orders the result and
+// drops duplicate keys, so it can be shorter than values.
 func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte, v T) error) (ent.SortedKeys, error) {
 	kb := ent.NewFixedKeyBuilder(len(values), keyLen)
 	for i := range values {

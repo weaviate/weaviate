@@ -511,8 +511,9 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 }
 
 // keysFrom builds a [entsInverted.SortedKeys] from literal keys so tests can
-// state the keys they mean without mirroring a builder. Build orders them, so
-// the result is ascending whatever order they are given in.
+// state the keys they mean without mirroring a builder. Build orders them and
+// drops duplicates, so the result is the distinct keys in ascending order
+// whatever order they are given in.
 func keysFrom(tb testing.TB, keys ...[]byte) entsInverted.SortedKeys {
 	tb.Helper()
 	total := 0

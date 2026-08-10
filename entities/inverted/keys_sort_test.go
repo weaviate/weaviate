@@ -516,6 +516,80 @@ func TestSortFixedWidthAllIdentical(t *testing.T) {
 	}
 }
 
+// TestDedupRejectsAnInversion covers the check that stands in for verifying the
+// sort.
+//
+// It is dead under the rest of the suite by construction — a correct sort never
+// produces an inversion — so the only way to show it fires, and names the pair
+// it found, is to hand it a slab the sort could not have produced. Without this
+// the branch could be deleted, or made to drop the smaller key silently, with
+// everything still green.
+func TestDedupRejectsAnInversion(t *testing.T) {
+	t.Run("fixed width", func(t *testing.T) {
+		tests := []struct {
+			name string
+			keys []string
+			want string
+		}{
+			{"adjacent pair swapped", []string{"bb", "aa"}, "key 1 of 2"},
+			{"inversion after a duplicate run", []string{"bb", "bb", "aa"}, "key 2 of 3"},
+			{"inversion in the middle", []string{"aa", "cc", "bb", "dd"}, "key 2 of 4"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				slab := []byte(strings.Join(tt.keys, ""))
+				n, err := dedupFixed(slab, 2, len(tt.keys))
+				require.ErrorIs(t, err, ErrInternal,
+					"a caller must be able to tell this from a bad filter value")
+				assert.Zero(t, n, "a rejected batch must not report a count")
+				assert.Contains(t, err.Error(), tt.want)
+				assert.Contains(t, err.Error(), "sorts before its predecessor")
+				assert.Contains(t, err.Error(), "2-byte fixed-width")
+			})
+		}
+
+		// The two keys that disagreed are the only evidence of which encoding
+		// broke, so the message must carry both.
+		_, err := dedupFixed([]byte("bbaa"), 2, 2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "6161 after 6262")
+	})
+
+	t.Run("variable width", func(t *testing.T) {
+		tests := []struct {
+			name string
+			keys []string
+			want string
+		}{
+			{"adjacent pair swapped", []string{"bbb", "a"}, "key 1 of 2"},
+			{"a prefix sorting after its extension", []string{"abc", "ab"}, "key 1 of 2"},
+			{"inversion after a dropped duplicate", []string{"bb", "bb", "a"}, "key 2 of 3"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				slab, offs := buildVar(tt.keys)
+				n, err := dedupVariable(slab, offs, len(tt.keys))
+				require.ErrorIs(t, err, ErrInternal)
+				assert.Zero(t, n)
+				assert.Contains(t, err.Error(), tt.want)
+				assert.Contains(t, err.Error(), "variable-width branch")
+			})
+		}
+
+		_, err := dedupVariable(buildVarSlab(t, "bbb", "a"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "61 after 626262")
+	})
+}
+
+// buildVarSlab is buildVar plus the key count, shaped for dedupVariable's
+// signature.
+func buildVarSlab(tb testing.TB, keys ...string) ([]byte, []uint32, int) {
+	tb.Helper()
+	slab, offs := buildVar(keys)
+	return slab, offs, len(keys)
+}
+
 // TestSortFixedWidthWidthZeroWritesNothing covers d == 0, where every key is its
 // own shared prefix.
 //

@@ -180,7 +180,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		// value is what the filter layer hands over: typed slices from
 		// internal callers, []interface{} from the GraphQL/gRPC layer
 		value interface{}
-		// numKeys is how many values wantKey can be asked for.
+		// numKeys is how many values wantKey can be asked for; the distinct
+		// count is derived from the keys it returns, since the builders drop
+		// duplicates.
 		numKeys int
 		wantKey func(t *testing.T, i int) []byte
 	}{
@@ -199,6 +201,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		{"bool []interface{}", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, []interface{}{true, false}, 2, boolKey},
 		{"date", "prop-date", schema.DataTypeDate, filters.ContainsAny, dateValues, 3, dateKey},
 		{"date []interface{}", "prop-date", schema.DataTypeDate, filters.ContainsAny, []interface{}{dateValues[0], dateValues[1], dateValues[2]}, 3, dateKey},
+		// Four values, two distinct keys. Every other row has one key per
+		// value, so without this the gate's >= 2 values and the leaf's >= 1 key
+		// are never seen to disagree.
 		{"bool, values repeated", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, boolDupValues, len(boolDupValues), boolDupKey},
 		{"int, values repeated", "prop-int", schema.DataTypeInt, filters.ContainsAny, intDupValues, len(intDupValues), intDupKey},
 	}
@@ -217,15 +222,17 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
 			// The keys come back ascending, not in the order the filter listed
-			// them, so the expectation is built from every value and then
-			// ordered the same way. The bool rows are where the two differ.
+			// them, and duplicates are gone — so the expectation is built from
+			// every value and then ordered and compacted the same way. The bool
+			// rows are where the two orders differ.
 			want := make([][]byte, tt.numKeys)
 			for i := range want {
 				want[i] = tt.wantKey(t, i)
 			}
 			slices.SortFunc(want, bytes.Compare)
+			want = slices.CompactFunc(want, bytes.Equal)
 			require.Equal(t, len(want), pv.containsValues.Len(),
-				"one key per value")
+				"one key per distinct value")
 			require.Equal(t, want, collectKeys(pv.containsValues))
 		})
 	}
@@ -478,6 +485,10 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 // Contains at all, and reach the children dispatch holding no children. The
 // value-count gate in extractContains keeps that unreachable; this keeps the
 // two from drifting apart if the gate ever moves.
+//
+// One key is accepted: the builders drop duplicate values, so a filter naming
+// the same value twice — or any boolean filter, which has two distinct keys to
+// draw on however many values it names — legitimately arrives with one.
 func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	prop := &models.Property{Name: "prop-int"}
@@ -699,9 +710,30 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, filters.ContainsAny.Name(), entries[0]["operator"])
 		require.Equal(t, 3, entries[0]["count"])
 		require.Equal(t, false, entries[0]["failed"])
-		require.Equal(t, 2, entries[0]["batched_values"])
+		require.Equal(t, 2, entries[0]["batched_keys"])
 		require.Contains(t, entries[0], "took")
 		require.Contains(t, entries[0], "took_string")
+	})
+
+	// The annotation counts keys, not the values the filter named, and the two
+	// stop agreeing the moment a filter repeats a value. Asserted on a shape
+	// where they differ, since a fixture with distinct values reports the same
+	// number either way and would not notice the field changing meaning.
+	t.Run("the annotation counts distinct keys, not values", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		keys, err := encodeBoolKeys([]bool{true, false, true, false})
+		require.NoError(t, err)
+		require.Equal(t, 2, keys.Len(), "four values, two distinct boolean keys")
+
+		pv := newPV(keys)
+		pv.prop = "prop-bool"
+		writeContainsRows(t, f, "prop-bool", map[string][]uint64{"\x00": {1}, "\x01": {2}})
+		dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.Equal(t, 2, entries[0]["batched_keys"], "four values must report two keys")
 	})
 
 	t.Run("a bucket rejected at open is still annotated", func(t *testing.T) {

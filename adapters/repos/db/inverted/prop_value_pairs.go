@@ -377,9 +377,11 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	// A batched Contains carries at least one key — extraction does not batch
-	// below two values. Zero is a caller bug: answering it would mean inventing
-	// a result for each operator, and the fold refuses it for the same reason.
+	// A batched Contains carries at least one key. Extraction does not batch
+	// below two values, but the builders drop duplicates, so the key count can
+	// be lower than the value count. Zero is a caller bug: answering it would
+	// mean inventing a result for each operator, and the fold refuses it for
+	// the same reason.
 	if pv.containsValues.Len() == 0 {
 		return nil, fmt.Errorf("%w: contains filter on prop %q carries no keys",
 			entsInverted.ErrInternal, pv.prop)
@@ -392,14 +394,17 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		took := time.Since(before)
 		helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
 			return map[string]any{
-				"prop":           pv.prop,
-				"operator":       pv.operator.Name(),
-				"took":           took,
-				"took_string":    took.String(),
-				"count":          dbm.count(),
-				"failed":         err != nil,
-				"strategy":       lsmkv.StrategyRoaringSet,
-				"batched_values": pv.containsValues.Len(),
+				"prop":        pv.prop,
+				"operator":    pv.operator.Name(),
+				"took":        took,
+				"took_string": took.String(),
+				"count":       dbm.count(),
+				"failed":      err != nil,
+				"strategy":    lsmkv.StrategyRoaringSet,
+				// Distinct keys, not filter values: the builders drop
+				// duplicates, so a boolean filter over any number of values
+				// reports at most two.
+				"batched_keys": pv.containsValues.Len(),
 			}
 		})
 	}()

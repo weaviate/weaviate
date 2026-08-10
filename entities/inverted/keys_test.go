@@ -12,6 +12,10 @@
 package inverted
 
 import (
+	"encoding/binary"
+	"fmt"
+	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,9 +242,9 @@ func TestFixedKeyBuilderBuild(t *testing.T) {
 		assert.Equal(t, []string{"zz"}, collect(buildFixed(t, 2)([]string{"zz"})))
 	})
 
-	t.Run("equal keys keep their run", func(t *testing.T) {
+	t.Run("equal keys collapse", func(t *testing.T) {
 		keys := buildFixed(t, 2)([]string{"bb", "aa", "bb"})
-		assert.Equal(t, []string{"aa", "bb", "bb"}, collect(keys))
+		assert.Equal(t, []string{"aa", "bb"}, collect(keys))
 	})
 }
 
@@ -361,6 +365,96 @@ func TestVarKeyBuilderBuild(t *testing.T) {
 	}
 }
 
+// TestBuildDropsDuplicates covers the pass Build runs after ordering.
+//
+// Both layouts compact in place, and the variable one rewrites offsets as it
+// goes, so a survivor that moves must take its own offsets with it. Duplicates
+// are seeded at the front, the back and throughout because the compaction reads
+// ahead of the cursor it writes to.
+func TestBuildDropsDuplicates(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []string
+		want []string
+	}{
+		{"none to drop", []string{"cc", "aa", "bb"}, []string{"aa", "bb", "cc"}},
+		{"one adjacent pair", []string{"bb", "aa", "bb"}, []string{"aa", "bb"}},
+		{"every key equal", []string{"aa", "aa", "aa", "aa"}, []string{"aa"}},
+		{"duplicates at the front", []string{"aa", "aa", "bb", "cc"}, []string{"aa", "bb", "cc"}},
+		{"duplicates at the back", []string{"aa", "bb", "cc", "cc"}, []string{"aa", "bb", "cc"}},
+		{"runs throughout", []string{"bb", "aa", "cc", "bb", "aa", "cc", "bb"}, []string{"aa", "bb", "cc"}},
+		{"two keys, both equal", []string{"zz", "zz"}, []string{"zz"}},
+		{"one key", []string{"qq"}, []string{"qq"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("fixed", func(t *testing.T) {
+				keys := buildFixed(t, 2)(tt.keys)
+				assert.Equal(t, tt.want, collect(keys))
+				assert.Equal(t, len(tt.want), keys.Len())
+			})
+			t.Run("variable", func(t *testing.T) {
+				// Widen one key per case so the list cannot take the
+				// fixed-width layout and the offset-rewriting arm is the one
+				// under test.
+				keys := append([]string{"aaa"}, tt.keys...)
+				want := append([]string{"aaa"}, tt.want...)
+				slices.Sort(want)
+				got := buildVariable(t, keys)
+				assert.Equal(t, want, collect(got))
+				assert.NotNil(t, got.offs, "the widened list must keep its offsets")
+			})
+		})
+	}
+}
+
+// TestBuildDropsDuplicatesAcrossShapes checks the compaction against
+// slices.Compact over alphabets narrow enough to collide constantly, at sizes
+// either side of every arm boundary.
+func TestBuildDropsDuplicatesAcrossShapes(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	for _, alphabet := range []int{1, 2, 3, 8} {
+		for _, maxLen := range []int{1, 2, 5, 12} {
+			for _, n := range []int{0, 1, 2, 3, 5, 63, 64, 65, 500} {
+				keys := make([]string, n)
+				fixed := make([]string, n)
+				for i := range keys {
+					b := make([]byte, 1+rng.Intn(maxLen))
+					for j := range b {
+						b[j] = byte('a' + rng.Intn(alphabet))
+					}
+					keys[i] = string(b)
+					fixed[i] = fmt.Sprintf("%-*s", maxLen, b)
+				}
+				for name, got := range map[string][]string{
+					"variable": collect(buildVariable(t, keys)),
+					"fixed":    collect(buildFixed(t, maxLen)(fixed)),
+				} {
+					src := keys
+					if name == "fixed" {
+						src = fixed
+					}
+					want := slices.Clone(src)
+					slices.Sort(want)
+					want = slices.Compact(want)
+					if len(got) != len(want) {
+						t.Fatalf("%s alphabet=%d maxLen=%d n=%d: got %d keys, want %d",
+							name, alphabet, maxLen, n, len(got), len(want))
+					}
+					for i := range want {
+						if got[i] != want[i] {
+							t.Fatalf("%s alphabet=%d maxLen=%d n=%d: key %d is %q, want %q",
+								name, alphabet, maxLen, n, i, got[i], want[i])
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// fixedBuilder adapts buildFixed to the table's build signature, which takes the
+// TB so a builder error fails the case rather than being dropped.
 func fixedBuilder(width int) func(tb testing.TB, keys []string) SortedKeys {
 	return func(tb testing.TB, keys []string) SortedKeys {
 		return buildFixed(tb, width)(keys)
@@ -438,4 +532,108 @@ func TestSortedKeysAtRefusesOutOfRange(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestShrinkKeysReleasesTheDedupedTail covers the copy that returns a deduped
+// batch's array to the collector.
+//
+// Asserted on the array identity, not on cap(): the returned slice is capped at
+// the last surviving key either way, so cap() reads the same whether the tail
+// was released or is merely hidden behind it. That is the trap the shrink code
+// itself first fell into, and a test reading cap() falls into it too.
+func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
+	sameArray := func(a, b []byte) bool { return &a[:1][0] == &b[:1][0] }
+
+	tests := []struct {
+		name       string
+		cap, end   int
+		wantCopied bool
+	}{
+		{"most of a large array is dead", 100_000, 8, true},
+		{"exactly at the ratio", 4096, 1024, false},
+		{"just inside the ratio", 4096, 1025, false},
+		{"below the floor, however dead", 4095, 1, false},
+		{"nothing was dropped", 4096, 4096, false},
+		// Either side of 4*end == cap on a large array, so loosening the ratio
+		// as well as tightening it changes an answer.
+		{"exactly at the ratio, large array", 100_000, 25_000, false},
+		{"one key past the ratio", 100_000, 24_999, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := make([]byte, tt.cap)
+			for i := range src {
+				src[i] = byte(i)
+			}
+			got := shrinkKeys(src, tt.end)
+
+			require.Len(t, got, tt.end)
+			assert.Equal(t, src[:tt.end], got, "shrinking must not alter a key")
+			if tt.wantCopied {
+				// append rounds to a size class, so the spare bytes are fresh
+				// zeros rather than the tail that was dropped.
+				assert.GreaterOrEqual(t, cap(got), tt.end)
+			} else {
+				assert.Equal(t, tt.end, cap(got), "an aliased result must stop at the last key")
+			}
+			assert.Equal(t, tt.wantCopied, !sameArray(src, got),
+				"copied-vs-aliased decides whether the array is released")
+		})
+	}
+
+	// Compared as a bool, not with NotEqual on the two pointers: testify would
+	// dereference them and find both elements zero.
+	t.Run("offsets shrink on the same rule", func(t *testing.T) {
+		aliased := func(a, b []uint32) bool { return &a[:1][0] == &b[:1][0] }
+
+		src := make([]uint32, 25_000)
+		assert.False(t, aliased(src, shrinkOffs(src, 3)), "a dead offset array must be released")
+		assert.True(t, aliased(src, shrinkOffs(src, 6_250)), "at the ratio, nothing is reclaimed")
+		assert.False(t, aliased(src, shrinkOffs(src, 6_249)), "one entry past it, the copy is worth it")
+
+		// The floor is counted in bytes, not entries, so these two straddle it
+		// at a quarter of the element count shrinkKeys would need.
+		atFloor := make([]uint32, 1024)
+		assert.False(t, aliased(atFloor, shrinkOffs(atFloor, 1)), "1024 offsets is 4096 bytes")
+		belowFloor := make([]uint32, 1023)
+		assert.True(t, aliased(belowFloor, shrinkOffs(belowFloor, 1)), "1023 offsets is below it")
+	})
+
+	// The helpers above are only reached through Build, and nothing else pins
+	// that Build still calls them: every call site could go back to a plain
+	// three-index slice with the rest of the suite green.
+	t.Run("Build hands the batch array back", func(t *testing.T) {
+		const n = 100_000
+
+		t.Run("fixed layout", func(t *testing.T) {
+			b := NewFixedKeyBuilder(n, 8)
+			for i := 0; i < n; i++ {
+				binary.BigEndian.PutUint64(b.AppendBuf(), uint64(i%2))
+			}
+			raw := b.slab
+			built, err := b.Build()
+			require.NoError(t, err)
+			require.Equal(t, 2, built.Len())
+			assert.False(t, &raw[:1][0] == &built.slab[:1][0],
+				"a batch that dedups to two keys must not keep the array it filled")
+		})
+
+		t.Run("offsets layout", func(t *testing.T) {
+			b := NewVarKeyBuilder(n, 3*n)
+			for i := 0; i < n; i++ {
+				if i%2 == 0 {
+					b.AppendString("aa")
+				} else {
+					b.AppendString("bbb")
+				}
+			}
+			rawSlab, rawOffs := b.slab, b.offs
+			built, err := b.Build()
+			require.NoError(t, err)
+			require.Equal(t, 2, built.Len())
+			require.NotNil(t, built.offs, "mixed widths must keep the offsets layout")
+			assert.False(t, &rawSlab[:1][0] == &built.slab[:1][0], "the slab must be released")
+			assert.False(t, &rawOffs[:1][0] == &built.offs[:1][0], "the offsets must be released")
+		})
+	})
 }
