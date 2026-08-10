@@ -805,7 +805,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
-		coordinator.commit(ctx, req, node2Addr, true)
+		coordinator.commit(ctx, req, node2Addr, true, slotOwner{})
 
 		// After commit, queryAll should have updated Participants with Cancelled status
 		// Verify that queryAll was called and updated the status
@@ -1241,8 +1241,8 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(cancelling, nil)
 
 			c := fc.coordinator()
-			c.lastOp.renew(tc.claimedID, "path", "", "")
-			c.lastOp.set(tc.claimStatus)
+			_, slot := c.lastOp.renew(tc.claimedID, "path", "", "")
+			slot.set(tc.claimStatus)
 
 			req := newReq(nil, backendName, backupID)
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}

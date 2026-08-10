@@ -472,6 +472,26 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
+// logCancelStamp records whether a cancel reached this node's restore slot.
+// The false case is the one an operator needs: the slot holds a different
+// restore, so nothing this node reports about the cancelled one changes, and
+// the cancel looks like it did nothing. held is the slot as it stands after the
+// attempt, so the log names the restore that is in the way.
+func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
+	entry := logger.WithFields(logrus.Fields{
+		"action":       "cancel_restore",
+		"backup_id":    backupID,
+		"slot_status":  st,
+		"slot_stamped": stamped,
+		"slot_holder":  held.ID,
+	})
+	if !stamped {
+		entry.Warn("restore slot not stamped: it is held by another restore")
+		return
+	}
+	entry.Info("restore slot stamped with the cancellation")
+}
+
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) (err error) {
 	defer func(begin time.Time) {
@@ -542,12 +562,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		}
 		// stamped says whether this node's restore slot took the status. False
 		// means the slot holds some other restore, which is why an operator who
-		// cancelled sees no change in what this node reports.
-		stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
-		s.logger.WithField("action", "cancel_restore").
-			WithField("backup_id", backupID).
-			WithField("slot_stamped", stamped).
-			Debug("marked restore cancelling")
+		// cancelled sees no change in what this node reports — so it is logged
+		// where a default deployment can find it.
+		logCancelStamp(s.logger, backupID, backup.Cancelling,
+			s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling),
+			s.restorer.lastOp.get())
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -567,11 +586,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// Only when this node's restore slot is still held by the restore being
 	// cancelled: the slot is one per node and shared by every restore this node
 	// coordinates, and OnStatus reads it only for a matching id anyway.
-	stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
-	s.logger.WithField("action", "cancel_restore").
-		WithField("backup_id", backupID).
-		WithField("slot_stamped", stamped).
-		Debug("marked restore cancelled")
+	logCancelStamp(s.logger, backupID, backup.Cancelled,
+		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled),
+		s.restorer.lastOp.get())
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {
