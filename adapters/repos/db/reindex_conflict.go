@@ -14,10 +14,10 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
@@ -117,6 +117,12 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // request, so an unknown type that overlaps on properties is reported as a
 // conflict instead. Overlap is checked first because it is a pure function
 // of the property sets and stays correct whatever the types are.
+//
+// That fail-closed branch is divergence-free only while every overlap
+// conflicts: both the node that knows the type and the node that does not
+// reject, so they agree. A future "these two types are compatible" exception
+// would make the older node reject what the newer one accepts and split the
+// FSM across versions.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -141,9 +147,9 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 }
 
 // TypesConflictReason is the package-public alias for typesConflictReason,
-// used by the REST handlers' pre-flight conflict check. Inline so
-// internal callers (CheckConflict, CheckPropertyUpdate) continue to use
-// the lowercase symbol without indirection.
+// used by the REST handlers' pre-flight conflict check. Inline so the
+// internal caller (CheckConflict) continues to use the lowercase symbol
+// without indirection.
 func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -167,56 +173,6 @@ func ReindexPropsOverlap(a, b []string) bool {
 		}
 	}
 	return false
-}
-
-// TouchesSearchable reports whether migration type t writes to the
-// searchable bucket. Implemented as an exhaustive switch so that a
-// newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type.
-//
-// Only safe to call where a panic is an acceptable outcome, which rules
-// out the RAFT apply path — a panic under
-// [distributedtask.Manager.AddTask] crashes every node and replays from
-// the log on restart. Use [firstUnknownMigrationType] there.
-func TouchesSearchable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable,
-		ReindexTypeRebuildSearchable:
-		return true
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
-}
-
-// TouchesFilterable reports whether migration type t writes to the
-// filterable bucket. Same exhaustive-switch contract as
-// [TouchesSearchable].
-func TouchesFilterable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable:
-		return true
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeEnableSearchable,
-		ReindexTypeRebuildSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
 }
 
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
@@ -272,25 +228,55 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 // is defense in depth), or p.MigrationType maps to no index via
 // [ReindexTargetIndexes].
 //
-// The path segment is the SHORT collection name. p.Collection is stored
-// namespace-qualified ("customer1:MyClass") because the only payload
-// builder qualifies it first, and feeding a qualified name back into
-// `PUT /v1/schema/{className}/indexes/{propertyName}` fails
-// [namespacing.ValidateNamespacePrefix] with a 400 for any
-// namespace-confined caller — the resolver re-adds their prefix. Global
-// operators on a namespace-enabled cluster must re-qualify the name
-// themselves; they are the callers who legitimately type the prefix.
+// The path segment is the collection name exactly as stored, which on a
+// namespace-enabled cluster is qualified ("customer1:MyClass"). A global
+// operator has to type that prefix for the request to reach the right
+// collection, and they are the only reader of the server log. A
+// namespace-confined caller must not, but does not have to strip it either:
+// every REST path that returns one of these messages runs it through
+// [namespacing.StripErrorMessage] (cerrors.ErrPayloadFromSingleErr), which
+// removes that caller's own prefix from the whole message. Stripping here as
+// well would hand the global operator a name that resolves to nothing.
 //
-// Only the first property and index key are named even when the task
-// touches more — cancel is task-scoped: it matches on any one of them and
-// cancels (and cleans up) everything the task touched.
-func ReindexCancelCall(p ReindexTaskPayload) string {
+// askedProperty is named when the task carries it, so a refusal about
+// `C.name` does not render a cancel call for some other property of the same
+// task. Falls back to the first property. Which one is named does not change
+// what cancel does: cancel is task-scoped, matches on any one of the task's
+// (property, index) pairs, and cancels and cleans up everything the task
+// touched.
+func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"%s":{"cancel":true}}`,
-		namespacing.StripQualification(p.Collection), p.Properties[0], indexes[0])
+		p.Collection, reindexNamedProperty(p, askedProperty), indexes[0])
+}
+
+// ReindexRebuildCall renders the request that repairs the property after a
+// cancel left the buckets ahead of the schema, or "" when this build cannot
+// name one. Same rendering rules as [ReindexCancelCall].
+//
+// The body rebuilds every index the migration could have torn: the gate
+// cannot tell which shards got how far, and rebuild is idempotent on a
+// healthy index.
+func ReindexRebuildCall(p ReindexTaskPayload, askedProperty string) string {
+	if p.Collection == "" || len(p.Properties) == 0 ||
+		len(ReindexTargetIndexes(p.MigrationType)) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("PUT /v1/schema/%s/indexes/%s %s",
+		p.Collection, reindexNamedProperty(p, askedProperty),
+		reindexRepairBody(p.MigrationType))
+}
+
+// reindexNamedProperty picks the property a rendered call should name:
+// askedProperty when the task actually carries it, the first one otherwise.
+func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
+	if slices.Contains(p.Properties, askedProperty) {
+		return askedProperty
+	}
+	return p.Properties[0]
 }
 
 // ReindexGateRemedy is the closing sentence every reindex schema gate — the
@@ -299,51 +285,81 @@ func ReindexCancelCall(p ReindexTaskPayload) string {
 // these: it's shard-keyed and never sees the task, so it can't name a
 // cancel call (its wording is in reindexInFlightError).
 //
-// cancelCall is [ReindexCancelCall] for the offending task, or "" when none
-// can be named.
+// p is the offending task's payload; askedProperty is the property the
+// caller's request named, or "" when the refusal is not property-scoped
+// (DeleteClass, tenant mutations).
 //
-// Sentence depends on status:
-//   - unrecognized (non-terminal but not STARTED/PREPARING/SWAPPING, e.g. a
+// Sentence depends on status and on whether the migration crosses the swap
+// barrier ([IsSemanticMigration]):
+//   - unrecognized (anything that is not STARTED/PREPARING/SWAPPING, e.g. a
 //     newer node's status during a rolling upgrade): claims nothing about
-//     cancel.
-//   - cancelCall == "": cancel can't be named; task can only be waited out.
-//   - STARTED: cancel or wait, no side effects yet.
+//     cancel. Terminal statuses land here too, which no caller exercises:
+//     every gate pre-filters on [distributedtask.TaskStatus.IsActive].
+//   - no cancel call can be named: task can only be waited out.
+//   - STARTED on a barrier migration: cancel or wait, nothing on disk yet.
+//   - STARTED on a format-only migration: shards can already have finished.
+//     No schema flip is involved, so there is no inversion to repair, but
+//     the rebuild lands on only some shards until it is re-submitted.
 //   - PREPARING/SWAPPING: steer the operator toward waiting, and name the
-//     cost of cancelling rather than calling it a rebuild.
+//     rebuild that cancelling makes necessary.
+//
+// Why STARTED is safe only for barrier migrations: PREPARING exists only
+// when [distributedtask.Task.NeedsPreparationBarrier] is set, which is
+// exactly [IsSemanticMigration]. A format-only task goes STARTED →
+// SWAPPING, and the scheduler fires OnGroupCompleted per group, so its
+// per-shard swaps commit while the task still reads STARTED.
 //
 // Why PREPARING/SWAPPING is not a symmetric "cancel or wait": by then a
-// shard may have committed its bucket swap. Cancel does not roll that back
-// — the scheduler skips the swap phase, OnTaskCompleted skips the schema
-// flip, and CleanStalePartialReindexState deliberately preserves a
-// committed swap because wiping it is #10675-shape data loss. Queries stay
-// correct only through [Shard.tokenizationOverlay], which is in-memory
-// only: restart that node and FinalizeCompletedMigrations promotes the
-// swapped sidecar to canonical, nothing rebuilds the overlay, and the
-// buckets hold new-format data under a schema that says old. That is the
-// same bucket↔schema inversion [CheckClassMutation] describes as
-// catastrophic, so the sentence must not read as an inconvenience.
-// Tracked for a follow-up: the durable fix is to make the overlay survive
-// restart (or to flip the schema on a cancel that had committed swaps).
-func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) string {
+// shard's new-format data can already be on disk in a form the next restart
+// promotes. Cancel does not roll that back — the scheduler skips the swap
+// phase, OnTaskCompleted skips the schema flip, and
+// CleanStalePartialReindexState deliberately preserves that generation
+// because wiping it is #10675-shape data loss. On the next start
+// [FinalizeCompletedMigrations] promotes the sidecar to the canonical
+// bucket, so the buckets hold new-format data under a schema that says old:
+// the same bucket↔schema inversion [CheckClassMutation] describes as
+// catastrophic.
+//
+// The window opens at the MERGE, not at the swap. FinalizeCompletedMigrations
+// promotes on merged.mig alone, and merged.mig is written by runtimePrepare
+// during PREPARING, before any shard swaps. So a cancel at PREPARING already
+// leaves promotion-eligible data — on a node that never set
+// [Shard.tokenizationOverlay], which means the in-memory mask that keeps
+// queries correct in the SWAPPING case is not even there to lose. Making
+// that overlay survive restart therefore would not close this on its own; the
+// durable fix has to either drop the merged generation on cancel or flip the
+// schema for it. Tracked in
+// https://github.com/weaviate/weaviate/issues/12575 .
+func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {
 		return "this build does not know that status, most likely because a " +
 			"newer node reported it, so it cannot tell you whether cancel " +
 			"still applies; read the task on a node that knows the status"
 	}
+	cancelCall := ReindexCancelCall(p, askedProperty)
 	if cancelCall == "" {
 		return "the cancel endpoint is keyed on one collection, property and " +
 			"index type, and this task names none this build can fill in, " +
 			"so it can only be waited out"
 	}
-	if started {
+	if started && IsSemanticMigration(p.MigrationType) {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	return "wait for it to finish: its per-shard work is already done, so " +
-		"cancelling now skips the schema change but does not undo the shards " +
-		"that already swapped, which leaves those buckets holding the new " +
-		"format under the old schema and needs a manual rebuild of the " +
-		"property to repair — if you accept that, cancel it via " + cancelCall
+	rebuildCall := ReindexRebuildCall(p, askedProperty)
+	if started {
+		return "cancel it via " + cancelCall + ", or wait for it to finish; " +
+			"this migration has no cluster-wide cutover, so its shards commit " +
+			"one by one while it still reads STARTED and cancelling leaves the " +
+			"ones that already finished rebuilt and the rest untouched — " +
+			"re-submit the same request to finish the remainder"
+	}
+	return "wait for it to finish: its per-shard work is already merged on " +
+		"disk, so cancelling now skips the schema change but does not drop " +
+		"that data, and the next restart promotes it — which leaves those " +
+		"buckets holding the new format under the old schema, repairable " +
+		"only by rebuilding the property via " + rebuildCall +
+		" — if you accept that, cancel it via " + cancelCall
 }
 
 // CheckPropertyUpdate implements
@@ -390,19 +406,23 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 
 		var existP ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			// The task ID is withheld: an unreadable payload also means an
+			// unknown collection, so this task may belong to a namespace the
+			// caller cannot see. GET /v1/tasks names it for those who can.
 			return fmt.Errorf(
-				"in-flight reindex task %q has an unparseable payload; "+
+				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
-					"conflict: %w",
-				task.ID, className, propertyName, err)
+					"conflict (see GET /v1/tasks): %w",
+				className, propertyName, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
+			// Task ID withheld for the same reason as above.
 			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
+				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether property update "+
-					"on %s.%s would conflict",
-				task.ID, className, propertyName)
+					"on %s.%s would conflict (see GET /v1/tasks)",
+				className, propertyName)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -416,7 +436,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
+			ReindexGateRemedy(task.Status, existP, propertyName))
 	}
 	return nil
 }
@@ -468,7 +488,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"working state and produce a bucket↔schema inversion "+
 				"on every replica — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
+			ReindexGateRemedy(task.Status, existP, ""))
 	}
 	return nil
 }
@@ -522,7 +542,7 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
-			ReindexGateRemedy(task.Status, ReindexCancelCall(existP)))
+			ReindexGateRemedy(task.Status, existP, ""))
 	}
 	return nil
 }

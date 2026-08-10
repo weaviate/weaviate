@@ -183,6 +183,18 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.NotContains(t, err.Error(), "<indexType>")
 }
 
+// On a namespace-enabled cluster the class name is stored qualified. The
+// rendered URLs keep the prefix: a global operator has to type it for the
+// request to reach the right collection, and the REST error path removes it
+// again for the namespace-confined caller who must not.
+func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
+	err := reindexInFlightError("customer1:MyClass", "shard1", false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "GET /v1/schema/customer1:MyClass/indexes")
+	require.Contains(t, err.Error(), "PUT /v1/schema/customer1:MyClass/indexes/{that property}")
+	require.NotContains(t, err.Error(), "/v1/schema/MyClass/")
+}
+
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
 // the shard-level halt-for-backup path delegates the gate decision to
 // the same DTM-backed lookup as the inactive-shard path.

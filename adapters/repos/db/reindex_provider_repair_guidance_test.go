@@ -130,10 +130,10 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_EmptyPropertiesEmi
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
 }
 
-// The repair command must be callable. Collection is stored
-// namespace-qualified, and PUT /v1/schema/{className}/... rejects a
-// qualified name with a 400 for namespace-confined callers.
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectionRendersShort(t *testing.T) {
+// The repair command must be callable by the only person who reads the
+// server log: an operator with cluster-wide reach, who has to type the
+// namespace prefix for the request to land on the right collection.
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -145,7 +145,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectio
 
 	require.Len(t, hook.Entries, 1)
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		`PUT /v1/schema/customer1:Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
 		hook.Entries[0].Data["repair_command"])
 }
 

@@ -58,6 +58,58 @@ func (db *DB) CleanStalePartialReindexState(
 	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
 }
 
+// HasPromotableReindexState reports whether any local shard of the collection
+// carries a migration generation for this (property, index type) that
+// [FinalizeCompletedMigrations] would promote to the canonical bucket on the
+// next start. Read-only, and it never loads a shard.
+//
+// "Promotable" is the same set the cancel cleanup preserves: a tracker dir
+// carrying tidied.mig OR merged.mig. merged.mig is the load-bearing half —
+// finalize promotes on it alone, and it is written during PREPARING, before
+// any shard swaps. So this answers true from the merge onward, not from the
+// swap onward.
+//
+// Answers true on a directory it cannot read, for the same reason
+// [hasStalePartialReindexState] does: a question it could not ask is not an
+// answer of "nothing here".
+func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return false
+	}
+	return idx.HasPromotableReindexState(propName, indexType)
+}
+
+// HasPromotableReindexState is the per-index half of
+// [DB.HasPromotableReindexState]. Stops at the first shard that has such a
+// generation.
+func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
+	var found bool
+	// ForEachShard rather than forEachShardStrict: a closing index answers
+	// false here, and the caller (repair guidance on a cancelled task) has
+	// nothing to act on while the index is going away anyway.
+	_ = i.ForEachShard(func(name string, _ ShardLike) error {
+		if found {
+			return nil
+		}
+		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType) {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+// hasPromotableReindexState is the on-disk predicate behind
+// [Index.HasPromotableReindexState], for the shard rooted at lsmPath.
+func hasPromotableReindexState(lsmPath, propName, indexType string) bool {
+	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
+		prefixes = append(prefixes, classDir)
+	}
+	return len(completedMigrationGens(lsmPath, prefixes)) > 0
+}
+
 // ErrCleanupSweepTruncated marks a sweep that stopped before it had visited
 // every shard. The shards after that point were never looked at, so the
 // caller's answer is "unknown from here on" and not "these shards failed".

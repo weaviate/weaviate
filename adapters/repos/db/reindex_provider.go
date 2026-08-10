@@ -32,7 +32,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1577,17 +1576,24 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
 		// FAILED/CANCELLED both auto-clean partial sidecar state on every
-		// node and both log operator repair guidance — they reach the same
-		// end state on a node that already committed its swap, and cleanup
-		// deliberately preserves such a swap.
+		// node, and cleanup deliberately preserves a generation that already
+		// merged or swapped. Only FAILED gets repair guidance unconditionally;
+		// see promotableReindexStateOnThisNode for why CANCELLED has to earn it.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "FAILED")
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
+				// Cleanup first: it drains the local worker, so the tracker
+				// dirs the check reads are no longer being written. It
+				// preserves everything the check looks for.
 				p.autoCleanupAfterTerminal(task, payload, logger)
+				if p.promotableReindexStateOnThisNode(payload) {
+					logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
+				} else {
+					logger.Info("reindex provider: cancelled before any generation merged on this node; the buckets and the schema are both still pre-migration here, so there is nothing to repair")
+				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping,
@@ -1842,14 +1848,19 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // logOperatorRepairGuidanceOnTerminalSemanticMigration logs the exact REST
 // command an operator should issue to recover from a semantic migration
 // that reached `outcome` (FAILED or CANCELLED) without the cluster-wide
-// schema flip: sub-tasks that swapped before terminalizing leave their
-// bucket NEW-tokenized against an unflipped schema, so affected queries
-// return 0 until rebuilt. CANCELLED needs this guidance as much as FAILED —
-// see [ReindexGateRemedy] for why.
+// schema flip: sub-tasks that merged or swapped before terminalizing leave
+// their bucket NEW-tokenized against an unflipped schema, so affected
+// queries return 0 until rebuilt.
 //
-// Names the SHORT collection: payload.Collection is namespace-qualified,
-// and the qualified form is rejected for namespace-confined callers. Same
-// rendering rule as [ReindexCancelCall].
+// The message asserts that inversion as fact, so the caller owes it
+// evidence. FAILED carries its own: a unit died mid-work. CANCELLED does
+// not — a cancel at STARTED stops a barrier migration before anything is
+// written — so [ReindexProvider.OnTaskCompleted] gates it on the on-disk
+// state instead. See [ReindexGateRemedy] for how far a task has to have got.
+//
+// Names the collection exactly as stored, qualified prefix included: this
+// goes to the server log, whose only reader is an operator who has to type
+// that prefix. Same rendering rule as [ReindexCancelCall].
 func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -1863,41 +1874,76 @@ func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLog
 		return
 	}
 	for _, propName := range payload.Properties {
-		// The repair body rebuilds every index the migration could have
-		// torn — we can't tell from here which sub-task failed, and
-		// rebuild is idempotent on a healthy index.
-		var repairBody string
-		switch payload.MigrationType {
-		case ReindexTypeChangeTokenization,
-			ReindexTypeEnableSearchable,
-			ReindexTypeChangeAlgorithm,
-			ReindexTypeRebuildSearchable:
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
-		case ReindexTypeChangeTokenizationFilterable,
-			ReindexTypeEnableFilterable,
-			ReindexTypeRepairFilterable:
-			repairBody = `{"filterable":{"rebuild":true}}`
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-			repairBody = `{"rangeable":{"rebuild":true}}`
-		default:
-			// Fallback for any future migration type: rebuild everything.
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
-		}
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
 			"repair_command": fmt.Sprintf(
 				"PUT /v1/schema/%s/indexes/%s %s",
-				namespacing.StripQualification(payload.Collection), propName, repairBody),
+				payload.Collection, propName, reindexRepairBody(payload.MigrationType)),
 		}).Errorf(
 			"reindex provider: %s on %s.%s %s; per-shard sub-tasks "+
-				"that committed their swap first left the "+
+				"that merged or swapped before the task terminalized left the "+
 				"canonical inverted bucket holding new-tokenization "+
 				"data while the schema stayed at pre-migration state "+
 				"— issue the repair_command above to rebuild the "+
 				"affected inverted index(es) from raw objects against "+
 				"the current schema",
 			payload.MigrationType, payload.Collection, propName, outcome)
+	}
+}
+
+// promotableReindexStateOnThisNode reports whether this node still holds
+// reindex state the next restart would promote to the canonical bucket. It is
+// the evidence behind the CANCELLED repair guidance: cancel is offered at
+// every non-terminal status, and at STARTED a barrier migration has written
+// nothing, so an unconditional "your buckets are inverted, rebuild the
+// property" would be a false alarm on the very path [ReindexGateRemedy]
+// recommends.
+//
+// Per-node on purpose. In a cancel at SWAPPING one replica can have merged
+// while another has not, and the guidance belongs in the log of the node that
+// actually has to be repaired.
+//
+// Answers true when it cannot tell (no local store). Staying silent about
+// data that may be inverted is the worse error of the two.
+func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
+	if p.db == nil {
+		return true
+	}
+	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
+		return true
+	}
+	for _, propName := range payload.Properties {
+		for _, indexType := range indexTypes {
+			if p.db.HasPromotableReindexState(payload.Collection, propName, indexType) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// reindexRepairBody is the `PUT /v1/schema/{class}/indexes/{prop}` body that
+// rebuilds every inverted index migration type mt could have torn. Which
+// sub-task got how far is not knowable from the outside, and rebuild is
+// idempotent on a healthy index, so the body is keyed on the type alone.
+func reindexRepairBody(mt ReindexMigrationType) string {
+	switch mt {
+	case ReindexTypeChangeTokenization,
+		ReindexTypeEnableSearchable,
+		ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable:
+		return `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
+	case ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeRepairFilterable:
+		return `{"filterable":{"rebuild":true}}`
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return `{"rangeable":{"rebuild":true}}`
+	default:
+		// Any future migration type: rebuild everything.
+		return `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
 	}
 }
 

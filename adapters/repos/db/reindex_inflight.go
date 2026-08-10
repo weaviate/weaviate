@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // unwiredGateWarnOnce ensures the operator-facing WARN for the
@@ -149,12 +148,13 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // property/index-type to key the cancel endpoint on. It points at the GET
 // poll instead — a guessed pair would 202 NO_OP and look like it worked.
 //
-// The URLs name the SHORT collection while the diagnostic prefix keeps the
-// stored name. `collection` is [Index.Config.ClassName], which is
-// namespace-qualified ("customer1:MyClass") on a namespace-enabled cluster,
-// and a qualified name in the path fails
-// [namespacing.ValidateNamespacePrefix] with a 400 for namespace-confined
-// callers. Same rendering rule as [ReindexCancelCall].
+// The URLs name the collection exactly as stored. `collection` is
+// [Index.Config.ClassName], which on a namespace-enabled cluster is qualified
+// ("customer1:MyClass"), and a global operator has to type that prefix for
+// the request to reach the right collection. A namespace-confined caller has
+// their own prefix removed from the whole message by
+// [namespacing.StripErrorMessage] on the REST error path. Same rendering rule
+// as [ReindexCancelCall].
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(
@@ -162,10 +162,9 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 			entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 		)
 	}
-	short := namespacing.StripQualification(collection)
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes, or cancel it: GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} cancels the task",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection, short, short,
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection, collection, collection,
 	)
 }
 
