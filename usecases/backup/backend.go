@@ -426,9 +426,7 @@ func publishableErrMsg(err error) string {
 		msg = blocked.Error()
 	}
 	if msg == "" {
-		// A failure published with no text at all reads as no failure; say at
-		// least that there was one.
-		return "backup failed without a reported reason"
+		return failureWithoutReason
 	}
 	return msg
 }

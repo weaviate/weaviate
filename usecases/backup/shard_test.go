@@ -315,15 +315,17 @@ func TestBackupStatSetFailedIfOwned(t *testing.T) {
 			wantStatus: "",
 		},
 		{
-			// Nothing to remember without a reason, and remembering an empty
-			// one would make it the permanent answer for the next poll.
-			name:       "no reason leaves nothing remembered",
+			// A failure published with no text reads to a poller as no
+			// failure, so the stand-in is what gets carried and remembered.
+			name:       "no reason gets the stand-in",
 			claimedID:  "op-1",
 			status:     backup.Transferring,
 			setID:      "op-1",
 			reason:     "",
 			wantOK:     true,
 			wantStatus: backup.Failed,
+			wantErr:    failureWithoutReason,
+			wantRemem:  true,
 		},
 	}
 
@@ -346,7 +348,7 @@ func TestBackupStatSetFailedIfOwned(t *testing.T) {
 			remembered, ok := s.rememberedFailure(tc.setID)
 			require.Equal(t, tc.wantRemem, ok)
 			if tc.wantRemem {
-				require.Equal(t, tc.reason, remembered)
+				require.Equal(t, tc.wantErr, remembered)
 			}
 		})
 	}

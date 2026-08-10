@@ -56,10 +56,15 @@ type backupStat struct {
 	// for the one failure that leaves nothing else to read: the slot is
 	// released as soon as the operation returns, and a later poll is answered
 	// from the descriptor on the backend, which does not exist when writing it
-	// is what failed.
+	// is what failed. Memory only: after a restart such a poll is back to
+	// being answered with "metadata not found".
 	rememberedFailureID     string
 	rememberedFailureReason string
 }
+
+// failureWithoutReason stands in for a failure reported with no text at all,
+// which reads to a poller as no failure.
+const failureWithoutReason = "backup failed without a reported reason"
 
 func (s *backupStat) get() reqState {
 	s.Lock()
@@ -129,7 +134,10 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 // setFailed ends the operation as failed together with the reason. Failed with
 // no reason is worse than useless to a poller: the coordinator latches whatever
 // a participant reports and stops asking, so an empty reason becomes the
-// permanent answer for a failure that does have one.
+// permanent answer for a failure that does have one. A reason-less failure is
+// therefore substituted here rather than at the call sites, so that every
+// caller gets the guarantee, including the ones passing on a reason a
+// participant gave them.
 func (s *backupStat) setFailed(reason string) {
 	s.Lock()
 	defer s.Unlock()
@@ -157,11 +165,11 @@ func (s *backupStat) setFailedLocked(reason string) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
+	if reason == "" {
+		reason = failureWithoutReason
+	}
 	s.reqState.Status = backup.Failed
 	s.reqState.Err = reason
-	if reason == "" {
-		return
-	}
 	s.rememberedFailureID = s.reqState.ID
 	s.rememberedFailureReason = reason
 }
@@ -204,7 +212,17 @@ func (s *backupStat) set(st backup.Status) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
+	s.setLocked(st)
+}
+
+// setLocked must be called with the lock held.
+func (s *backupStat) setLocked(st backup.Status) {
 	s.reqState.Status = st
+	// Every status other than Failed is reached through here, and none of them
+	// has a reason. Keeping an earlier one would serve it next to a status it
+	// does not belong to. The remembered failure is unaffected: it is what a
+	// poll arriving after the slot is gone reads.
+	s.reqState.Err = ""
 }
 
 // setIfOwned writes the status only if id still holds the slot, the write half
@@ -233,7 +251,7 @@ func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
 	if s.reqState.Status == backup.Cancelled {
 		return false
 	}
-	s.reqState.Status = st
+	s.setLocked(st)
 	return true
 }
 

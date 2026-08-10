@@ -280,10 +280,11 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 			wantReason: reason,
 		},
 		{
-			name:      "a failure with no reason is not worth remembering",
-			setup:     func(s *backupStat) { s.setFailed("") },
-			pollID:    failedID,
-			wantFound: false,
+			name:       "a failure with no reason is remembered by its stand-in",
+			setup:      func(s *backupStat) { s.setFailed("") },
+			pollID:     failedID,
+			wantFound:  true,
+			wantReason: failureWithoutReason,
 		},
 		{
 			name: "a cancelled backup is not turned into a failure",
