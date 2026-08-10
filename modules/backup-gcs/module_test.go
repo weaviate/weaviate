@@ -23,9 +23,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestInit_SkipAccessCheckWiring(t *testing.T) {
+func TestInit_ClientConfigWiring(t *testing.T) {
 	// Init must route Backup.SkipAccessCheck to the backup client and
-	// Export.SkipAccessCheck to the export client, without crossing them.
+	// Export.SkipAccessCheck to the export client, without crossing them, while
+	// the transport reaches both.
 	t.Setenv("BACKUP_GCS_BUCKET", "test")
 	t.Setenv("BACKUP_GCS_USE_AUTH", "false")
 
@@ -33,15 +34,21 @@ func TestInit_SkipAccessCheckWiring(t *testing.T) {
 		name       string
 		backupFlag bool
 		exportFlag bool
+		transport  config.BackupGCS
 	}{
 		{name: "backup only", backupFlag: true, exportFlag: false},
 		{name: "export only", backupFlag: false, exportFlag: true},
+		{
+			name:      "grpc transport reaches both clients",
+			transport: config.BackupGCS{UseGRPC: true, GRPCConnPool: config.DefaultBackupGCSGRPCConnPool},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Backup.SkipAccessCheck = tt.backupFlag
 			cfg.Export.SkipAccessCheck = tt.exportFlag
+			cfg.BackupGCS = tt.transport
 
 			params := moduletools.NewMockModuleInitParams(t)
 			params.EXPECT().GetLogger().Return(logrus.New())
@@ -52,6 +59,8 @@ func TestInit_SkipAccessCheckWiring(t *testing.T) {
 			require.NoError(t, m.Init(context.Background(), params))
 			assert.Equal(t, tt.backupFlag, m.config.SkipAccessCheck, "backup client")
 			assert.Equal(t, tt.exportFlag, m.exportClient.config.SkipAccessCheck, "export client")
+			assert.Equal(t, tt.transport, m.config.Transport, "backup client transport")
+			assert.Equal(t, tt.transport, m.exportClient.config.Transport, "export client transport")
 		})
 	}
 }

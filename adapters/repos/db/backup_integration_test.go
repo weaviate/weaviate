@@ -315,7 +315,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))

@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -93,10 +94,14 @@ func NewIndex(config Config,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
 		AllocChecker:          config.AllocChecker,
 		GetViewThunk:          func() common.BucketView { return nil },
+		Logger:                config.Logger,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
+		// The cache drops every vector once its entry count reaches this maximum,
+		// so a zero here empties it every few seconds.
+		VectorCacheMaxObjects: vectorIndexCommon.DefaultVectorCacheMaxObjects,
 	}, tombstoneCleanupCallbacks, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")

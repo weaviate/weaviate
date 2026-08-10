@@ -235,18 +235,18 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+	}
+	// Published before the readiness wait: a wait that times out must not leave
+	// callers holding the ports the container had before it was stopped.
+	c.endpoints = endPoints
 
-		// wait until node is ready
-		if name != HTTP {
-			continue
-		}
+	if e, ok := endPoints[HTTP]; ok {
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
 		}
 	}
-	c.endpoints = endPoints
 	return nil
 }
 
@@ -289,23 +289,25 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 				c.name, e.port, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+	}
+	// Published before the readiness wait: a wait that times out must not leave
+	// callers holding the ports the container had before it was restarted.
+	c.endpoints = endPoints
 
-		if name != HTTP {
-			continue
-		}
+	if e, ok := endPoints[HTTP]; ok {
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
 		}
 	}
-	c.endpoints = endPoints
 	return nil
 }
 
 // weaviateNodeIndex resolves the containers-slice position of weaviate node n
-// (1-based) by name, so callers are unaffected by sidecar containers (e.g.
-// MinIO) that may precede the cluster nodes in the slice.
+// (0-based, matching the weaviate-<n> container name) so callers are unaffected
+// by sidecar containers (e.g. MinIO) that may precede the cluster nodes in the
+// slice. Note GetWeaviateNode counts from 1 instead.
 func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
 	name := fmt.Sprintf("weaviate-%d", n)
 	for i, c := range d.containers {
@@ -316,7 +318,7 @@ func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
 	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
 }
 
-// StopNode stops weaviate node n (1-based).
+// StopNode stops weaviate node n (0-based).
 func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
 	idx, err := d.weaviateNodeIndex(n)
 	if err != nil {
@@ -325,7 +327,7 @@ func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Durat
 	return d.StopAt(ctx, idx, timeout)
 }
 
-// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+// StartNode starts weaviate node n (0-based), re-mapping its endpoints.
 func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
 	idx, err := d.weaviateNodeIndex(n)
 	if err != nil {
@@ -334,7 +336,7 @@ func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
 	return d.StartAt(ctx, idx)
 }
 
-// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// EnsureRunning starts weaviate node n (0-based) if it is not currently
 // running; a no-op when the node is already up.
 func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
 	idx, err := d.weaviateNodeIndex(n)
