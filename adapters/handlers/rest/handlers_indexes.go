@@ -688,14 +688,9 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
-// findCancelTarget picks the in-flight reindex task targeting
-// (collection, propertyName, indexType).
-//
-// Every non-terminal status is a cancel target, matching what the
-// conflict guards treat as in-flight. Skipping the coordination phases,
-// or a status a newer node introduced, would leave the operator with no
-// exit: those guards refuse schema mutations on the collection and name
-// this endpoint as the remedy, while the cancel answered NO_OP.
+// findCancelTarget returns the in-flight reindex task for (collection,
+// propertyName, indexType). Every non-terminal status counts, so cancel
+// stays available for the whole window the conflict guards block on.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload, bool) {
 	for _, task := range tasks {
 		if task.Status.IsTerminal() {
@@ -1205,11 +1200,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			surfaceSyntheticFields = true
 		}
 	default:
-		// A status a newer node introduced. The same binary already treats
-		// it as in-flight when it answers 409 on PUT, counts it against the
-		// per-collection cap and refuses backups; leaving the entry at the
-		// base "ready" would make one node contradict itself within a
-		// single request.
+		// Unrecognized status: other gates already treat it as in-flight
+		// (409 on PUT, counted against the cap, backups refused), so
+		// leaving this entry "ready" would contradict them.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -1258,14 +1251,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // the synthetic "indexing@100%" entry visible until the schema flip
 // propagates — see the FINISHED case there).
 func taskStatusPriority(task *distributedtask.Task) int {
-	// Anything non-terminal outranks every terminal task, including a
-	// status this build does not recognize. Otherwise a stale FAILED
-	// attempt outranks the live migration and the user sees the old
-	// failure with its old progress.
-	// PREPARING and SWAPPING rank alongside STARTED: from the user's
-	// perspective the task is still running (PREP barrier or swap pending;
-	// schema flip has not yet committed). Surface their synthetic
-	// "indexing@100%" entry instead of an older FAILED attempt's entry.
+	// Every non-terminal status outranks every terminal one, including an
+	// unrecognized status, so a live migration always displays ahead of a
+	// stale FAILED attempt.
 	if !task.Status.IsTerminal() {
 		return 2
 	}

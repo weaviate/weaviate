@@ -716,17 +716,12 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 	}
 }
 
-// unknownFutureStatus stands in for a status a newer release introduced
-// and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade. Keep it a string no release will ever declare,
-// or these tests silently start asserting facts about a real status.
+// unknownFutureStatus simulates a status a newer node introduced that
+// this build doesn't recognize. Must never become a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
-// TestReindexGuards_BlockOnEveryInFlightStatus covers all four guard
-// entry points at once. Three of them (CheckPropertyUpdate,
-// CheckClassMutation, CheckTenantMutation) run inside the schema FSM
-// apply on every node, so a guard that reads an unrecognized status as
-// "done" lets a mutation through on one node and not another.
+// Pins: all four schema-mutation guards block on every non-terminal
+// status, including an unrecognized one.
 func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
 	provider := &ReindexProvider{}
 

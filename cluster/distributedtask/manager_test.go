@@ -2008,10 +2008,9 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 }
 
 // nonTerminalFixture puts a task into the given non-terminal status and
-// returns its (namespace, id, version). PREPARING and SWAPPING are driven
-// through RecordUnitCompletion so the fixture carries the same FinishedAt
-// stamp production writes; a status this build does not recognize has no
-// production path, so it is assigned directly.
+// returns its (namespace, id, version). PREPARING and SWAPPING go through
+// RecordUnitCompletion so FinishedAt matches production; an unrecognized
+// status has no production path, so it's assigned directly.
 func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
 	t.Helper()
 
@@ -2049,11 +2048,8 @@ var nonTerminalStatuses = []TaskStatus{
 	unknownFutureStatus,
 }
 
-// TestManager_CleanUpTask_RefusesNonTerminalStatus pins the FSM-side
-// eviction guard. FinishedAt is stamped when the units completed and ages
-// from there, so a task stuck past completedTaskTTL clears the age check
-// and only the liveness check stands between it and deletion from RAFT
-// state.
+// Pins: CleanUpTask refuses every non-terminal status, past the TTL, when
+// only the liveness check still stands between the task and deletion.
 func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 	for _, status := range nonTerminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
@@ -2075,11 +2071,8 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// TestManager_CancelTask_AcceptsEveryNonTerminalStatus pins the
-// operator's only exit. The schema mutation guards refuse UpdateProperty,
-// DeleteClass and tenant mutations for every non-terminal status and name
-// the cancel endpoint as the remedy; a cancel that refused would leave the
-// collection wedged with nothing left to try.
+// Pins: CancelTask accepts every non-terminal status — the guards' only
+// named remedy for a wedged collection.
 func TestManager_CancelTask_AcceptsEveryNonTerminalStatus(t *testing.T) {
 	for _, status := range nonTerminalStatuses {
 		t.Run(string(status), func(t *testing.T) {

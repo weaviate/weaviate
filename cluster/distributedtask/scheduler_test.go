@@ -1716,13 +1716,8 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	require.Contains(t, unprocessable.Error(), expectedReason)
 }
 
-// TestSchedulerTTLSweep_SkipsUnknownStatus pins that the sweep never
-// proposes a cleanup for a task whose status this build cannot recognize.
-// Such a task has no FinishedAt, so the age check passes trivially and
-// only the liveness check holds it back.
-//
-// The control task — terminal and equally TTL-expired — proves the sweep
-// ran at all: without it, a sweep that skipped every task would pass.
+// Pins: the TTL sweep skips a task in an unrecognized status, while still
+// sweeping a terminal, TTL-expired control task (proving the sweep ran).
 func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1775,12 +1770,8 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	require.Equal(t, "unknown", remaining[0].ID)
 }
 
-// TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus pins the operator
-// signal. A task in a status this build cannot explain blocks schema
-// mutations, new reindexes and backups on its collection, and nothing else
-// in the system names it — the operator would only see rejections quoting
-// a status they cannot look up. STARTED and the coordination phases are
-// expected and must stay quiet, or the warn drowns in normal operation.
+// Pins: the sweep warns only for a genuinely unrecognized status, staying
+// quiet for STARTED and the coordination phases.
 func TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus

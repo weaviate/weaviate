@@ -627,13 +627,10 @@ func (s *Scheduler) tick() {
 		// propose a cleanup for a task still mid-coordination.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
-				// STARTED and the coordination phases are expected here.
-				// Anything else non-terminal is a status this build cannot
-				// explain — most likely one a newer node introduced. It
-				// blocks schema mutations, new reindexes and backups on its
-				// collection, and nothing else in the system names it, so
-				// the operator would otherwise only see rejections quoting a
-				// status they cannot look up.
+				// Warn only for genuinely unrecognized statuses (not
+				// STARTED or the coordination phases) — otherwise the
+				// operator sees only rejections quoting a status with no
+				// explanation anywhere else in the system.
 				if !task.Status.IsCoordinationPhase() && task.Status != TaskStatusStarted {
 					s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 						s.loggerWithTask(namespace, task.TaskDescriptor).

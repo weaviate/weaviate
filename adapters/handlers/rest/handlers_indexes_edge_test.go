@@ -759,10 +759,8 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}
 }
 
-// Status-priority ranking: every non-terminal status ranks above every
-// terminal one, so a fresh in-flight task surfaces ahead of an older
-// FAILED attempt's terminal entry. If a status ranked below FAILED, the
-// user would see the stale failure instead of the live migration.
+// Pins: every non-terminal status, including an unrecognized one, ranks
+// above every terminal status.
 func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
 		return &distributedtask.Task{
@@ -790,18 +788,12 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 	}
 }
 
-// unknownFutureStatus stands in for a status a newer release introduced
-// and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade. Keep it a string no release will ever declare,
-// or these tests silently start asserting facts about a real status.
+// unknownFutureStatus simulates a status a newer node introduced that
+// this build doesn't recognize. Must never become a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "VERIFYING"
 
-// A task in a status this build cannot recognize must read as in-flight
-// on the display path too. The same binary answers 409 on PUT, counts the
-// task against the per-collection cap and refuses backups on the
-// collection; leaving the entry at the base "ready" (or letting a stale
-// FAILED attempt outrank it) makes one node contradict itself within a
-// single request.
+// Pins: an unrecognized status reads as in-flight and outranks a stale
+// FAILED attempt, regardless of task order.
 func TestMergeReindexStatus_UnknownStatusOutranksStaleFailure(t *testing.T) {
 	now := time.Now()
 
@@ -860,10 +852,7 @@ func TestMergeReindexStatus_UnknownStatusOutranksStaleFailure(t *testing.T) {
 	}
 }
 
-// findCancelTarget must accept every non-terminal status. The conflict
-// guards block schema mutations on the collection for all of them and name
-// the cancel endpoint as the remedy; a cancel that answered NO_OP would
-// leave the operator with nothing left to try.
+// Pins: findCancelTarget accepts every non-terminal status.
 func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -900,11 +889,8 @@ func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// Every REST-tier gate that asks "is a reindex in flight" must give the
-// same answer for a status this build cannot recognize. These four flip
-// on that answer, and each one alone is enough to let a second migration
-// land on a property a newer node is still migrating — or, for the orphan
-// audit, to os.RemoveAll a live migration's tracker dirs.
+// Pins: every REST-tier in-flight gate (cap counter, PUT rejection,
+// backup gate, orphan audit) agrees on an unrecognized status.
 func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
