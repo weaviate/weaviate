@@ -55,7 +55,6 @@ func TestRestoreStatus(t *testing.T) {
 		backendType = "s3"
 		id          = "1234"
 		m           = createManager(nil, nil, nil, nil)
-		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
 	)
@@ -64,13 +63,12 @@ func TestRestoreStatus(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
-	// active state
-	m.restorer.lastOp.reqState = reqState{
-		Starttime: starTime,
-		ID:        id,
-		Status:    backup.Transferring,
-		Path:      path,
-	}
+	// active state. Claim and release through the slot's own methods: the
+	// restore goroutines in this package write it under its lock.
+	prevID, slot := m.restorer.lastOp.renew(id, path, "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Transferring))
+	starTime := m.restorer.lastOp.get().Starttime
 	st, err := m.restorer.status(backendType, id)
 	if err != nil {
 		t.Errorf("get active status: %v", err)
@@ -80,7 +78,7 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("get active status: got=%v want=%v", st, expected)
 	}
 	// cached status
-	m.restorer.lastOp.reqState = reqState{}
+	require.True(t, slot.release())
 	st.CompletedAt = starTime
 	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	st, err = m.restorer.status(backendType, id)
@@ -287,20 +285,18 @@ func TestRestoreOnStatus(t *testing.T) {
 	if !strings.Contains(got.Err, "not found") {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
-	// active state
-	m.restorer.lastOp.reqState = reqState{
-		Starttime: starTime,
-		ID:        id,
-		Status:    backup.Transferring,
-		Path:      path,
-	}
+	// active state. Claim and release through the slot's own methods: the
+	// restore goroutines in this package write it under its lock.
+	prevID, slot := m.restorer.lastOp.renew(id, path, "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Transferring))
 	got = m.OnStatus(ctx, &req)
 	expected := StatusResponse{Method: OpRestore, ID: req.ID, Status: backup.Transferring}
 	if expected != *got {
 		t.Errorf("get active status: got=%v want=%v", got, expected)
 	}
 	// cached status
-	m.restorer.lastOp.reqState = reqState{}
+	require.True(t, slot.release())
 	st := Status{Path: path, StartedAt: starTime, Status: backup.Transferring, CompletedAt: starTime}
 	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	got = m.OnStatus(ctx, &req)

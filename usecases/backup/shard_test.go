@@ -92,7 +92,8 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 				require.True(t, slot.set(tc.status))
 			}
 
-			require.Equal(t, tc.wantOK, s.resetIfCancelled(tc.resetID))
+			freed, _ := s.resetIfCancelled(tc.resetID)
+			require.Equal(t, tc.wantOK, freed)
 			require.Equal(t, tc.wantSlotID, s.get().ID)
 		})
 	}
@@ -151,7 +152,7 @@ func TestSlotOwnerRelease(t *testing.T) {
 			arrange: func(t *testing.T, s *backupStat) slotOwner {
 				_, slot := s.renew("op-1", "path", "", "")
 				slot.set(backup.Cancelled)
-				require.True(t, s.resetIfCancelled("op-1"))
+				requireSlotFreed(t, s, "op-1")
 				prevID, _ := s.renew("op-1", "path", "", "")
 				require.Empty(t, prevID, "the retry could not claim the freed slot")
 				return slot
@@ -247,7 +248,8 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 				require.True(t, slot.set(tc.status))
 			}
 
-			require.Equal(t, tc.wantOK, s.setIfOwned(tc.setID, tc.set))
+			stamped, _ := s.setIfOwned(tc.setID, tc.set)
+			require.Equal(t, tc.wantOK, stamped)
 			require.Equal(t, tc.wantStatus, s.get().Status)
 		})
 	}
@@ -263,7 +265,7 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	require.Empty(t, prevID)
 	slot.set(backup.Cancelled)
 
-	require.False(t, s.resetIfCancelled("cancelled-restore"))
+	requireSlotNotFreed(t, &s, "cancelled-restore")
 
 	got := s.get()
 	require.Equal(t, "live-restore", got.ID)
@@ -274,8 +276,11 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 
 // Pins resetIfCancelled's check-and-clear as a single lock acquisition: two
 // separate ones would let a concurrent renew's claim get dropped. Racers spin
-// on a shared flag rather than a channel to line up tightly enough that the
-// two-acquisition bug reproduces within 20000 iterations.
+// on a shared flag rather than a channel to line up tightly enough for that
+// bug to reproduce. It needs the whole run: with the check and the clear split
+// apart, a dropped claim turned up roughly once in a few thousand iterations
+// here, so a shorter run passes on a broken implementation. 20000 iterations
+// cost 0.3s under -race.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
@@ -301,7 +306,7 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 			defer wg.Done()
 			for !gate.Load() {
 			}
-			s.resetIfCancelled(cancelled)
+			s.resetIfCancelled(cancelled) //nolint:errcheck // the race, not the outcome, is what this drives
 		}()
 		go func() {
 			defer wg.Done()
@@ -351,7 +356,7 @@ func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
 			prevID, stale := s.renew("op-1", "path", "", "")
 			require.Empty(t, prevID)
 			require.True(t, stale.set(backup.Cancelled))
-			require.True(t, s.resetIfCancelled("op-1"))
+			requireSlotFreed(t, &s, "op-1")
 
 			// The retry carries the same id, which is what makes an id-keyed
 			// check unable to tell the two claims apart.
@@ -392,7 +397,7 @@ func TestSlotOwnerStatus(t *testing.T) {
 		var s backupStat
 		_, stale := s.renew("op-1", "path", "", "")
 		require.True(t, stale.set(backup.Cancelled))
-		require.True(t, s.resetIfCancelled("op-1"))
+		requireSlotFreed(t, &s, "op-1")
 		_, live := s.renew("op-1", "path", "", "")
 		require.True(t, live.set(backup.Cancelled))
 

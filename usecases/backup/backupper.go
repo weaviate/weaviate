@@ -38,7 +38,7 @@ type backupper struct {
 
 func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
 ) *backupper {
-	return &backupper{
+	b := &backupper{
 		node:           node,
 		logger:         logger,
 		cfg:            cfg,
@@ -48,6 +48,8 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
+	b.initSlot(logger)
+	return b
 }
 
 func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {

@@ -473,21 +473,29 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 }
 
 // logCancelStamp records whether a cancel reached this node's restore slot.
-// The false case matters most: the slot holds a different restore, so the
-// cancel appears to do nothing on this node.
+// held is the state the slot was in when the stamp was decided, which is what
+// separates the one anomaly here from the two ordinary outcomes: a slot holding
+// a different restore means the cancel did nothing on this node, while a slot
+// that is empty or already cancelled means the restore got there first.
 func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
 	entry := logger.WithFields(logrus.Fields{
-		"action":       "cancel_restore",
-		"backup_id":    backupID,
-		"slot_status":  st,
-		"slot_stamped": stamped,
-		"slot_holder":  held.ID,
+		"action":        "cancel_restore",
+		"backup_id":     backupID,
+		"cancel_status": st,
+		"slot_stamped":  stamped,
+		"slot_holder":   held.ID,
+		"slot_status":   held.Status,
 	})
-	if !stamped {
-		entry.Warn("restore slot not stamped: it is held by another restore")
-		return
+	switch {
+	case stamped:
+		entry.Info("restore slot stamped with the cancellation")
+	case held.ID == backupID:
+		entry.Info("restore slot already carries the cancellation")
+	case held.ID == "":
+		entry.Info("restore slot not stamped: the restore has already finished and given it back")
+	default:
+		entry.Warnf("restore slot not stamped: it is held by restore %q", held.ID)
 	}
-	entry.Info("restore slot stamped with the cancellation")
 }
 
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
@@ -558,9 +566,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		logCancelStamp(s.logger, backupID, backup.Cancelling,
-			s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling),
-			s.restorer.lastOp.get())
+		stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
+		logCancelStamp(s.logger, backupID, backup.Cancelling, stamped, held)
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -578,9 +585,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	// Update the slot to prevent stale reads from OnStatus(), but only if it
 	// is still held by the restore being cancelled.
-	logCancelStamp(s.logger, backupID, backup.Cancelled,
-		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled),
-		s.restorer.lastOp.get())
+	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
+	logCancelStamp(s.logger, backupID, backup.Cancelled, stamped, held)
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {

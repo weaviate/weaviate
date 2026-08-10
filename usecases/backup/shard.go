@@ -49,6 +49,10 @@ type backupStat struct {
 	// is the generation and not the (reusable) backup id.
 	generation uint64
 
+	// log records the writes the slot refuses. Optional: a zero backupStat is
+	// usable, it just says nothing.
+	log logrus.FieldLogger
+
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
 	// for the one failure that leaves nothing else to read: the slot is
 	// released as soon as the operation returns, and a later poll is answered
@@ -110,20 +114,22 @@ func (s *backupStat) clear() {
 // slot alone: the operation is only cancelled once its own goroutine says so,
 // and until then it is still writing files. Checks and clears under one lock so
 // a renew cannot slip in between and lose its claim. Reports whether the slot
-// was cleared.
+// was cleared, together with the state it found — one read, so a caller logging
+// both cannot pair the outcome with a state from a later moment.
 //
 // The goroutine of the cancelled operation can still be running when this
 // returns, and will keep writing to the slot for as long as it takes to unwind.
 // Those writes carry the claim it was given (see [slotOwner]), so they no-op
 // once the slot is free or claimed by somebody else.
-func (s *backupStat) resetIfCancelled(id string) bool {
+func (s *backupStat) resetIfCancelled(id string) (bool, reqState) {
 	s.Lock()
 	defer s.Unlock()
-	if s.reqState.ID != id || s.reqState.Status != backup.Cancelled {
-		return false
+	held := s.reqState
+	if held.ID != id || held.Status != backup.Cancelled {
+		return false, held
 	}
 	s.clear()
-	return true
+	return true, held
 }
 
 // canAdvanceTo reports whether next may overwrite the status the slot holds.
@@ -142,6 +148,19 @@ func (s *backupStat) canAdvanceTo(next backup.Status) bool {
 	default:
 		return true
 	}
+}
+
+// setStatus publishes a status that carries no reason of its own. Must be
+// called with the lock held.
+//
+// Clearing the reason is the point: none of the statuses written here has one,
+// and keeping an earlier one would serve it next to a status it does not
+// belong to — a cancel landing on a slot that just failed would answer a poll
+// with CANCELLING and a disk-space error. The remembered failure is
+// unaffected: it is what a poll arriving after the slot is gone reads.
+func (s *backupStat) setStatus(st backup.Status) {
+	s.reqState.Status = st
+	s.reqState.Err = ""
 }
 
 // setFailed ends the operation as failed together with the reason. Must be
@@ -202,6 +221,26 @@ func (o slotOwner) owns() bool {
 		o.stat.generation == o.generation && o.stat.reqState.ID != ""
 }
 
+// logDroppedWrite records a write the slot refused. Must be called with the
+// lock held.
+//
+// A refused write is otherwise invisible, and it is the one thing an operator
+// looking at "the status stopped updating" needs: it says the operation was
+// cancelled and the slot has moved on, rather than that nothing happened.
+func (o slotOwner) logDroppedWrite(st backup.Status) {
+	if o.stat == nil || o.stat.log == nil {
+		return
+	}
+	o.stat.log.WithFields(logrus.Fields{
+		"action":         "backup_slot_write",
+		"dropped_status": st,
+		"claim":          o.generation,
+		"slot_claim":     o.stat.generation,
+		"slot_holder":    o.stat.reqState.ID,
+		"slot_status":    o.stat.reqState.Status,
+	}).Debug("slot write dropped: this operation no longer holds the slot")
+}
+
 // set publishes a status on the slot. Reports whether it wrote.
 func (o slotOwner) set(st backup.Status) bool {
 	if o.stat == nil {
@@ -210,14 +249,10 @@ func (o slotOwner) set(st backup.Status) bool {
 	o.stat.Lock()
 	defer o.stat.Unlock()
 	if !o.owns() || !o.stat.canAdvanceTo(st) {
+		o.logDroppedWrite(st)
 		return false
 	}
-	o.stat.reqState.Status = st
-	// Every status other than Failed is reached through here, and none of them
-	// has a reason. Keeping an earlier one would serve it next to a status it
-	// does not belong to. The remembered failure is unaffected: it is what a
-	// poll arriving after the slot is gone reads.
-	o.stat.reqState.Err = ""
+	o.stat.setStatus(st)
 	return true
 }
 
@@ -230,6 +265,7 @@ func (o slotOwner) setFailed(reason string) bool {
 	o.stat.Lock()
 	defer o.stat.Unlock()
 	if !o.owns() || !o.stat.canAdvanceTo(backup.Failed) {
+		o.logDroppedWrite(backup.Failed)
 		return false
 	}
 	o.stat.setFailed(reason)
@@ -284,7 +320,9 @@ func (o slotOwner) release() bool {
 // write that does not come from the holder: a cancel takes the id from object
 // storage, and without the check it would stamp whichever operation happens to
 // hold the slot — a slot reading Cancelled makes coordinator.commit abort the
-// operation as "cancelled externally". Reports whether it wrote.
+// operation as "cancelled externally". Reports whether it wrote, together with
+// the state the slot was in when it decided, so a caller logging both cannot
+// pair a stamp with a holder read from a later state.
 //
 // Matches on the id, not on the generation a [slotOwner] carries: the caller is
 // not the holder and has no claim of its own, and cancelling whichever
@@ -292,14 +330,21 @@ func (o slotOwner) release() bool {
 // same is true of [backupStat.resetIfCancelled], whose caller is a fresh
 // restore attempt that has not claimed anything yet — which is why that one
 // checks the status instead.
-func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
+func (s *backupStat) setIfOwned(id string, st backup.Status) (bool, reqState) {
 	s.Lock()
 	defer s.Unlock()
-	if s.reqState.ID != id || !s.canAdvanceTo(st) {
-		return false
+	held := s.reqState
+	if held.ID != id || !s.canAdvanceTo(st) {
+		return false, held
 	}
-	s.reqState.Status = st
-	return true
+	s.setStatus(st)
+	return true, held
+}
+
+// initSlot wires the operation slot to a logger, so the writes it refuses
+// leave something behind.
+func (c *shardSyncChan) initSlot(log logrus.FieldLogger) {
+	c.lastOp.log = log
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

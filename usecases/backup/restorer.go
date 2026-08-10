@@ -53,7 +53,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
-	return &restorer{
+	r := &restorer{
 		node:              node,
 		logger:            logger,
 		sourcer:           sourcer,
@@ -63,6 +63,8 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		namespacesEnabled: namespacesEnabled,
 		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
+	r.initSlot(logger)
+	return r
 }
 
 func (r *restorer) restore(
@@ -82,6 +84,10 @@ func (r *restorer) restore(
 
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
+	// Only Cancelled is reachable on a participant's slot today: Cancelling is
+	// written by the cancel endpoint, which runs on the coordinator. Refusing on
+	// either is still the right rule — a cancel that grows a participant-side
+	// in-flight state must not race a restore of the same id past this point.
 	if lastOp := r.lastOp.get(); lastOp.ID == req.ID && lastOp.Status.IsCancellation() {
 		err := fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", req.ID)
 		// The caller only learns this through the CanCommit response, so the

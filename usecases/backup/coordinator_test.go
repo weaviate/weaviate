@@ -1249,7 +1249,9 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 			desc := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelling}
 
-			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
+			err := c.Restore(ctx, store, &req, desc, nil)
+			require.ErrorContains(t, err, "cancellation in progress",
+				"a refused restore must not be reported to the caller as started")
 			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
 
 			// The slot is the subsystem's mutual exclusion, so clearing one we
