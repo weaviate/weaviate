@@ -498,40 +498,47 @@ func TestSortedKeysAllDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// TestSortedKeysAtRefusesOutOfRange covers the range check At makes.
+// TestSortedKeysAtRefusesOutOfRange covers what At does with an index the list
+// cannot answer: refuse it, rather than answer with an empty key or with one
+// belonging to another position.
 //
-// The message is asserted, not merely the panic: an out-of-range index panics
-// somewhere in every layout — on the offsets index, or on the slice bounds — so
-// asserting only that something blew up would be satisfied with the check
-// deleted. What the check buys is that all three layouts refuse the SAME way.
+// The refusal is asserted, not its wording. Most of it is the bounds check the
+// compiler generates, so what each layout panics with differs — an offsets
+// index or a slice bound, in key terms or in byte terms — and the message is
+// the runtime's, free to change with it. A check of this package's own would
+// make all the layouts refuse alike, and cost At its inlining; [SortedKeys.At]
+// carries that argument.
 //
-// One case spells the message out rather than building it from outOfRange,
-// which would mutate both sides together and pin nothing about the wording.
+// The zero value is the exception and the reason any check survives: a width of
+// zero makes every slice expression legal and empty, so nothing would panic and
+// every index would answer "". That message this package owns, so it is pinned.
 func TestSortedKeysAtRefusesOutOfRange(t *testing.T) {
-	t.Run("the message names the index and the count", func(t *testing.T) {
-		keys := buildFixed(t, 2)([]string{"aa", "bb"})
-		assert.PanicsWithError(t,
-			"inverted: internal fault: key 2 requested from a list of 2",
-			func() { keys.At(2) })
-	})
-
 	for name, keys := range map[string]SortedKeys{
 		"offsets layout": buildVariable(t, []string{"a", "bb"}),
 		"width layout":   buildFixed(t, 2)([]string{"aa", "bb"}),
-		"zero value":     {},
 		"empty, width":   mustBuildFixed(t, NewFixedKeyBuilder(4, 8)),
 		"empty, offsets": mustBuildVar(t, NewVarKeyBuilder(4, 16)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			n := keys.Len()
-			assert.PanicsWithError(t, outOfRange(n, n).Error(), func() { keys.At(n) })
-			assert.PanicsWithError(t, outOfRange(n+1, n).Error(), func() { keys.At(n + 1) })
-			assert.PanicsWithError(t, outOfRange(-1, n).Error(), func() { keys.At(-1) })
+			assert.Panics(t, func() { keys.At(n) }, "one past the last key")
+			assert.Panics(t, func() { keys.At(n + 1) }, "well past the last key")
+			assert.Panics(t, func() { keys.At(-1) }, "before the first key")
 			if n > 0 {
 				assert.NotPanics(t, func() { keys.At(n - 1) }, "the last key must be readable")
 			}
 		})
 	}
+
+	t.Run("zero value", func(t *testing.T) {
+		var keys SortedKeys
+		for _, i := range []int{0, 1, -1} {
+			assert.PanicsWithError(t,
+				"inverted: internal fault: keys were not made by a builder",
+				func() { keys.At(i) },
+				"index %d into a list that was never built", i)
+		}
+	})
 }
 
 // TestShrinkKeysReleasesTheDedupedTail covers the copy that returns a deduped

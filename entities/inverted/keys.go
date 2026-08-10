@@ -63,43 +63,36 @@ func (k SortedKeys) Len() int {
 	return len(k.slab) / k.w
 }
 
+// errUnbuiltKeys is built once rather than formatted per panic: formatting is a
+// call, and a call is what At cannot afford — see below.
+var errUnbuiltKeys = fmt.Errorf("%w: keys were not made by a builder", ErrInternal)
+
 // At returns key i, aliasing the slab. Callers must not modify it. Its capacity
 // stops at its own end, so appending to it reallocates rather than writing over
 // the next key.
 //
-// Use [SortedKeys.All] to walk the list. The range check is what makes At too
-// large to inline — its cost is 271 against a budget of 80, and 45 without the
-// two panic paths — so a loop driven by At pays a call per key, which
-// BenchmarkIterate measures at about four times the cost of iterating. That is
-// the price of the check, and All is how the query path avoids paying it.
+// An index the list cannot answer panics, on the bounds check the compiler
+// generates for the slice expression. Which panic that is depends on the layout
+// — the offsets arm fails on its own index, in key terms, the width arm on the
+// slice bounds, in byte terms — and the wording belongs to the runtime rather
+// than to this package. That is deliberate. A check here could name the index
+// and the count instead, but it costs At its inlining, 271 against a budget of
+// 80 where this is 53, and At is what a reader that needs keys out of order
+// calls per key. [SortedKeys.All] reads the slab directly and never paid
+// either way; a binary search cannot use it.
 //
-// The range is checked here rather than left to the two layouts, which disagree
-// about it: the offsets arm would panic on its own index, the width arm reads
-// slab[0:0:0] for every index when the width is zero, and a zero value has no
-// width at all. One check makes all three refuse the same way.
+// One index the generated check cannot refuse: any index into a list of zero
+// width, where i*0 slices to [0:0:0] and is legal against any slab. An unbuilt
+// SortedKeys would then answer every index with an empty key rather than
+// failing, so that one is refused here.
 func (k SortedKeys) At(i int) []byte {
 	if k.offs == nil {
-		// Multiplied rather than dividing to derive the count, which would be a
-		// division per key. An index large enough to overflow the product still
-		// panics, on the slice expression rather than here, so the cost is the
-		// message and not safety.
-		if i < 0 || k.w <= 0 || (i+1)*k.w > len(k.slab) {
-			panic(outOfRange(i, k.Len()))
+		if k.w <= 0 {
+			panic(errUnbuiltKeys)
 		}
 		return k.slab[i*k.w : (i+1)*k.w : (i+1)*k.w]
 	}
-	if i < 0 || i+1 >= len(k.offs) {
-		panic(outOfRange(i, k.Len()))
-	}
 	return k.slab[k.offs[i]:k.offs[i+1]:k.offs[i+1]]
-}
-
-// outOfRange builds the value At panics with. It carries [ErrInternal] like the
-// returned faults do: if the recovery interceptor whose absence sends Build's
-// errors back through the return ever arrives, a recovered panic should be
-// classifiable the same way rather than arriving as an opaque string.
-func outOfRange(i, n int) error {
-	return fmt.Errorf("%w: key %d requested from a list of %d", ErrInternal, i, n)
 }
 
 // All iterates the keys in order, yielding each key's position and bytes, which
