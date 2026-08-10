@@ -437,3 +437,22 @@ func TestDirNamesCache(t *testing.T) {
 				"spend that memory")
 	})
 }
+
+// Pins a known collision in the on-disk bucket names, so it is executable
+// rather than folklore: a property whose name ends in an index-type suffix
+// derives the same bucket name as another property's bucket of that index type,
+// and both the cold-shard gate and the sweep match on it. Closing it means
+// renaming buckets on disk, which is why this test asserts the collision
+// instead of its absence — invert it when the naming is fixed.
+func TestMainBucketForPropertyIndexHasAKnownNameCollision(t *testing.T) {
+	searchableOfCat, ok := mainBucketForPropertyIndex("cat", "searchable")
+	require.True(t, ok)
+	filterableOfCatSearchable, ok := mainBucketForPropertyIndex("cat_searchable", "filterable")
+	require.True(t, ok)
+
+	require.Equal(t, searchableOfCat, filterableOfCatSearchable,
+		"two properties share one bucket name; a sweep of either reaches the other's sidecars")
+	require.True(t,
+		isSidecarDirOf(searchableOfCat+"__enable_filterable_ingest_1", filterableOfCatSearchable),
+		"and the sidecar rule cannot tell them apart either")
+}

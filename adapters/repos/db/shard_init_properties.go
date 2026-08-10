@@ -336,6 +336,13 @@ func preserveSidecarsSlice(preserveSidecars map[string]bool) []string {
 // disk for a given (propName, indexType). Used by
 // CleanStalePartialReindexState to compute the prefix that identifies
 // per-property sidecar buckets.
+//
+// KNOWN COLLISION, pre-existing and wider than this function: the names are
+// "property_<prop>" plus a per-index-type suffix, and a property name may end
+// in that suffix (PropertyNameRegex allows it). Property "cat_searchable"
+// filterable and property "cat" searchable both answer "property_cat_searchable",
+// so a sweep of either reaches the other's sidecars. Closing it means renaming
+// buckets on disk, so it is not this function's to fix.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":
