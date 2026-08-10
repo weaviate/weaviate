@@ -2919,7 +2919,14 @@ func TestSchedulerBackupResponseDoesNotReadAStrangersSlot(t *testing.T) {
 	var once sync.Once
 	fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).
 		Run(func(mock.Arguments) {
-			once.Do(func() { takeOverSlot(t, &s.backupper.lastOp, backupID, "another-backup") })
+			once.Do(func() {
+				takeOverSlot(t, &s.backupper.lastOp, backupID, "another-backup")
+				// A freshly claimed slot reads STARTED, which is what the
+				// response falls back to, so the stranger is moved on to a
+				// status only its slot can produce.
+				stamped, _ := s.backupper.lastOp.setIfOwned("another-backup", backup.Transferring)
+				assert.True(t, stamped)
+			})
 		})
 
 	resp, err := s.Backup(ctx, nil, &BackupRequest{
