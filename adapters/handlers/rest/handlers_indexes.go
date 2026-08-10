@@ -1403,9 +1403,8 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a
-// collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING
-// via IsActive) because PREPARING/SWAPPING still hold tracker dirs and
-// reindex buckets.
+// collection. Counts every non-terminal status (via IsActive) because
+// PREPARING/SWAPPING still hold tracker dirs and reindex buckets.
 func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {

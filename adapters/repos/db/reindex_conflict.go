@@ -44,15 +44,16 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]): every unit has reached
-		// terminal state, but the post-completion callbacks (per-node
-		// PREP, cluster-wide PrepCompleteAck barrier, per-node swap,
-		// cluster-wide schema flip) have not yet committed. Submitting
-		// a new migration on the same property during either window
-		// could land before MarkDistributedTaskFinalized commits the
-		// schema flip, leaving the new task and the unfinished swap of
-		// the prior one racing on the same bucket pointers.
+		// Every non-terminal status counts as in-flight (via
+		// [distributedtask.TaskStatus.IsActive]). PREPARING and SWAPPING
+		// are the subtle ones: every unit has reached terminal state, but
+		// the post-completion callbacks (per-node PREP, cluster-wide
+		// PrepCompleteAck barrier, per-node swap, cluster-wide schema
+		// flip) have not yet committed. Submitting a new migration on the
+		// same property during either window could land before
+		// MarkDistributedTaskFinalized commits the schema flip, leaving
+		// the new task and the unfinished swap of the prior one racing on
+		// the same bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}

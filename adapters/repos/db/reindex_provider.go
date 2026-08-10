@@ -1810,18 +1810,13 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns its on-disk tracker dirs.
+//
+// Deliberately delegates rather than re-enumerating the statuses: when
+// the two predicates each owned a switch they disagreed on the
+// unrecognized case, so a task from a newer node was live to the backup
+// gate but invisible to conflict detection.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
-	switch status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		return true
-	case distributedtask.TaskStatusFinished,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFailed:
-		return false
-	}
-	return false
+	return status.IsActive()
 }
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST

@@ -845,7 +845,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status == TaskStatusStarted {
+	// Every non-terminal status, not just STARTED: PREPARING/SWAPPING and
+	// any status a newer node introduced have a zero FinishedAt, so the TTL
+	// check below cannot stop them being deleted while still in flight.
+	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
@@ -897,7 +900,7 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = STARTED, PREPARING, or SWAPPING (via
+		// "In flight" = every non-terminal status (via
 		// [TaskStatus.IsActive]): units still running, OR units done
 		// but per-node PREP / cluster-wide barrier / per-node SWAP /
 		// schema flip not yet committed. All display ahead of terminal
