@@ -774,6 +774,33 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 	}
 }
 
+// closeCause reports why the index is closing, or nil while it is still open.
+// Walking the shards of a closing index risks a panic, so every walk asks this
+// first. The cause tells a collection being deleted apart from a node shutting
+// down: a deleted collection takes its on-disk state with it, a shut-down one
+// leaves it for the next start. A close nobody signalled a cause for reads as
+// [errIndexClosed], which callers must treat like a shutdown.
+func (i *Index) closeCause() error {
+	if i.closingCtx.Err() == nil {
+		return nil
+	}
+	if cause := context.Cause(i.closeRequestedCtx); cause != nil {
+		return cause
+	}
+	return errIndexClosed
+}
+
+// forEachShardStrict is [Index.ForEachShard] for callers that cannot read a
+// closing index as a walk that reached every shard: it returns the close cause
+// where ForEachShard returns nil. The check and the walk live together so a
+// caller cannot check one and walk the other.
+func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
+	if cause := i.closeCause(); cause != nil {
+		return cause
+	}
+	return i.shards.Range(f)
+}
+
 // ForEachShard applies func f on each shard in the index.
 //
 // WARNING: only use this if you expect all LazyLoadShards to be loaded!
@@ -783,7 +810,7 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
-	if i.closingCtx.Err() != nil {
+	if i.closeCause() != nil {
 		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
 		return nil
 	}
@@ -805,7 +832,7 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
-	if i.closingCtx.Err() != nil {
+	if i.closeCause() != nil {
 		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
 		return nil
 	}
