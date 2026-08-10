@@ -111,8 +111,95 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 	}
 }
 
+// Pins the participant half of the cancel refusal: a restore is refused while
+// its own cancellation is still in flight, and a cancellation belonging to a
+// different restore is not mistaken for one. The refusal has to name the
+// cancellation, because "already in progress" is what the coordinator retries
+// against.
+func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T) {
+	t.Parallel()
+	const (
+		backupID = "1"
+		otherID  = "other-restore"
+	)
+
+	tests := []struct {
+		name       string
+		slotID     string
+		slotStatus backup.Status
+		wantErr    string
+	}{
+		{name: "no restore holds the slot"},
+		{
+			name: "this restore is being cancelled", slotID: backupID,
+			slotStatus: backup.Cancelling, wantErr: "cancellation in progress",
+		},
+		{
+			name: "this restore is cancelled", slotID: backupID,
+			slotStatus: backup.Cancelled, wantErr: "cancellation in progress",
+		},
+		{
+			name: "this restore is still staging", slotID: backupID,
+			slotStatus: backup.Transferring, wantErr: "already in progress",
+		},
+		{
+			name: "this restore was just claimed", slotID: backupID,
+			slotStatus: backup.Started, wantErr: "already in progress",
+		},
+		{
+			name: "a different restore is being cancelled", slotID: otherID,
+			slotStatus: backup.Cancelling, wantErr: "already in progress",
+		},
+		{
+			name: "a different restore is cancelled", slotID: otherID,
+			slotStatus: backup.Cancelled, wantErr: "already in progress",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+
+			logger, _ := test.NewNullLogger()
+			r := newRestorer("node1", logger, &fakeSourcer{}, &hookSnapshotter{fn: func() {}}, nil,
+				&fakeBackupBackendProvider{backend: backend}, false)
+
+			if tc.slotID != "" {
+				prevID, slot := r.lastOp.renew(tc.slotID, "path", "", "")
+				require.Empty(t, prevID)
+				require.True(t, slot.set(tc.slotStatus))
+			}
+
+			desc := &backup.BackupDescriptor{
+				ID:            backupID,
+				ServerVersion: "1.23",
+				Version:       "1",
+				StartedAt:     time.Now().UTC(),
+				RbacBackups:   []byte(`{"version":1}`),
+			}
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			_, err := r.restore(&Request{Method: OpRestore, ID: backupID, Backend: "s3"}, desc, store)
+
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.Equal(t, tc.slotID, r.lastOp.get().ID, "a refused restore must not take the slot")
+				return
+			}
+			require.NoError(t, err)
+			// The restore runs on its own goroutine; wait for it rather than
+			// leaving it writing after the test has finished.
+			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" },
+				10*time.Second, 10*time.Millisecond, "the restore never released its slot")
+		})
+	}
+}
+
 // Backupper-side mirror of TestRestorerRestoreReleasesOnlyItsOwnSlot; the
-// takeover is staged by hand since backup has no production cancel path yet.
+// takeover is staged by hand since nothing outside the uploader writes a backup
+// slot.
 func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	const (

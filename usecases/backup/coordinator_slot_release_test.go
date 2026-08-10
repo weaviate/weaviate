@@ -130,7 +130,8 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 }
 
 // Backup-side mirror of TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot; the
-// takeover is staged by hand since backup has no production cancel path yet.
+// takeover is staged by hand since nothing outside the uploader writes a backup
+// slot.
 func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -489,6 +490,60 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 				"a poll for the new restore must not be answered with the old one's failure")
 		})
 	}
+}
+
+// Pins that a restore which lost its slot stops without reading the stored
+// descriptor again. That descriptor belongs to the restore holding the slot
+// now, and every step after this one is driven by what the read says.
+func TestCoordinatorRestoreStaleGoroutineStopsBeforeRereadingTheStoredMeta(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "1"
+		newID       = "live-restore"
+		node        = "N1"
+	)
+
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
+	schemaManager := &countingSchemaManager{}
+	c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
+	c.timeoutNextRound = time.Millisecond
+	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+
+	backend := &restoreMetaBackend{}
+	var (
+		once   sync.Once
+		stolen = make(chan struct{})
+	)
+	fc.client.On("Status", mock.Anything, node, mock.Anything).
+		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
+		Run(func(mock.Arguments) {
+			// The commit phase is the step right before the slot check, so a
+			// takeover staged here lands in exactly that gap. assert, not
+			// require: Goexit on the restore goroutine surfaces as a hang.
+			once.Do(func() {
+				takeOverSlot(t, &c.lastOp, backupID, newID)
+				close(stolen)
+			})
+		})
+	store := coordStore{objectStore{backend, backupID, "", "", ""}}
+
+	req := newReq(nil, backendName, backupID)
+	require.NoError(t, c.Restore(context.Background(), store, &req,
+		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: "C1"}}))
+
+	select {
+	case <-stolen:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the newer restore never got to claim the slot")
+	}
+	// Read one is the one Restore itself does before claiming the slot.
+	require.Never(t, func() bool {
+		return backend.readCount() > 1 || schemaManager.applies.Load() != 0
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"the restore that lost the slot went on working with the stored descriptor")
 }
 
 // countingSchemaManager counts the schema applies a restore performs, which is

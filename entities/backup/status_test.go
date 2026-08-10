@@ -35,7 +35,11 @@ func TestStatusIsCancellation(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(string(tc.status), func(t *testing.T) {
+		name := string(tc.status)
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.status.IsCancellation())
 		})
 	}

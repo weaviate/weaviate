@@ -225,11 +225,11 @@ type uploader struct {
 // [slotOwner]. Failing goes through its own method so a failure can never be
 // published without the reason that belongs to it.
 //
-// The uploader ignores every result, deliberately: nothing cancels a backup
-// through the slot (the cancel endpoint is restore-only), so a refusal here
-// only ever means the upload outlived its claim, and its outcome is then
-// nobody's to report. What the upload does next is decided by err, not by the
-// slot.
+// The uploader ignores every result, deliberately: nothing outside the
+// uploader writes a backup slot, so a refusal here means either that the upload
+// outlived its claim, or that it already wrote its own cancellation when its
+// context was cancelled. In both cases the outcome is no longer this write's to
+// report. What the upload does next is decided by err, not by the slot.
 type statusPublisher interface {
 	set(st backup.Status) bool
 	setFailed(reason string) bool

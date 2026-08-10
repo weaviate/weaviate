@@ -1252,6 +1252,8 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			err := c.Restore(ctx, store, &req, desc, nil)
 			require.ErrorContains(t, err, "cancellation in progress",
 				"a refused restore must not be reported to the caller as started")
+			require.ErrorContains(t, err, "repeat the cancel",
+				"a descriptor stuck on CANCELLING is never cleared by waiting, only by repeating the cancel")
 			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
 
 			// The slot is the subsystem's mutual exclusion, so clearing one we
