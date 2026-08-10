@@ -210,10 +210,8 @@ func TestPromotableReindexStateOnThisNode_AnswersYesWhenItCannotLook(t *testing.
 	}
 }
 
-// The CANCELLED evidence gate reads tracker dirs that the local worker is
-// still writing unless cleanup drained it first. When the drain times out
-// the gate's answer is unusable, so the guidance is emitted anyway — a
-// missed warning about inverted buckets costs more than a false one.
+// When the drain times out, the CANCELLED evidence gate's answer is
+// unusable, so guidance is emitted anyway (a missed warning costs more).
 func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
 	const propName = "descr"
 

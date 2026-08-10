@@ -861,11 +861,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	cancelWhileRunning := []string{
 		cancelCall + ", or wait for it to finish",
 	}
-	// Past STARTED the remedy has to lead with "wait" and name the repair:
-	// a generation that already merged is not dropped by cancel, and the next
-	// restart promotes it. PREPARING is included on purpose — the merge, not
-	// the swap, is what opens that window. The repair is the original submit
-	// body, not a rebuild — see [ReindexRepairCall].
+	// Past STARTED the remedy leads with "wait" and names the repair (the
+	// original submit body, not a rebuild — see [ReindexRepairCall]).
+	// PREPARING is included on purpose: the merge, not the swap, opens the
+	// window where cancel no longer drops the buckets.
 	cancelPastUnits := []string{
 		cancelCall,
 		"wait for it to finish",
@@ -1083,9 +1082,8 @@ func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 	t.Helper()
 	src, err := os.ReadFile("reindex_provider_payload.go")
 	require.NoError(t, err)
-	// Grouped-const form (`ReindexTypeFoo = "foo"`, no repeated type) has to
-	// match too, or a type declared that way is silently invisible to every
-	// completeness test built on this helper.
+	// Also matches the grouped-const form (`ReindexTypeFoo = "foo"`, no
+	// repeated type), or a type declared that way goes uncounted.
 	matches := regexp.MustCompile(
 		`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-z-]+)"`).FindAllStringSubmatch(string(src), -1)
 	require.Len(t, matches, 9,
@@ -1216,10 +1214,8 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 	}
 }
 
-// A task whose payload cannot be read or is empty names no collection, so
-// it cannot be attributed to a namespace — its ID may belong to one the
-// caller cannot see. Every gate withholds it, or the two that don't become
-// the way to enumerate other namespaces' task IDs.
+// An unattributable task's ID may belong to a namespace the caller cannot
+// see, so every gate withholds it.
 func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -1281,11 +1277,7 @@ func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
 }
 
 // TestReindexRepairCall pins the repair body per migration type against the
-// precondition the terminal state leaves behind. A terminal task skipped its
-// schema flip, so the schema bit each rebuild verb validates against is still
-// unset — which is why the repair re-submits the original request instead.
-// Group exclusivity is proven against the real validator in
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall (rest package).
+// precondition a bare rebuild would fail on the terminal state.
 func TestReindexRepairCall(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType

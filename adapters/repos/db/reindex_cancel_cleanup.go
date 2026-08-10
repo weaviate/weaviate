@@ -98,10 +98,9 @@ func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 // hasPromotableReindexState is the on-disk predicate behind
 // [Index.HasPromotableReindexState], for the shard rooted at lsmPath.
 //
-// Fails closed the same way [hasStalePartialReindexState] does: an
-// indexType this build does not recognize, or a .migrations dir it cannot
-// enumerate, answers true. An absent dir is the exception and answers
-// false — a shard that never ran a migration is the common case.
+// Fails closed like [hasStalePartialReindexState]: an unrecognized indexType
+// or an unenumerable .migrations dir answers true. An absent dir is the
+// exception (a shard that never ran a migration is the common case).
 func hasPromotableReindexState(lsmPath, propName, indexType string) bool {
 	prefixes := migrationDirsForPropertyIndex(propName, indexType)
 	if len(prefixes) == 0 {

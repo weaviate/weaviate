@@ -238,14 +238,8 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	}
 }
 
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall closes the loop the gate
-// messages open: a remedy the operator cannot execute is worse than none,
-// because it costs a round trip to find out. Both rendered calls are parsed
-// back into the request body the handler takes and run through the real
-// group-exclusivity check.
-//
-// The rebuild-shaped bodies this replaced named two groups at once, which
-// validateBodyExclusivity refuses with 400.
+// TestEveryDeclaredTypeRendersAnAcceptedRepairCall checks that every
+// rendered repair/cancel call passes the real group-exclusivity check.
 func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 	// The full declared set; a type added without a repair body fails the
 	// "renders something" assertion rather than silently rendering nothing.
@@ -291,11 +285,9 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 	}
 }
 
-// TestBothLayersNameTheSameTaskWhenSeveralConflict pins the pre-check's sort.
-// The apply gate sees the task list sorted by ID (Manager.sortedTasksWithLock);
-// the pre-check gets it in whatever order the lister returns. Without its own
-// sort the two layers name different tasks for the same request, so a retry is
-// told to wait for a different migration than the first attempt was.
+// TestBothLayersNameTheSameTaskWhenSeveralConflict pins the pre-check's sort
+// to match the apply gate's (both by task ID), so the two name the same
+// conflicting task for the same request.
 func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType:      db.ReindexTypeChangeTokenization,

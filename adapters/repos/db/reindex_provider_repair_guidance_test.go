@@ -46,9 +46,8 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
 	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
-	// The repair is the request that submitted the migration, not a
-	// rebuild: the task skipped its schema flip, and {"searchable":
-	// {"rebuild":true}} is refused while the algorithm is still WAND.
+	// The repair re-submits the migration, not a bare rebuild — the schema
+	// flip was skipped, so searchable.rebuild would 400 on the stale bit.
 	require.Equal(t,
 		`PUT /v1/schema/Products/indexes/name {"searchable":{"tokenization":"field"}}`,
 		entry.Data["repair_command"])

@@ -260,11 +260,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 	}
 }
 
-// hasPromotableReindexState gates whether an operator is told their buckets
-// may be inverted after a cancel, so a question it could not ask has to
-// answer "maybe" — the same fail-closed rule as
-// [hasStalePartialReindexState]. An absent .migrations dir is the exception:
-// a shard that never ran a migration is the common case.
+// TestHasPromotableReindexStateFailsClosed pins that an unrecognized
+// indexType or an unenumerable .migrations dir answers true.
 func TestHasPromotableReindexStateFailsClosed(t *testing.T) {
 	const propName = "category"
 

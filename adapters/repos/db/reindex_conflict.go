@@ -242,13 +242,10 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // migration terminalized with the buckets ahead of the schema, or "" when
 // this build cannot name one. Same rendering rules as [ReindexCancelCall].
 //
-// The repair is re-submitting the same migration, never a bare rebuild. A
-// terminal task skipped its schema flip, and every rebuild verb validates
-// against exactly the bit the flip would have set: `filterable.rebuild` 400s
-// while IndexFilterable is false, `searchable.rebuild` 400s while the
-// algorithm is still WAND, `searchable.enabled`/`filterable.enabled` are
-// what the skipped flip was going to set. Re-running the original request is
-// accepted in that state and ends with buckets and schema consistent.
+// The repair re-submits the original migration rather than a bare rebuild:
+// a terminal task skipped its schema flip, and every rebuild verb validates
+// against exactly the bit that flip would have set (e.g. `searchable.rebuild`
+// 400s while the algorithm is still WAND).
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	body := reindexRepairBody(p)
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
@@ -259,17 +256,12 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 }
 
 // reindexRepairBody renders the submit body that produced p's migration
-// type. Exactly one index group per body, which is what
-// validateBodyExclusivity in the REST handlers accepts — a body naming two
-// groups is refused with 400.
+// type. Exactly one index group per body — validateBodyExclusivity in the
+// REST handlers refuses a body naming two.
 //
-// Not derivable from [ReindexTargetIndexes]: which indexes a type writes
-// does not say which verb submits it. The two are cross-checked in
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall.
-//
-// "" for a type this build does not know, and for a tokenization change
-// whose payload does not carry the target (written by an older binary) — a
-// guessed tokenization would retokenize the property to the wrong value.
+// "" for an unrecognized type, and for a tokenization change whose payload
+// carries no target (written by an older binary) — guessing would
+// retokenize the property to the wrong value.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:

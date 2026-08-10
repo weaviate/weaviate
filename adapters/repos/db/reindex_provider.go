@@ -1586,10 +1586,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// Cleanup first: it drains the local worker, so the tracker
-				// dirs the check reads are no longer being written. It
-				// preserves everything the check looks for. When the drain
-				// times out it reports so, and the check's answer is treated
-				// as unusable rather than trusted mid-write.
+				// dirs the check reads are no longer being written. If the
+				// drain times out, treat the check's answer as unusable
+				// rather than trusted mid-write.
 				drained := p.autoCleanupAfterTerminal(task, payload, logger)
 				if !IsSemanticMigration(payload.MigrationType) {
 					// No schema flip to skip, so no inversion either way.
@@ -1671,9 +1670,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 //
-// Returns false when the local worker did not drain within
-// [reindexTerminalCleanupDrainTimeout]. Callers that read tracker dirs
-// afterwards must not trust what they find on that path — the worker is
+// Returns false when the drain timed out ([reindexTerminalCleanupDrainTimeout])
+// — callers must not trust tracker dirs read afterwards, since the worker is
 // still writing them.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
