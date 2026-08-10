@@ -319,19 +319,23 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		// something different on the second pass.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			// The task ID is withheld: an unreadable payload also means an
+			// unknown collection, so this task may belong to a namespace the
+			// caller cannot see. GET /v1/tasks names it for those who can.
 			return fmt.Sprintf(
-				"in-flight reindex task %q has an unparseable payload; "+
+				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
-					"conflict: %v",
-				task.ID, className, propertyName, err)
+					"conflict (see GET /v1/tasks): %v",
+				className, propertyName, err)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
+			// Task ID withheld for the same reason as above.
 			return fmt.Sprintf(
-				"in-flight reindex task %q has empty Collection or "+
+				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether property update "+
-					"on %s.%s would conflict",
-				task.ID, className, propertyName)
+					"on %s.%s would conflict (see GET /v1/tasks)",
+				className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
@@ -355,7 +359,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
 			propertyName, task.Status,
-			db.ReindexGateRemedy(task.Status, db.ReindexCancelCall(payload)))
+			db.ReindexGateRemedy(task.Status, payload, propertyName))
 	}
 	return ""
 }

@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestPropertyGateMessagesAreByteIdenticalAcrossLayers pins that the
@@ -95,9 +97,9 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			build: func(t *testing.T) []byte { return []byte("{not json") },
 		},
 		{
-			// Both layers must render the SHORT class in the cancel URL:
-			// PUT /v1/schema/customer1:C/... is a 400 for the
-			// namespace-confined principal who submitted the migration.
+			// Both layers keep the qualified class in the cancel URL: a
+			// global operator has to type the prefix, and the REST error
+			// path strips it again for the namespace-confined caller.
 			name:      "a namespace-qualified collection",
 			className: "customer1:C",
 			build: func(t *testing.T) []byte {
@@ -107,8 +109,8 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					Properties:    []string{"name"},
 				})
 			},
-			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
-			notInReason:  []string{"/v1/schema/customer1:C/"},
+			wantInReason: []string{`PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			notInReason:  []string{"/v1/schema/C/"},
 		},
 	}
 
@@ -176,6 +178,64 @@ func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 				require.Equal(t, len(targets) > 0, known)
 				require.Equal(t, slices.Contains(targets, indexType), matches)
 			}
+		})
+	}
+}
+
+// TestTheRenderedCallReachesBothKindsOfCaller pins the reason the gate keeps
+// the namespace prefix in the URL it renders. The two callers need opposite
+// things from the same message, and only one of them can be served by the
+// renderer: the confined caller is served by the REST error path, which
+// removes their own prefix from the whole message.
+//
+// Stripping in the renderer instead would be a no-op for the confined caller
+// (their prefix comes off either way) and would hand the global operator a
+// short name, which QualifyClass leaves short and which then resolves to no
+// collection at all.
+func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeChangeTokenization,
+		Collection:    "customer1:C",
+		Properties:    []string{"name"},
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		Namespace:      db.ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        raw,
+	}
+	h := &schemaHandlers{
+		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
+			db.ReindexNamespace: {task},
+		}},
+	}
+	reason := h.checkReindexConflictForPropertyMutation(context.Background(), "customer1:C", "name")
+	require.NotEmpty(t, reason)
+
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		want      string
+	}{
+		{
+			name:      "namespace-confined caller",
+			principal: &models.Principal{Namespace: "customer1"},
+			want:      `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+		},
+		{
+			name:      "global operator",
+			principal: &models.Principal{Namespace: "customer1", IsGlobalOperator: true},
+			want:      `PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := errPayloadFromSingleErr(tc.principal, fmt.Errorf("%s", reason))
+			require.NotNil(t, payload)
+			require.Len(t, payload.Error, 1)
+			require.Contains(t, payload.Error[0].Message, tc.want)
 		})
 	}
 }

@@ -196,8 +196,8 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // Concurrent non-conflicting reindex tasks are allowed. Two tasks conflict if
 // they would touch the same bucket for the same property. The conflict check
 // rejects same-type same-property tasks, plus cross-type conflicts (e.g.
-// repair-searchable blocks change-tokenization on any property since
-// repair-searchable touches all searchable buckets).
+// rebuild-searchable blocks change-tokenization on the same property since
+// both write the searchable bucket).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
 	propertyName := params.PropertyName
 
@@ -463,6 +463,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// --- Multi-tenancy handling ---
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	tenants := params.Tenants
+	// Also the task's NeedsPreparationBarrier (passed to AddDistributedTask
+	// below). Format-only types are false: they skip PREPARING, and their
+	// per-shard swaps commit while the task is still STARTED.
 	semantic := db.IsSemanticMigration(migrationType)
 
 	// Validate MT + tenants combination.
@@ -958,7 +961,7 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 //   - matches: true if mt targets indexType.
 //   - isKnown: true if this build recognizes mt at all.
 //
-// A mt unmapped in ReindexTargetIndexes returns (false, false); cancel-path
+// An mt unmapped in ReindexTargetIndexes returns (false, false); cancel-path
 // callers can treat that as "not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	indexTypes := db.ReindexTargetIndexes(mt)
@@ -1207,7 +1210,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
 	case db.ReindexTypeChangeAlgorithm:
-		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
+		// change-algorithm migrates WAND → BlockMax. The targetAlgorithm
 		// lets the UI render the in-flight switch the same way it renders
 		// targetTokenization for change-tokenization.
 		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
@@ -1412,13 +1415,9 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // is reserved for a future whole-collection rebuild and is treated as
 // matching any property for conflict purposes.
 //
-// The bucket types each migration touches on its targeted property:
-//   - repair-searchable:    searchable bucket
-//   - repair-filterable:    filterable bucket
-//   - enable-searchable:    searchable bucket (from scratch)
-//   - enable-filterable:    filterable bucket (from scratch)
-//   - change-tokenization:  searchable + filterable buckets
-//   - enable-rangeable:     rangeable bucket — no cross-type conflicts
+// Which bucket types a migration touches on its targeted property comes
+// from [db.ReindexTargetIndexes], the single source of truth for that
+// mapping. It is not restated here.
 //
 // Unparseable payloads (e.g. payload schema change across versions, RAFT
 // replay of a task from an older binary) are treated as a hard error
@@ -1462,9 +1461,9 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	return "", nil
 }
 
-// The conflict predicate + bucket-touch helpers + property-overlap
-// helper used by the pre-flight check above all live in the db
-// package now ([db.TypesConflictReason], [db.TouchesSearchable],
-// [db.TouchesFilterable], [db.ReindexPropsOverlap]) — they're shared
-// with the FSM-deterministic conflict check at apply time so the two
-// paths can't drift on what counts as a conflict.
+// The helpers the pre-flight check above uses live in the db package:
+// [db.TypesConflictReason] (the conflict predicate),
+// [db.ReindexPropsOverlap] (property-set overlap), and
+// [db.ReindexTargetIndexes] (which buckets a type writes to). The
+// FSM-deterministic conflict check at apply time reads the same three,
+// so the two paths cannot drift on what counts as a conflict.
