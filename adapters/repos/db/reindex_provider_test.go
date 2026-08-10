@@ -326,6 +326,84 @@ func TestTerminalSweepOutcomeOrdering(t *testing.T) {
 	require.Greater(t, terminalSweepDropped, terminalSweepClean)
 }
 
+// The run reports one line to the operator, and the ordering only means
+// something if the fold keeps the worst outcome rather than the last one. A
+// clean sweep on the last tuple must not speak over a shard the first tuple
+// left state on.
+func TestSweepTerminalTuples(t *testing.T) {
+	diskFull := fmt.Errorf("%w: %w", ErrCleanupShardFailed, errors.New("disk is full"))
+	truncated := classifyCloseCause(errIndexShutdown)
+	dropped := classifyCloseCause(errIndexDropped)
+
+	tests := []struct {
+		name string
+		// errs is what each sweep returns, in call order.
+		errs         []error
+		wantOutcome  terminalSweepOutcome
+		wantFailures int
+	}{
+		{
+			name:        "every sweep clean",
+			errs:        []error{nil, nil, nil, nil},
+			wantOutcome: terminalSweepClean,
+		},
+		{
+			name:         "a failure on the first tuple, clean after",
+			errs:         []error{diskFull, nil, nil, nil},
+			wantOutcome:  terminalSweepFailed,
+			wantFailures: 1,
+		},
+		{
+			name:         "a failure on the last tuple",
+			errs:         []error{nil, nil, nil, diskFull},
+			wantOutcome:  terminalSweepFailed,
+			wantFailures: 1,
+		},
+		{
+			name:         "a failure outranks a later truncation",
+			errs:         []error{diskFull, truncated, nil, nil},
+			wantOutcome:  terminalSweepFailed,
+			wantFailures: 2,
+		},
+		{
+			name:         "a truncation outranks a later drop",
+			errs:         []error{truncated, dropped, nil, nil},
+			wantOutcome:  terminalSweepUnknown,
+			wantFailures: 1,
+		},
+		{
+			name:        "a drop outranks a clean sweep",
+			errs:        []error{nil, dropped, nil, nil},
+			wantOutcome: terminalSweepDropped,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			props, indexTypes := []string{"a", "b"}, []string{"filterable", "searchable"}
+			var calls int
+			var seen []string
+			var failures int
+
+			outcome := sweepTerminalTuples(props, indexTypes,
+				func(propName, indexType string) error {
+					seen = append(seen, propName+"/"+indexType)
+					err := tc.errs[calls]
+					calls++
+					return err
+				},
+				func(propName, indexType string, failure error) { failures++ })
+
+			require.Equal(t, tc.wantOutcome, outcome)
+			require.Equal(t, tc.wantFailures, failures,
+				"every failure reaches the log on its own, whatever the fold reports")
+			require.Equal(t, []string{
+				"a/filterable", "a/searchable", "b/filterable", "b/searchable",
+			}, seen, "every (property, index type) is swept exactly once")
+		})
+	}
+}
+
 // A sweep reports one error for the whole walk, and a collection deleted
 // mid-walk can share it with a shard the sweep already failed on. What the
 // operator is told about that shard has to survive the delete.

@@ -102,12 +102,15 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			shards: []string{"shard-a"},
 		},
 		{
-			// The sweep rejects this index type on every shard it reaches, so
-			// loading one buys nothing and none is loaded.
-			name:        "an index type this build cannot map loads nothing",
-			shards:      []string{"shard-a"},
-			staleOnDisk: true,
-			indexType:   "an-index-type-this-build-does-not-know",
+			// Refused before the walk: no shard is loaded, and no shard is
+			// swept either, so reporting a clean run would claim state was
+			// cleared for an input the node never processed.
+			name:          "an index type this build cannot map is refused, not swept",
+			shards:        []string{"shard-a"},
+			staleOnDisk:   true,
+			indexType:     "an-index-type-this-build-does-not-know",
+			wantErr:       true,
+			wantTruncated: true,
 		},
 		{
 			name:          "one shard that cannot be loaded",

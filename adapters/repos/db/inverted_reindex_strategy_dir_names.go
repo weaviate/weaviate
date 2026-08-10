@@ -252,7 +252,9 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 // into a gate that skips shards the sweep would have cleaned.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		s.classDirs = append(s.classDirs, classDir)
+		// Cloned because the receiver is a value: appending into the caller's
+		// backing array would widen its scope too if it ever had spare capacity.
+		s.classDirs = append(slices.Clone(s.classDirs), classDir)
 	}
 	return s
 }

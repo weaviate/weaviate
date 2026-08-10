@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -52,6 +53,10 @@ import (
 // [ErrCleanupCollectionDropped], which callers skip via
 // [IsCleanupCollectionDropped]. There is nothing to sweep and nothing that
 // needs it, but reporting a clean sweep would claim state was cleared.
+//
+// Production goes through [DB.NewStalePartialReindexSweep], which shares one
+// directory cache across a run of sweeps. This form is the single-sweep seam
+// for consumers and tests.
 func (db *DB) CleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
@@ -97,9 +102,15 @@ func (db *DB) cleanStalePartialReindexState(
 
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
 // ran out of time mid-walk, it started on a closing index and visited none at
-// all, or a shard left the map before the walk got to it. The shards it did not
-// reach were never looked at, so the caller's answer for them is "unknown" and
-// not "these shards failed".
+// all, it was handed an index type this build cannot map to a bucket, or a
+// shard left the map before the walk got to it. The shards it did not reach
+// were never looked at, so the caller's answer for them is "unknown" and not
+// "these shards failed".
+//
+// On a multi-tenant collection with activity-based deactivation this is the
+// routine outcome, not an anomaly: a HOT→COLD transition removes the tenant
+// from the shard map mid-walk, and the walk reports the name it never reached.
+// The state on that tenant's disk really is unswept, so the warning is honest.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -170,6 +181,10 @@ func classifyCloseCause(err error) error {
 // would remove. Unwrapping every unhydrated shard of a large multi-tenant
 // collection hydrates thousands of tenants (LSM store, vector index) under that
 // gate, for a sweep that finds nothing on almost all of them.
+//
+// Production goes through [DB.NewStalePartialReindexSweep]. This form is the
+// single-sweep seam for consumers and tests; the taxonomy above is implemented
+// by the private cleanStalePartialReindexState both of them call.
 func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -185,9 +200,17 @@ func (i *Index) cleanStalePartialReindexState(
 	propName, indexType string,
 	dirs *dirNamesCache,
 ) error {
-	// Capped at [maxReportedErrors] for the same reason the unvisited-shard
-	// list is: the failures that scale with a node's tenant count are the ones
-	// a full disk produces on every shard at once.
+	// An index type this build cannot map to a bucket is refused before the walk
+	// rather than per shard: every shard would refuse it identically, and on an
+	// all-cold collection the gate would skip them all and leave the sweep
+	// reporting a clean run for an input it never processed.
+	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
+		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
+	}
+	// The rendered message is capped at [maxReportedErrors] for the same reason
+	// the unvisited-shard list is: the failures that scale with a node's tenant
+	// count are the ones a full disk produces on every shard at once. The
+	// compounder itself still holds one error per failed shard.
 	shardErrs := errorcompounder.New()
 	// forEachShardStrict rather than ForEachShard, which answers a closing
 	// index with a silent nil that is indistinguishable here from a sweep that
@@ -244,10 +267,10 @@ func (i *Index) cleanStalePartialReindexState(
 // then finds; guessing "nothing to clean" would leave a stale started.mig for
 // the next task to resume against.
 //
-// An index type this build cannot map to a bucket is the one unreadable answer
-// that does not load anything: the sweep rejects that input on every shard
-// before it looks at one, so hydrating the collection would buy an error this
-// node reports anyway.
+// That includes an index type this build cannot map to a bucket. The sweep this
+// gates refuses that input before the walk starts, so the answer here is never
+// read in production; answering true keeps the two consistent if that ever
+// changes, rather than turning an unprocessable input into a clean sweep.
 //
 // The shards this saves are the HOT tenants that have not been hydrated yet:
 // an inactive tenant is not in the index's shard map at all, so the sweep never
@@ -263,7 +286,7 @@ func (i *Index) cleanStalePartialReindexState(
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return false
+		return true
 	}
 
 	names, err := dirs.listSidecarCandidates(lsmPath)
@@ -318,12 +341,13 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 // thousands of tenants, and keeping every one of their listings alive for a
 // whole cleanup is the memory the cold-shard gate exists not to spend.
 //
-// It counts the names kept, not the shards. A shard only contributes the names
-// that could answer the gate's question — no sidecar dir and no tracker dir is
-// no entry at all — so on a node whose tenants are untouched this bounds
-// nothing, and on one mid-migration a tenant contributes a handful. A run that
-// does reach the bound stops admitting rather than evicting: the sweeps that
-// follow read the filesystem, which is what they did before this cache.
+// Every listing costs one, plus one per name kept. Charging the listing is what
+// makes this bound the workload it is for: an untouched tenant contributes no
+// names at all, so counting names alone would let a node's whole tenant set in
+// for free as map entries. A tenant mid-migration adds a handful on top.
+//
+// A run that reaches the bound stops admitting rather than evicting: the sweeps
+// that follow read the filesystem, which is what they did before this cache.
 const maxCachedDirNames = 100_000
 
 // dirNamesCache remembers the directory names one cold-shard gate asked about,
@@ -340,8 +364,19 @@ const maxCachedDirNames = 100_000
 //
 // Not safe for concurrent use; the sweeps sharing one run do so in sequence.
 type dirNamesCache struct {
-	listings map[string]dirNamesListing
-	names    int
+	listings map[dirNamesKey]dirNamesListing
+	// cost is what the listings are charged against [maxCachedDirNames].
+	cost int
+}
+
+// dirNamesKey identifies one cached answer. The filter is part of it because
+// what is cached is the answer and not the directory: a full listing and a
+// sidecar-filtered one of the same path are different answers, and a caller
+// that got the filtered one back for an unfiltered question would silently miss
+// every bucket dir.
+type dirNamesKey struct {
+	path   string
+	filter string
 }
 
 type dirNamesListing struct {
@@ -351,7 +386,7 @@ type dirNamesListing struct {
 
 // list names every directory directly under path.
 func (c *dirNamesCache) list(path string) ([]string, error) {
-	return c.listMatching(path, nil)
+	return c.listMatching(dirNamesKey{path: path}, nil)
 }
 
 // listSidecarCandidates names the directories under a shard's LSM path that
@@ -362,28 +397,31 @@ func (c *dirNamesCache) list(path string) ([]string, error) {
 // shard's LSM dir holds one directory per bucket, and a class with 20 indexed
 // properties has ~100 of them.
 //
-// Only one of this and [dirNamesCache.list] may be used on a given path — what
-// is cached is the answer, not the listing.
+// This and [dirNamesCache.list] answer different questions about the same path
+// and are kept apart by [dirNamesKey], so either may be asked about any path.
 func (c *dirNamesCache) listSidecarCandidates(lsmPath string) ([]string, error) {
-	return c.listMatching(lsmPath, func(name string) bool {
+	return c.listMatching(dirNamesKey{path: lsmPath, filter: "sidecar"}, func(name string) bool {
 		return strings.Contains(name, "__")
 	})
 }
 
-func (c *dirNamesCache) listMatching(path string, keep func(string) bool) ([]string, error) {
+func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([]string, error) {
 	if c == nil {
-		return listDirNames(path, keep)
+		return listDirNames(key.path, keep)
 	}
-	if listing, ok := c.listings[path]; ok {
+	if listing, ok := c.listings[key]; ok {
 		return listing.names, listing.err
 	}
-	names, err := listDirNames(path, keep)
-	if c.names+len(names) <= maxCachedDirNames {
+	names, err := listDirNames(key.path, keep)
+	if c.cost+len(names)+1 <= maxCachedDirNames {
 		if c.listings == nil {
-			c.listings = map[string]dirNamesListing{}
+			c.listings = map[dirNamesKey]dirNamesListing{}
 		}
-		c.listings[path] = dirNamesListing{names: names, err: err}
-		c.names += len(names)
+		// Clipped because listDirNames sizes the slice for the whole directory:
+		// a filtered listing that kept nothing would otherwise hold a backing
+		// array as big as the shard's bucket count for the rest of the run.
+		c.listings[key] = dirNamesListing{names: slices.Clip(names), err: err}
+		c.cost += len(names) + 1
 	}
 	return names, err
 }

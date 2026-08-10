@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -332,12 +333,22 @@ func preserveSidecarsSlice(preserveSidecars map[string]bool) []string {
 // CleanStalePartialReindexState to compute the prefix that identifies
 // per-property sidecar buckets.
 //
-// KNOWN COLLISION, pre-existing and wider than this function: the names are
-// "property_<prop>" plus a per-index-type suffix, and a property name may end
-// in that suffix (PropertyNameRegex allows it). Property "cat_searchable"
-// filterable and property "cat" searchable both answer "property_cat_searchable",
-// so a sweep of either reaches the other's sidecars. Closing it means renaming
-// buckets on disk, so it is not this function's to fix.
+// KNOWN COLLISION, pre-existing and wider than this function: a bucket name is
+// "property_<prop>" plus a fixed suffix, and PropertyNameRegex lets a property
+// name end in one. Two shapes follow, both tracked in
+// https://github.com/weaviate/weaviate/issues/12574:
+//
+//  1. Property "cat_searchable" filterable and property "cat" searchable both
+//     answer "property_cat_searchable", so a sweep of either reaches the other's
+//     sidecars.
+//  2. A property named "<x>__<strategy>_<role>" (e.g. "a__blockmax_ingest")
+//     produces a main bucket that [isSidecarDirOf] reads as a sidecar of
+//     property "x", so a sweep of "x" deletes it. Property names that carry
+//     "__" without ending in a role word — the far likelier case — are not
+//     affected; isSidecarDirOf checks the role word for exactly that reason.
+//
+// Closing either means renaming buckets on disk, so it is not this function's
+// to fix.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":
@@ -360,9 +371,11 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // "rename: file exists" the next time RunSwapOnShard tries to move the
 // fresh main into __backup.
 //
-// The sidecar names are <mainBucket>__<strategy-specific-suffix>, where
-// suffixes vary per strategy. Matching by prefix avoids hard-coding every
-// strategy's suffixes here and naturally absorbs future strategies.
+// The sidecar names are <mainBucket>__<strategy>_<role>, optionally with a
+// generation tail. Matching on the prefix plus the role word rather than the
+// whole per-strategy suffix absorbs future strategies without letting a
+// property whose own name carries "__" be read as a sidecar; see
+// [isSidecarDirOf].
 //
 // In addition to removing the on-disk dirs, this function ALSO drops the
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
@@ -422,15 +435,47 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 	}
 }
 
+// sidecarRoleWords are the words every migration sidecar suffix ends in, once
+// the numeric generation tail is off. Keep in lockstep with the strategies'
+// ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
+// pins that a new strategy either reuses one of these or extends the list.
+var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+
 // isSidecarDirOf reports whether name is a per-property sidecar of
-// mainBucketName — the same name on disk and in the bucket registry. The "__"
-// the sidecars carry keeps the main bucket itself out: it is the exact name,
-// so it cannot carry a separator on top of it.
+// mainBucketName — the same name on disk and in the bucket registry.
+//
+// The "__" a sidecar carries is not enough on its own: property names may
+// contain "__" too (PropertyNameRegex allows it), so "property_a__b" is
+// property "a__b"'s own main bucket and not a sidecar of property "a". The role
+// word decides, because the callers of this both act on a true answer — the
+// gate hydrates the shard, and the sweep removes the dir.
 //
 // Shared with [hasStalePartialReindexState], which decides from the same rule
 // whether an unhydrated shard has to be loaded at all.
+//
+// A property whose name ends in "__<strategy>_<role>" still collides; see the
+// KNOWN COLLISION note on [mainBucketForPropertyIndex].
 func isSidecarDirOf(name, mainBucketName string) bool {
-	return strings.HasPrefix(name, mainBucketName+"__")
+	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
+	if !ok {
+		return false
+	}
+	return slices.Contains(sidecarRoleWords, sidecarRoleWord(suffix))
+}
+
+// sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
+// "_<gen>" tail [genSuffix] appends. Any all-digit tail is dropped, not just
+// the generations >= 1 [parseMigrationDirName] accepts: a dir left by a bug
+// that wrote generation 0 still has to be swept.
+func sidecarRoleWord(suffix string) string {
+	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
+		suffix = suffix[:i]
+	}
+	return suffix[strings.LastIndexByte(suffix, '_')+1:]
+}
+
+func isAllDigits(s string) bool {
+	return s != "" && strings.TrimLeft(s, "0123456789") == ""
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {

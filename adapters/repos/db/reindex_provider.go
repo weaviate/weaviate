@@ -1680,28 +1680,49 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	worst := terminalSweepClean
 	// Every sweep in this loop asks the same unhydrated shards the same
 	// question about a different tuple, and the answer comes from a directory
 	// listing. Sharing one cache across the loop reads each shard's dirs once.
 	dirs := &dirNamesCache{}
-	for _, propName := range payload.Properties {
-		for _, indexType := range indexTypes {
-			outcome, failure := classifyTerminalSweep(
-				p.db.cleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType, dirs))
-			worst = max(worst, outcome)
-			if failure != nil {
-				logger.WithField("property", propName).WithField("index_type", indexType).
-					Warnf("auto-cleanup after terminal status failed: %v", failure)
-			}
-		}
-	}
+	worst := sweepTerminalTuples(payload.Properties, indexTypes,
+		func(propName, indexType string) error {
+			return p.db.cleanStalePartialReindexState(
+				cleanupCtx, payload.Collection, propName, indexType, dirs)
+		},
+		func(propName, indexType string, failure error) {
+			logger.WithField("property", propName).WithField("index_type", indexType).
+				Warnf("auto-cleanup after terminal status failed: %v", failure)
+		})
 	msg, warn := terminalCleanupOutcome(worst)
 	if warn {
 		logger.Warn(msg)
 	} else {
 		logger.Info(msg)
 	}
+}
+
+// sweepTerminalTuples runs sweep once per (property, index type) and returns
+// the worst outcome of the run, reporting each failure to onFailure as it goes.
+//
+// Worst-of, not last-of: the run reports one line to the operator, and a sweep
+// that left a shard's state on disk still speaks for the run after a later
+// tuple comes back clean. Every failure is reported individually regardless.
+func sweepTerminalTuples(
+	propNames, indexTypes []string,
+	sweep func(propName, indexType string) error,
+	onFailure func(propName, indexType string, failure error),
+) terminalSweepOutcome {
+	worst := terminalSweepClean
+	for _, propName := range propNames {
+		for _, indexType := range indexTypes {
+			outcome, failure := classifyTerminalSweep(sweep(propName, indexType))
+			worst = max(worst, outcome)
+			if failure != nil {
+				onFailure(propName, indexType, failure)
+			}
+		}
+	}
+	return worst
 }
 
 // terminalSweepOutcome is what one sweep left for the operator, ordered by how

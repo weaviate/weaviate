@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -165,8 +166,6 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 		// what tells a two-property task from a property whose name contains
 		// the join character. A tracker missing here gets no payload.mig.
 		payloads map[string][]string
-		// wantSweepErr expects the sweep this gates to refuse the input.
-		wantSweepErr bool
 		// sidecars are dirs at the LSM root.
 		sidecars []string
 		// unreadable is a dir the gate is denied access to, relative to the
@@ -188,6 +187,15 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			indexType: "filterable",
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
 			wantStale: true,
+		},
+		// PropertyNameRegex allows "__" in a property name, so this dir is
+		// property "category__extra"'s own main bucket. Reading it as a sidecar
+		// makes the gate hydrate every tenant of the collection, and then makes
+		// the sweep it gates RemoveAll the other property's inverted index.
+		{
+			name:      "another property whose name carries the sidecar separator",
+			indexType: "filterable",
+			sidecars:  []string{"property_category__extra"},
 		},
 		{
 			name:      "a tracker a cancelled run left behind",
@@ -269,14 +277,15 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
 			wantStale: true,
 		},
-		// The sweep this gates rejects an index type it cannot map before it
-		// touches a shard, so hydrating the collection for one would pay the
-		// whole cost the gate exists to avoid and remove nothing.
+		// Fail closed. The index-wide sweep refuses this input before the walk
+		// starts (see TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType),
+		// so the gate is not asked in production — but answering "nothing here"
+		// is the one answer that could turn it into a clean-sweep report.
 		{
-			name:         "an index type this build cannot map to a bucket",
-			indexType:    "an-index-type-this-build-does-not-know",
-			sidecars:     []string{"property_category__enable_filterable_ingest_1"},
-			wantSweepErr: true,
+			name:      "an index type this build cannot map to a bucket",
+			indexType: "an-index-type-this-build-does-not-know",
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			wantStale: true,
 		},
 		// A two-property task writes one tracker for both, and the cleanup runs
 		// once per property. A gate that does not recognize it leaves the
@@ -360,14 +369,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			}
 
 			before := lsmDirNames(t, lsm)
-			err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
-			if tc.wantSweepErr {
-				require.Error(t, err,
-					"the gate answered 'nothing to load' because the sweep refuses this input, "+
-						"and an operator only hears about it if the sweep still says so")
-			} else {
-				require.NoError(t, err)
-			}
+			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
 			require.Equal(t, before, lsmDirNames(t, lsm),
 				"the predicate said this shard has nothing to clean, so the sweep it gates "+
 					"must not find anything either — a shard it skips is never looked at again")
@@ -545,12 +547,55 @@ func TestDirNamesCache(t *testing.T) {
 
 	t.Run("a full cache stops holding listings", func(t *testing.T) {
 		root := newDir(t, "bucket-a")
-		cache := &dirNamesCache{names: maxCachedDirNames}
+		cache := &dirNamesCache{cost: maxCachedDirNames}
 		_, err := cache.list(root)
 		require.NoError(t, err)
 		require.Empty(t, cache.listings,
 			"a node runs tens of thousands of tenants, and the gate exists to not "+
 				"spend that memory")
+	})
+
+	// The workload the bound is for: tenants whose LSM dirs hold no sidecar at
+	// all. Charging only the names kept would let every one of them in for free.
+	t.Run("listings that keep no names are still bounded", func(t *testing.T) {
+		first, second := newDir(t, "property_a"), newDir(t, "property_b")
+		cache := &dirNamesCache{cost: maxCachedDirNames - 1}
+		for _, root := range []string{first, second} {
+			names, err := cache.listSidecarCandidates(root)
+			require.NoError(t, err)
+			require.Empty(t, names)
+		}
+		require.Len(t, cache.listings, 1,
+			"an empty listing is still a map entry, and a node whose tenants are "+
+				"untouched produces nothing but those")
+	})
+
+	// An empty filtered listing must not pin a backing array sized for the
+	// shard's whole bucket count for the rest of the run.
+	t.Run("a cached listing does not retain the whole directory", func(t *testing.T) {
+		root := t.TempDir()
+		for i := range 100 {
+			require.NoError(t, os.Mkdir(filepath.Join(root, fmt.Sprintf("property_%d", i)), 0o755))
+		}
+		cache := &dirNamesCache{}
+		_, err := cache.listSidecarCandidates(root)
+		require.NoError(t, err)
+		cached := cache.listings[dirNamesKey{path: root, filter: "sidecar"}]
+		require.Zero(t, cap(cached.names))
+	})
+
+	// The full and the filtered listing are different answers about one path;
+	// handing the filtered one back for the full question hides every bucket dir.
+	t.Run("a filtered listing does not answer an unfiltered question", func(t *testing.T) {
+		root := newDir(t, "property_a", "property_a__blockmax_ingest_1")
+		cache := &dirNamesCache{}
+		sidecars, err := cache.listSidecarCandidates(root)
+		require.NoError(t, err)
+		require.Equal(t, []string{"property_a__blockmax_ingest_1"}, sidecars)
+
+		all, err := cache.list(root)
+		require.NoError(t, err)
+		require.Equal(t, []string{"property_a", "property_a__blockmax_ingest_1"}, all)
 	})
 }
 
@@ -567,4 +612,93 @@ func TestMainBucketForPropertyIndexHasAKnownNameCollision(t *testing.T) {
 	require.True(t,
 		isSidecarDirOf(searchableOfCat+"__enable_filterable_ingest_1", filterableOfCatSearchable),
 		"and the sidecar rule cannot tell them apart either")
+}
+
+// An index type this build cannot map to a bucket is refused before the walk.
+// Left to the gate, an all-cold collection would skip every shard, the walk
+// would end with nothing to report, and the operator would be told the partial
+// state was cleared for an input the node never processed.
+func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.T) {
+	const (
+		propName = "category"
+		tenant   = "cold-tenant"
+	)
+	ctx := testCtx()
+	class := newTestClassWithProps("ColdSweepUnknownType_"+uuid.NewString()[:8], []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	defer shd.Shutdown(context.Background())
+
+	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, cold)
+
+	err := idx.CleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know")
+
+	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
+	require.False(t, cold.isLoaded(),
+		"refusing the input must not cost a hydration of the whole collection")
+	outcome, _ := classifyTerminalSweep(err)
+	require.Equal(t, terminalSweepUnknown, outcome,
+		"an input the node cannot process is not a swept collection")
+}
+
+// Every migration strategy's sidecar suffix has to be recognized as one:
+// [isSidecarDirOf] matches on the trailing role word, so a strategy that
+// invents a new one would leave its sidecars unswept and its dirs invisible to
+// the cold-shard gate. Extend [sidecarRoleWords] when that happens.
+func TestEverySidecarSuffixIsASidecar(t *testing.T) {
+	const main = "property_category"
+
+	// Generation 0 is the canonical post-finalize bucket, which carries no
+	// sidecar suffix at all; live migrations start at 1 (see genSuffix).
+	for _, gen := range []int{1, 7} {
+		strategies := []MigrationStrategy{
+			&MapToBlockmaxStrategy{generation: gen},
+			&RoaringSetRefreshStrategy{generation: gen},
+			&FilterableToRangeableStrategy{generation: gen},
+			&SearchableRetokenizeStrategy{generation: gen},
+			&FilterableRetokenizeStrategy{generation: gen},
+			&EnableFilterableStrategy{generation: gen},
+			&EnableSearchableStrategy{generation: gen},
+			&RebuildSearchableStrategy{generation: gen},
+		}
+		for _, strategy := range strategies {
+			for _, suffix := range []string{
+				strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
+			} {
+				assert.Truef(t, isSidecarDirOf(main+suffix, main),
+					"%T's %q is not recognized as a sidecar suffix", strategy, suffix)
+			}
+		}
+	}
+}
+
+// The names that are NOT sidecars of the swept property, and that the sweep
+// would RemoveAll if it read them as such.
+func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
+	const main = "property_category"
+
+	tests := []struct {
+		name string
+		dir  string
+		want bool
+	}{
+		{name: "the main bucket itself", dir: main},
+		{name: "a property whose name carries the separator", dir: main + "__extra"},
+		{name: "a generation-suffixed main bucket", dir: main + "__gen2"},
+		{name: "a longer property's main bucket", dir: main + "_x"},
+		{name: "a sidecar", dir: main + "__enable_filterable_ingest_1", want: true},
+		{name: "a sidecar with no generation", dir: main + "__reindex", want: true},
+		{name: "a sidecar a generation-0 bug would leave", dir: main + "__ingest_0", want: true},
+		{name: "a property named after a number", dir: main + "__12", want: false},
+		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isSidecarDirOf(tc.dir, main))
+		})
+	}
 }
