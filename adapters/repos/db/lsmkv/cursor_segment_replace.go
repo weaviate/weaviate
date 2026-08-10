@@ -321,6 +321,9 @@ type segmentCursorReplaceReusable struct {
 	// avoid allocating a MeteredReader+SectionReader+nodeReader per iteration.
 	preadOffset *offsetReader
 	preadReader *bufio.Reader
+	// preadPos is the position preadReader is parked at (-1 = unknown); parses
+	// landing exactly there keep the buffer instead of resetting it.
+	preadPos int64
 }
 
 func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
@@ -348,6 +351,7 @@ func (s *segment) newReplaceCursorReusableWithPrefix(valuePrefixLen int) *segmen
 		or := &offsetReader{ra: s.contentFile}
 		c.preadOffset = or
 		c.preadReader = acquireSegmentCursorReader(or)
+		c.preadPos = -1
 	}
 	return c
 }
@@ -411,8 +415,13 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 			return &s.reusableNode, err
 		}
 	} else {
-		s.preadOffset.off = int64(s.currOffset)
-		s.preadReader.Reset(s.preadOffset)
+		pos := int64(s.currOffset)
+		if pos != s.preadPos {
+			s.preadOffset.off = pos
+			s.preadReader.Reset(s.preadOffset)
+		}
+		// unknown until the parse succeeds: an error leaves the reader mid-node
+		s.preadPos = -1
 		if s.valuePrefixLen > 0 {
 			if err := ParseReplaceNodeDigestIntoPread(s.preadReader, s.segment.secondaryIndexCount, s.valuePrefixLen, &s.reusableNode); err != nil {
 				return &s.reusableNode, err
@@ -420,6 +429,7 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 		} else if err := ParseReplaceNodeIntoPread(s.preadReader, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
 			return &s.reusableNode, err
 		}
+		s.preadPos = pos + int64(s.reusableNode.offset)
 	}
 
 	if s.reusableNode.tombstone {
