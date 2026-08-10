@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -1122,5 +1123,140 @@ func TestCommitAllManyFailures(t *testing.T) {
 		assert.Equal(t, numNodes, nFailures)
 	case <-time.After(10 * time.Second):
 		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
+	}
+}
+
+// The coordinator's lastOp slot is the backup subsystem's mutual-exclusion
+// lock. A slot left claimed by a failed operation refuses every later backup on
+// this node until the process restarts.
+func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		any          = mock.Anything
+		backupID     = "1"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		classes      = []string{"Class-A", "Class-B"}
+		nodeResolver = newFakeNodeResolver(nodes)
+		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name    string
+		level   CompressionLevel
+		arrange func(fc *fakeCoordinator)
+	}{
+		{
+			name:    "invalid compression level",
+			level:   CompressionLevel(-1),
+			arrange: func(*fakeCoordinator) {},
+		},
+		{
+			name:  "participant refused to commit",
+			level: GzipDefaultCompression,
+			arrange: func(fc *fakeCoordinator) {
+				fc.client.On("CanCommit", any, any, any).Return(nil, ErrAny)
+				fc.client.On("Abort", any, any, any).Return(nil)
+			},
+		},
+		{
+			name:  "initial meta write failed",
+			level: GzipDefaultCompression,
+			arrange: func(fc *fakeCoordinator) {
+				fc.client.On("CanCommit", any, any, any).Return(cresp, nil)
+				fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeCoordinator(nodeResolver)
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+			fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+			tc.arrange(fc)
+
+			c := fc.coordinator()
+			req := newReq(classes, backendName, backupID)
+			req.Level = tc.level
+			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+
+			require.Error(t, c.Backup(ctx, store, &req))
+			require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
+		})
+	}
+}
+
+// A restore request for a backup whose metadata is already CANCELLING returns
+// without starting anything. It may only give back the slot when the slot holds
+// that same backup: clearing another restore's claim makes this node report
+// itself idle while it is still writing files.
+func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "1"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		nodeResolver = newFakeNodeResolver(nodes)
+	)
+	cancelling, err := json.Marshal(backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelling})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		claimedID   string
+		claimStatus backup.Status
+		wantSlotID  string
+	}{
+		{
+			name:        "slot holds the cancelled backup",
+			claimedID:   backupID,
+			claimStatus: backup.Cancelled,
+			wantSlotID:  "",
+		},
+		{
+			name:        "slot holds a different, live restore",
+			claimedID:   "live-restore",
+			claimStatus: backup.Transferring,
+			wantSlotID:  "live-restore",
+		},
+		{
+			// The cancel was claimed by another coordinator, so this node's own
+			// restore of the same id never saw a cancel and is still writing.
+			name:        "slot holds a live restore carrying the same id",
+			claimedID:   backupID,
+			claimStatus: backup.Transferring,
+			wantSlotID:  backupID,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeCoordinator(nodeResolver)
+			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(cancelling, nil)
+
+			c := fc.coordinator()
+			c.lastOp.renew(tc.claimedID, "path", "", "")
+			c.lastOp.set(tc.claimStatus)
+
+			req := newReq(nil, backendName, backupID)
+			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+			desc := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelling}
+
+			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
+			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
+
+			// The slot is the subsystem's mutual exclusion, so clearing one we
+			// do not own lets a second restore claim it and run alongside the
+			// live one.
+			prevID, _ := c.lastOp.renew("intruder", "path", "", "")
+			require.Equal(t, tc.wantSlotID, prevID,
+				"a live restore must still refuse a second claim")
+		})
 	}
 }
