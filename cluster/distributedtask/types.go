@@ -427,10 +427,17 @@ func (t TaskStatus) String() string {
 // invisible to every scheduler in the cluster and no cleanup is ever
 // proposed again. The older node's copy survives indefinitely.
 //
-// Only add a terminal status once every node in the supported upgrade
-// range recognizes it. A new non-terminal status is cheaper but not free:
-// an older node still refuses backups on the collection and reports the
-// index as "ready".
+// Rollback is worse than upgrade. Roll a release back and the older
+// binary meets the new status already persisted in its own FSM state,
+// with no upgrade pending to resolve it — the mixed-version window never
+// closes, and combined with the leader-routing above, nothing ages the
+// task out and no exit remains.
+//
+// So a new terminal status is only safe once every version in the
+// supported upgrade AND rollback range recognizes it, which means it
+// cannot ship in the same release as the code that depends on it. A new
+// non-terminal status is cheaper but not free: an older node still
+// refuses backups on the collection and reports the index as "ready".
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:

@@ -1647,7 +1647,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
-// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
+// teardown sees [distributedtask.TaskStatus.IsActive]==false but the on-disk
 // __reindex / __ingest sidecars are still being torn out. Registering
 // every shard the task touched in [cleanupInProgress] before
 // CleanStalePartialReindexState fires (and unregistering after) makes
@@ -1807,17 +1807,6 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // reindexTerminalCleanupTimeout bounds cleanup per shard across all
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
-
-// IsLiveReindexTaskStatus reports whether a task in the given DTM status
-// still owns its on-disk tracker dirs.
-//
-// Delegates to IsActive so the two liveness answers cannot drift apart.
-// While each owned its own switch, both independently fell through to
-// false on an unrecognized status: a task from a newer node released its
-// tracker dirs to the startup orphan audit.
-func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
-	return status.IsActive()
-}
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
 // command an operator should issue to recover from a FAILED semantic

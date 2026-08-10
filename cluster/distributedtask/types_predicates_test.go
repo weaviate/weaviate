@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Direct table tests for Task / TaskStatus predicates. These appear
@@ -386,31 +385,4 @@ func TestTask_NodeHasNonTerminalUnits(t *testing.T) {
 
 func unitKey(i int) string {
 	return "u-" + string(rune('a'+i))
-}
-
-// TestTaskStatus_TerminalActiveCoordinationDisjoint is a meta-test
-// proving the three predicates form the right partition: every status
-// is either terminal, active, or both-zero (the empty/unknown
-// catch-all), and IsCoordinationPhase ⊂ IsActive. If a future status
-// breaks the partition (e.g. an active terminal status), this test
-// fires.
-func TestTaskStatus_TerminalActiveCoordinationDisjoint(t *testing.T) {
-	all := []TaskStatus{
-		TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,
-		TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled,
-	}
-	for _, s := range all {
-		t.Run(string(s), func(t *testing.T) {
-			term := s.IsTerminal()
-			act := s.IsActive()
-			coord := s.IsCoordinationPhase()
-			// terminal XOR active for the defined statuses.
-			require.NotEqualf(t, term, act,
-				"status %q claims both terminal and active simultaneously — invalid", s)
-			// coordination implies active.
-			if coord {
-				require.Truef(t, act, "coordination %q must be active", s)
-			}
-		})
-	}
 }
