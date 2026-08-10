@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -636,4 +637,41 @@ func TestKeyDocColumnWiring_ServesNonUniqueValues(t *testing.T) {
 	bkt := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
 	require.NotNil(t, bkt.KeyDocColumn(),
 		"a handful of duplicates is warned about, not a reason to stop serving")
+}
+
+// TestKeyDocColumnWiring_ServesWithGateOff pins that a property carrying a
+// key/doc column takes the batched path whether or not the batched-contains
+// gate is on, and that a property without one still obeys the gate.
+//
+// The column is served from the batched path and nowhere else, so a node that
+// configured one and left the gate alone would build it at startup, hold it
+// resident, keep it current on every flush, and never read it — paying for an
+// index it cannot use, with nothing to say so.
+func TestKeyDocColumnWiring_ServesWithGateOff(t *testing.T) {
+	const numDocs = 2_000
+	indexed, _ := newUniqueTextSearcher(t, numDocs)
+	plain, _ := newUniqueTextSearcherNoIndex(t, numDocs)
+	indexed.batchedContainsEnabled = nil // as an unconfigured node leaves it
+	plain.batchedContainsEnabled = nil
+
+	values := sampleUniqueValues(numDocs, 8)
+	class := createSchema().GetClass(className)
+
+	t.Run("column present: batches despite the gate", func(t *testing.T) {
+		pv, err := indexed.extractContains(context.Background(), containsPath(benchPropName),
+			schema.DataTypeText, values, filters.ContainsAny, class)
+		require.NoError(t, err)
+		require.Equal(t, len(values), pv.containsValues.Len())
+		require.Empty(t, pv.children, "the column's property must not desugar")
+	})
+
+	t.Run("no column: the gate still decides", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv, err := plain.extractContains(ctx, containsPath(benchPropName),
+			schema.DataTypeText, values, filters.ContainsAny, class)
+		require.NoError(t, err)
+		require.Zero(t, pv.containsValues.Len())
+		require.NotEmpty(t, pv.children, "without a column the gate is all there is")
+		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
+	})
 }

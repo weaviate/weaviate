@@ -84,7 +84,9 @@ type Searcher struct {
 	// batchedContainsEnabled gates the batched flat Contains resolution.
 	// Runtime-overridable; nil (the default) means disabled, so the
 	// feature is opt-in and callers that don't wire it keep the
-	// desugared per-value path.
+	// desugared per-value path — except on a property carrying a key/doc
+	// column, which is served from this path alone and so enables it for
+	// itself. See [Searcher.classifyContainsBatch].
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
@@ -108,8 +110,10 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 // batched flat ContainsAny/ContainsAll/ContainsNone resolution. Returns the
 // receiver for fluent chaining at construction sites.
 //
-// Nil (the default) means disabled: every Contains filter takes the
-// desugared per-value path, so the batched fast path is strictly opt-in.
+// Nil (the default) means disabled: every Contains filter takes the desugared
+// per-value path, so the batched fast path is strictly opt-in — with one
+// exception, a property carrying a key/doc column, which is served from the
+// batched path alone and therefore takes it regardless of this gate.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
@@ -1059,9 +1063,6 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
-	if !s.batchedContainsEnabled.Get() {
-		return nil, containsNotBatchable, containsDeclineNotEnabled
-	}
 
 	props := path.Slice()
 	if len(props) != 1 {
@@ -1098,6 +1099,15 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
+	}
+	// A property carrying a key/doc column takes this path whether or not the
+	// gate is on: the column is reachable from nowhere else, so a node that
+	// configured one would otherwise build it, hold it resident, keep it current
+	// on every flush, and never read it. Asking the bucket rather than the
+	// configuration also means a build that declined, or a column detached after
+	// a failed flush, falls back to whatever the gate says on its own.
+	if !s.batchedContainsEnabled.Get() && b.KeyDocColumn() == nil {
+		return nil, containsNotBatchable, containsDeclineNotEnabled
 	}
 
 	switch {
