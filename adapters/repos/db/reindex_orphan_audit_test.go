@@ -767,9 +767,9 @@ func TestIsLegacyTrackerWithoutPayload_Boundary(t *testing.T) {
 }
 
 // TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
-// status to ownership matrix the audit's knownTask closure uses:
-// STARTED/PREPARING/SWAPPING are live; FAILED/CANCELLED/FINISHED
-// release ownership.
+// status to ownership matrix the audit's knownTask closure uses: only
+// FAILED/CANCELLED/FINISHED release ownership. Everything else, including
+// a status a newer node introduced, keeps its tracker dirs.
 func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 	cases := []struct {
 		status distributedtask.TaskStatus
@@ -784,12 +784,15 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 		// A newer node's status is unrecognized here, and the audit reads live
 		// as "leave the tracker dirs alone". Deleting them on a guess is the
 		// one outcome that cannot be undone.
-		{distributedtask.TaskStatus("UNKNOWN_FUTURE_STATE"), true},
+		{unknownFutureStatus, true},
 		{distributedtask.TaskStatus(""), true},
+		{distributedtask.TaskStatus("started"), true}, // wrong case is not STARTED
 	}
 	for _, c := range cases {
 		t.Run(string(c.status), func(t *testing.T) {
 			assert.Equal(t, c.live, IsLiveReindexTaskStatus(c.status))
+			assert.Equal(t, IsLiveReindexTaskStatus(c.status), c.status.IsActive(),
+				"%q: the two liveness predicates have drifted apart", c.status)
 		})
 	}
 }

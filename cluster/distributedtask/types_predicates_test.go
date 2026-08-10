@@ -24,6 +24,12 @@ import (
 // flip behavior without any localized test failure.
 // weaviate/0-weaviate-issues#243.
 
+// unknownFutureStatus stands in for a status a newer release introduced
+// and this build has never heard of — what a mixed-version cluster sees
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus TaskStatus = "UNKNOWN_FUTURE_STATE"
+
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
 // one unit on n-3 that is "unassigned" (empty NodeID) to exercise the
@@ -56,14 +62,20 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},
-		// Unrecognized statuses are active: see TestTaskStatus_UnknownIsActive.
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), true},
+		// A status this build cannot recognize counts as in-flight:
+		// reading it as done would admit a second migration onto a
+		// property a newer node is still migrating.
+		{unknownFutureStatus, true},
 		{TaskStatus(""), true},
+		{TaskStatus("started"), true}, // wrong case is not TaskStatusStarted
+		{TaskStatus("SOMETHING_ELSE"), true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			assert.Equal(t, tc.active, tc.status.IsActive(),
 				"%q.IsActive() should be %v", tc.status, tc.active)
+			assert.Equal(t, !tc.active, tc.status.IsTerminal(),
+				"%q: IsActive must be the exact negation of IsTerminal", tc.status)
 		})
 	}
 }
@@ -87,19 +99,19 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 		{TaskStatusFinished, false, false},
 		{TaskStatusFailed, false, false},
 		{TaskStatusCancelled, false, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, true},
+		{unknownFutureStatus, false, true},
 		{TaskStatus(""), false, true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			assert.Equal(t, tc.coordination, tc.status.IsCoordinationPhase(),
 				"%q.IsCoordinationPhase() should be %v", tc.status, tc.coordination)
-			// Cross-invariant: a coordination phase is always active.
-			// IsCoordinationPhase ⊂ IsActive, by design.
-			if tc.coordination {
-				assert.True(t, tc.status.IsActive(),
-					"%q is a coordination phase but not active; predicates have drifted", tc.status)
-			}
+			// Cross-invariant: IsCoordinationPhase ⊂ IsActive, by design.
+			// An unrecognized status is active but not a coordination
+			// phase — IsActive makes a safety claim, IsCoordinationPhase
+			// a positive one.
+			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
+				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
 		})
 	}
 }

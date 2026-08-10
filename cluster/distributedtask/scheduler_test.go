@@ -1712,3 +1712,56 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
 	require.Contains(t, unprocessable.Error(), expectedReason)
 }
+
+// TestSchedulerTTLSweep_SkipsUnknownStatus pins that the sweep never
+// proposes a cleanup for a task whose status this build cannot recognize.
+// Such a task has no FinishedAt, so the age check passes trivially and
+// only the liveness check holds it back.
+//
+// The control task — terminal and equally TTL-expired — proves the sweep
+// ran at all: without it, a sweep that skipped every task would pass.
+func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+
+	addTaskWithUnits(t, h, h.tasksNamespace, "unknown", 10, []string{"su-1"})
+	h.manager.tasks[h.tasksNamespace]["unknown"].Status = unknownFutureStatus
+
+	addTaskWithUnits(t, h, h.tasksNamespace, "control", 11, []string{"su-2"})
+	control := h.manager.tasks[h.tasksNamespace]["control"]
+	control.Status = TaskStatusFinished
+	control.FinishedAt = h.clock.Now()
+
+	swept := make(chan string, 4)
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+			swept <- taskID
+			if taskID != "control" {
+				// t.Errorf, not require: this runs on the scheduler's tick
+				// goroutine, and a FailNow there would Goexit mid-tick and
+				// leave Close() and leaktest checking a half-dead scheduler.
+				t.Errorf("TTL sweep proposed cleanup for task %q in status %q", taskID, unknownFutureStatus)
+				return nil
+			}
+			return h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+				Namespace: namespace,
+				Id:        taskID,
+				Version:   taskVersion,
+			}))
+		})
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.completedTaskTTL)
+	h.advanceClock(h.schedulerTickInterval)
+
+	require.Equal(t, "control", recvWithTimeout(t, swept),
+		"the terminal, TTL-expired control task must be swept")
+
+	remaining := h.listManagerTasks(t)[h.tasksNamespace]
+	require.Len(t, remaining, 1,
+		"a task in an unrecognized status must survive the TTL sweep")
+	require.Equal(t, "unknown", remaining[0].ID)
+}

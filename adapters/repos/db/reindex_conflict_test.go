@@ -715,3 +715,87 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 		})
 	}
 }
+
+// unknownFutureStatus stands in for a status a newer release introduced
+// and this build has never heard of — what a mixed-version cluster sees
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// TestReindexGuards_BlockOnEveryInFlightStatus covers all four guard
+// entry points at once. Three of them (CheckPropertyUpdate,
+// CheckClassMutation, CheckTenantMutation) run inside the schema FSM
+// apply on every node, so a guard that reads an unrecognized status as
+// "done" lets a mutation through on one node and not another.
+func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	newPayload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeEnableRangeable,
+		Properties:    []string{"num"},
+	})
+	require.NoError(t, err)
+
+	existPayload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"num"},
+	})
+	require.NoError(t, err)
+
+	guards := []struct {
+		name  string
+		check func(existing []*distributedtask.Task) error
+	}{
+		{"CheckConflict", func(e []*distributedtask.Task) error {
+			return provider.CheckConflict(newPayload, e)
+		}},
+		{"CheckPropertyUpdate", func(e []*distributedtask.Task) error {
+			return provider.CheckPropertyUpdate("C", "num", e)
+		}},
+		{"CheckClassMutation", func(e []*distributedtask.Task) error {
+			return provider.CheckClassMutation("C", e)
+		}},
+		{"CheckTenantMutation", func(e []*distributedtask.Task) error {
+			return provider.CheckTenantMutation("C", []string{"t1"}, e)
+		}},
+	}
+
+	statuses := []struct {
+		status  distributedtask.TaskStatus
+		blocked bool
+	}{
+		{distributedtask.TaskStatusStarted, true},
+		{distributedtask.TaskStatusPreparing, true},
+		{distributedtask.TaskStatusSwapping, true},
+		{unknownFutureStatus, true},
+		{distributedtask.TaskStatus(""), true},
+		{distributedtask.TaskStatusFinished, false},
+		{distributedtask.TaskStatusFailed, false},
+		{distributedtask.TaskStatusCancelled, false},
+	}
+
+	for _, g := range guards {
+		for _, s := range statuses {
+			t.Run(g.name+"/"+string(s.status), func(t *testing.T) {
+				existing := []*distributedtask.Task{
+					{
+						TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+						Status:         s.status,
+						Payload:        existPayload,
+					},
+				}
+				err := g.check(existing)
+				if !s.blocked {
+					require.NoError(t, err,
+						"%s must ignore a task this build knows is done", g.name)
+					return
+				}
+				require.Error(t, err,
+					"%s must block against a task this build cannot prove is done", g.name)
+				require.Contains(t, err.Error(), "T1")
+			})
+		}
+	}
+}
