@@ -27,17 +27,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot pins the release half of
-// the slot-ownership invariant: the restore goroutine gives the slot back only
-// while it still holds it. A newer restore can take the slot over while the
-// old goroutine is still finishing (cancellation frees it, then another
-// restore claims it), and clearing that claim reports the node idle while a
-// restore is live.
-//
-// The takeover is staged from inside the participant Status call, which runs on
-// the restore goroutine itself, before its deferred release — rather than from
-// a particular meta write, which pins the test to how many times the
-// coordinator happens to write its meta file.
+// Pins that the restore goroutine releases only the slot it still holds; a
+// newer restore can take the slot over while the old goroutine unwinds.
 func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -56,10 +47,8 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 		// steal reproduces a newer restore taking the slot over while the
 		// goroutine of the previous one is still running.
 		steal bool
-		// newID is the id the newer restore claims the slot with. The retry
-		// case reuses this restore's own id, which is what a cancel-then-retry
-		// looks like and what an id-keyed ownership check cannot tell from the
-		// first attempt still holding the slot.
+		// newID is the id the newer restore claims the slot with; the retry
+		// case reuses this restore's own id.
 		newID      string
 		wantSlotID string
 	}{
@@ -143,19 +132,8 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	}
 }
 
-// TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot is the backup-side mirror of
-// the test above. Both goroutines release the same way, so pinning one and not
-// the other leaves half the invariant free to regress.
-//
-// The backup and restore coordinators are separate values with separate slots,
-// and nothing outside Backup writes the backup one today: there is no
-// CancelBackup, so the takeover below has no production path and is staged by
-// hand. What the guard buys is that the backup side does not acquire this bug
-// the day it grows a cancel — which is the natural place for one, and the
-// restore side is what that would look like.
-//
-// The takeover is staged from inside the participant Status call, which runs on
-// the backup goroutine itself, before its deferred release.
+// Backup-side mirror of TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot; the
+// takeover is staged by hand since backup has no production cancel path yet.
 func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -235,12 +213,8 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	}
 }
 
-// The write half of the same ownership invariant. CancelRestore stamps the
-// coordinator's restore slot from what it read in object storage, not from what
-// the slot holds — and that slot is one per node, shared by every restore this
-// node coordinates. So a cancel aimed at one restore lands on whichever restore
-// currently holds it, and commit() reads Cancelled there as "cancelled
-// externally" and aborts a restore nobody asked to cancel.
+// Pins that CancelRestore only stamps the slot it owns, not whichever restore
+// the node's single slot happens to hold.
 func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 	t.Parallel()
 	const (
@@ -302,11 +276,8 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 	}
 }
 
-// Restore's two synchronous error paths give the slot back before returning,
-// and must give back only their own. The restorer slot has writers outside
-// Restore — a cancel, and a retried Restore's early return — so between the
-// claim and the error the slot can already belong to a newer restore, and
-// clearing that claim reports the node idle while a restore is live.
+// Pins that Restore's synchronous error paths release only the slot they
+// still own, not one already taken over by a newer restore.
 func TestCoordinatorRestoreErrorPathReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -397,18 +368,8 @@ func TestCoordinatorRestoreErrorPathReleasesOnlyItsOwnSlot(t *testing.T) {
 	}
 }
 
-// The write half of the release invariant, and the reason the release check
-// alone is not enough: the goroutine of a cancelled restore keeps writing to
-// the slot for as long as it takes to unwind, and by then the slot can already
-// belong to the restore that was started right after the cancel. Every one of
-// those writes has to no-op.
-//
-// Left unchecked, a restore that has just started is reported to the API as
-// SUCCESS, or as CANCELLED — which coordinator.commit reads as "cancelled
-// externally" and acts on, aborting a restore nobody cancelled. The failure
-// case reaches further still: the reason is remembered under whichever id holds
-// the slot, so a poll for the new restore is answered with what happened to the
-// old one.
+// Pins that a cancelled restore's goroutine, still writing while it unwinds,
+// never stamps the slot a newer restore has since claimed.
 func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 	t.Parallel()
 	var (
@@ -554,11 +515,8 @@ func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescr
 	return nil
 }
 
-// CancelRestore stamps the coordinator's slot CANCELLING, aborts the
-// participants, and only then writes CANCELLED. A restore that reads its slot
-// for CANCELLED alone does not recognise that window, moves on to FINALIZING
-// and applies the schema — past the point where CancelRestore starts refusing,
-// so the operator gets a restore they cancelled applied anyway.
+// Pins that a restore recognises CANCELLING (not just CANCELLED) and stops
+// before applying the schema.
 func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 	t.Parallel()
 	var (

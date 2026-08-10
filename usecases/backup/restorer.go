@@ -160,11 +160,8 @@ func (r *restorer) restore(
 // restoreAll restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 //
-// slot is the claim restore() took, and is what the status writes below go
-// through. Taking the claim rather than re-deriving ownership from desc.ID
-// keeps the two the same thing by construction: the id the slot was claimed
-// with and the id in the descriptor are equal only because restorer.validate
-// rejects a mismatch three call frames away.
+// slot is the claim restore() took; status writes below go through it rather
+// than re-deriving ownership from desc.ID.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,

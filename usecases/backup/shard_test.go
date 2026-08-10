@@ -20,12 +20,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// resetIfCancelled is the slot's check-and-clear. It releases only an
-// operation that has been cancelled: one still running under the same id is
-// writing files, and clearing its claim lets a second operation start
-// alongside it. A cancel that has only been claimed so far (CANCELLING) is
-// exactly that case — the operation is cancelled once its own goroutine says
-// so, not when the cancel starts.
+// resetIfCancelled must clear the slot only for an operation that has fully
+// cancelled, not one still Cancelling or running under the same id.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -102,11 +98,8 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 	}
 }
 
-// release is the give-back half of a claim: an operation frees the slot only
-// while it still holds it. Ownership is the generation renew handed out, not
-// the backup id, because ids are reusable — a cancelled operation retried
-// under the same id is a different claim, and the first one's release must not
-// free it.
+// release must free the slot only while its claim still holds it, even when a
+// retry reuses the same backup id under a new claim.
 func TestSlotOwnerRelease(t *testing.T) {
 	t.Parallel()
 
@@ -190,10 +183,8 @@ func TestSlotOwnerRelease(t *testing.T) {
 	}
 }
 
-// setIfOwned is the write half. Its caller is a cancel, which takes the id from
-// object storage rather than from the slot, so it must not stamp whatever
-// operation happens to be holding it — and must not walk a finished cancel back
-// to CANCELLING, which is what OnStatus would then report.
+// setIfOwned must stamp only the matching id, and must never walk a finished
+// cancel back to Cancelling.
 func TestBackupStatSetIfOwned(t *testing.T) {
 	t.Parallel()
 
@@ -281,16 +272,10 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 	require.Equal(t, "override", got.OverridePath)
 }
 
-// The cancelled op releases the slot and a new restore claims it while a second
-// caller is releasing the cancelled id. A check and a clear under separate lock
-// acquisitions throw the new claim away here; one acquisition cannot.
-//
-// Both racers spin on the same flag rather than waking from a channel, which
-// lines them up closely enough that a two-acquisition check-and-clear loses a
-// claim often enough for the iterations below to catch it every run. Waking
-// them from a channel costs orders of magnitude in that rate: the same mutation
-// then survives 5000 iterations two runs out of three. The whole loop costs
-// 80ms, so the iteration count buys the margin cheaply.
+// Pins resetIfCancelled's check-and-clear as a single lock acquisition: two
+// separate ones would let a concurrent renew's claim get dropped. Racers spin
+// on a shared flag rather than a channel to line up tightly enough that the
+// two-acquisition bug reproduces within 20000 iterations.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
@@ -335,10 +320,8 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	}
 }
 
-// A goroutine can outlive its claim: a cancel frees the slot while it is still
-// unwinding and the next operation claims it right away. Every write it makes
-// from then on belongs to the operation that is gone, not to the one holding
-// the slot.
+// Pins that every slotOwner write no-ops once a claim has lost the slot to a
+// newer operation.
 func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -389,9 +372,7 @@ func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
 	}
 }
 
-// status is how an operation asks its own slot whether it has been cancelled.
-// Answering from a slot it no longer holds hands it the newer operation's
-// status, which coordinator.commit reads as a cancel and acts on.
+// Pins that status() answers only for a claim that still holds the slot.
 func TestSlotOwnerStatus(t *testing.T) {
 	t.Parallel()
 
@@ -420,9 +401,8 @@ func TestSlotOwnerStatus(t *testing.T) {
 	})
 }
 
-// A cancellation is the operation's last word. Walking the slot back to a
-// running status reports an operation the operator has already cancelled as
-// still going, on the slot a poll reads before the descriptor is written.
+// Pins the cancellation one-way rule: Cancelled and Cancelling refuse being
+// walked back to a running status.
 func TestBackupStatCancellationIsNotOverwritten(t *testing.T) {
 	t.Parallel()
 

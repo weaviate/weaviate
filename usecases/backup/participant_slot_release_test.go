@@ -39,14 +39,8 @@ func (h *hookSnapshotter) Restore(_ []byte, _ bool) error {
 	return nil
 }
 
-// The participant restorer releases its slot when its goroutine ends, and must
-// release only its own. A cancel frees the slot while that goroutine is still
-// unwinding and the next restore claims it right away, so an unconditional
-// release reports the node idle while a restore is live — and the slot is what
-// keeps two restores from running on this node at once.
-//
-// The takeover is staged from inside the RBAC restore, which runs on the
-// restore goroutine before its deferred release.
+// Pins that the participant restorer releases only its own slot, not one a
+// newer restore has since claimed.
 func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	const (
@@ -121,10 +115,8 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 	}
 }
 
-// The participant backupper is the same claim-and-release path as the restorer
-// above. Nothing outside backup() writes this slot today, so there is no
-// production takeover to reproduce; the guard is what keeps that true when the
-// backup side grows a cancel, and the takeover here is staged by hand.
+// Backupper-side mirror of TestRestorerRestoreReleasesOnlyItsOwnSlot; the
+// takeover is staged by hand since backup has no production cancel path yet.
 func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	const (

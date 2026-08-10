@@ -17,9 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Readers of an operation's status decide from this whether a cancel is under
-// way. Leaving CANCELLING out reads a claimed cancel as a live operation, and
-// the reader goes on to overwrite it with a running status.
 func TestStatusIsCancellation(t *testing.T) {
 	tests := []struct {
 		status Status

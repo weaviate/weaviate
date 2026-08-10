@@ -473,10 +473,8 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 }
 
 // logCancelStamp records whether a cancel reached this node's restore slot.
-// The false case is the one an operator needs: the slot holds a different
-// restore, so nothing this node reports about the cancelled one changes, and
-// the cancel looks like it did nothing. held is the slot as it stands after the
-// attempt, so the log names the restore that is in the way.
+// The false case matters most: the slot holds a different restore, so the
+// cancel appears to do nothing on this node.
 func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
 	entry := logger.WithFields(logrus.Fields{
 		"action":       "cancel_restore",
@@ -560,10 +558,6 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		// stamped says whether this node's restore slot took the status. False
-		// means the slot holds some other restore, which is why an operator who
-		// cancelled sees no change in what this node reports — so it is logged
-		// where a default deployment can find it.
 		logCancelStamp(s.logger, backupID, backup.Cancelling,
 			s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling),
 			s.restorer.lastOp.get())
@@ -582,10 +576,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
-	// Update coordinator's lastOp status to prevent stale reads from OnStatus().
-	// Only when this node's restore slot is still held by the restore being
-	// cancelled: the slot is one per node and shared by every restore this node
-	// coordinates, and OnStatus reads it only for a matching id anyway.
+	// Update the slot to prevent stale reads from OnStatus(), but only if it
+	// is still held by the restore being cancelled.
 	logCancelStamp(s.logger, backupID, backup.Cancelled,
 		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled),
 		s.restorer.lastOp.get())
