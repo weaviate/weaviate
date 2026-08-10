@@ -263,10 +263,6 @@ func (i *Index) cleanStalePartialReindexState(
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		// The sweep this gates rejects the same input before it touches
-		// anything, so loading shards for it buys nothing. Whether there is
-		// state here is a question this build cannot answer, and the sweep says
-		// so on the first loaded shard it reaches.
 		return false
 	}
 

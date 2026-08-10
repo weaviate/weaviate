@@ -183,10 +183,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:  "enable_filterable_cat",
 			want: true,
 		},
-		// A multi-property task writes one tracker for the whole list, and a
-		// cleanup runs once per property in it. A cleanup that does not match
-		// this dir leaves the cancelled run's started.mig for the retry to
-		// resume against — the short-circuit the sweep exists to prevent.
+		// A multi-property task writes one tracker for its whole list; each
+		// property in it must match the same dir.
 		{
 			name: "a two-property task, swept by its first property",
 			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
