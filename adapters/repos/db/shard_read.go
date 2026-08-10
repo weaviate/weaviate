@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -359,6 +360,22 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
+// maxPooledObjectPayload caps the buffers objectPayloadBufPool keeps at 1 MiB.
+// A buffer grows to the largest object it has served, so without a cap a single
+// outsized object would leave a buffer that big in every pool entry. Objects
+// above the cap are still read, they just allocate their buffer per call.
+const maxPooledObjectPayload = 1 << 20
+
+// objectPayloadBufPool recycles the payload buffers objectByIndexID reads into;
+// the bucket cannot pool them itself because it does not know when the caller is
+// done reading.
+var objectPayloadBufPool = sync.Pool{
+	New: func() any {
+		var buf []byte
+		return &buf
+	},
+}
+
 func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
@@ -370,17 +387,31 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
-	bytes, err := bucket.GetBySecondary(ctx, 0, keyBuf)
+	buf := objectPayloadBufPool.Get().(*[]byte)
+	// The payload read below can point into this buffer, so it must not go back
+	// to the pool until FromBinaryDisk has copied every value out of it.
+	defer func() {
+		if cap(*buf) <= maxPooledObjectPayload {
+			objectPayloadBufPool.Put(buf)
+		}
+	}()
+
+	data, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, keyBuf, *buf)
 	if err != nil {
 		return nil, err
 	}
+	*buf = newBuf
 
-	if bytes == nil {
+	if data == nil {
 		return nil, storobj.NewErrNotFoundf(indexID,
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinaryDisk(bytes, className)
+	// data keeps the whole buffer's capacity; cap it so a corrupt length inside
+	// the payload cannot read on into whatever the buffer held before.
+	data = data[:len(data):len(data)]
+
+	obj, err := storobj.FromBinaryDisk(data, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
