@@ -449,7 +449,6 @@ type Config struct {
 	LazyLoadShardCountThreshold         int
 	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	LSMSkipWriteClassNameEnabled        bool

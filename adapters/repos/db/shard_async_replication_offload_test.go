@@ -30,7 +30,7 @@ const uuidPostDump = strfmt.UUID("77777777-7777-7777-7777-777777777777")
 // haltAndDumpForOffload puts s into the post-offloading-halt state (maintenance paused, async off, stale .ht).
 func haltAndDumpForOffload(t *testing.T, ctx context.Context, s *Shard) {
 	t.Helper()
-	require.NoError(t, s.HaltForTransfer(ctx, true, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, true))
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "offloading halt must dump a .ht")
 	s.asyncReplicationRWMux.RLock()
 	require.Nil(t, s.hashtree, "offloading halt must nil the hashtree")

@@ -27,7 +27,7 @@ import (
 // shard-relative so the wire protocol doesn't carry the redundant <class>/<shard>/
 // prefix and resolution on the source can be naturally shard-scoped.
 func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (files []string, err error) {
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+	if err := s.HaltForTransfer(ctx, false); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
 	defer func() {
@@ -36,23 +36,14 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 		}
 	}()
 
-	files, err = s.collectShardRelativeFiles(ctx, stagingRoot, true)
+	files, err = s.collectShardRelativeFiles(ctx, stagingRoot)
 	if err != nil {
 		return nil, err
 	}
 	return files, nil
 }
 
-// ListReplicaSnapshotFiles copies mutable bookkeeping files into stagingRoot and
-// returns the shard-relative file list. It does NOT hardlink segments.
-//
-// In halt-for-duration fallback mode the shard is halted by the caller and stays
-// halted until the caller releases it.
-func (s *Shard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	return s.collectShardRelativeFiles(ctx, stagingRoot, false)
-}
-
-func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string, hardlinkSegments bool) ([]string, error) {
+func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string) ([]string, error) {
 	sd := backup.ShardDescriptor{Name: s.name}
 	dbRootFiles, err := s.ListBackupFiles(ctx, &sd)
 	if err != nil {
@@ -60,21 +51,18 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	}
 
 	out := make([]string, 0, len(dbRootFiles)+3)
-	var hardlinks []file.HardlinkPair
+	hardlinks := make([]file.HardlinkPair, 0, len(dbRootFiles))
 	for _, dbRel := range dbRootFiles {
 		shardRel, err := s.shardRelativePath(dbRel)
 		if err != nil {
 			return nil, err
 		}
-		if hardlinkSegments {
-			hardlinks = append(hardlinks, file.HardlinkPair{
-				Src: filepath.Join(s.index.Config.RootPath, dbRel),
-				Dst: filepath.Join(stagingRoot, shardRel),
-			})
-		}
+		hardlinks = append(hardlinks, file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, dbRel),
+			Dst: filepath.Join(stagingRoot, shardRel),
+		})
 		out = append(out, shardRel)
 	}
-	// hardlinks is nil in halt-for-duration mode, where HardlinkFiles is a no-op.
 	if err := file.HardlinkFiles(hardlinks); err != nil {
 		return nil, fmt.Errorf("hardlink replica snapshot files to staging: %w", err)
 	}

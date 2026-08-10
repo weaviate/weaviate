@@ -50,11 +50,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.mayStopAsyncReplication()
 
-	s.haltForTransferMux.Lock()
-	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
-	s.mayStopInactivityMonitoring()
-	s.haltForTransferMux.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 

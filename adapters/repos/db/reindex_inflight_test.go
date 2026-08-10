@@ -15,7 +15,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -235,7 +234,7 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 		{className, shd.Name()}: true,
 	}))
 
-	err := shd.HaltForTransfer(ctx, false, 100*time.Millisecond)
+	err := shd.HaltForTransfer(ctx, false)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), shd.Name())
@@ -245,7 +244,7 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	// boolean.
 	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
 
-	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
+	require.NoError(t, shd.HaltForTransfer(ctx, false))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
@@ -262,6 +261,6 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 		{className, shd.Name()}: true,
 	}))
 
-	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
+	require.NoError(t, shd.HaltForTransfer(ctx, true))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }

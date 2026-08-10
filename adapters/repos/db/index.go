@@ -297,8 +297,8 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
-	// Release uses this to decide whether to resume the shard (halt-for-duration
-	// fallback) or skip resume (snapshot already resumed at create time).
+	// replicaSnapshots tracks registered snapshot ops: file-serving RPCs
+	// refuse unregistered ops, and Release deletes the entry.
 	replicaSnapshotsMu sync.Mutex
 	replicaSnapshots   map[string]replicaSnapshotState
 
@@ -1151,7 +1151,6 @@ type IndexConfig struct {
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool

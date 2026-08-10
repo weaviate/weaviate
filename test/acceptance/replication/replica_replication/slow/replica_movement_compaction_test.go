@@ -17,7 +17,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
@@ -93,12 +92,6 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	require.NotEmpty(t, targetName)
 	sourceContainer := nodeToContainer[sourceName].Container()
 	t.Logf("source=%s target=%s shard=%s", sourceName, targetName, shard.Shard)
-
-	// Halt-for-duration mode keeps the source halted for the whole transfer,
-	// which would make this test fail for the wrong reason.
-	if !canHardlinkInContainer(ctx, sourceContainer) {
-		t.Skip("container fs does not support hardlinks; replica path uses halt-for-duration mode")
-	}
 
 	t.Log("pre-populating source shard")
 	for i := 0; i < 1000; i++ {
@@ -179,14 +172,4 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	targetURI := nodeToContainer[targetName].URI()
 	require.Greater(t, common.CountObjects(t, targetURI, cls.Class), int64(0),
 		"target node should serve the replicated data")
-}
-
-func canHardlinkInContainer(ctx context.Context, c testcontainers.Container) bool {
-	code, _, err := c.Exec(ctx, []string{
-		"sh", "-c",
-		"touch /data/.repl-probe && " +
-			"ln /data/.repl-probe /data/.repl-probe2 && " +
-			"rm -f /data/.repl-probe /data/.repl-probe2",
-	})
-	return err == nil && code == 0
 }

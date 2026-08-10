@@ -478,7 +478,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
-		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,

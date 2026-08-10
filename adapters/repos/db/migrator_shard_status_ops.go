@@ -137,7 +137,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			}
 
 			if shard != nil {
-				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
+				if err := shard.HaltForTransfer(ctx, true); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,

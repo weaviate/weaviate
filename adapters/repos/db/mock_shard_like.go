@@ -1863,17 +1863,17 @@ func (_c *MockShardLike_GetVectorIndexQueue_Call) RunAndReturn(run func(string) 
 	return _c
 }
 
-// HaltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout
-func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	ret := _m.Called(ctx, offloading, inactivityTimeout)
+// HaltForTransfer provides a mock function with given fields: ctx, offloading
+func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool) error {
+	ret := _m.Called(ctx, offloading)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HaltForTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, bool, time.Duration) error); ok {
-		r0 = rf(ctx, offloading, inactivityTimeout)
+	if rf, ok := ret.Get(0).(func(context.Context, bool) error); ok {
+		r0 = rf(ctx, offloading)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1889,14 +1889,13 @@ type MockShardLike_HaltForTransfer_Call struct {
 // HaltForTransfer is a helper method to define mock.On call
 //   - ctx context.Context
 //   - offloading bool
-//   - inactivityTimeout time.Duration
-func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}, inactivityTimeout interface{}) *MockShardLike_HaltForTransfer_Call {
-	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading, inactivityTimeout)}
+func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}) *MockShardLike_HaltForTransfer_Call {
+	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading)}
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool, inactivityTimeout time.Duration)) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool)) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(bool), args[2].(time.Duration))
+		run(args[0].(context.Context), args[1].(bool))
 	})
 	return _c
 }
@@ -1906,7 +1905,7 @@ func (_c *MockShardLike_HaltForTransfer_Call) Return(_a0 error) *MockShardLike_H
 	return _c
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool, time.Duration) error) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool) error) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2117,97 +2116,6 @@ func (_c *MockShardLike_Index_Call) Return(_a0 *Index) *MockShardLike_Index_Call
 
 func (_c *MockShardLike_Index_Call) RunAndReturn(run func() *Index) *MockShardLike_Index_Call {
 	_c.Call.Return(run)
-	return _c
-}
-
-// ListReplicaSnapshotFiles provides a mock function with given fields: ctx, stagingRoot
-func (_m *MockShardLike) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	ret := _m.Called(ctx, stagingRoot)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListReplicaSnapshotFiles")
-	}
-
-	var r0 []string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
-		return rf(ctx, stagingRoot)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
-		r0 = rf(ctx, stagingRoot)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, stagingRoot)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_ListReplicaSnapshotFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReplicaSnapshotFiles'
-type MockShardLike_ListReplicaSnapshotFiles_Call struct {
-	*mock.Call
-}
-
-// ListReplicaSnapshotFiles is a helper method to define mock.On call
-//   - ctx context.Context
-//   - stagingRoot string
-func (_e *MockShardLike_Expecter) ListReplicaSnapshotFiles(ctx interface{}, stagingRoot interface{}) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	return &MockShardLike_ListReplicaSnapshotFiles_Call{Call: _e.mock.On("ListReplicaSnapshotFiles", ctx, stagingRoot)}
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Run(run func(ctx context.Context, stagingRoot string)) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Return(_a0 []string, _a1 error) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// MayResetTransferInactivityTimer provides a mock function with no fields
-func (_m *MockShardLike) MayResetTransferInactivityTimer() {
-	_m.Called()
-}
-
-// MockShardLike_MayResetTransferInactivityTimer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MayResetTransferInactivityTimer'
-type MockShardLike_MayResetTransferInactivityTimer_Call struct {
-	*mock.Call
-}
-
-// MayResetTransferInactivityTimer is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) MayResetTransferInactivityTimer() *MockShardLike_MayResetTransferInactivityTimer_Call {
-	return &MockShardLike_MayResetTransferInactivityTimer_Call{Call: _e.mock.On("MayResetTransferInactivityTimer")}
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Run(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Return() *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) RunAndReturn(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Run(run)
 	return _c
 }
 

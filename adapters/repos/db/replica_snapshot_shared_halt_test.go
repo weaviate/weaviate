@@ -46,12 +46,9 @@ import (
 // consumer's flush lived only in the active memtable/WAL — excluded from
 // ListBackupFiles — so the second consumer's snapshot silently dropped it.
 //
-// Both replica modes are covered: hardlink (segments staged) and fallback
-// halt-for-duration (segments served from the live shard root). The two
-// overlapping ops prove the re-seal is repeatable, not one-shot. In fallback
-// mode each op's halt outlives its call, so obj2 halts at count 1->2 and obj3 at
-// 2->3. In hardlink mode CreateReplicaSnapshot self-resumes after collecting
-// files, so obj2 and obj3 each drive an independent 1->2 shared-halt transition.
+// The two overlapping ops prove the re-seal is repeatable, not one-shot.
+// CreateReplicaSnapshot self-resumes after collecting files, so obj2 and obj3
+// each drive an independent 1->2 shared-halt transition.
 func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 	const (
 		obj1 = strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b")
@@ -61,65 +58,48 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 		opC  = "00000000-0000-0000-0000-0000000000c0"
 	)
 
-	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+	index, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	// object1 is flushed to a segment by op A's initial halt below.
+	putSharedHaltObject(t, index, obj1, 0)
+
+	// op A: first halt, never resumed — count stays 1, holds the shard.
+	require.NoError(t, shard.HaltForTransfer(ctx, false))
+	defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
+
+	var openOps []string
+	defer func() {
+		for _, opID := range openOps {
+			_ = index.IncomingReleaseReplicaSnapshot(ctx, opID)
+		}
+	}()
+
+	overlaps := []struct {
+		opID  string
+		objID strfmt.UUID
+		docID uint64
 	}{
-		{name: "hardlink mode", forceNoHardlink: false},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
+		{opID: opB, objID: obj2, docID: 1},
+		{opID: opC, objID: obj3, docID: 2},
+	}
+	for _, ov := range overlaps {
+		// Lands in the fresh active memtable/WAL; a halt never trips the
+		// bucket read-only guard, so the write is accepted but unsealed.
+		putSharedHaltObject(t, index, ov.objID, ov.docID)
 
-			index, shard := newSharedHaltTestShard(t)
-			ctx := context.Background()
+		files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", ov.opID)
+		require.NoError(t, err)
+		require.NotEmpty(t, files)
+		openOps = append(openOps, ov.opID)
 
-			// object1 is flushed to a segment by op A's initial halt below.
-			putSharedHaltObject(t, index, obj1, 0)
-
-			// op A: first halt, never resumed — count stays 1, holds the shard.
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
-			defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
-
-			var openOps []string
-			defer func() {
-				for _, opID := range openOps {
-					_ = index.IncomingReleaseReplicaSnapshot(ctx, opID)
-				}
-			}()
-
-			overlaps := []struct {
-				opID  string
-				objID strfmt.UUID
-				docID uint64
-			}{
-				{opID: opB, objID: obj2, docID: 1},
-				{opID: opC, objID: obj3, docID: 2},
-			}
-			for _, ov := range overlaps {
-				// Lands in the fresh active memtable/WAL; a halt never trips the
-				// bucket read-only guard, so the write is accepted but unsealed.
-				putSharedHaltObject(t, index, ov.objID, ov.docID)
-
-				files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", ov.opID)
-				require.NoError(t, err)
-				require.NotEmpty(t, files)
-				openOps = append(openOps, ov.opID)
-
-				// Reconstruct the snapshot's objects bucket from EXACTLY the returned
-				// file list — this is what the target receives over the wire.
-				sourceRoot := replicaStagingDir(index.Config.RootPath, ov.opID,
-					schema.ClassName(index.Config.ClassName))
-				if tc.forceNoHardlink {
-					sourceRoot = shard.path()
-				}
-				require.Truef(t, snapshotHasObject(t, sourceRoot, files, ov.objID),
-					"write %s applied before op %s's halt is missing from its snapshot — "+
-						"the shared halt skipped the re-seal", ov.objID, ov.opID)
-			}
-		})
+		// Reconstruct the snapshot's objects bucket from EXACTLY the returned
+		// file list — this is what the target receives over the wire.
+		sourceRoot := replicaStagingDir(index.Config.RootPath, ov.opID,
+			schema.ClassName(index.Config.ClassName))
+		require.Truef(t, snapshotHasObject(t, sourceRoot, files, ov.objID),
+			"write %s applied before op %s's halt is missing from its snapshot — "+
+				"the shared halt skipped the re-seal", ov.objID, ov.opID)
 	}
 }
 
@@ -130,14 +110,14 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	ctx := context.Background()
 
 	// op A holds the shard.
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false))
 
 	// op B's second halt seals with an already-cancelled context; at count>1 the
 	// pause steps are gated out, so only the seal steps run and FlushMemtables
 	// (cyclemanager Deactivate) returns ctx.Err() deterministically.
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
+	require.Error(t, shard.HaltForTransfer(cancelledCtx, false))
 
 	shard.haltForTransferMux.Lock()
 	require.Equal(t, 1, shard.haltForTransferCount,
@@ -151,15 +131,15 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
-// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
-// clears the halt count and stops the inactivity monitor before the errgroup that can
-// fail, and restores neither, so a failed resume leaves a zero count while the cycles it
-// could not restart stay paused — and every later resume returns early on that count.
+// Documents current behaviour, not the behaviour we want. resumeMaintenanceCyclesLocked
+// clears the halt count before the errgroup that can fail, and does not restore
+// it, so a failed resume leaves a zero count while the cycles it could not
+// restart stay paused — and every later resume returns early on that count.
 func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	_, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false))
 
 	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
 	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
@@ -170,6 +150,32 @@ func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 	require.Zero(t, haltCount,
 		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+}
+
+// The fail-fast guard: on a filesystem without hard links the op is rejected
+// before any state is taken — no halt, no staging dir, no registered op.
+func TestIncomingCreateReplicaSnapshotFailsWithoutHardlinkSupport(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+
+	index, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	const opID = "00000000-0000-0000-0000-0000000000e0"
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "supports hard links")
+
+	shard.haltForTransferMux.Lock()
+	require.Zero(t, shard.haltForTransferCount, "a rejected op must not leave the shard halted")
+	shard.haltForTransferMux.Unlock()
+
+	stagingRoot := replicaStagingDir(index.Config.RootPath, opID, schema.ClassName(index.Config.ClassName))
+	require.NoDirExists(t, stagingRoot, "a rejected op must not leave a staging dir")
+
+	index.replicaSnapshotsMu.Lock()
+	_, registered := index.replicaSnapshots[opID]
+	index.replicaSnapshotsMu.Unlock()
+	require.False(t, registered, "a rejected op must not be registered")
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire

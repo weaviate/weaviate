@@ -71,8 +71,7 @@ const (
 
 	DefaultMaxShardingCount = 512
 
-	DefaultTransferInactivityTimeout = 5 * time.Minute
-	DefaultHaltForTransferTimeout    = time.Hour
+	DefaultHaltForTransferTimeout = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
@@ -182,16 +181,6 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
 		config.ForceFullReplicasSearch = true
-	}
-
-	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
-		timeout, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
-		}
-		config.TransferInactivityTimeout = timeout
-	} else {
-		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
 	err := parsePositiveDuration(
