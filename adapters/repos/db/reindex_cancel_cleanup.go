@@ -92,11 +92,10 @@ func (db *DB) cleanStalePartialReindexState(
 // reached it. Those shards are "unknown", not "failed" — often benign (e.g. a
 // HOT→COLD transition removing a tenant mid-walk), but still unverified.
 //
-// Callers report it at the severity of what they were about to do with the
-// state: the REST handlers log Error, because a submit or cancel proceeds on
-// top of state that may still be stale. The background cleanup after a
-// terminal task logs Warn, because nothing acts on the result and the next
-// load's stale-sentinel check is still the backstop.
+// Callers log it at the severity of what they were about to do: REST
+// handlers log Error since a submit or cancel proceeds on possibly-stale
+// state; background cleanup logs Warn since the stale-sentinel check on the
+// next load is still the backstop.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -331,11 +330,9 @@ func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([
 		if c.listings == nil {
 			c.listings = map[dirNamesKey]dirNamesListing{}
 		}
-		// Cloned, not clipped, because listDirNames sizes the slice for the whole
-		// directory: clipping only shrinks the header, so the full-size backing
-		// array would stay alive for the rest of the run. A filtered listing that
-		// kept nothing is the common case on a cold tenant, and it is charged 1
-		// against the bound no matter how big that array is.
+		// Cloned, not clipped: clipping only shrinks the header, so the
+		// full-size backing array from listDirNames would stay alive for the
+		// rest of the run — even for a cold tenant's empty filtered listing.
 		c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
 		c.cost += len(names) + 1
 	}

@@ -554,10 +554,8 @@ func TestDirNamesCache(t *testing.T) {
 				"untouched produces nothing but those")
 	})
 
-	// The cache must own its copy: listDirNames sizes the slice for the whole
-	// directory, so a filtered listing that shared that array would pin one
-	// array per shard's bucket count for the rest of the run, while costing 1
-	// against the bound. Aliasing is the observable side of that sharing.
+	// Pins the fix for a cached listing aliasing listDirNames's full-directory
+	// backing array instead of owning its own copy.
 	t.Run("a cached listing does not retain the whole directory", func(t *testing.T) {
 		root := t.TempDir()
 		for i := range 100 {
