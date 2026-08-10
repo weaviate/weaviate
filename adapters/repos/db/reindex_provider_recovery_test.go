@@ -162,11 +162,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 	}
 }
 
-// TestIsSemanticMigration pins the semantic/format-only classification
-// The rule: semantic iff the migration requires a global schema flip.
-// weaviate/0-weaviate-issues#254 promoted change-algorithm; #465 promoted
-// enable-rangeable. repair-rangeable stays format-only — it rebuilds an
-// already-enabled index and changes no schema.
+// TestIsSemanticMigration pins the semantic/format-only classification:
+// semantic iff the migration requires a global schema flip
+// (weaviate/0-weaviate-issues#254, #465).
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,
@@ -258,11 +256,8 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 	}
 }
 
-// TestTasksOwningMigrationDir pins that a change-tokenization tracker dir
-// found on disk only revives its own sub-task. Reviving the sibling
-// re-creates a tracker dir the startup finalizer just removed, which
-// re-runs a full iteration over already-migrated data and leaves a dir the
-// orphan audit can only keep deferring.
+// A change-tokenization tracker dir found on disk must revive only its own
+// sub-task, not its sibling.
 func TestTasksOwningMigrationDir(t *testing.T) {
 	rec := reindexRecoveryRecord{
 		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",
@@ -295,12 +290,8 @@ func TestTasksOwningMigrationDir(t *testing.T) {
 	})
 }
 
-// TestDiscoverInFlightReindexTasks_ChangeTokenizationRevivesOnlyOwnSubTask
-// is the same rule seen from the startup entry point. Both sub-task
-// trackers of one change-tokenization migration are in flight, so
-// discovery finds two dirs; without the ownership filter each dir revives
-// both sub-tasks and startup registers four task instances for the two
-// that are actually on disk.
+// Same rule from the startup entry point: with both sub-task trackers
+// in flight, each dir must revive only its own sub-task.
 func TestDiscoverInFlightReindexTasks_ChangeTokenizationRevivesOnlyOwnSubTask(t *testing.T) {
 	rec := reindexRecoveryRecord{
 		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",

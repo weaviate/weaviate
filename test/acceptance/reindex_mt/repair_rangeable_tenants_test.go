@@ -27,21 +27,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestMultiTenant_RepairRangeable_PerTenantSubset pins that
-// repair-rangeable is a format-only migration.
-//
-// A migration is semantic if and only if it requires a global schema flip.
-// enable-rangeable qualifies — it flips indexRangeFilters. repair-rangeable
-// does not: it rebuilds an index that is already enabled, into a parallel
-// bucket that is atomically swapped in per shard, and it writes no schema.
-//
-// That distinction is not academic. The semantic classification carries a
-// 400 on the `tenants` parameter, because one global switch cannot be
-// flipped for a subset of tenants. repair has no switch, so it keeps
-// per-tenant targeting — and per-tenant targeting is what makes it usable
-// as the recovery tool for clusters damaged by
-// weaviate/0-weaviate-issues#464: repairing 20 tenants out of 50,000 must
-// not require rebuilding all 50,000.
+// repair-rangeable is format-only (writes no schema), so it keeps
+// per-tenant targeting where semantic migrations get a 400 on `tenants`.
+// That's what makes it usable to repair a subset of tenants damaged by
+// weaviate/0-weaviate-issues#464 without rebuilding the whole collection.
 func TestMultiTenant_RepairRangeable_PerTenantSubset(t *testing.T) {
 	ctx := context.Background()
 

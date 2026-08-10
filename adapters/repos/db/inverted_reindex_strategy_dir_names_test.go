@@ -146,12 +146,9 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 	}
 }
 
-// TestMigrationDirsForPropertyIndex_RangeableIsNotAFilterableDir pins the
-// separation between the two families. Listing the rangeable tracker under
-// "filterable" would let an orphaned rangeable tracker wedge an unrelated
-// filterable-family task's LocalCallbacksDone forever, and let
-// DELETE /indexes/filterable sweep a live rangeable tracker
-// (weaviate/0-weaviate-issues#465).
+// A rangeable tracker must not be listed under "filterable"
+// (weaviate/0-weaviate-issues#465): see the rationale on
+// [migrationDirFamiliesForIndexType].
 func TestMigrationDirsForPropertyIndex_RangeableIsNotAFilterableDir(t *testing.T) {
 	rangeableDir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"price"})
 

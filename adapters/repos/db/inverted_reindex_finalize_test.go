@@ -463,14 +463,9 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		"highest gen with tidied must win when merged-only is at a lower gen")
 }
 
-// TestFinalizeCompletedMigrations_StaleSwappedPropSentinels covers which
-// per-prop swap sentinels startup is allowed to clear on a tracker it
-// leaves in place. Only the runtime swap writes its per-prop sentinel
-// ahead of the disk work, so only its sentinel can be stale; the
-// restart-based swap writes the file together with the rename, and
-// clearing that one would send the retry into renaming a dir that has
-// already moved. (A tracker that does carry swapped.mig is promoted and
-// removed outright, so its per-prop files never outlive it.)
+// Only the runtime swap's per-prop sentinel can go stale (written ahead of
+// disk work); the restart-based swap's is written with the rename, so
+// clearing it would retry a rename that already happened.
 func TestFinalizeCompletedMigrations_StaleSwappedPropSentinels(t *testing.T) {
 	cases := []struct {
 		name        string

@@ -147,12 +147,9 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Per-tenant filter dispatch via repair-filterable, one of the two
-	// remaining format-only migrations. Semantic migrations reject a
-	// tenant subset because the cluster-wide schema flip cannot be
-	// sub-scoped: change-algorithm since weaviate/0-weaviate-issues#254,
-	// the two rangeable types since weaviate/0-weaviate-issues#465 (this
-	// test used enable-rangeable as its vehicle until then).
+	// Per-tenant filter dispatch via repair-filterable, since enable-rangeable
+	// joined the semantic (no tenant subset) migrations in
+	// weaviate/0-weaviate-issues#465.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -443,10 +440,8 @@ func testValidation(t *testing.T, restURI string) {
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
 	})
 
-	// enable-rangeable became semantic in
-	// weaviate/0-weaviate-issues#465, so it joins the "all tenants must
-	// be targeted" rule. This is a user-visible behavior change: the same
-	// request used to be accepted and scoped to the named tenants.
+	// enable-rangeable is now semantic (weaviate/0-weaviate-issues#465),
+	// so it joins the "all tenants must be targeted" rule.
 	t.Run("EnableRangeable_with_tenants", func(t *testing.T) {
 		rangeableClass := "MTValidateRangeable"
 		createMTClass(t, rangeableClass, []*models.Property{

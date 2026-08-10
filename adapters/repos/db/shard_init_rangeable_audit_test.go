@@ -26,14 +26,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestUnexplainedEmptyRangeableProps drives the startup audit against real
-// directory layouts. The damaged layout is the durable state a cluster
-// is left in by weaviate/0-weaviate-issues#464: the schema claims a range
-// index, the shard holds objects, and the canonical rangeable bucket is an
-// empty directory that no migration explains.
-//
-// The two negative cases matter as much as the positive one — an audit
-// that cries wolf during every legitimate migration would be turned off.
+// Drives the startup audit against real directory layouts, including the
+// damaged one weaviate/0-weaviate-issues#464 leaves behind. The negative
+// cases matter as much as the positive one — an audit that cries wolf
+// during every legitimate migration would be turned off.
 func TestUnexplainedEmptyRangeableProps(t *testing.T) {
 	trueVal, falseVal := true, false
 	class := &models.Class{
@@ -274,13 +270,9 @@ func TestUnexplainedEmptyRangeableProps_NoClass(t *testing.T) {
 }
 
 // TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex pins the audit's
-// call site and the WARN an operator greps for. The table above drives
-// the pure decision helper; nothing else reaches shard init, and the
-// message is the branch's only operator-facing deliverable.
-//
-// The damage state is reproduced the way #464 produces it: a shard that
-// holds objects is restarted under a schema that has since turned the
-// range index on, with no migration to explain the missing data.
+// call site and the WARN an operator greps for: a shard restarted under a
+// schema that turned the range index on, with objects but no migration to
+// explain the missing data.
 func TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeableAudit_" + uuid.NewString()[:8]
@@ -322,14 +314,9 @@ func TestShardInit_WarnsOnUnexplainedEmptyRangeableIndex(t *testing.T) {
 		"the repair command must stay copy-pasteable")
 }
 
-// TestShardInit_WarnsOnFailedPromotion pins the second audit message: when
-// the reason the index is empty is a promotion this startup's finalize pass
-// could not complete, the WARN must say so and point at the retry rather
-// than tell the operator to rebuild an index that is already built and only
-// needs to be moved into place.
-//
-// The tracker that survives the failed promotion is also what would silence
-// the audit if a finished migration still counted as an explanation.
+// When the index is empty because finalize's promotion failed, the WARN
+// must point at the retry, not tell the operator to rebuild an index that
+// is already built.
 func TestShardInit_WarnsOnFailedPromotion(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeableAuditRetry_" + uuid.NewString()[:8]

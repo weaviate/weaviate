@@ -26,14 +26,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// RunSwapOnShard's IsTidied branch acks the shard as migrated, and for
-// enable-rangeable that ack is what flips IndexRangeFilters cluster-wide. It
-// must not do that for a generation whose data never reached the canonical
-// bucket name — the residue a failed startup promotion leaves behind.
-//
-// This is the entry path a still-running task takes: the same task instance
-// calls RunSwapOnShard directly, with no rehydrate in between, so the
-// rehydrate-only guard in OnAfterLsmInitAsync never runs.
+// RunSwapOnShard's IsTidied branch must not ack a generation whose data
+// never reached the canonical bucket name — the residue a failed startup
+// promotion leaves. Exercises the still-running-task path directly, which
+// bypasses the rehydrate-only guard in OnAfterLsmInitAsync.
 func TestRunSwapOnShard_TidiedWithoutPromotion_DoesNotAck(t *testing.T) {
 	propName := filterableToRangeablePropName
 	mainName := helpers.BucketRangeableFromPropNameLSM(propName)

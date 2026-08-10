@@ -20,12 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A finalize that cannot promote its ingest dir must not leave the marker
-// behind that says it did. The marker is what
-// ShardReindexTaskGeneric.migrationAlreadyFinalized reads, and a task that
-// reads it acks its swap as complete — for enable-rangeable that ack is
-// what lets the schema flip to IndexRangeFilters=true over a replica whose
-// canonical dir was never created, so range filters serve zero rows.
+// A failed promotion must not leave the finalized marker behind: a task
+// reading it acks the swap complete, which for enable-rangeable flips the
+// schema over a replica with no canonical dir.
 func TestFinalize_FailedPromotionLeavesNoAck(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions, so the I/O failure cannot be injected")

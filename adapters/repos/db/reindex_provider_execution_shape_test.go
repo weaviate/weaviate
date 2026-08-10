@@ -20,11 +20,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// The execution shape of a reindex task — whether a unit runs the whole
-// reindex+prep+swap lifecycle itself, or reindexes only and leaves the
-// swap to the group callbacks — is decided by runsUnitsInline. Four call
-// sites hang off it, so the tests below pin the predicate itself, the
-// re-entry claim it gates, and the dispatch OnGroupCompleted makes from it.
+// runsUnitsInline decides whether a unit runs the whole lifecycle itself or
+// leaves the swap to the group callbacks. This file pins that predicate,
+// the re-entry claim it gates, and the OnGroupCompleted dispatch.
 
 func TestRunsUnitsInline_Matrix(t *testing.T) {
 	tests := []struct {
@@ -118,9 +116,7 @@ func TestClaimUnitIfDeferred(t *testing.T) {
 	})
 }
 
-// TestOnGroupCompleted_ExecutionShapeDispatch pins that group completion
-// reads the same predicate the units did. An inline task must be a no-op
-// here (its units already swapped, re-running the swap would fail on
+// An inline task must be a no-op here (re-running the swap would fail on
 // tidied trackers); a deferred task must enter the prep/swap phase.
 func TestOnGroupCompleted_ExecutionShapeDispatch(t *testing.T) {
 	tests := []struct {
