@@ -69,10 +69,11 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 // later sweep to retry either.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
 
-// reportCloseCause tags a walk that a close cut short, so the caller can tell
+// classifyCloseCause tags a walk that a close cut short, so the caller can tell
 // the two ends apart: a deleted collection leaves nothing behind, anything else
-// leaves every shard unswept.
-func reportCloseCause(err error) error {
+// leaves every shard unswept. Anything that is not a close is passed through
+// untouched.
+func classifyCloseCause(err error) error {
 	switch {
 	case errors.Is(err, errIndexDropped):
 		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
@@ -91,10 +92,13 @@ func reportCloseCause(err error) error {
 // Errors do NOT stop iteration: a stuck shard must not prevent the other
 // shards from being cleaned, otherwise a one-shard failure would
 // permanently wedge the (collection, prop, indexType) tuple at every
-// future submit. Context cancellation DOES stop it: both call sites hold the
-// collection's backup and restore gate closed for the whole sweep, so the work
-// left after the deadline has to end rather than continue as a run of failed
-// loads. That abort is joined into the returned error and tagged with
+// future submit. Context cancellation DOES stop it: every caller blocks
+// something for the whole sweep — [ReindexProvider.autoCleanupAfterTerminal]
+// registers the task's shards in cleanupInProgress, which the backup gate
+// consults, and the REST submit and cancel handlers hold the
+// (collection, property) submit mutex — so the work left after the deadline
+// has to end rather than continue as a run of failed loads. That abort is
+// joined into the returned error and tagged with
 // [ErrCleanupSweepTruncated], because a caller that sees only the shard
 // failures reads a bounded problem where the truth is that the sweep stopped.
 //
@@ -123,6 +127,10 @@ func (i *Index) CleanStalePartialReindexState(
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
+				// An unrecognized wrapper is skipped rather than failed: the
+				// post-restart finalize and the OnAfterLsmInitAsync stale
+				// sentinel check both fire when that shard is next loaded, so
+				// the safety net still catches whatever is left here.
 				return nil
 			}
 			// Read-only, so it cannot race a concurrent load: the removals
@@ -144,7 +152,7 @@ func (i *Index) CleanStalePartialReindexState(
 		}
 		return nil
 	})
-	return errors.Join(shardErrs, reportCloseCause(walkErr))
+	return errors.Join(shardErrs, classifyCloseCause(walkErr))
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has
@@ -155,31 +163,43 @@ func (i *Index) CleanStalePartialReindexState(
 // is a question it could not ask, and the sweep it gates reports whatever it
 // then finds; guessing "nothing to clean" would leave a stale started.mig for
 // the next task to resume against.
+//
+// A directory that is absent is the exception, and answers false. An inactive
+// tenant that was never populated has no directory yet, which is the common
+// case this whole check exists for. A tenant with no local data because it was
+// offloaded is not this case: freezing removes the shard from the index's shard
+// map before it removes the files, so the sweep never reaches one.
 func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return true
 	}
 
-	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
-	// migration — those are live state the sweep preserves.
-	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
-	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		preservePrefixes = append(preservePrefixes, classDir)
-	}
-	preserveSidecars := completedMigrationSidecarSuffixes(lsmPath, preservePrefixes)
 	entries, err := os.ReadDir(lsmPath)
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
+	var sidecarSuffixes []string
 	for _, entry := range entries {
-		if !entry.IsDir() || !isSidecarDirOf(entry.Name(), mainBucketName) {
-			continue
+		if entry.IsDir() && isSidecarDirOf(entry.Name(), mainBucketName) {
+			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(entry.Name(), mainBucketName))
 		}
-		if preserveSidecars[strings.TrimPrefix(entry.Name(), mainBucketName)] {
-			continue
+	}
+	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
+	// migration — those are live state the sweep preserves. The preserve set
+	// costs its own .migrations walk, so it is only computed once a candidate
+	// sidecar turned up, which on a cold shard it almost never does.
+	if len(sidecarSuffixes) > 0 {
+		preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
+		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
+			preservePrefixes = append(preservePrefixes, classDir)
 		}
-		return true
+		preserveSidecars := completedMigrationSidecarSuffixes(lsmPath, preservePrefixes)
+		for _, suffix := range sidecarSuffixes {
+			if !preserveSidecars[suffix] {
+				return true
+			}
+		}
 	}
 
 	// Migration tracker dirs, minus the deferred-finalize generations.

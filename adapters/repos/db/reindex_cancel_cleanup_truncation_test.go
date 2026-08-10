@@ -48,11 +48,10 @@ func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reserva
 
 func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
 
-// The sweep runs with the collection's backup and restore gate closed, and the
-// caller logs what it got. A sweep that stopped part-way through left the
-// shards after that point untouched — if the only thing it reports is the
-// shard that failed before it, the caller reads a bounded failure where the
-// truth is "unknown, from here on". A sweep that visited nothing at all,
+// The caller logs what the sweep gives it. A sweep that stopped part-way
+// through left the shards after that point untouched — if the only thing it
+// reports is the shard that failed before it, the caller reads a bounded
+// failure where the truth is "unknown, from here on". A sweep that visited nothing at all,
 // because the node is shutting down, is the same answer in its worst form. A
 // collection being deleted is the one close that is neither: its state is
 // deleted with it, so there is nothing left for any sweep to remove.
@@ -224,6 +223,141 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
 					"the shard that failed before the abort must still be reported")
 			}
+		})
+	}
+}
+
+// A close that lands mid-walk is the same false clean as one that lands before
+// it. Index.drop signals its cause, then deletes each shard from the map as it
+// goes — and a sync.Map range may skip entries deleted while it runs, so the
+// walk can end early with every remaining shard unswept and nothing to report.
+func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
+	tests := []struct {
+		name string
+		// closeCause is signalled from inside the walk, after the first shard.
+		// nil leaves the index open for the whole walk.
+		closeCause error
+		wantErr    error
+	}{
+		{
+			name: "a walk nothing interrupted is clean",
+		},
+		{
+			name:       "a collection deleted mid-walk is not a swept collection",
+			closeCause: errIndexDropped,
+			wantErr:    errIndexDropped,
+		},
+		{
+			name:       "a node shutting down mid-walk is not a swept collection",
+			closeCause: errIndexShutdown,
+			wantErr:    errIndexShutdown,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			closingCtx, closeIndex := context.WithCancel(context.Background())
+			defer closeIndex()
+			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+			defer signalCloseRequested(nil)
+			idx := &Index{
+				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				closingCtx:           closingCtx,
+				closeRequestedCtx:    closeRequestedCtx,
+				signalCloseRequested: signalCloseRequested,
+				logger:               logger,
+			}
+			shardNames := []string{"shard-a", "shard-b", "shard-c"}
+			for _, name := range shardNames {
+				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
+					shardOpts: &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
+				})
+			}
+
+			var visited int
+			err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+				visited++
+				if visited > 1 || tc.closeCause == nil {
+					return nil
+				}
+				// What DeleteIndex and Index.drop do, in their order: the
+				// cause first, then the shards leave the map one by one.
+				signalCloseRequested(tc.closeCause)
+				closeIndex()
+				for _, other := range shardNames {
+					if other != name {
+						idx.shards.LoadAndDelete(other)
+					}
+				}
+				return nil
+			})
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				require.Equal(t, len(shardNames), visited)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr,
+				"the shards the walk never reached were never swept, so a nil here would "+
+					"report a sweep of a collection that is gone")
+		})
+	}
+}
+
+// Every shard walk now asks closeCause first, and the two contexts it reads are
+// set by the Index constructor rather than by the zero value. Calling Err or
+// Cause on a nil context panics, so an Index assembled without them — a test
+// double, or any future construction path that skips one — would take down the
+// walk instead of answering it.
+func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
+	closedCtx, closeIndex := context.WithCancel(context.Background())
+	closeIndex()
+	openCtx, keepOpen := context.WithCancel(context.Background())
+	defer keepOpen()
+	droppedCtx, signalDropped := context.WithCancelCause(context.Background())
+	signalDropped(errIndexDropped)
+
+	tests := []struct {
+		name              string
+		closingCtx        context.Context
+		closeRequestedCtx context.Context
+		want              error
+	}{
+		{
+			name: "no contexts at all reads as open",
+		},
+		{
+			name:       "an open index without a close-requested context is open",
+			closingCtx: openCtx,
+		},
+		{
+			name:              "a closed index without a close-requested context is a shutdown",
+			closingCtx:        closedCtx,
+			closeRequestedCtx: nil,
+			want:              errIndexClosed,
+		},
+		{
+			name:              "a closed index still reports the cause it has",
+			closingCtx:        closedCtx,
+			closeRequestedCtx: droppedCtx,
+			want:              errIndexDropped,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := &Index{closingCtx: tc.closingCtx, closeRequestedCtx: tc.closeRequestedCtx}
+
+			var cause error
+			require.NotPanics(t, func() { cause = idx.closeCause() })
+
+			if tc.want == nil {
+				require.NoError(t, cause)
+				return
+			}
+			require.ErrorIs(t, cause, tc.want)
 		})
 	}
 }
