@@ -64,9 +64,11 @@ func (db *DB) CleanStalePartialReindexState(
 	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
 }
 
-// ErrCleanupSweepTruncated marks a sweep that stopped before it had visited
-// every shard. The shards after that point were never looked at, so the
-// caller's answer is "unknown from here on" and not "these shards failed".
+// ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
+// ran out of time mid-walk, it started on a closing index and visited none at
+// all, or a shard left the map before the walk got to it. The shards it did not
+// reach were never looked at, so the caller's answer for them is "unknown" and
+// not "these shards failed".
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection gone

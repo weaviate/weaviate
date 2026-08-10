@@ -335,6 +335,7 @@ func TestClassifyTerminalSweep(t *testing.T) {
 			fmt.Errorf("shard %q: %w", "tenant-1", inner))
 	}
 	diskFull := errors.New("disk is full")
+	unmarked := errors.New("something no marker covers")
 
 	tests := []struct {
 		name        string
@@ -368,6 +369,14 @@ func TestClassifyTerminalSweep(t *testing.T) {
 			err:         classifyCloseCause(fmt.Errorf("%w: shard-b", errShardsSkipped)),
 			wantOutcome: terminalSweepUnknown,
 			wantFailure: errShardsSkipped,
+		},
+		{
+			// Nothing produces this today. If something ever does, the
+			// operator must not be sent looking for state that may not exist.
+			name:        "an error carrying none of the markers",
+			err:         unmarked,
+			wantOutcome: terminalSweepUnknown,
+			wantFailure: unmarked,
 		},
 		{
 			name:        "a shard failed and then the collection was deleted",

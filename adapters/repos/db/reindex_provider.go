@@ -1738,7 +1738,11 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 	case errors.Is(err, ErrCleanupSweepTruncated):
 		return terminalSweepUnknown, err
 	default:
-		return terminalSweepFailed, err
+		// No producer reaches here: every shard failure carries the shard
+		// marker, and every value the shard walk can end with is one of the
+		// other two. An error that does slip through is one nothing can say
+		// what happened to, which is what unknown means.
+		return terminalSweepUnknown, err
 	}
 }
 

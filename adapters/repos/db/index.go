@@ -850,9 +850,9 @@ func (i *Index) shardNames() []string {
 	return names
 }
 
-// unvisitedShards returns the names of before the walk did not reach, capped at
-// [maxReportedErrors] so a node with many tenants cannot produce a message no
-// operator can read. The cap is reported as its own entry rather than dropped,
+// unvisitedShards returns the names in before that the walk did not reach,
+// capped at [maxReportedErrors] so a node with many tenants cannot produce a
+// message no operator can read. The cap is reported as its own entry rather than dropped,
 // because the count is the part that says how much of the collection is
 // unaccounted for.
 func unvisitedShards(before []string, visited map[string]struct{}) []string {
