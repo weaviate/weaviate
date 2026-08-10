@@ -221,9 +221,15 @@ type uploader struct {
 }
 
 // statusPublisher is the observable half of a node's operation slot, as seen by
-// the operation that claimed it — every write is ownership-checked, see
+// the operation that claimed it. Every write is ownership-checked, see
 // [slotOwner]. Failing goes through its own method so a failure can never be
 // published without the reason that belongs to it.
+//
+// The uploader ignores every result, deliberately: nothing cancels a backup
+// through the slot (the cancel endpoint is restore-only), so a refusal here
+// only ever means the upload outlived its claim, and its outcome is then
+// nobody's to report. What the upload does next is decided by err, not by the
+// slot.
 type statusPublisher interface {
 	set(st backup.Status) bool
 	setFailed(reason string) bool
