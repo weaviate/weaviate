@@ -78,9 +78,10 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// for a close nobody named a cause for.
 		closing    bool
 		closeCause error
-		// indexType "filterable" is one the bucket-name mapping knows, so no
-		// shard is loaded and the sweep is clean; anything else puts every
-		// shard on the list.
+		// staleOnDisk writes a tracker dir for the swept tuple on every
+		// shard, which is what puts them all on the sweep's list.
+		staleOnDisk bool
+		// indexType is "filterable" unless set.
 		indexType     string
 		wantErr       bool
 		wantTruncated bool
@@ -92,19 +93,26 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantShardsNamed int
 	}{
 		{
-			name:      "no shards is a clean sweep",
-			shards:    nil,
-			indexType: "an-index-type-this-build-does-not-know",
+			name:        "no shards is a clean sweep",
+			shards:      nil,
+			staleOnDisk: true,
 		},
 		{
-			name:      "one shard, nothing to clean",
-			shards:    []string{"shard-a"},
-			indexType: "filterable",
+			name:   "one shard, nothing to clean",
+			shards: []string{"shard-a"},
+		},
+		{
+			// The sweep rejects this index type on every shard it reaches, so
+			// loading one buys nothing and none is loaded.
+			name:        "an index type this build cannot map loads nothing",
+			shards:      []string{"shard-a"},
+			staleOnDisk: true,
+			indexType:   "an-index-type-this-build-does-not-know",
 		},
 		{
 			name:          "one shard that cannot be loaded",
 			shards:        []string{"shard-a"},
-			indexType:     "an-index-type-this-build-does-not-know",
+			staleOnDisk:   true,
 			wantErr:       true,
 			wantShardErr:  true,
 			wantTruncated: false,
@@ -113,7 +121,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			// A full disk fails every tenant at once; the message caps how many it names.
 			name:            "more failing shards than a message can carry",
 			shards:          tenantShardNames(15),
-			indexType:       "an-index-type-this-build-does-not-know",
+			staleOnDisk:     true,
 			wantErr:         true,
 			wantShardErr:    true,
 			wantShardsNamed: maxReportedErrors,
@@ -122,7 +130,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			name:          "the abort lands on the first of two shards",
 			shards:        []string{"shard-a", "shard-b"},
 			cancelOnCall:  1,
-			indexType:     "an-index-type-this-build-does-not-know",
+			staleOnDisk:   true,
 			wantErr:       true,
 			wantTruncated: true,
 			wantShardErr:  true,
@@ -131,7 +139,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			name:          "the abort lands mid-walk with three shards",
 			shards:        []string{"shard-a", "shard-b", "shard-c"},
 			cancelOnCall:  2,
-			indexType:     "an-index-type-this-build-does-not-know",
+			staleOnDisk:   true,
 			wantErr:       true,
 			wantTruncated: true,
 			wantShardErr:  true,
@@ -143,7 +151,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			shards:        []string{"shard-a", "shard-b"},
 			closing:       true,
 			closeCause:    errIndexShutdown,
-			indexType:     "an-index-type-this-build-does-not-know",
+			staleOnDisk:   true,
 			wantErr:       true,
 			wantTruncated: true,
 		},
@@ -156,7 +164,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			shards:      []string{"shard-a", "shard-b"},
 			closing:     true,
 			closeCause:  errIndexDropped,
-			indexType:   "an-index-type-this-build-does-not-know",
+			staleOnDisk: true,
 			wantErr:     true,
 			wantDropped: true,
 		},
@@ -165,7 +173,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			name:         "a shard fails and the collection is deleted before the walk ends",
 			shards:       []string{"shard-a", "shard-b"},
 			dropOnCall:   1,
-			indexType:    "an-index-type-this-build-does-not-know",
+			staleOnDisk:  true,
 			wantErr:      true,
 			wantDropped:  true,
 			wantShardErr: true,
@@ -176,7 +184,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			name:          "a close with no cause is treated as a shutdown",
 			shards:        []string{"shard-a", "shard-b"},
 			closing:       true,
-			indexType:     "an-index-type-this-build-does-not-know",
+			staleOnDisk:   true,
 			wantErr:       true,
 			wantTruncated: true,
 		},
@@ -221,6 +229,10 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				closeIndex()
 			}
 			for _, name := range tc.shards {
+				if tc.staleOnDisk {
+					mkTrackerDir(t, shardPathLSM(idx.path(), name),
+						"enable_filterable_title_1", "started.mig")
+				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
 					memMonitor: monitor,
@@ -235,10 +247,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 					"which is why the sweep cannot use it")
 			}
 
-			// An index type the bucket-name mapping does not know reads as
-			// "cannot tell whether there is state here", which is what puts
-			// every shard on the sweep's list without any on-disk fixture.
-			err := idx.CleanStalePartialReindexState(ctx, "title", tc.indexType)
+			indexType := tc.indexType
+			if indexType == "" {
+				indexType = "filterable"
+			}
+			err := idx.CleanStalePartialReindexState(ctx, "title", indexType)
 
 			if !tc.wantErr {
 				require.NoError(t, err,
@@ -433,9 +446,8 @@ func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
 // The names a walk did not reach go into an operator-facing message, and a node
 // runs tens of thousands of tenants. The count has to survive the cap: it is
 // what says how much of the collection is unaccounted for.
-func TestUnvisitedShards(t *testing.T) {
-	names := tenantShardNames
-	visitedSet := func(names ...string) map[string]struct{} {
+func TestReportedShardNames(t *testing.T) {
+	nameSet := func(names ...string) map[string]struct{} {
 		out := map[string]struct{}{}
 		for _, name := range names {
 			out[name] = struct{}{}
@@ -444,42 +456,30 @@ func TestUnvisitedShards(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		before  []string
-		visited map[string]struct{}
-		want    []string
+		name  string
+		names map[string]struct{}
+		want  []string
 	}{
 		{
-			name:    "a walk that reached every shard",
-			before:  names(3),
-			visited: visitedSet(names(3)...),
+			name:  "a walk that reached every shard",
+			names: nameSet(),
+			want:  []string{},
 		},
 		{
-			name:    "a walk over an empty map",
-			visited: visitedSet(),
+			name:  "one shard skipped",
+			names: nameSet("tenant-001"),
+			want:  []string{"tenant-001"},
 		},
 		{
-			name:    "one shard skipped",
-			before:  names(3),
-			visited: visitedSet("tenant-000", "tenant-002"),
-			want:    []string{"tenant-001"},
-		},
-		{
-			name:    "a shard that arrived mid-walk is not one the walk skipped",
-			before:  names(2),
-			visited: visitedSet("tenant-000", "tenant-001", "tenant-999"),
-		},
-		{
-			name:    "more skipped shards than a message can carry",
-			before:  names(30),
-			visited: visitedSet("tenant-000"),
-			want:    append(names(11)[1:], "and 19 more"),
+			name:  "more skipped shards than a message can carry",
+			names: nameSet(tenantShardNames(30)...),
+			want:  append(tenantShardNames(maxReportedErrors), "and 20 more"),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, unvisitedShards(tc.before, tc.visited))
+			require.Equal(t, tc.want, reportedShardNames(tc.names))
 		})
 	}
 }

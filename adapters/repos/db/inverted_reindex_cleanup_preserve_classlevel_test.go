@@ -12,6 +12,7 @@
 package db
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,6 +30,19 @@ func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
 	for _, s := range sentinels {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
 	}
+}
+
+// mkRecoveryPayload writes the payload.mig a task persists before it starts,
+// which is what says whose properties a tracker dir belongs to.
+func mkRecoveryPayload(t *testing.T, lsmPath, trackerName string, props ...string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"payload": map[string]any{"properties": props},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, ".migrations", trackerName, reindexRecoveryPayloadFile),
+		payload, 0o644))
 }
 
 func mkSidecarDir(t *testing.T, lsmPath, name string) {

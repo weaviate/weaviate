@@ -784,7 +784,9 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // first. The cause tells a collection being deleted apart from a node shutting
 // down: a deleted collection takes its on-disk state with it, a shut-down one
 // leaves it for the next start. A close nobody signalled a cause for reads as
-// [errIndexClosed], which callers must treat like a shutdown.
+// [errIndexClosed], which callers must treat like a shutdown. No production
+// teardown reaches that: both of them signal a cause before they close, so it
+// only answers a test double or a future teardown that forgets to.
 //
 // It is also the nil-safe way to ask whether the index is closing, which is why
 // [Index.ForEachShard] and [Index.ForEachShardConcurrently] ask it rather than
@@ -826,10 +828,12 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 	if cause := i.closeCause(); cause != nil {
 		return cause
 	}
-	before := i.shardNames()
-	visited := make(map[string]struct{}, len(before))
+	// The names left in here when the walk ends are the ones it did not reach.
+	// A name that arrives mid-walk is not one of them and is not expected to
+	// be: deleting a name the set never held does nothing.
+	unvisited := i.shardNameSet()
 	err := i.shards.Range(func(name string, shard ShardLike) error {
-		visited[name] = struct{}{}
+		delete(unvisited, name)
 		return f(name, shard)
 	})
 	if err != nil {
@@ -838,43 +842,38 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 	if cause := i.closeCause(); cause != nil {
 		return cause
 	}
-	if skipped := unvisitedShards(before, visited); len(skipped) > 0 {
-		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(skipped, ", "))
+	if len(unvisited) > 0 {
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
 	}
 	return nil
 }
 
-// shardNames lists the shards in the map right now.
-func (i *Index) shardNames() []string {
-	var names []string
+// shardNameSet is the set of shards in the map right now.
+func (i *Index) shardNameSet() map[string]struct{} {
+	names := map[string]struct{}{}
 	i.shards.Range(func(name string, _ ShardLike) error {
-		names = append(names, name)
+		names[name] = struct{}{}
 		return nil
 	})
 	return names
 }
 
-// unvisitedShards returns the names in before that the walk did not reach,
-// capped at [maxReportedErrors] so a node with many tenants cannot produce a
-// message no operator can read. The cap is reported as its own entry rather than dropped,
+// reportedShardNames orders names for an operator-facing message and caps them
+// at [maxReportedErrors], so a node with many tenants cannot produce one no
+// operator can read. The cap is reported as its own entry rather than dropped,
 // because the count is the part that says how much of the collection is
 // unaccounted for.
-func unvisitedShards(before []string, visited map[string]struct{}) []string {
-	var skipped []string
-	total := 0
-	for _, name := range before {
-		if _, ok := visited[name]; ok {
-			continue
-		}
-		total++
-		if len(skipped) < maxReportedErrors {
-			skipped = append(skipped, name)
-		}
+func reportedShardNames(names map[string]struct{}) []string {
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
 	}
-	if total > len(skipped) {
-		skipped = append(skipped, fmt.Sprintf("and %d more", total-len(skipped)))
+	slices.Sort(sorted)
+	if len(sorted) <= maxReportedErrors {
+		return sorted
 	}
-	return skipped
+	return append(sorted[:maxReportedErrors:maxReportedErrors],
+		fmt.Sprintf("and %d more", len(sorted)-maxReportedErrors))
 }
 
 // ForEachShard applies func f on each shard in the index.

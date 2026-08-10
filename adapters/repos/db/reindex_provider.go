@@ -1714,13 +1714,13 @@ const (
 	// terminalSweepClean: every shard was swept.
 	terminalSweepClean terminalSweepOutcome = iota
 	// terminalSweepDropped: no shard was swept and none had to be — the
-	// collection is being deleted and takes its partial state with it.
+	// collection is not on this node, so its partial state is not here either.
 	terminalSweepDropped
 	// terminalSweepUnknown: shards were left unvisited. What is on them is
 	// unknown, which is not the same as knowing state is there.
 	terminalSweepUnknown
-	// terminalSweepFailed: a shard was reached and its state could not be
-	// removed, so state IS still on disk.
+	// terminalSweepFailed: a shard was reached and could not be swept. Nothing
+	// was removed from it, so whatever partial state it holds is still there.
 	terminalSweepFailed
 )
 
@@ -1751,19 +1751,19 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 }
 
 // terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. A collection being deleted takes its partial state with it, so there
-// is nothing to act on even though no shard was swept. The other two both
-// warrant a warning, and are told apart because only one of them knows state is
-// there: a sweep that never reached a shard cannot say what is on it, and
-// saying it anyway sends the operator looking for something that may not exist.
+// sweep. A collection that is not on this node has no partial state here, so
+// there is nothing to act on even though no shard was swept. The other two both
+// warrant a warning, and are told apart by what the sweep got to do: one
+// reached shards it could not sweep, the other never reached them at all.
+// Neither establishes that state is there, so neither says it is.
 func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
 	switch outcome {
 	case terminalSweepFailed:
-		return "auto-cleanup after terminal status: some partial sidecar state is still on this node", true
+		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
 	case terminalSweepUnknown:
 		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
 	case terminalSweepDropped:
-		return "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it", false
+		return "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either", false
 	default:
 		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
 	}
@@ -1985,16 +1985,15 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		lsmPath := concrete.pathLSM()
-		// ChangeAlgorithm uses a class-level tracker dir; per-property
-		// migrationDirsForPropertyIndex deliberately omits it.
+		// ChangeAlgorithm uses a class-level tracker dir; the per-property
+		// scope deliberately omits it.
 		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
-			hasUntidiedTracker(lsmPath, []string{MigrationDirSearchableMapToBlockmax}) {
+			hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
 			return false
 		}
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
-				prefixes := migrationDirsForPropertyIndex(propName, indexType)
-				if hasUntidiedTracker(lsmPath, prefixes) {
+				if hasUntidiedTracker(migrationDirsOf(lsmPath, nil, propName, indexType)) {
 					return false
 				}
 			}
@@ -2038,22 +2037,20 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // restart's FinalizeCompletedMigrations to promote them to canonical).
 // A completely missing tracker dir is also NOT a recovery signal: a
 // prior FinalizeCompletedMigrations already promoted-and-removed it.
-func hasUntidiedTracker(lsmPath string, prefixes []string) bool {
-	migsDir := filepath.Join(lsmPath, ".migrations")
+func hasUntidiedTracker(scope migrationDirScope) bool {
+	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
 		return false
-	}
-	prefixSet := map[string]bool{}
-	for _, p := range prefixes {
-		prefixSet[p] = true
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		base, _, ok := parseMigrationDirName(entry.Name())
-		if !ok || !prefixSet[base] {
+		if _, _, ok := parseMigrationDirName(entry.Name()); !ok {
+			continue
+		}
+		if !scope.matches(entry.Name()) {
 			continue
 		}
 		dirPath := filepath.Join(migsDir, entry.Name())

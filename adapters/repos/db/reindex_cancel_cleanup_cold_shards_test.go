@@ -161,6 +161,12 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 		indexType string
 		// trackers are .migrations dirs, mapped to the sentinels inside them.
 		trackers map[string][]string
+		// payloads is the property list a tracker's task recorded, which is
+		// what tells a two-property task from a property whose name contains
+		// the join character. A tracker missing here gets no payload.mig.
+		payloads map[string][]string
+		// wantSweepErr expects the sweep this gates to refuse the input.
+		wantSweepErr bool
 		// sidecars are dirs at the LSM root.
 		sidecars []string
 		// unreadable is a dir the gate is denied access to, relative to the
@@ -263,11 +269,34 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
 			wantStale: true,
 		},
+		// The sweep this gates rejects an index type it cannot map before it
+		// touches a shard, so hydrating the collection for one would pay the
+		// whole cost the gate exists to avoid and remove nothing.
 		{
-			name:      "an index type this build cannot map to a bucket",
-			indexType: "an-index-type-this-build-does-not-know",
-			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			name:         "an index type this build cannot map to a bucket",
+			indexType:    "an-index-type-this-build-does-not-know",
+			sidecars:     []string{"property_category__enable_filterable_ingest_1"},
+			wantSweepErr: true,
+		},
+		// A two-property task writes one tracker for both, and the cleanup runs
+		// once per property. A gate that does not recognize it leaves the
+		// cancelled run's started.mig for the retry to short-circuit on.
+		{
+			name:      "a two-property task this property is part of",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			payloads: map[string][]string{
+				"enable_filterable_category_other_1": {"category", "other"},
+			},
 			wantStale: true,
+		},
+		{
+			name:      "a two-property task this property is not part of",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_other_third_1": {"started.mig"}},
+			payloads: map[string][]string{
+				"enable_filterable_other_third_1": {"other", "third"},
+			},
 		},
 		// A question the gate could not ask is not an answer of "nothing to
 		// clean": that would leave a stale started.mig for the next task to
@@ -307,6 +336,9 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 
 			for name, sentinels := range tc.trackers {
 				mkTrackerDir(t, lsm, name, sentinels...)
+				if props, ok := tc.payloads[name]; ok {
+					mkRecoveryPayload(t, lsm, name, props...)
+				}
 			}
 			for _, name := range tc.sidecars {
 				mkSidecarDir(t, lsm, name)
@@ -328,7 +360,14 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			}
 
 			before := lsmDirNames(t, lsm)
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+			err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+			if tc.wantSweepErr {
+				require.Error(t, err,
+					"the gate answered 'nothing to load' because the sweep refuses this input, "+
+						"and an operator only hears about it if the sweep still says so")
+			} else {
+				require.NoError(t, err)
+			}
 			require.Equal(t, before, lsmDirNames(t, lsm),
 				"the predicate said this shard has nothing to clean, so the sweep it gates "+
 					"must not find anything either — a shard it skips is never looked at again")
@@ -366,6 +405,90 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 		"another property's completed migration is live state, not this sweep's to remove")
 	assert.True(t, dirExistsAt(t, lsm, theirSidecar),
 		"the bucket that tracker still points at")
+}
+
+// A cancelled two-property task leaves one tracker dir for both properties,
+// and the cleanup that follows runs once per property. Leaving it behind is
+// what lets the retry resume against the cancelled run's started.mig,
+// short-circuit to a no-op, and report success against a partial bucket.
+func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testing.T) {
+	const tracker = "enable_filterable_a_b_1"
+
+	tests := []struct {
+		name     string
+		propName string
+		want     bool
+	}{
+		{name: "swept by its first property", propName: "a"},
+		{name: "swept by its second property", propName: "b"},
+		{name: "left alone by a property it does not name", propName: "c", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("ColdSweepMultiProp_"+uuid.NewString()[:8],
+				[]string{"a", "b", "c"})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			lsm := shard.pathLSM()
+
+			mkTrackerDir(t, lsm, tracker, "started.mig")
+			mkRecoveryPayload(t, lsm, tracker, "a", "b")
+
+			require.Equal(t, !tc.want,
+				hasStalePartialReindexState(lsm, tc.propName, "filterable", nil),
+				"the gate has to load the shard for exactly the sweeps that would clean it")
+			require.NoError(t, shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable"))
+
+			require.Equal(t, tc.want, dirExistsAt(t, lsm, ".migrations/"+tracker))
+		})
+	}
+}
+
+// The gate answers from a directory listing; a shard that is already loaded is
+// swept without asking it. This pins that guarantee by handing the sweep a
+// listing that no longer matches the disk: without the guard, the shard's
+// state survives a sweep that was standing on it.
+func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+		tenant    = "loaded-tenant"
+	)
+	ctx := testCtx()
+	class := newTestClassWithProps("ColdSweepLoaded_"+uuid.NewString()[:8], []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	defer shd.Shutdown(context.Background())
+
+	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, lazy)
+	_, err := lazy.Unwrap(ctx)
+	require.NoError(t, err)
+	defer lazy.Shutdown(context.Background())
+	lsm := shardPathLSM(idx.path(), tenant)
+
+	// Read the shard's directories before its state exists, which is what a
+	// sweep earlier in the same run would have cached.
+	dirs := &dirNamesCache{}
+	_, err = dirs.listSidecarCandidates(lsm)
+	require.NoError(t, err)
+	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
+	require.True(t, err == nil || os.IsNotExist(err))
+	mkTrackerDir(t, lsm, tracker, "started.mig")
+	require.False(t, hasStalePartialReindexState(lsm, propName, indexType, dirs),
+		"the stale listing is the point: the gate cannot see what arrived after it")
+
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs))
+
+	require.False(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
+		"a loaded shard is swept whatever the gate would have said about it")
 }
 
 func TestDirNamesCache(t *testing.T) {

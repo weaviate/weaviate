@@ -59,6 +59,25 @@ func (db *DB) CleanStalePartialReindexState(
 	return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, nil)
 }
 
+// NewStalePartialReindexSweep returns a [DB.CleanStalePartialReindexState]
+// that shares the directory listings the cold-shard gate reads across every
+// call made to it. Use it for a run of sweeps over one collection — the submit
+// and cancel handlers sweep the same shards once per index type, inside the
+// request and under the (collection, property) submit lock, so reading each
+// shard's directories once rather than once per index type is the difference
+// the caller waits for.
+//
+// The returned function is not safe for concurrent use, and a run of sweeps
+// must be short: it answers from what the filesystem looked like when it first
+// looked. See [dirNamesCache] for why staleness there costs a hydration and
+// never a skipped shard.
+func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
+	dirs := &dirNamesCache{}
+	return func(ctx context.Context, collection, propName, indexType string) error {
+		return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, dirs)
+	}
+}
+
 // cleanStalePartialReindexState is [DB.CleanStalePartialReindexState] with the
 // directory listings the cold-shard gate reads shareable across a run of
 // sweeps. A nil cache reads the filesystem every time.
@@ -83,12 +102,15 @@ func (db *DB) cleanStalePartialReindexState(
 // not "these shards failed".
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
-// ErrCleanupCollectionDropped marks a sweep that found the collection gone
-// from this node, or going: a delete that landed before the sweep started, or
-// one that landed while it walked. Nothing was swept and nothing needs to be:
-// the sidecar state lives under the collection's directory and goes away with
-// it, so there is no later sweep to retry either.
-var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
+// ErrCleanupCollectionDropped marks a sweep that found the collection not on
+// this node: a delete that landed before the sweep started or while it walked,
+// and equally a collection this node never held. Nothing was swept and nothing
+// needs to be: the sidecar state lives under the collection's directory and is
+// not here without it, so there is no later sweep to retry either.
+//
+// Which of the two it was is not something the sweep establishes, so the text
+// does not claim a delete is in flight.
+var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is not on this node")
 
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not sweep
 // it. The other two markers say why a sweep stopped; this one says what it
@@ -97,8 +119,8 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // as gone while that shard's is still on disk.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
-// IsCleanupCollectionDropped reports whether the collection being deleted is
-// the whole of what a sweep error says. Use it rather than
+// IsCleanupCollectionDropped reports whether the collection not being on this
+// node is the whole of what a sweep error says. Use it rather than
 // [errors.Is](err, [ErrCleanupCollectionDropped]), which also matches a sweep
 // that left a shard's state behind before the delete landed.
 func IsCleanupCollectionDropped(err error) bool {
@@ -106,8 +128,8 @@ func IsCleanupCollectionDropped(err error) bool {
 }
 
 // classifyCloseCause tags a walk that did not reach every shard, so the caller
-// can tell the two ends apart: a deleted collection leaves nothing behind,
-// anything else leaves shards unswept. Anything else is passed through
+// can tell the two ends apart: a collection being deleted leaves nothing
+// behind, anything else leaves shards unswept. Anything else is passed through
 // untouched.
 func classifyCloseCause(err error) error {
 	switch {
@@ -222,6 +244,11 @@ func (i *Index) cleanStalePartialReindexState(
 // then finds; guessing "nothing to clean" would leave a stale started.mig for
 // the next task to resume against.
 //
+// An index type this build cannot map to a bucket is the one unreadable answer
+// that does not load anything: the sweep rejects that input on every shard
+// before it looks at one, so hydrating the collection would buy an error this
+// node reports anyway.
+//
 // The shards this saves are the HOT tenants that have not been hydrated yet:
 // an inactive tenant is not in the index's shard map at all, so the sweep never
 // reaches one. For most of them the directory exists and holds no reindex
@@ -236,10 +263,14 @@ func (i *Index) cleanStalePartialReindexState(
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return true
+		// The sweep this gates rejects the same input before it touches
+		// anything, so loading shards for it buys nothing. Whether there is
+		// state here is a question this build cannot answer, and the sweep says
+		// so on the first loaded shard it reaches.
+		return false
 	}
 
-	names, err := dirs.list(lsmPath)
+	names, err := dirs.listSidecarCandidates(lsmPath)
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
@@ -249,16 +280,16 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
 		}
 	}
+	scope := migrationDirsOf(lsmPath, dirs, propName, indexType)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
-	// migration — those are live state the sweep preserves. The preserve set
-	// costs its own .migrations walk, so it is only computed once a candidate
-	// sidecar turned up, which on an untouched shard it almost never does.
+	// migration — those are live state the sweep preserves. The preserve set is
+	// only computed once a candidate sidecar turned up. That is not the rare
+	// branch it looks like: a class-level migration awaiting finalize leaves a
+	// live sidecar on every tenant of the collection, and that window lasts
+	// until the next restart. It reads the shard's .migrations dir through the
+	// same cache the rest of this run uses, so it costs one listing per shard.
 	if len(sidecarSuffixes) > 0 {
-		preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
-		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-			preservePrefixes = append(preservePrefixes, classDir)
-		}
-		preserveSidecars := completedMigrationSidecarSuffixes(lsmPath, preservePrefixes)
+		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
 				return true
@@ -266,22 +297,18 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 		}
 	}
 
-	// Migration tracker dirs, minus the deferred-finalize generations. The
-	// preserve set is deferred the same way the sidecar one is: it walks
-	// .migrations a second time, and a shard with no tracker dir for this
-	// property never needs the answer.
-	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	// Migration tracker dirs, minus the deferred-finalize generations.
 	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
-		if !isMigrationDirOf(name, prefixes) {
+		if !scope.matches(name) {
 			continue
 		}
 		if preservedGens == nil {
-			preservedGens = completedMigrationGens(lsmPath, prefixes)
+			preservedGens = completedMigrationGens(scope)
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
 			continue
@@ -294,16 +321,26 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 // maxCachedDirNames bounds what one [dirNamesCache] holds. A node runs tens of
 // thousands of tenants, and keeping every one of their listings alive for a
 // whole cleanup is the memory the cold-shard gate exists not to spend.
+//
+// It counts the names kept, not the shards. A shard only contributes the names
+// that could answer the gate's question — no sidecar dir and no tracker dir is
+// no entry at all — so on a node whose tenants are untouched this bounds
+// nothing, and on one mid-migration a tenant contributes a handful. A run that
+// does reach the bound stops admitting rather than evicting: the sweeps that
+// follow read the filesystem, which is what they did before this cache.
 const maxCachedDirNames = 100_000
 
-// dirNamesCache remembers the directory names under a path, so a run of sweeps
-// over the same shards reads each of them once instead of once per sweep. A nil
-// cache reads the filesystem every time; the zero value caches.
+// dirNamesCache remembers the directory names one cold-shard gate asked about,
+// so a run of sweeps over the same shards reads each of them once instead of
+// once per sweep. A nil cache reads the filesystem every time; the zero value
+// caches.
 //
-// Only valid for sweeps that cannot invalidate each other's listings. The
-// (property, index type) loop after a terminal task qualifies: a sweep removes
-// only the bucket dirs and tracker dirs of its own tuple, and no two tuples
-// share either name.
+// A cached listing can be stale — a sweep between two lookups removes dirs the
+// second one still sees — and that is safe in one direction only: a name that
+// is gone makes the gate answer "there is state here", which costs a hydration
+// and never skips a shard that had state. It cannot go the other way, because a
+// sweep that removed anything hydrated that shard, and a hydrated shard is
+// swept unconditionally — the gate is not asked about it again.
 //
 // Not safe for concurrent use; the sweeps sharing one run do so in sequence.
 type dirNamesCache struct {
@@ -316,14 +353,35 @@ type dirNamesListing struct {
 	err   error
 }
 
+// list names every directory directly under path.
 func (c *dirNamesCache) list(path string) ([]string, error) {
+	return c.listMatching(path, nil)
+}
+
+// listSidecarCandidates names the directories under a shard's LSM path that
+// could be a sidecar of some bucket. A sidecar is "<mainBucket>__<suffix>", so
+// a name without "__" is not one whatever bucket it is asked about, which makes
+// this the one filter that holds for every (property, index type) sharing a
+// cache. Dropping the rest is what keeps an untouched shard's entry empty: a
+// shard's LSM dir holds one directory per bucket, and a class with 20 indexed
+// properties has ~100 of them.
+//
+// Only one of this and [dirNamesCache.list] may be used on a given path — what
+// is cached is the answer, not the listing.
+func (c *dirNamesCache) listSidecarCandidates(lsmPath string) ([]string, error) {
+	return c.listMatching(lsmPath, func(name string) bool {
+		return strings.Contains(name, "__")
+	})
+}
+
+func (c *dirNamesCache) listMatching(path string, keep func(string) bool) ([]string, error) {
 	if c == nil {
-		return listDirNames(path)
+		return listDirNames(path, keep)
 	}
 	if listing, ok := c.listings[path]; ok {
 		return listing.names, listing.err
 	}
-	names, err := listDirNames(path)
+	names, err := listDirNames(path, keep)
 	if c.names+len(names) <= maxCachedDirNames {
 		if c.listings == nil {
 			c.listings = map[string]dirNamesListing{}
@@ -334,19 +392,23 @@ func (c *dirNamesCache) list(path string) ([]string, error) {
 	return names, err
 }
 
-// listDirNames names the directories directly under path. The callers only ever
-// ask about directories, so the files are dropped here rather than at each of
-// them.
-func listDirNames(path string) ([]string, error) {
+// listDirNames names the directories directly under path that keep accepts; a
+// nil keep accepts all of them. The callers only ever ask about directories, so
+// the files are dropped here rather than at each of them.
+func listDirNames(path string, keep func(string) bool) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
-			names = append(names, entry.Name())
+		if !entry.IsDir() {
+			continue
 		}
+		if keep != nil && !keep(entry.Name()) {
+			continue
+		}
+		names = append(names, entry.Name())
 	}
 	return names, nil
 }

@@ -140,7 +140,7 @@ func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 				"indexType=\"filterable\": " +
 					"partial-reindex cleanup could not sweep every shard it reached: " +
 					"shard \"s1\": disk is full\n" +
-					"partial-reindex cleanup skipped: the collection is being deleted: " +
+					"partial-reindex cleanup skipped: the collection is not on this node: " +
 					"collection is being deleted",
 			},
 		},

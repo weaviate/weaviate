@@ -44,13 +44,13 @@ func TestCompletedMigrationGens(t *testing.T) {
 	}{
 		{
 			name:     "empty migrations dir → no preserved gens",
-			prefixes: []string{"searchable_retokenize_text", "filterable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize, MigrationDirPrefixFilterableRetokenize},
 			setup:    setup{trackers: map[string][]string{}},
 			want:     []int{},
 		},
 		{
 			name:     "only started.mig → not preserved (partial state)",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "payload.mig"},
 			}},
@@ -58,7 +58,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "tidied.mig present → preserved",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 			}},
@@ -66,7 +66,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "merged.mig only (untidied; recovery path) → preserved",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},
 			}},
@@ -74,7 +74,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "mix: tidied gen 1, started gen 2 → only gen 1 preserved",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 				"searchable_retokenize_text_2": {"started.mig"},
@@ -83,7 +83,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "different prefix → not matched",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"filterable_retokenize_text_1": {"tidied.mig"},
 			}},
@@ -91,7 +91,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "different prop suffix → not matched",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_other_1": {"tidied.mig"},
 			}},
@@ -101,8 +101,8 @@ func TestCompletedMigrationGens(t *testing.T) {
 			name: "two matching prefixes (searchable + filterable for same prop) " +
 				"both tidied → both preserved",
 			prefixes: []string{
-				"searchable_retokenize_text",
-				"filterable_retokenize_text",
+				MigrationDirPrefixSearchableRetokenize,
+				MigrationDirPrefixFilterableRetokenize,
 			},
 			setup: setup{trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"tidied.mig"},
@@ -112,7 +112,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 		},
 		{
 			name:     "no .migrations dir → empty result, no error",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			setup:    setup{trackers: nil},
 			want:     []int{},
 		},
@@ -134,7 +134,9 @@ func TestCompletedMigrationGens(t *testing.T) {
 				}
 			}
 
-			got := completedMigrationGens(tmp, tc.prefixes)
+			got := completedMigrationGens(migrationDirScope{
+				lsmPath: tmp, propName: "text", prefixes: tc.prefixes,
+			})
 			gens := make([]int, 0, len(got))
 			for g := range got {
 				gens = append(gens, g)
@@ -294,8 +296,14 @@ func TestCompletedMigrationGens_R2Repro(t *testing.T) {
 		}
 	}
 
-	prefixes := []string{"searchable_retokenize_text", "filterable_retokenize_text"}
-	got := completedMigrationGens(tmp, prefixes)
+	got := completedMigrationGens(migrationDirScope{
+		lsmPath:  tmp,
+		propName: "text",
+		prefixes: []string{
+			MigrationDirPrefixSearchableRetokenize,
+			MigrationDirPrefixFilterableRetokenize,
+		},
+	})
 	require.True(t, got[1],
 		"R2 repro: gen=1 MUST be preserved (T1 successfully tidied); else pre-submit cleanup wipes live ingest_1 dir → silent data loss on the controller node")
 	require.Len(t, got, 1, "only gen=1 should be reported, got %v", got)

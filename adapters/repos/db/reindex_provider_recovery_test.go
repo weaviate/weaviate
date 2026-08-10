@@ -35,19 +35,19 @@ func TestHasUntidiedTracker(t *testing.T) {
 	}{
 		{
 			name:     "no .migrations dir → no recovery needed",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: nil,
 			want:     false,
 		},
 		{
 			name:     "empty .migrations dir → no recovery needed",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{},
 			want:     false,
 		},
 		{
 			name:     "tracker with tidied.mig → completed, no recovery",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 			},
@@ -55,7 +55,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "tracker with merged.mig only → recovery-eligible, NO recovery (will be promoted by finalize)",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},
 			},
@@ -63,7 +63,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "started only → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig"},
 			},
@@ -71,7 +71,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "started + reindexed but no merged/tidied → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "reindexed.mig"},
 			},
@@ -79,7 +79,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "RollingRestartMid repro: prepended but not merged/tidied → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "reindexed.mig", "prepended.mig"},
 			},
@@ -87,7 +87,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "non-matching prefix → no recovery (different property)",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_other_1": {"started.mig"},
 			},
@@ -95,7 +95,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		{
 			name:     "non-matching prefix → no recovery (different indexType)",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"filterable_retokenize_text_1": {"started.mig"},
 			},
@@ -104,7 +104,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		{
 			name: "mixed: gen 1 tidied, gen 2 started → recovery NEEDED " +
 				"(in-flight follow-up migration interrupted)",
-			prefixes: []string{"searchable_retokenize_text"},
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 				"searchable_retokenize_text_2": {"started.mig"},
@@ -114,8 +114,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 		{
 			name: "two matching prefixes, one tidied + one started → recovery NEEDED",
 			prefixes: []string{
-				"searchable_retokenize_text",
-				"filterable_retokenize_text",
+				MigrationDirPrefixSearchableRetokenize,
+				MigrationDirPrefixFilterableRetokenize,
 			},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
@@ -126,8 +126,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 		{
 			name: "two matching prefixes, both tidied → no recovery",
 			prefixes: []string{
-				"searchable_retokenize_text",
-				"filterable_retokenize_text",
+				MigrationDirPrefixSearchableRetokenize,
+				MigrationDirPrefixFilterableRetokenize,
 			},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
@@ -152,7 +152,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 					}
 				}
 			}
-			got := hasUntidiedTracker(tmp, tc.prefixes)
+			got := hasUntidiedTracker(migrationDirScope{
+				lsmPath: tmp, propName: "text", prefixes: tc.prefixes,
+			})
 			require.Equal(t, tc.want, got)
 		})
 	}

@@ -12,6 +12,9 @@
 package db
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -137,86 +140,151 @@ func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
 // would corrupt the class-level dir on single-property cleanup). The
 // blockmax tracker is matched directly in LocalCallbacksDone instead.
 func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
-	got := migrationDirsForPropertyIndex("text", "searchable")
+	got := migrationDirPrefixesForIndexType("searchable")
 	for _, p := range got {
 		if p == MigrationDirSearchableMapToBlockmax {
-			t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, must NOT include class-level %q",
+			t.Fatalf("migrationDirPrefixesForIndexType(searchable) = %v, must NOT include class-level %q",
 				got, MigrationDirSearchableMapToBlockmax)
 		}
 	}
+	require.Contains(t, migrationDirsOf("", nil, "text", "searchable").preserving("searchable").classDirs,
+		MigrationDirSearchableMapToBlockmax,
+		"the preserve set must still span it: a completed class-level migration owns live sidecars")
 }
 
-// Pins isMigrationDirOf against cross-property prefix collisions (a property
-// name may itself be a prefix of another property's tracker dir).
-func TestIsMigrationDirOf(t *testing.T) {
-	catPrefixes := migrationDirsForPropertyIndex("cat", "filterable")
-	require.Contains(t, catPrefixes, "enable_filterable_cat")
-
+// Pins which tracker dirs a (property, index type) cleanup owns: the ones a
+// multi-property task named it in, and none of the ones that merely share an
+// underscore-joined prefix with it.
+func TestMigrationDirScopeMatches(t *testing.T) {
 	tests := []struct {
-		name     string
-		dir      string
-		prefixes []string
-		want     bool
+		name string
+		dir  string
+		// props is what the task recorded in payload.mig. Empty writes no
+		// payload, which is what a tracker from before payload.mig looks like.
+		props []string
+		// propName is the property being swept; "cat" unless set.
+		propName  string
+		indexType string
+		preserve  bool
+		want      bool
 	}{
 		{
-			name:     "this property's tracker",
-			dir:      "enable_filterable_cat_1",
-			prefixes: catPrefixes,
-			want:     true,
+			name: "this property's tracker",
+			dir:  "enable_filterable_cat_1", props: []string{"cat"},
+			want: true,
 		},
 		{
-			name:     "a later generation of this property's tracker",
-			dir:      "enable_filterable_cat_12",
-			prefixes: catPrefixes,
-			want:     true,
+			name: "a later generation of this property's tracker",
+			dir:  "enable_filterable_cat_12", props: []string{"cat"},
+			want: true,
 		},
 		{
-			name:     "a tracker dir from before generations existed",
-			dir:      "enable_filterable_cat",
-			prefixes: catPrefixes,
-			want:     true,
+			name: "a tracker dir from before generations existed",
+			dir:  "enable_filterable_cat",
+			want: true,
+		},
+		// A multi-property task writes one tracker for the whole list, and a
+		// cleanup runs once per property in it. A cleanup that does not match
+		// this dir leaves the cancelled run's started.mig for the retry to
+		// resume against — the short-circuit the sweep exists to prevent.
+		{
+			name: "a two-property task, swept by its first property",
+			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
+			propName: "a", want: true,
 		},
 		{
-			name:     "a property whose name extends this one",
-			dir:      "enable_filterable_cat_x_1",
-			prefixes: catPrefixes,
-			want:     false,
+			name: "a two-property task, swept by its second property",
+			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
+			propName: "b", want: true,
 		},
 		{
-			name:     "a property whose name this one extends",
-			dir:      "enable_filterable_ca_1",
-			prefixes: catPrefixes,
-			want:     false,
+			name: "a two-property task that does not name this property",
+			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
+			propName: "c", want: false,
+		},
+		// The same name shape read the other way: one property called "a_b".
+		// Only the payload tells the two apart.
+		{
+			name: "a single property whose name contains the join character",
+			dir:  "enable_filterable_a_b_1", props: []string{"a_b"},
+			propName: "a", want: false,
 		},
 		{
-			name:     "a tracker of the same property under another strategy",
-			dir:      "filterable_retokenize_cat_1",
-			prefixes: catPrefixes,
-			want:     true,
+			name: "a property whose name extends this one",
+			dir:  "enable_filterable_cat_x_1", props: []string{"cat_x"},
+			want: false,
+		},
+		// Without a payload the name is all there is, and it is ambiguous. Not
+		// matching is the end that cannot delete another property's state.
+		{
+			name: "a property whose name extends this one, with no payload",
+			dir:  "enable_filterable_cat_x_1",
+			want: false,
 		},
 		{
-			name:     "another index type's tracker for this property",
-			dir:      "enable_searchable_cat_1",
-			prefixes: catPrefixes,
-			want:     false,
+			name:     "a two-property task with no payload",
+			dir:      "enable_filterable_a_b_1",
+			propName: "a", want: false,
 		},
 		{
-			name:     "the class-level tracker every property shares",
+			name: "a property whose name this one extends",
+			dir:  "enable_filterable_ca_1", props: []string{"ca"},
+			want: false,
+		},
+		{
+			name: "a tracker of the same property under another strategy",
+			dir:  "filterable_retokenize_cat_1", props: []string{"cat"},
+			want: true,
+		},
+		{
+			name: "another index type's tracker for this property",
+			dir:  "enable_searchable_cat_1", props: []string{"cat"},
+			want: false,
+		},
+		{
+			name: "the class-level tracker every property shares",
+			dir:  "filterable_roaringset_refresh_1",
+			want: false,
+		},
+		{
+			name:     "the class-level tracker, in the preserve set",
 			dir:      "filterable_roaringset_refresh_1",
-			prefixes: catPrefixes,
-			want:     false,
+			preserve: true, want: true,
 		},
 		{
-			name:     "no prefixes to match against",
-			dir:      "enable_filterable_cat_1",
-			prefixes: nil,
-			want:     false,
+			name: "an index type with no strategies",
+			dir:  "enable_filterable_cat_1", props: []string{"cat"},
+			indexType: "an-index-type-this-build-does-not-know", want: false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isMigrationDirOf(tc.dir, tc.prefixes))
+			propName := tc.propName
+			if propName == "" {
+				propName = "cat"
+			}
+			indexType := tc.indexType
+			if indexType == "" {
+				indexType = "filterable"
+			}
+			lsm := t.TempDir()
+			dir := filepath.Join(lsm, ".migrations", tc.dir)
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			if len(tc.props) > 0 {
+				payload, err := json.Marshal(map[string]any{
+					"payload": map[string]any{"properties": tc.props},
+				})
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, reindexRecoveryPayloadFile), payload, 0o644))
+			}
+
+			scope := migrationDirsOf(lsm, nil, propName, indexType)
+			if tc.preserve {
+				scope = scope.preserving(indexType)
+			}
+			require.Equal(t, tc.want, scope.matches(tc.dir))
 		})
 	}
 }

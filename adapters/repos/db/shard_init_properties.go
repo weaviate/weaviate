@@ -199,14 +199,14 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 		}
 		return
 	}
-	prefixes := migrationDirsForPropertyIndex(propName, indexType)
-	preserved := completedMigrationGens(lsmPath, prefixes)
+	scope := migrationDirsOf(lsmPath, nil, propName, indexType)
+	preserved := completedMigrationGens(scope)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !isMigrationDirOf(name, prefixes) {
+		if !scope.matches(name) {
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
@@ -274,13 +274,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
-	// The preserve set spans MORE prefixes than the tracker-deletion sweep:
-	// class-level gens are excluded from deletion but their sidecars are live.
-	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
-	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		preservePrefixes = append(preservePrefixes, classDir)
-	}
-	preserveSidecars := completedMigrationSidecarSuffixes(s.pathLSM(), preservePrefixes)
+	preserveSidecars := completedMigrationSidecarSuffixes(
+		migrationDirsOf(s.pathLSM(), nil, propName, indexType).preserving(indexType))
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -436,28 +431,6 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 // whether an unhydrated shard has to be loaded at all.
 func isSidecarDirOf(name, mainBucketName string) bool {
 	return strings.HasPrefix(name, mainBucketName+"__")
-}
-
-// isMigrationDirOf reports whether name is a migration tracker dir of one of
-// prefixes, in any generation.
-//
-// The generation is split off before the comparison rather than matched as a
-// prefix, because a property name may itself contain underscores: property
-// "cat" builds the prefix "enable_filterable_cat", which is a prefix of
-// property "cat_x"'s dir "enable_filterable_cat_x_1". Matching on that would
-// hydrate a cold tenant whose only state belongs to "cat_x", and then delete
-// that tenant's deferred-finalize tracker — the preserve set does not shield
-// it, since [forEachCompletedMigration] matches the parsed base exactly.
-func isMigrationDirOf(name string, prefixes []string) bool {
-	base, _, ok := parseMigrationDirName(name)
-	for _, p := range prefixes {
-		// A dir with no generation suffix predates [genSuffix] and carries the
-		// prefix as its whole name.
-		if name == p || (ok && base == p) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {

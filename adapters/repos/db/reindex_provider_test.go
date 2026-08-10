@@ -289,15 +289,15 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node",
 		},
 		{
-			name:    "the collection is being deleted",
+			name:    "the collection is not on this node",
 			outcome: terminalSweepDropped,
-			wantMsg: "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it",
+			wantMsg: "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either",
 		},
 		{
-			name:     "state is left on disk",
+			name:     "a shard could not be swept",
 			outcome:  terminalSweepFailed,
 			wantWarn: true,
-			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+			wantMsg:  "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there",
 		},
 		{
 			name:     "shards were never reached",
