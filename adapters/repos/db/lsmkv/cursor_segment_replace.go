@@ -21,9 +21,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// segmentCursorReaderBufSize matches bufio.NewReader's default so pooled readers
-// behave byte-for-byte like the previous bufio.NewReader(or) call.
-const segmentCursorReaderBufSize = 4096
+// segmentCursorReaderBufSize is the refill size. Skipped bytes drain through the
+// same buffer rather than around it, so one pread covers this many of them, and
+// digest mode — which keeps a short value prefix and skips the remainder of every
+// node — pays that ratio over whole vector payloads. Shrinking it multiplies
+// syscalls across a scan without saving a comparable amount of memory.
+const segmentCursorReaderBufSize = 8192
 
 // segmentCursorReaderPool recycles reusable-cursor read buffers (one per segment
 // per digest RPC), previously the largest allocation source in async-rep scans.
