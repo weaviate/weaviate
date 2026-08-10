@@ -143,7 +143,7 @@ func newShardCountingDB(t *testing.T, class *models.Class, state *sharding.State
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, nodes, &FakeRemoteNodeClient{}, nil, nil,
-		memwatch.NewDummyMonitor(), nodes, sr, fsm)
+		memwatch.NewDummyMonitor(), nodes, sr, fsm, nil)
 	require.NoError(t, err)
 
 	db.SetSchemaGetter(schemaGetter)
