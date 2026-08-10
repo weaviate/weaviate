@@ -552,11 +552,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		case backup.Finalizing:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
 		case backup.Cancelling:
-			// Claimed already, by another coordinator or by an earlier call of
-			// this one that did not get as far as writing CANCELLED. Cancelling
-			// again is how the second case gets finished: a descriptor stuck on
-			// CANCELLING makes every later restore of this id refuse to start,
-			// and repeating the cancel is the only way out of it from the API.
+			// Claimed already, by another coordinator or an earlier call that
+			// never wrote CANCELLED. Falling through repeats the abort below,
+			// the only way to clear a descriptor stuck on CANCELLING.
 		default:
 			// Transferring, Started - attempt to claim cancellation
 			if !s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath) {

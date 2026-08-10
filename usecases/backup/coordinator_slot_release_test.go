@@ -503,11 +503,8 @@ func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescr
 	return nil
 }
 
-// Pins that the restore acts on the slot refusing the FINALIZING write, which
-// is the last moment a cancel can still stop the schema apply. The refusal is
-// the only signal there is: reading the slot's status first and writing after
-// leaves a window for a cancel to land between the two, and a cancel dropped
-// there applies the schema and reports SUCCESS over the cancellation.
+// Pins that a refused FINALIZING write stops the restore instead of applying
+// the schema.
 func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	t.Parallel()
 	const (
@@ -654,10 +651,8 @@ func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 	require.Equal(t, backup.Cancelled, fc.backend.getGlobalMetaStatus())
 }
 
-// Pins that the restore stops on either cancellation status it can read out of
-// object storage. CANCELLING is the one another coordinator writes when it
-// claims the cancel, and it is a state a restore can sit in for as long as that
-// coordinator takes, or forever if it dies before writing CANCELLED.
+// Pins that the restore stops on both CANCELLING and CANCELLED read from
+// storage.
 func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 	t.Parallel()
 	const (
