@@ -780,6 +780,11 @@ func TestScanTargetedReplaceCallbackError(t *testing.T) {
 // worker becomes an error and cancels its siblings, so the scan returns instead
 // of leaving the caller blocked while segment references are held.
 func TestScanTargetedReplaceCallbackPanic(t *testing.T) {
+	// containment is what is under test, and DISABLE_RECOVERY_ON_PANIC turns the
+	// error group's recover into a no-op — set in CI and in some local setups,
+	// where the panic would take the test binary down instead of being asserted on
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
 	ctx := context.Background()
 	b := scanAbortFixture(t, ctx)
 
