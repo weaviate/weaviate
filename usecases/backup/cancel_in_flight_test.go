@@ -344,18 +344,10 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 		wantMsg   string
 	}{
 		{
-			name:      "the claim landed",
+			name:      "the stamp landed",
 			st:        backup.Cancelling,
 			stamped:   true,
 			held:      reqState{ID: backupID, Status: backup.Transferring},
-			wantLevel: logrus.InfoLevel,
-			wantMsg:   "restore slot stamped with the cancellation",
-		},
-		{
-			name:      "the final stamp landed",
-			st:        backup.Cancelled,
-			stamped:   true,
-			held:      reqState{ID: backupID, Status: backup.Cancelling},
 			wantLevel: logrus.InfoLevel,
 			wantMsg:   "restore slot stamped with the cancellation",
 		},

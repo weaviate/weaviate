@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -739,6 +740,22 @@ func newReq(classes []string, backendName, backupID string) Request {
 	}
 }
 
+// newStagingOperation builds the state commit() picks up: one participant per
+// node, each already staging. The empty NodeMapping makes ToOriginalNodeName
+// return the node names the participants are keyed by.
+func newStagingOperation(backupID string, nodes ...string) *operation {
+	op := newOperation(&backup.DistributedBackupDescriptor{
+		ID:          backupID,
+		NodeMapping: map[string]string{},
+		Nodes:       map[string]*backup.NodeDescriptor{},
+	})
+	for i, node := range nodes {
+		op.descriptor.Nodes[node] = &backup.NodeDescriptor{Classes: []string{fmt.Sprintf("Class%d", i+1)}}
+		op.participants[node] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+	}
+	return op
+}
+
 func TestCoordinatorCommitCancellation(t *testing.T) {
 	t.Parallel()
 	var (
@@ -753,27 +770,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 	t.Run("DetectCancelledStatusInCommit", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		// Initialize descriptor with nodes that match participant node names
-		// The node names in Nodes must match what ToOriginalNodeName will return
-		op := newOperation(&backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string), // Empty mapping means ToOriginalNodeName returns node as-is
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-				"N2": {Classes: []string{"Class2"}},
-			},
-		})
-
-		// Pre-populate Participants - these must exist before commitAll/queryAll run
-		// The node names must match the keys in node2Addr
-		op.participants["N1"] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now(),
-		}
-		op.participants["N2"] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now(),
-		}
+		op := newStagingOperation(backupID, "N1", "N2")
 
 		// Mock commitAll - Commit calls should succeed (no errors)
 		// commitAll doesn't modify Participants on success, so they stay as Transferring
@@ -821,19 +818,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 	t.Run("DetectCancelledStatusInQueryAll", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		op := newOperation(&backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string),
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-			},
-		})
-
-		// Set up participant with initial status
-		op.participants["N1"] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now(),
-		}
+		op := newStagingOperation(backupID, "N1")
 
 		// Return cancelled status from node
 		cancelledResp := &StatusResponse{
@@ -857,19 +842,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 	t.Run("DetectContextCanceledInCommitAll", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		op := newOperation(&backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string),
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-			},
-		})
-
-		// Set up participant
-		op.participants["N1"] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now(),
-		}
+		op := newStagingOperation(backupID, "N1")
 
 		// Return context.Canceled error
 		fc.client.On("Commit", any, "N1", mock.Anything).Return(context.Canceled)
@@ -887,19 +860,11 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 	t.Run("DetectCancelledStatusInQueryAllTimeout", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		op := newOperation(&backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string),
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-			},
-		})
-
-		// Set up participant with old timestamp to trigger timeout
-		op.participants["N1"] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now().Add(-10 * time.Minute), // Old timestamp
-		}
+		op := newStagingOperation(backupID, "N1")
+		// An old timestamp is what makes queryAll treat the node as down.
+		st := op.participants["N1"]
+		st.LastTime = time.Now().Add(-10 * time.Minute)
+		op.participants["N1"] = st
 
 		// Return context.Canceled error
 		fc.client.On("Status", any, "N1", mock.Anything).Return(nil, context.Canceled)
@@ -916,6 +881,40 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Equal(t, backup.Cancelled, op.participants["N1"].Status)
 		assert.Contains(t, op.participants["N1"].Reason, context.Canceled.Error())
 	})
+
+	// A cancel landing after the last in-loop check still has to reach the
+	// stored descriptor: every participant reports success, so nothing but the
+	// slot says the operation was cancelled. CANCELLING is enough — a cancel
+	// that has only been claimed is still a cancel.
+	for _, claimed := range []backup.Status{backup.Cancelling, backup.Cancelled} {
+		t.Run("CancelledOnTheSlotAfterTheLastPoll/"+string(claimed), func(t *testing.T) {
+			fc := newFakeCoordinator(nodeResolver)
+			coordinator := fc.coordinator()
+			coordinator.timeoutNextRound = time.Millisecond
+			op := newStagingOperation(backupID, "N1")
+
+			_, slot := coordinator.lastOp.renew(backupID, "path", "", "")
+			fc.client.On("Commit", any, "N1", mock.Anything).Return(nil)
+			// The poll that ends staging is the last step before the outcome is
+			// computed, so a cancel staged there lands in exactly that gap.
+			var once sync.Once
+			fc.client.On("Status", any, "N1", mock.Anything).
+				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
+				Run(func(mock.Arguments) {
+					once.Do(func() {
+						stamped, _ := coordinator.lastOp.setIfOwned(backupID, claimed)
+						assert.True(t, stamped)
+					})
+				})
+
+			req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+			coordinator.commit(ctx, op, req, map[string]string{"N1": "N1"}, true, slot)
+
+			assert.Equal(t, backup.Cancelled, op.descriptor.Status,
+				"a restore whose participants all succeeded was stored as staged after it was cancelled")
+			assert.Equal(t, "restore canceled by user", op.descriptor.Error)
+		})
+	}
 }
 
 // TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
@@ -1251,11 +1250,10 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 				"a refused restore must not be reported to the caller as started")
 			require.ErrorContains(t, err, "repeat the cancel",
 				"a descriptor stuck on CANCELLING is never cleared by waiting, only by repeating the cancel")
-			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
-
 			// The slot is the subsystem's mutual exclusion, so clearing one we
 			// do not own lets a second restore claim it and run alongside the
-			// live one.
+			// live one. renew reports the holder it refused, which is also how
+			// the test reads the slot.
 			prevID, _ := c.lastOp.renew("intruder", "path", "", "")
 			require.Equal(t, tc.wantSlotID, prevID,
 				"a live restore must still refuse a second claim")

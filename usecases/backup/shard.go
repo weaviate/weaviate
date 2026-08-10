@@ -216,6 +216,7 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 	msg := "slot write dropped: this operation no longer holds the slot"
 	switch {
 	case !o.owns():
+		// keeps the message above
 	case o.stat.reqState.Status == backup.Finalizing:
 		msg = "slot write dropped: the restore is applying its schema and can no longer be cancelled"
 	default:
@@ -320,12 +321,6 @@ func (s *backupStat) setIfOwned(id string, st backup.Status) (bool, reqState) {
 	return true, held
 }
 
-// setSlotLogger wires the operation slot to a logger, so the writes it refuses
-// leave something behind.
-func (c *shardSyncChan) setSlotLogger(log logrus.FieldLogger) {
-	c.lastOp.log = log
-}
-
 // shardSyncChan makes sure that a backup operation is mutually exclusive.
 // It also contains the channel used to communicate with the coordinator.
 type shardSyncChan struct {
@@ -339,6 +334,12 @@ type shardSyncChan struct {
 
 	// lastAsyncError used for debugging when no metadata is created
 	lastAsyncError error
+}
+
+// setSlotLogger wires the operation slot to a logger, so the writes it refuses
+// leave something behind.
+func (c *shardSyncChan) setSlotLogger(log logrus.FieldLogger) {
+	c.lastOp.log = log
 }
 
 // waitForCoordinator to confirm or to abort previous operation

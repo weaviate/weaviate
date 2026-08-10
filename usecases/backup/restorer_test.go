@@ -428,6 +428,8 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 			// has to be claimed the way restore() claims it before calling in.
 			prevID, slot := restorer.lastOp.renew("rbac-strip", "test/path", "", "")
 			require.Empty(t, prevID)
+			// The TRANSFERRING assertion below only says something if the slot
+			// did not already read it; a fresh claim reads STARTED.
 			require.Equal(t, backup.Started, restorer.lastOp.get().Status)
 
 			desc := &backup.BackupDescriptor{
