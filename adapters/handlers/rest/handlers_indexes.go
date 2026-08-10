@@ -550,10 +550,11 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if err == nil {
 			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
 			if checkErr != nil {
-				// An in-flight task has an unparseable payload — we cannot
-				// prove the new submit doesn't conflict with it, so refuse
-				// rather than race. Return 503 so the caller knows to retry
-				// after an operator inspects the in-flight task.
+				// An in-flight task has an unparseable payload, or names a
+				// migration type this build does not know — we cannot prove
+				// the new submit doesn't conflict with it, so refuse rather
+				// than race. Return 503 so the caller knows to retry after an
+				// operator inspects the in-flight task.
 				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
 			}
 			if reason != "" {
@@ -1478,7 +1479,18 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 			continue
 		}
 
-		if conflict := db.TypesConflictReason(newType, newProps, payload.MigrationType, payload.Properties); conflict != "" {
+		conflict, err := db.TypesConflictReason(newType, newProps, payload.MigrationType, payload.Properties)
+		if err != nil {
+			// One of the two types is unknown to this build — most likely an
+			// in-flight task written by a newer binary before a downgrade.
+			// Same epistemic state as an unparseable payload above, so the
+			// same answer: refuse rather than race. The caller surfaces this
+			// as 503.
+			return "", fmt.Errorf(
+				"in-flight reindex task %q: cannot verify conflict; "+
+					"retry after operator inspects the task: %w", task.ID, err)
+		}
+		if conflict != "" {
 			return fmt.Sprintf("reindex task %q conflicts: %s", task.ID, conflict), nil
 		}
 	}

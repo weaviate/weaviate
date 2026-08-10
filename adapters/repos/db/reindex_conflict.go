@@ -22,8 +22,12 @@ import (
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
 // AddTask path BEFORE the new task is appended to FSM-stored state.
-// Returns a non-nil error iff `newPayload` would conflict with an
-// already-STARTED task in `existingTasks`.
+// Returns a non-nil error if `newPayload` would conflict with an
+// already-STARTED task in `existingTasks`, or if either side names a
+// migration type this build does not know. Rejecting the task is the
+// only safe response to an unknown type here: this runs inside the
+// RAFT FSM apply, where a panic takes down every node applying the
+// entry and then replays on restart.
 //
 // FSM-determinism: every node applies the same RAFT log entry, sees
 // the same `existingTasks` snapshot, and runs this same function — so
@@ -76,8 +80,12 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 			continue
 		}
 
-		if reason := typesConflictReason(newP.MigrationType, newP.Properties,
-			existP.MigrationType, existP.Properties); reason != "" {
+		reason, err := typesConflictReason(newP.MigrationType, newP.Properties,
+			existP.MigrationType, existP.Properties)
+		if err != nil {
+			return fmt.Errorf("reindex task %q: %w", task.ID, err)
+		}
+		if reason != "" {
 			return fmt.Errorf("reindex task %q conflicts: %s", task.ID, reason)
 		}
 	}
@@ -108,28 +116,28 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // whole-collection rebuild) and overlaps with everything.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
-) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
-	_ = TouchesSearchable(newType)
-	_ = TouchesFilterable(newType)
-	_ = TouchesSearchable(existType)
-	_ = TouchesFilterable(existType)
+) (string, error) {
+	// Reject rather than guess if either side names a type this build
+	// does not classify. "No conflict" would be the dangerous default:
+	// it lets a second migration race the in-flight one on shared
+	// on-disk state.
+	if err := ValidateReindexMigrationType(newType); err != nil {
+		return "", fmt.Errorf("new migration type: %w", err)
+	}
+	if err := ValidateReindexMigrationType(existType); err != nil {
+		return "", fmt.Errorf("in-flight migration type: %w", err)
+	}
 
 	if !ReindexPropsOverlap(newProps, existProps) {
-		return ""
+		return "", nil
 	}
 	if newType == existType {
-		return fmt.Sprintf("already running %s for overlapping properties", newType)
+		return fmt.Sprintf("already running %s for overlapping properties", newType), nil
 	}
 	return fmt.Sprintf("already running %s for overlapping properties; "+
 		"concurrent %s on the same property would race on shared on-disk "+
 		"migration state — wait for the in-flight task to finish before "+
-		"submitting another", existType, newType)
+		"submitting another", existType, newType), nil
 }
 
 // TypesConflictReason is the package-public alias for typesConflictReason,
@@ -138,7 +146,7 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 // the lowercase symbol without indirection.
 func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
-) string {
+) (string, error) {
 	return typesConflictReason(newType, newProps, existType, existProps)
 }
 
@@ -161,50 +169,84 @@ func ReindexPropsOverlap(a, b []string) bool {
 	return false
 }
 
-// TouchesSearchable reports whether migration type t writes to the
-// searchable bucket. Implemented as an exhaustive switch so that a
-// newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
-func TouchesSearchable(t ReindexMigrationType) bool {
+// reindexBucketTouch records which inverted-index buckets one migration
+// type writes to.
+type reindexBucketTouch struct {
+	searchable bool
+	filterable bool
+}
+
+// reindexBucketTouches classifies t, reporting ok=false for a migration
+// type this build does not know — a payload written by a newer binary
+// after a downgrade, or a constant added without a case below.
+//
+// The switch has no default arm on purpose. That is what makes the
+// `exhaustive` linter (enabled repo-wide) fail the build when a new
+// [ReindexMigrationType] constant is declared and left unclassified.
+// The repo runs `exhaustive` with default-signifies-exhaustive: true,
+// so adding a default arm here would silently switch the check off and
+// put us back to discovering the gap at RAFT-apply time. Every
+// constant therefore gets its own case, listing both bucket answers
+// where the reader can see them together.
+func reindexBucketTouches(t ReindexMigrationType) (reindexBucketTouch, bool) {
 	switch t {
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
-		return true
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+	case ReindexTypeChangeAlgorithm:
+		// Map (WAND) → Inverted (BlockMax) rewrite of the searchable bucket.
+		return reindexBucketTouch{searchable: true}, true
+	case ReindexTypeRebuildSearchable:
+		// Rebuilds an existing BlockMax searchable bucket in place from
+		// the objects store, preserving algorithm and tokenization.
+		return reindexBucketTouch{searchable: true}, true
+	case ReindexTypeEnableSearchable:
+		return reindexBucketTouch{searchable: true}, true
+	case ReindexTypeChangeTokenization:
+		// Retokenizes both buckets of a text property.
+		return reindexBucketTouch{searchable: true, filterable: true}, true
+	case ReindexTypeChangeTokenizationFilterable:
+		return reindexBucketTouch{filterable: true}, true
+	case ReindexTypeEnableFilterable:
+		return reindexBucketTouch{filterable: true}, true
+	case ReindexTypeRepairFilterable:
+		return reindexBucketTouch{filterable: true}, true
+	case ReindexTypeEnableRangeable:
+		// Rangeable is its own bucket family; neither answer applies.
+		return reindexBucketTouch{}, true
+	case ReindexTypeRepairRangeable:
+		return reindexBucketTouch{}, true
 	}
+	return reindexBucketTouch{}, false
+}
+
+// ValidateReindexMigrationType returns a non-nil error if t is not a
+// migration type this build knows how to classify. Callers on the RAFT
+// apply path use this to reject the task instead of crashing the FSM.
+func ValidateReindexMigrationType(t ReindexMigrationType) error {
+	if _, ok := reindexBucketTouches(t); !ok {
+		return fmt.Errorf("unknown reindex migration type %q", t)
+	}
+	return nil
+}
+
+// TouchesSearchable reports whether migration type t writes to the
+// searchable bucket. The error is non-nil for an unknown type; the
+// bool is then meaningless, so callers must not fall back to it — a
+// silent "false" would let two migrations race on the same bucket.
+func TouchesSearchable(t ReindexMigrationType) (bool, error) {
+	c, ok := reindexBucketTouches(t)
+	if !ok {
+		return false, fmt.Errorf("unknown reindex migration type %q", t)
+	}
+	return c.searchable, nil
 }
 
 // TouchesFilterable reports whether migration type t writes to the
-// filterable bucket. Same exhaustive-switch contract as
-// [TouchesSearchable].
-func TouchesFilterable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable:
-		return true
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+// filterable bucket. Same error contract as [TouchesSearchable].
+func TouchesFilterable(t ReindexMigrationType) (bool, error) {
+	c, ok := reindexBucketTouches(t)
+	if !ok {
+		return false, fmt.Errorf("unknown reindex migration type %q", t)
 	}
+	return c.filterable, nil
 }
 
 // CheckPropertyUpdate implements

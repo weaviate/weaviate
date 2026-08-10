@@ -96,6 +96,15 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tokenization vs change-tokenization", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs rebuild-searchable", db.ReindexTypeRebuildSearchable, db.ReindexTypeRebuildSearchable, []string{"p"}, true, "overlapping properties"},
+
+		// rebuild-searchable against every other type on the same property.
+		{"rebuild-searchable vs repair-searchable", db.ReindexTypeRebuildSearchable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs enable-searchable", db.ReindexTypeRebuildSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs change-tokenization", db.ReindexTypeRebuildSearchable, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs repair-filterable", db.ReindexTypeRebuildSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs enable-filterable", db.ReindexTypeRebuildSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"rebuild-searchable vs enable-rangeable", db.ReindexTypeRebuildSearchable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
 		// Cross-type same-property — all conflict under the new rule.
 		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
@@ -122,7 +131,8 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			reason := db.TypesConflictReason(tc.a, tc.props, tc.b, tc.props)
+			reason, err := db.TypesConflictReason(tc.a, tc.props, tc.b, tc.props)
+			require.NoError(t, err)
 			if tc.wantConfl {
 				require.NotEmpty(t, reason, "expected conflict but got none")
 				assert.Contains(t, reason, tc.wantReason)
@@ -138,6 +148,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 	// must NOT conflict. This is the parallelism contract.
 	for _, mt := range []db.ReindexMigrationType{
 		db.ReindexTypeChangeAlgorithm,
+		db.ReindexTypeRebuildSearchable,
 		db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableSearchable,
 		db.ReindexTypeEnableFilterable,
@@ -145,7 +156,8 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 		db.ReindexTypeChangeTokenization,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
-			reason := db.TypesConflictReason(mt, []string{"propA"}, mt, []string{"propB"})
+			reason, err := db.TypesConflictReason(mt, []string{"propA"}, mt, []string{"propB"})
+			require.NoError(t, err)
 			require.Empty(t, reason,
 				"%s on different properties must not conflict", mt)
 		})
@@ -818,9 +830,12 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
+// TouchesSearchable / TouchesFilterable — the bucket classification the
+// pre-flight conflict check shares with the RAFT apply path. The db
+// package owns the whole-enumeration coverage test (it can see the
+// authoritative type list); these rows pin the answers the REST handler
+// depends on, and the unknown-type case returning an error rather than
+// panicking.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
@@ -829,6 +844,7 @@ func TestTouchesSearchable(t *testing.T) {
 		want bool
 	}{
 		{db.ReindexTypeChangeAlgorithm, true},
+		{db.ReindexTypeRebuildSearchable, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableSearchable, true},
 		{db.ReindexTypeRepairFilterable, false},
@@ -837,7 +853,9 @@ func TestTouchesSearchable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesSearchable(tc.t))
+			got, err := db.TouchesSearchable(tc.t)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -851,30 +869,49 @@ func TestTouchesFilterable(t *testing.T) {
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableFilterable, true},
 		{db.ReindexTypeChangeAlgorithm, false},
+		{db.ReindexTypeRebuildSearchable, false},
 		{db.ReindexTypeEnableSearchable, false},
 		{db.ReindexTypeEnableRangeable, false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesFilterable(tc.t))
+			got, err := db.TouchesFilterable(tc.t)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
 
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesSearchable_ErrorsOnUnknownType(t *testing.T) {
+	_, err := db.TouchesSearchable(db.ReindexMigrationType("phantom"))
+	require.ErrorContains(t, err, `unknown reindex migration type "phantom"`,
+		"an unknown type must be reported, not panic — this runs inside the RAFT FSM apply")
 }
 
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesFilterable_ErrorsOnUnknownType(t *testing.T) {
+	_, err := db.TouchesFilterable(db.ReindexMigrationType("phantom"))
+	require.ErrorContains(t, err, `unknown reindex migration type "phantom"`,
+		"an unknown type must be reported, not panic — this runs inside the RAFT FSM apply")
+}
+
+// checkReindexConflict must turn an unknown in-flight migration type
+// into an error the handler can answer 503 with, rather than a panic
+// the middleware swallows into a broken response.
+func TestCheckReindexConflict_UnknownInFlightTypeErrors(t *testing.T) {
+	tasks := []*distributedtask.Task{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload: mustPayload(t, db.ReindexTaskPayload{
+			Collection:    "Coll",
+			MigrationType: db.ReindexMigrationType("phantom"),
+			Properties:    []string{"p"},
+		}),
+	}}
+
+	reason, err := checkReindexConflict("Coll", db.ReindexTypeRebuildSearchable,
+		[]string{"p"}, tasks)
+	require.ErrorContains(t, err, `unknown reindex migration type "phantom"`)
+	require.Empty(t, reason)
 }
 
 // -----------------------------------------------------------------------------

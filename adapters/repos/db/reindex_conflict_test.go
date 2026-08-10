@@ -102,7 +102,8 @@ func TestTypesConflictReason(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := typesConflictReason(tc.newType, tc.newProps, tc.existType, tc.existProps)
+			got, err := typesConflictReason(tc.newType, tc.newProps, tc.existType, tc.existProps)
+			require.NoError(t, err)
 			if !tc.wantNonEmpty {
 				require.Empty(t, got)
 				return
