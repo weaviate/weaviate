@@ -600,15 +600,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
-		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":     collection,
-					"property":       propertyName,
-					"migration_type": migrationType,
-					"index_type":     indexTypeForCleanup,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
-			}
+		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
+			return h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup)
+		})
+		for _, err := range cleanupErrs {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"collection":     collection,
+				"property":       propertyName,
+				"migration_type": migrationType,
+				"index_types":    indexTypesForCleanup,
+			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
 		}
 	}
 
@@ -822,12 +823,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
-			var cleanupErrs []error
-			for _, it := range indexTypesToClean {
-				if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
-				}
-			}
+			cleanupErrs := sweepStaleReindexState(indexTypesToClean, func(it string) error {
+				return h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it)
+			})
 			if len(cleanupErrs) > 0 {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
@@ -917,6 +915,26 @@ const (
 	finalizeWindowMin = 3 * time.Second
 	finalizeWindowMax = 10 * time.Second
 )
+
+// sweepStaleReindexState runs sweep once per index type the migration touches
+// and returns the failures an operator has to act on, index type included.
+//
+// A collection being deleted is not one of them. The partial reindex state this
+// sweep removes lives under the collection's own directory and is deleted with
+// it, so nothing was left behind — and neither of the two things the callers
+// promise on failure applies: there is no next task to short-circuit on the
+// state, and no later submit that could retry the cleanup.
+func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []error {
+	var errs []error
+	for _, indexType := range indexTypes {
+		err := sweep(indexType)
+		if err == nil || errors.Is(err, db.ErrCleanupCollectionDropped) {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("indexType=%q: %w", indexType, err))
+	}
+	return errs
+}
 
 // indexTypesFromMigrationType returns the canonical inverted-index types
 // ("filterable", "searchable", "rangeable") that a migration type targets,
