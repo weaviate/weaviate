@@ -150,9 +150,10 @@ func (s *backupStat) rememberedFailure(id string) (string, bool) {
 
 // resetIfOwned clears the slot only if id still holds it. An operation whose
 // slot was already handed to a newer one must not free the newcomer's claim:
-// the slot is the node's busy signal, so a false idle lets a runtime-reindex
-// start on top of a live backup or restore. Check-and-clear happens under one
-// lock so a concurrent renew can't be lost. Reports whether it cleared.
+// the slot is what keeps two operations from running on this node at once, so
+// a false idle lets a second one claim it alongside the live one.
+// Check-and-clear happens under one lock so a concurrent renew can't be lost.
+// Reports whether it cleared.
 func (s *backupStat) resetIfOwned(id string) bool {
 	s.Lock()
 	defer s.Unlock()

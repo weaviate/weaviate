@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,9 +233,9 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 	t.Parallel()
 	const (
-		backendName  = "s3"
-		beingCancely = "restore-being-cancelled"
-		stillRunning = "restore-still-running"
+		backendName    = "s3"
+		beingCancelled = "restore-being-cancelled"
+		stillRunning   = "restore-still-running"
 	)
 
 	tests := []struct {
@@ -245,7 +246,7 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 	}{
 		{
 			name:       "the slot is held by the restore being cancelled",
-			slotHolder: beingCancely,
+			slotHolder: beingCancelled,
 			wantStatus: backup.Cancelled,
 			reason: "this node coordinates the restore being cancelled; leaving its slot Started " +
 				"makes OnStatus report a cancelled restore as running",
@@ -265,14 +266,14 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 			meta, err := json.Marshal(backup.DistributedBackupDescriptor{
 				Status: backup.Transferring,
-				ID:     beingCancely,
+				ID:     beingCancelled,
 				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Class1"}}},
 			})
 			require.NoError(t, err)
 
-			fakeScheduler.backend.On("GetObject", mock.Anything, beingCancely, GlobalRestoreFile).Return(meta, nil)
+			fakeScheduler.backend.On("GetObject", mock.Anything, beingCancelled, GlobalRestoreFile).Return(meta, nil)
 			fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-			fakeScheduler.backend.On("PutObject", mock.Anything, beingCancely, GlobalRestoreFile, mock.Anything).Return(nil)
+			fakeScheduler.backend.On("PutObject", mock.Anything, beingCancelled, GlobalRestoreFile, mock.Anything).Return(nil)
 			fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
 			fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
 			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -280,11 +281,105 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			s := fakeScheduler.scheduler()
 			require.Empty(t, s.restorer.lastOp.renew(test.slotHolder, "", "", ""))
 
-			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancely, "", ""))
+			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancelled, "", ""))
 
 			held := s.restorer.lastOp.get()
 			require.Equal(t, test.slotHolder, held.ID, "the cancel must never take a slot over")
 			require.Equal(t, test.wantStatus, held.Status, test.reason)
 		})
+	}
+}
+
+// Restore's two synchronous error paths give the slot back before returning,
+// and must give back only their own. The restorer slot has writers outside
+// Restore — a cancel, and a retried Restore's early return — so between the
+// claim and the error the slot can already belong to a newer restore, and
+// clearing that claim reports the node idle while a restore is live.
+func TestCoordinatorRestoreErrorPathReleasesOnlyItsOwnSlot(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		backupID    = "1"
+		ctx         = context.Background()
+		anyArg      = mock.Anything
+		nodes       = []string{"N1", "N2"}
+		classes     = []string{"C1"}
+		cresp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name string
+		// fail wires the mock that breaks one of the two error paths. Its hook
+		// runs on the Restore call itself, after the claim and before the
+		// error return, which is the window a takeover lands in.
+		fail  func(fc *fakeCoordinator, hook func())
+		steal bool
+	}{
+		{
+			name: "canCommit refused",
+			fail: func(fc *fakeCoordinator, hook func()) {
+				fc.client.On("CanCommit", anyArg, anyArg, anyArg).Return(nil, ErrAny).
+					Run(func(mock.Arguments) { hook() })
+			},
+		},
+		{
+			name: "initial meta write failed",
+			fail: func(fc *fakeCoordinator, hook func()) {
+				fc.client.On("CanCommit", anyArg, anyArg, anyArg).Return(cresp, nil)
+				fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).
+					Return(ErrAny).Run(func(mock.Arguments) { hook() })
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		for _, steal := range []bool{false, true} {
+			name := tc.name
+			wantSlotID := ""
+			if steal {
+				name += " (slot taken over)"
+				wantSlotID = "live-restore"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+				fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
+				fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+				fc.client.On("Abort", anyArg, anyArg, anyArg).Return(nil)
+
+				c := fc.coordinator()
+				var once sync.Once
+				tc.fail(fc, func() {
+					if !steal {
+						return
+					}
+					// canCommit fans out to both nodes, so only the first
+					// caller stages the takeover. assert, not require: this
+					// runs inside a mock callback, and Goexit there would
+					// surface as a hang instead of this failure.
+					once.Do(func() {
+						c.lastOp.set(backup.Cancelled)
+						assert.True(t, c.lastOp.resetIfCancelled(backupID))
+						assert.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
+					})
+				})
+
+				desc := &backup.DistributedBackupDescriptor{
+					ID:            backupID,
+					Version:       Version,
+					ServerVersion: config.ServerVersion,
+					Nodes: map[string]*backup.NodeDescriptor{
+						nodes[0]: {Classes: classes},
+						nodes[1]: {Classes: classes},
+					},
+				}
+				req := newReq(nil, backendName, backupID)
+				store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+
+				require.Error(t, c.Restore(ctx, store, &req, desc, nil))
+				require.Equal(t, wantSlotID, c.lastOp.get().ID,
+					"the failed restore released a slot it no longer owns")
+			})
+		}
 	}
 }

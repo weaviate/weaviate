@@ -21,7 +21,7 @@ import (
 
 // resetIfCancelled is the slot's check-and-clear. It releases only a cancelled
 // operation: a live one under the same id is still writing files, and clearing
-// its claim makes the node report itself idle to the reindex gate.
+// its claim lets a second operation start alongside it.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -93,6 +93,139 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 
 			require.Equal(t, tc.wantOK, s.resetIfCancelled(tc.resetID))
 			require.Equal(t, tc.wantSlotID, s.get().ID)
+		})
+	}
+}
+
+// resetIfOwned is the release half: an operation gives the slot back only while
+// it still holds it. Unlike resetIfCancelled it does not look at the status,
+// because the caller is the holder itself and releases from every outcome.
+func TestBackupStatResetIfOwned(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		status     backup.Status
+		resetID    string
+		wantOK     bool
+		wantSlotID string
+	}{
+		{
+			name:       "holder releases its own slot",
+			claimedID:  "op-1",
+			status:     backup.Success,
+			resetID:    "op-1",
+			wantOK:     true,
+			wantSlotID: "",
+		},
+		{
+			name:       "holder releases after a cancel",
+			claimedID:  "op-1",
+			status:     backup.Cancelled,
+			resetID:    "op-1",
+			wantOK:     true,
+			wantSlotID: "",
+		},
+		{
+			name:       "slot already taken over by another operation",
+			claimedID:  "op-2",
+			status:     backup.Transferring,
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "op-2",
+		},
+		{
+			name:       "slot is free",
+			claimedID:  "",
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			if tc.claimedID != "" {
+				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+				s.set(tc.status)
+			}
+
+			require.Equal(t, tc.wantOK, s.resetIfOwned(tc.resetID))
+			require.Equal(t, tc.wantSlotID, s.get().ID)
+		})
+	}
+}
+
+// setIfOwned is the write half. Its caller is a cancel, which takes the id from
+// object storage rather than from the slot, so it must not stamp whatever
+// operation happens to be holding it — and must not walk a finished cancel back
+// to CANCELLING, which is what OnStatus would then report.
+func TestBackupStatSetIfOwned(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		status     backup.Status
+		setID      string
+		set        backup.Status
+		wantOK     bool
+		wantStatus backup.Status
+	}{
+		{
+			name:       "holder gets the status",
+			claimedID:  "op-1",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			set:        backup.Cancelling,
+			wantOK:     true,
+			wantStatus: backup.Cancelling,
+		},
+		{
+			name:       "slot held by a different operation",
+			claimedID:  "op-2",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			set:        backup.Cancelled,
+			wantOK:     false,
+			wantStatus: backup.Transferring,
+		},
+		{
+			// A cancel reading the older CANCELLING out of storage after
+			// commit already stamped the slot CANCELLED. Letting it through
+			// reports a finished cancel as still in progress.
+			name:       "cancelled is terminal",
+			claimedID:  "op-1",
+			status:     backup.Cancelled,
+			setID:      "op-1",
+			set:        backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "slot is free",
+			claimedID:  "",
+			setID:      "op-1",
+			set:        backup.Cancelled,
+			wantOK:     false,
+			wantStatus: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			if tc.claimedID != "" {
+				require.Empty(t, s.renew(tc.claimedID, "path", "bucket", "override"))
+				s.set(tc.status)
+			}
+
+			require.Equal(t, tc.wantOK, s.setIfOwned(tc.setID, tc.set))
+			require.Equal(t, tc.wantStatus, s.get().Status)
 		})
 	}
 }

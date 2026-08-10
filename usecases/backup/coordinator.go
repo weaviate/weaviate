@@ -189,8 +189,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	// From here the slot is ours until the goroutine below takes it over, so
-	// every error return has to give it back. A leaked slot blocks all later
-	// backups on this node, and every reindex in the cluster, until restart.
+	// every error return has to give it back. A leaked slot blocks every later
+	// backup and restore this node coordinates, until restart.
 	defer func() {
 		if err != nil {
 			c.lastOp.reset()
@@ -300,7 +300,10 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		c.lastOp.reset()
+		// Not a plain reset: unlike the backupper slot, this one has writers
+		// outside Restore (a cancel, and a retry's early return), so by the
+		// time we get here it may already belong to a newer restore.
+		c.lastOp.resetIfOwned(desc.ID)
 		return err
 	}
 
@@ -313,7 +316,7 @@ func (c *coordinator) Restore(
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.reset()
+		c.lastOp.resetIfOwned(desc.ID)
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
