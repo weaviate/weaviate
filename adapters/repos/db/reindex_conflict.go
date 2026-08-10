@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
@@ -107,22 +108,28 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // caller gets a clean conflict error and can serialize the operations.
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
+//
+// Fails closed on a migration type this build does not recognize: a newer
+// node can submit one during a rolling upgrade, and this function runs on
+// the RAFT apply path via [ReindexProvider.CheckConflict] →
+// [distributedtask.Manager.AddTask], on every node, replayed from the log
+// on restart. Panicking there is a cluster-wide crash loop, not a rejected
+// request, so an unknown type that overlaps on properties is reported as a
+// conflict instead. Overlap is checked first because it is a pure function
+// of the property sets and stays correct whatever the types are.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
-	_ = TouchesSearchable(newType)
-	_ = TouchesFilterable(newType)
-	_ = TouchesSearchable(existType)
-	_ = TouchesFilterable(existType)
-
 	if !ReindexPropsOverlap(newProps, existProps) {
 		return ""
+	}
+	if unknown := firstUnknownMigrationType(newType, existType); unknown != "" {
+		return fmt.Sprintf(
+			"already running %s for overlapping properties; migration type %q "+
+				"is not known to this build (most likely submitted by a newer "+
+				"node), so it cannot be proven safe to run alongside — wait for "+
+				"the in-flight task to finish, or retry on a node that knows the type",
+			existType, unknown)
 	}
 	if newType == existType {
 		return fmt.Sprintf("already running %s for overlapping properties", newType)
@@ -167,10 +174,12 @@ func ReindexPropsOverlap(a, b []string) bool {
 // newly-added [ReindexMigrationType] cannot silently be treated as
 // "doesn't touch searchable" — the default case panics with a clear
 // message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
+// new type.
+//
+// Only safe to call where a panic is an acceptable outcome, which rules
+// out the RAFT apply path — a panic under
+// [distributedtask.Manager.AddTask] crashes every node and replays from
+// the log on restart. Use [firstUnknownMigrationType] there.
 func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
@@ -213,11 +222,19 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
 // to, or nil for an unknown type.
 //
-// Single source of truth for that mapping — it backs the cancel URL's index
-// key ([ReindexCancelCall]), the cancel matcher (migrationTypeTargetsIndex),
-// and disk cleanup (indexTypesFromMigrationType, both in the REST handlers
-// package). A mismatch between them risks silent data loss, so new
-// migration types are added only here.
+// Single source of truth for that mapping. It backs the cancel URL's index
+// key ([ReindexCancelCall]), the known-type check on the RAFT apply path
+// ([firstUnknownMigrationType]), the cancel matcher
+// (migrationTypeTargetsIndex) and submit-time disk cleanup
+// (indexTypesFromMigrationType, both in the REST handlers package), and the
+// two paths that delete from disk after the fact:
+// autoCleanupAfterTerminal's per-node sidecar teardown and the restart
+// orphan audit's CleanStalePartialReindexState fan-out. A mismatch between
+// them risks silent data loss, so new migration types are added only here.
+//
+// Not to be confused with semanticMigrationIndexTypes in reindex_provider.go,
+// which answers a different question — which types go through the swap
+// barrier — and deliberately returns nil for the format-only ones.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
@@ -234,6 +251,19 @@ func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	return nil
 }
 
+// firstUnknownMigrationType returns the first of ts this build does not
+// recognize, or "" when it knows them all. "Known" is defined as "named by
+// [ReindexTargetIndexes]", which keeps the single-source-of-truth mapping
+// the only place a new type has to be registered.
+func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType {
+	for _, t := range ts {
+		if len(ReindexTargetIndexes(t)) == 0 {
+			return t
+		}
+	}
+	return ""
+}
+
 // ReindexCancelCall renders a request that cancels the task described by p,
 // or "" when this build cannot name one. Callers must not print a
 // placeholder for "": the cancel endpoint 202s with NO_OP on a
@@ -241,8 +271,19 @@ func ReindexTargetIndexes(t ReindexMigrationType) []string {
 // task that's still running.
 //
 // "" happens when p.Collection is empty, p.Properties is empty (the
-// reserved whole-collection rebuild has no property to name), or
-// p.MigrationType maps to no index via [ReindexTargetIndexes].
+// reserved whole-collection rebuild has no property to name — see
+// [ReindexPropsOverlap]; no shipping route can produce it today, the branch
+// is defense in depth), or p.MigrationType maps to no index via
+// [ReindexTargetIndexes].
+//
+// The path segment is the SHORT collection name. p.Collection is stored
+// namespace-qualified ("customer1:MyClass") because the only payload
+// builder qualifies it first, and feeding a qualified name back into
+// `PUT /v1/schema/{className}/indexes/{propertyName}` fails
+// [namespacing.ValidateNamespacePrefix] with a 400 for any
+// namespace-confined caller — the resolver re-adds their prefix. Global
+// operators on a namespace-enabled cluster must re-qualify the name
+// themselves; they are the callers who legitimately type the prefix.
 //
 // Only the first property and index key are named even when the task
 // touches more — cancel is task-scoped: it matches on any one of them and
@@ -253,7 +294,7 @@ func ReindexCancelCall(p ReindexTaskPayload) string {
 		return ""
 	}
 	return fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"%s":{"cancel":true}}`,
-		p.Collection, p.Properties[0], indexes[0])
+		namespacing.StripQualification(p.Collection), p.Properties[0], indexes[0])
 }
 
 // ReindexGateRemedy is the closing sentence every reindex schema gate — the
@@ -271,8 +312,22 @@ func ReindexCancelCall(p ReindexTaskPayload) string {
 //     cancel.
 //   - cancelCall == "": cancel can't be named; task can only be waited out.
 //   - STARTED: cancel or wait, no side effects yet.
-//   - PREPARING/SWAPPING: per-shard work is already done, so cancelling
-//     skips the schema flip and may leave the property needing a rebuild.
+//   - PREPARING/SWAPPING: steer the operator toward waiting, and name the
+//     cost of cancelling rather than calling it a rebuild.
+//
+// Why PREPARING/SWAPPING is not a symmetric "cancel or wait": by then a
+// shard may have committed its bucket swap. Cancel does not roll that back
+// — the scheduler skips the swap phase, OnTaskCompleted skips the schema
+// flip, and CleanStalePartialReindexState deliberately preserves a
+// committed swap because wiping it is #10675-shape data loss. Queries stay
+// correct only through [Shard.tokenizationOverlay], which is in-memory
+// only: restart that node and FinalizeCompletedMigrations promotes the
+// swapped sidecar to canonical, nothing rebuilds the overlay, and the
+// buckets hold new-format data under a schema that says old. That is the
+// same bucket↔schema inversion [CheckClassMutation] describes as
+// catastrophic, so the sentence must not read as an inconvenience.
+// Tracked for a follow-up: the durable fix is to make the overlay survive
+// restart (or to flip the schema on a cancel that had committed swaps).
 func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {
@@ -288,9 +343,11 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) str
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	return "cancel it via " + cancelCall + " — its per-shard work is already " +
-		"done, so cancelling now skips the schema change and leaves the " +
-		"property needing a rebuild — or wait for it to finish"
+	return "wait for it to finish: its per-shard work is already done, so " +
+		"cancelling now skips the schema change but does not undo the shards " +
+		"that already swapped, which leaves those buckets holding the new " +
+		"format under the old schema and needs a manual rebuild of the " +
+		"property to repair — if you accept that, cancel it via " + cancelCall
 }
 
 // CheckPropertyUpdate implements
@@ -298,7 +355,9 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, cancelCall string) str
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
 // migration on the same (collection, property) is in any non-terminal
-// state (STARTED, PREPARING, or SWAPPING).
+// state — per [distributedtask.TaskStatus.IsActive], so STARTED,
+// PREPARING, SWAPPING, and any status this build does not recognize
+// because a newer node reported it.
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable

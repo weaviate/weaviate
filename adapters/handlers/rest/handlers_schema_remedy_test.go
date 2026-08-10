@@ -23,91 +23,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate pins that
-// the REST pre-check's remedy sentence matches
-// [db.ReindexProvider.CheckPropertyUpdate]'s for every status/payload shape.
-func TestPropertyMutationPreCheckCarriesTheSameRemedyAsTheApplyGate(t *testing.T) {
-	payload, err := json.Marshal(db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeChangeTokenization,
-		Collection:    "C",
-		Properties:    []string{"name"},
-	})
-	require.NoError(t, err)
-
-	// Empty Properties means "all properties" to the pre-check, so a
-	// whole-collection task reaches this refusal with no property to name.
-	wholeCollectionPayload, err := json.Marshal(db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeChangeTokenization,
-		Collection:    "C",
-	})
-	require.NoError(t, err)
-
-	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
-	cancelWhileRunning := []string{
-		cancelCall + ", or wait for it to finish",
-	}
-	cancelPastUnits := []string{
-		cancelCall,
-		"its per-shard work is already done",
-		"skips the schema change and leaves the property needing a rebuild",
-	}
-	cancelUnnameable := []string{
-		"the cancel endpoint is keyed on one collection, property and index type",
-		"it can only be waited out",
-	}
-	cancelUnknown := []string{
-		"this build does not know that status",
-		"read the task on a node that knows the status",
-	}
-	concat := func(sets ...[]string) []string {
-		var out []string
-		for _, set := range sets {
-			out = append(out, set...)
-		}
-		return out
-	}
-
-	tests := []struct {
-		name    string
-		status  distributedtask.TaskStatus
-		payload []byte
-		want    []string
-		notWant []string
-	}{
-		{"STARTED", distributedtask.TaskStatusStarted, payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
-		{"PREPARING", distributedtask.TaskStatusPreparing, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
-		{"STARTED whole-collection", distributedtask.TaskStatusStarted, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
-		{"VALIDATING", distributedtask.TaskStatus("VALIDATING"), payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := &schemaHandlers{
-				reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
-					db.ReindexNamespace: {{
-						Namespace:      db.ReindexNamespace,
-						TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
-						Status:         tc.status,
-						Payload:        tc.payload,
-					}},
-				}},
-			}
-
-			reason := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "name")
-			require.NotEmpty(t, reason)
-			require.Contains(t, reason, "T_remedy")
-			require.Contains(t, reason, string(tc.status))
-			for _, want := range tc.want {
-				require.Contains(t, reason, want)
-			}
-			for _, unwanted := range tc.notWant {
-				require.NotContains(t, reason, unwanted)
-			}
-		})
-	}
-}
-
 // TestPropertyGateMessagesAreByteIdenticalAcrossLayers pins that the
 // pre-check and apply gate produce byte-identical refusals across every
 // status/payload-shape combination, not just matching substrings.
@@ -127,8 +42,15 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	}
 
 	payloads := []struct {
-		name  string
-		build func(*testing.T) []byte
+		name string
+		// className is what both layers are called with — the qualified
+		// form on a namespace-enabled cluster, matching the payload.
+		className string
+		build     func(*testing.T) []byte
+		// wantInReason, when set, must appear in the shared refusal.
+		wantInReason []string
+		// notInReason, when set, must not.
+		notInReason []string
 	}{
 		{
 			name: "the property by name",
@@ -172,11 +94,31 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			name:  "a payload that will not parse",
 			build: func(t *testing.T) []byte { return []byte("{not json") },
 		},
+		{
+			// Both layers must render the SHORT class in the cancel URL:
+			// PUT /v1/schema/customer1:C/... is a 400 for the
+			// namespace-confined principal who submitted the migration.
+			name:      "a namespace-qualified collection",
+			className: "customer1:C",
+			build: func(t *testing.T) []byte {
+				return marshal(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization,
+					Collection:    "customer1:C",
+					Properties:    []string{"name"},
+				})
+			},
+			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
+			notInReason:  []string{"/v1/schema/customer1:C/"},
+		},
 	}
 
 	for _, p := range payloads {
 		for _, status := range statuses {
 			t.Run(p.name+"/"+string(status), func(t *testing.T) {
+				className := p.className
+				if className == "" {
+					className = "C"
+				}
 				task := &distributedtask.Task{
 					Namespace:      db.ReindexNamespace,
 					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy"},
@@ -189,13 +131,23 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 						db.ReindexNamespace: {task},
 					}},
 				}
-				preCheck := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "name")
+				preCheck := h.checkReindexConflictForPropertyMutation(context.Background(), className, "name")
 
 				applyGate := (&db.ReindexProvider{}).CheckPropertyUpdate(
-					"C", "name", []*distributedtask.Task{task})
+					className, "name", []*distributedtask.Task{task})
 				require.Error(t, applyGate)
 
 				require.Equal(t, applyGate.Error(), preCheck)
+				// An unrecognized status claims nothing about cancel, so it
+				// renders no call to check the class name in.
+				if status.IsCoordinationPhase() || status == distributedtask.TaskStatusStarted {
+					for _, want := range p.wantInReason {
+						require.Contains(t, preCheck, want)
+					}
+				}
+				for _, unwanted := range p.notInReason {
+					require.NotContains(t, preCheck, unwanted)
+				}
 			})
 		}
 	}

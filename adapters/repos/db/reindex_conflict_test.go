@@ -815,26 +815,34 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		MigrationType: ReindexTypeChangeTokenization,
 	})
 
+	// On a namespace-enabled cluster the payload's Collection is stored
+	// qualified, and every gate is called with the qualified name too.
+	qualifiedPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "customer1:C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+
 	gates := []struct {
 		name string
-		call func(tasks []*distributedtask.Task) error
+		call func(className string, tasks []*distributedtask.Task) error
 	}{
 		{
 			name: "property update",
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate("C", "name", tasks)
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate(className, "name", tasks)
 			},
 		},
 		{
 			name: "delete class",
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation("C", tasks)
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation(className, tasks)
 			},
 		},
 		{
 			name: "tenant mutation",
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
 			},
 		},
 	}
@@ -845,11 +853,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	cancelWhileRunning := []string{
 		cancelCall + ", or wait for it to finish",
 	}
+	// Past STARTED the remedy has to lead with "wait": a shard that already
+	// committed its swap is not rolled back by cancel, and the in-memory
+	// overlay that keeps its queries correct does not survive a restart.
 	cancelPastUnits := []string{
 		cancelCall,
-		"its per-shard work is already done",
-		"skips the schema change and leaves the property needing a rebuild",
-		"or wait for it to finish",
+		"wait for it to finish",
+		"does not undo the shards that already swapped",
+		"needs a manual rebuild of the property",
 	}
 	cancelUnnameable := []string{
 		"the cancel endpoint is keyed on one collection, property and index type",
@@ -861,18 +872,32 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	}
 
 	statuses := []struct {
-		name    string
-		status  distributedtask.TaskStatus
-		payload []byte
-		want    []string
-		notWant []string
+		name      string
+		status    distributedtask.TaskStatus
+		className string
+		payload   []byte
+		want      []string
+		notWant   []string
 	}{
-		{"STARTED", distributedtask.TaskStatusStarted, payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
-		{"PREPARING", distributedtask.TaskStatusPreparing, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
-		{"STARTED whole-collection", distributedtask.TaskStatusStarted, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
-		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
-		{string(unknownFutureStatus), unknownFutureStatus, payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
+		{"STARTED", distributedtask.TaskStatusStarted, "C", payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown)},
+		{"PREPARING", distributedtask.TaskStatusPreparing, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown)},
+		{"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
+		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
+		{string(unknownFutureStatus), unknownFutureStatus, "C", payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
+		// Namespace-qualified: the URL must name the short class, because
+		// PUT /v1/schema/customer1:C/... is a 400 for the namespace-confined
+		// principal who submitted the migration.
+		{
+			"STARTED namespace-qualified", distributedtask.TaskStatusStarted, "customer1:C", qualifiedPayload,
+			[]string{`cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
+			[]string{"/v1/schema/customer1:C/"},
+		},
+		{
+			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
+			[]string{`cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
+			[]string{"/v1/schema/customer1:C/"},
+		},
 	}
 
 	for _, gate := range gates {
@@ -883,7 +908,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 					Status:         st.status,
 					Payload:        st.payload,
 				}}
-				err := gate.call(tasks)
+				err := gate.call(st.className, tasks)
 				require.Error(t, err)
 				for _, want := range st.want {
 					require.Contains(t, err.Error(), want)
@@ -905,9 +930,15 @@ func concat(sets ...[]string) []string {
 }
 
 // TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
-// migration type panics TouchesSearchable/TouchesFilterable's exhaustive
-// switches: rebuild-searchable was missing from both and panicked the
-// schema FSM's apply path on any submit against an in-flight reindex.
+// migration type crashes the conflict check. CheckConflict runs on the RAFT
+// apply path on every node and replays from the log on restart, so a panic
+// there is a cluster-wide crash loop rather than a rejected request.
+//
+// The "not known to this build" row is the one that generalizes: a newer
+// node can submit a type this binary has never heard of during a rolling
+// upgrade, which is exactly how rebuild-searchable crashed the apply path
+// before. The nine concrete types can only catch a regression in types
+// that already exist.
 func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
 	migrationTypes := []ReindexMigrationType{
 		ReindexTypeChangeAlgorithm,
@@ -919,6 +950,7 @@ func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) 
 		ReindexTypeEnableSearchable,
 		ReindexTypeChangeTokenization,
 		ReindexTypeChangeTokenizationFilterable,
+		"a-type-from-a-newer-node",
 	}
 
 	provider := &ReindexProvider{}
@@ -950,6 +982,72 @@ func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) 
 				})
 			})
 		}
+	}
+}
+
+// TestTypesConflictReason_UnknownTypeFailsClosed pins the RAFT-safe
+// handling of a migration type this build does not recognize: conflict when
+// the properties overlap, silence when they don't, and never a panic.
+// Overlap is decided from the property sets alone, which stays correct
+// whatever the types are.
+func TestTypesConflictReason_UnknownTypeFailsClosed(t *testing.T) {
+	const unknown = ReindexMigrationType("a-type-from-a-newer-node")
+
+	cases := []struct {
+		name         string
+		newType      ReindexMigrationType
+		newProps     []string
+		existType    ReindexMigrationType
+		existProps   []string
+		wantConflict bool
+	}{
+		{
+			name:    "unknown submitted against known, overlapping props",
+			newType: unknown, newProps: []string{"p"},
+			existType: ReindexTypeChangeTokenization, existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "known submitted against unknown in flight, overlapping props",
+			newType: ReindexTypeChangeTokenization, newProps: []string{"p"},
+			existType: unknown, existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "both unknown, overlapping props",
+			newType: unknown, newProps: []string{"p"},
+			existType: ReindexMigrationType("another-new-type"), existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "unknown but no property overlap",
+			newType: unknown, newProps: []string{"a"},
+			existType: ReindexTypeChangeTokenization, existProps: []string{"b"},
+			wantConflict: false,
+		},
+		{
+			// Empty props is the reserved whole-collection wildcard, so it
+			// overlaps even against an unknown type.
+			name:    "unknown against the whole-collection wildcard",
+			newType: unknown, newProps: []string{"a"},
+			existType: ReindexTypeChangeTokenization, existProps: nil,
+			wantConflict: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var reason string
+			require.NotPanics(t, func() {
+				reason = typesConflictReason(tc.newType, tc.newProps, tc.existType, tc.existProps)
+			})
+			if !tc.wantConflict {
+				require.Empty(t, reason)
+				return
+			}
+			require.NotEmpty(t, reason)
+			require.Contains(t, reason, "is not known to this build")
+		})
 	}
 }
 
@@ -1013,8 +1111,18 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 			want:    `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
 		},
 		{
+			// Collection is stored qualified. Rendering it back into the
+			// path fails ValidateNamespacePrefix with a 400 for the
+			// namespace-confined principal who submitted the migration.
+			name:    "namespace-qualified collection renders short",
+			payload: ReindexTaskPayload{Collection: "customer1:C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
+			want:    `PUT /v1/schema/C/indexes/num {"rangeable":{"cancel":true}}`,
+		},
+		{
 			// Whole-collection rebuild: findCancelTarget requires a named
-			// property, so there's nothing to render.
+			// property, so there's nothing to render. Reserved — no
+			// shipping route produces an empty Properties payload today,
+			// the branch is defense in depth.
 			name:    "no property to name",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable},
 			want:    "",

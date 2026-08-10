@@ -849,23 +849,12 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 	return rec, true
 }
 
-// semanticMigrationIndexTypesForAudit returns the indexType fan-out
-// the audit's CleanStalePartialReindexState loop iterates over for a
-// given migration type. Mirrors [indexTypesFromMigrationType] in the
-// REST handler. Returns nil for class-level migrations; the audit then
-// falls back to direct tracker-dir removal.
+// semanticMigrationIndexTypesForAudit returns the indexType fan-out the
+// audit's CleanStalePartialReindexState loop iterates over for a given
+// migration type. Reads [ReindexTargetIndexes] so the two disk-deleting
+// paths (this one and autoCleanupAfterTerminal) cannot drift from the
+// cancel and submit-time-cleanup paths. Returns nil for a type this build
+// does not know; the audit then falls back to direct tracker-dir removal.
 func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		return []string{"rangeable"}
-	}
-	return nil
+	return ReindexTargetIndexes(mt)
 }

@@ -54,7 +54,20 @@ func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 	for _, c := range cases {
 		got := semanticMigrationIndexTypesForAudit(c.mt)
 		assert.Equal(t, c.wantTypes, got, "migration type %q (%s)", c.mt, c.wantPolicy)
+		// The audit and autoCleanupAfterTerminal delete from disk, so they
+		// must fan out over exactly the index types cancel and submit-time
+		// cleanup use. A fork here is how a new migration type gets
+		// half-cleaned.
+		assert.Equal(t, ReindexTargetIndexes(c.mt), got,
+			"migration type %q must read the shared mapping", c.mt)
 	}
+
+	// A type this build does not know maps to nothing on both sides; the
+	// audit then falls back to direct tracker-dir removal.
+	assert.Nil(t, semanticMigrationIndexTypesForAudit("a-type-from-a-newer-node"))
+	assert.Equal(t,
+		ReindexTargetIndexes("a-type-from-a-newer-node"),
+		semanticMigrationIndexTypesForAudit("a-type-from-a-newer-node"))
 }
 
 func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
