@@ -261,9 +261,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
-	// The commit-time overlap backstop is the only failure that makes FAILED
-	// observable while the operation is still running, so its flip waits for the
-	// deferred meta write below: a poll that sees FAILED must be able to read why.
+	// overlapRefused says the commit-time overlap backstop is what failed the
+	// operation, which the deferred block below classifies differently from an
+	// operator abort.
 	var overlapRefused bool
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
@@ -306,9 +306,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
 		// After the meta write either way, since it's the operation that may
-		// have just failed and the reason must survive it.
-		if overlapRefused {
-			u.slot.setFailed(desc.Error)
+		// have just failed and the reason must survive it. err is published
+		// rather than desc.Error, which was fixed before the write and so says
+		// nothing when the write is what failed.
+		if desc.Status != backup.Cancelled {
+			u.slot.setFailed(publishableErrMsg(err))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
