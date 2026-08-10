@@ -66,6 +66,8 @@ const IdLockPoolSize uint64 = 1024
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errDropInProgress     = errors.New("shard drop in progress")
+	errShardStillInUse    = errors.New("shard still in use")
 )
 
 type ShardLike interface {
@@ -511,6 +513,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+	// dropRequested marks shard as requested for drop.
+	dropRequested atomic.Bool
 
 	HFreshEnabled bool
 
