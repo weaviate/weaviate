@@ -53,8 +53,13 @@ func (db *DB) CleanStalePartialReindexState(
 ) error {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
-		// Collection doesn't exist locally. Nothing to clean.
-		return nil
+		// The collection is not on this node, so there is nothing to sweep and
+		// nothing that needs sweeping: the state lives under the collection's
+		// own directory. Reported the same way as a delete landing mid-walk,
+		// rather than as a clean sweep — the two are the same situation a
+		// moment apart, and "cleared on this node" would claim work nobody did.
+		return fmt.Errorf("%w: no local index for collection %q",
+			ErrCleanupCollectionDropped, collection)
 	}
 	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
 }
@@ -64,10 +69,11 @@ func (db *DB) CleanStalePartialReindexState(
 // caller's answer is "unknown from here on" and not "these shards failed".
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
-// ErrCleanupCollectionDropped marks a sweep that ran while the collection was
-// being deleted. Nothing was swept and nothing needs to be: the sidecar state
-// lives under the collection's directory and goes away with it, so there is no
-// later sweep to retry either.
+// ErrCleanupCollectionDropped marks a sweep that found the collection gone
+// from this node, or going: a delete that landed before the sweep started, or
+// one that landed while it walked. Nothing was swept and nothing needs to be:
+// the sidecar state lives under the collection's directory and goes away with
+// it, so there is no later sweep to retry either.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
 
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not sweep
