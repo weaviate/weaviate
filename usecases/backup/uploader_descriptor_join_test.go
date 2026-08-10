@@ -132,7 +132,7 @@ func newJoinTestUploader(t *testing.T, s Sourcer) *uploader {
 	fb := newFakeBackend()
 	fb.On("SourceDataPath").Return(t.TempDir()).Maybe()
 	fb.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	return newUploader(config.Backup{}, s, nil, nil, nil,
+	return newUploader(config.Backup{}, s, nil, nil, nil, nil,
 		nodeStore{objectStore{fb, "join-test", "", "", "node1"}},
 		"join-test", func(backup.Status) {}, logrus.New())
 }

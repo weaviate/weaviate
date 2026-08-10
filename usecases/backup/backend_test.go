@@ -42,7 +42,7 @@ import (
 // release cannot resume the retry's halts.
 func TestNewUploaderMintsDistinctOp(t *testing.T) {
 	mk := func() *uploader {
-		return newUploader(config.Backup{}, nil, nil, nil, nil, nodeStore{}, "same-id",
+		return newUploader(config.Backup{}, nil, nil, nil, nil, nil, nodeStore{}, "same-id",
 			func(backup.Status) {}, logrus.New())
 	}
 
