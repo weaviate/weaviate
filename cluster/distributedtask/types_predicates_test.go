@@ -56,7 +56,7 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},
-		// Unrecognized statuses are active: see TestTaskStatus_UnknownIsActive.
+		// Unrecognized statuses are active: see TestTaskStatus_IsTerminal.
 		{TaskStatus("UNKNOWN_FUTURE_STATE"), true},
 		{TaskStatus(""), true},
 	}

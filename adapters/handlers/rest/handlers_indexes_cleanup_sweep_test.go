@@ -16,122 +16,150 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// droppedDuringSweep is what the sweep answers when the collection is deleted
-// underneath it: the sentinel wrapped around the close cause, the way
-// Index.CleanStalePartialReindexState returns it.
-func droppedDuringSweep() error {
-	return fmt.Errorf("%w: %w", db.ErrCleanupCollectionDropped,
-		errors.New("collection is being deleted"))
-}
-
-// The submit handler logs one operator-facing Error per returned failure,
-// telling the operator the new task may short-circuit on state left behind. A
-// collection being deleted left nothing behind and has no new task, so it must
-// not reach that log.
-func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
-	// change-tokenization submits both index types, which is the case where a
-	// concurrent delete can be seen by one sweep and not the other.
-	indexTypes, ok := indexTypesFromMigrationType(db.ReindexTypeChangeTokenization)
-	require.True(t, ok)
-	require.Len(t, indexTypes, 2)
-
-	realFailure := errors.New("shard \"s1\": disk is full")
+// What the operator reads after a cancel has to match what is left on disk. A
+// sweep that skipped shards is an error and a later submit has to finish it. A
+// sweep skipped because the collection is being deleted is neither: nothing is
+// left, and the "next submit will retry" remedy names a submit that will never
+// come for a collection that no longer exists.
+func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
+	strategies := []string{"searchable", "filterable"}
 
 	tests := []struct {
-		name string
-		// sweepErr is what the sweep returns for each index type, in order.
-		sweepErr []error
-		wantLogs int
+		name            string
+		errs            []error
+		payloadReadable bool
+		wantLevel       logrus.Level
+		wantContains    string
+		wantNotContains string
 	}{
 		{
-			name:     "both index types swept clean",
-			sweepErr: []error{nil, nil},
+			name:            "a clean sweep says so",
+			errs:            []error{nil, nil},
+			payloadReadable: true,
+			wantLevel:       logrus.InfoLevel,
+			wantContains:    "on-disk cleanup complete",
 		},
 		{
-			name:     "the collection is being deleted",
-			sweepErr: []error{droppedDuringSweep(), droppedDuringSweep()},
+			name:            "a clean sweep on an undecodable payload says which tuple it swept",
+			errs:            []error{nil, nil},
+			payloadReadable: false,
+			wantLevel:       logrus.InfoLevel,
+			wantContains:    "the property and index type in the request URL",
 		},
 		{
-			name:     "one index type raced the delete, the other really failed",
-			sweepErr: []error{droppedDuringSweep(), realFailure},
-			wantLogs: 1,
+			name:            "a bounded per-shard failure names the strategies that failed",
+			errs:            []error{errors.New("shard \"a\": disk full"), nil},
+			payloadReadable: true,
+			wantLevel:       logrus.ErrorLevel,
+			wantContains:    "cleaning partial reindex state on disk for 1 strategies failed",
+			wantNotContains: "not swept at all",
 		},
 		{
-			name:     "both index types really failed",
-			sweepErr: []error{realFailure, realFailure},
-			wantLogs: 2,
+			name:            "a shutting-down node leaves shards unswept, and the next submit is the remedy",
+			errs:            []error{fmt.Errorf("%w: node is shutting down", db.ErrCleanupSweepTruncated), nil},
+			payloadReadable: true,
+			wantLevel:       logrus.ErrorLevel,
+			wantContains:    "next submit's defense-in-depth cleanup will retry",
+		},
+		{
+			name:            "a collection being deleted is not a failure and promises no retry",
+			errs:            []error{fmt.Errorf("%w: collection is being deleted", db.ErrCleanupCollectionDropped), nil},
+			payloadReadable: true,
+			wantLevel:       logrus.InfoLevel,
+			wantContains:    "the collection is being deleted",
+			wantNotContains: "next submit",
+		},
+		{
+			// The delete wins on one strategy and something else failed on the
+			// other: the failure still has to reach the operator.
+			name: "a real failure next to a deleted collection is still an error",
+			errs: []error{
+				fmt.Errorf("%w: collection is being deleted", db.ErrCleanupCollectionDropped),
+				errors.New("shard \"a\": disk full"),
+			},
+			payloadReadable: true,
+			wantLevel:       logrus.ErrorLevel,
+			wantContains:    "disk full",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var calls int
-			errs := sweepStaleReindexState(indexTypes, func(indexType string) error {
-				require.Equal(t, indexTypes[calls], indexType,
-					"the sweep runs once per index type the migration touches, in order")
-				err := tc.sweepErr[calls]
-				calls++
-				return err
-			})
-			require.Equal(t, len(indexTypes), calls,
-				"a failure on one index type must not stop the sweep of the other")
-			require.Len(t, errs, tc.wantLogs,
-				"submit logs one operator-facing failure per returned error")
-			for _, err := range errs {
-				require.NotErrorIs(t, err, db.ErrCleanupCollectionDropped,
-					"a deleted collection has no state left for the next task to short-circuit on")
+			require.Len(t, tc.errs, len(strategies), "one result per strategy swept")
+
+			var outcome cleanupSweepOutcome
+			for i, err := range tc.errs {
+				outcome.add(strategies[i], err)
+			}
+
+			logger, hook := logrustest.NewNullLogger()
+			logCleanupSweep(logger.WithField("taskID", "t-1"), strategies, outcome, tc.payloadReadable)
+
+			require.Len(t, hook.AllEntries(), 1, "the sweep gets exactly one line, or the operator reads two verdicts")
+			entry := hook.AllEntries()[0]
+			require.Equalf(t, tc.wantLevel, entry.Level,
+				"the level is the operator's cue to act; message was %q", entry.Message)
+			require.Contains(t, entry.Message, tc.wantContains)
+			if tc.wantNotContains != "" {
+				require.NotContains(t, entry.Message, tc.wantNotContains,
+					"the message must not offer a remedy this outcome does not have")
 			}
 		})
 	}
 }
 
-// The cancel handler logs an Error promising that the next submit's
-// defense-in-depth cleanup will retry. For a collection being deleted there is
-// no next submit, so the promise must never be made.
-func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
+// The pre-submit sweep runs before every submit as defense in depth. Its
+// failure means the new task may resume against stale state, which is worth
+// waking someone for. A collection being deleted is not: there is no stale
+// state left and the submit itself is about to be refused.
+func TestPreSubmitCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 	tests := []struct {
-		name       string
-		indexTypes []string
-		sweepErr   map[string]error
-		wantErrs   []string
+		name         string
+		err          error
+		wantEntries  int
+		wantLevel    logrus.Level
+		wantContains string
 	}{
 		{
-			name:       "nothing to report",
-			indexTypes: []string{"filterable"},
+			name:        "a clean sweep is not worth a line",
+			err:         nil,
+			wantEntries: 0,
 		},
 		{
-			name:       "the collection is being deleted",
-			indexTypes: []string{"filterable"},
-			sweepErr:   map[string]error{"filterable": droppedDuringSweep()},
+			name:         "a failed sweep warns that the new task may resume against stale state",
+			err:          errors.New("shard \"a\": disk full"),
+			wantEntries:  1,
+			wantLevel:    logrus.ErrorLevel,
+			wantContains: "operator inspection recommended",
 		},
 		{
-			name:       "a real failure is still reported, with its index type",
-			indexTypes: []string{"searchable", "filterable"},
-			sweepErr: map[string]error{
-				"searchable": droppedDuringSweep(),
-				"filterable": errors.New("shard \"s1\": disk is full"),
-			},
-			wantErrs: []string{`indexType="filterable": shard "s1": disk is full`},
+			name:         "a collection being deleted has no stale state to leave behind",
+			err:          fmt.Errorf("%w: collection is being deleted", db.ErrCleanupCollectionDropped),
+			wantEntries:  1,
+			wantLevel:    logrus.InfoLevel,
+			wantContains: "the collection is being deleted",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			errs := sweepStaleReindexState(tc.indexTypes, func(indexType string) error {
-				return tc.sweepErr[indexType]
-			})
+			logger, hook := logrustest.NewNullLogger()
+			logPreSubmitSweep(logger.WithField("index_type", "filterable"), tc.err)
 
-			// The handler takes the "on-disk cleanup complete" branch on an
-			// empty slice and the retry-promising Error branch otherwise.
-			require.Len(t, errs, len(tc.wantErrs))
-			for i, want := range tc.wantErrs {
-				require.EqualError(t, errs[i], want)
+			require.Len(t, hook.AllEntries(), tc.wantEntries)
+			if tc.wantEntries == 0 {
+				return
 			}
+			entry := hook.AllEntries()[0]
+			require.Equalf(t, tc.wantLevel, entry.Level, "message was %q", entry.Message)
+			require.Contains(t, entry.Message, tc.wantContains)
 		})
 	}
 }

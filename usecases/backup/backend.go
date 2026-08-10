@@ -261,6 +261,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
+	// overlapRefused says the commit-time overlap backstop is what failed the
+	// operation, which the deferred block below classifies differently from an
+	// operator abort.
+	var overlapRefused bool
+
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
 	defer func() {
@@ -289,10 +294,13 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
+		// The caller has already logged the full chain, shard id and all.
 		desc.Error = publishableErrMsg(err)
 
-		// Handle error cases
-		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		// overlapRefused wins over the cancellation classification: the refusal's
+		// own cause may itself wrap a cancellation from an unrelated context,
+		// which would otherwise get published as an operator abort.
+		cancelled := !overlapRefused && (errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled))
 		if cancelled {
 			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
@@ -379,6 +387,27 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
+	// Commit-time backstop: per-shard checks ran before capture, so a reindex
+	// admitted during capture was invisible to them. Failing the backup beats a
+	// SUCCESS that silently spans a migration.
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
+		// If this context itself is cancelled, that's an operator abort, not
+		// an overlap — reporting it as one would flip the status to FAILED
+		// behind the operator's back for a migration that never ran.
+		if ctx.Err() != nil {
+			return contextChecker(ctx)
+		}
+		overlapRefused = true
+		desc.Status = backup.Failed
+		if errors.Is(err, backup.ErrReindexOverlapUndetermined) {
+			// The check's own text already states it couldn't answer and
+			// carries the remedy; prefixing "overlapped" here would assert a
+			// migration that may never have existed.
+			return err
+		}
+		return fmt.Errorf("a runtime-reindex overlapped this backup: %w", err)
+	}
+
 	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
@@ -386,9 +415,16 @@ Loop:
 	return nil
 }
 
-// publishableErrMsg is the failure text safe to serve from the status API.
+// publishableErrMsg is the failure text safe to serve from the status API. A
+// gate refusal arrives wrapped in the shard it came from; backing up a
+// collection grants nothing on shard ids, so the refusal's own message is
+// published rather than the traversal that found it.
 func publishableErrMsg(err error) string {
 	msg := err.Error()
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		msg = blocked.Error()
+	}
 	if msg == "" {
 		// A failure published with no text at all reads as no failure; say at
 		// least that there was one.

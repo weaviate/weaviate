@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -54,11 +55,72 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 
 type fakeSourcer struct {
 	mock.Mock
+
+	// Plain field so pre-existing restore tests pass without a mock.On call.
+	reindexInFlightErr error
+	reindexOverlapErr  error
+	// reindexOverlapFn lets a test act on the context the lookup is handed, so
+	// an abort landing while the lookup runs can be reproduced.
+	reindexOverlapFn func(ctx context.Context) error
+
+	// overlapMu guards the recorded arguments below: the participant backup
+	// runs the commit-time check on its own goroutine.
+	overlapMu          sync.Mutex
+	overlapClasses     []string
+	overlapSince       time.Time
+	overlapCalls       int
+	inFlightCollection [][]string
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
 	args := s.Called(ctx, id, class)
 	return args.Error(0)
+}
+
+// The collections are recorded for the same reason the overlap check's are
+// (below): the answer alone says nothing about which collections the gate was
+// asked about, and asking about a wildcard pattern rather than a resolved class
+// name is a silent way for this half of the gate to stop gating.
+func (s *fakeSourcer) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
+	s.overlapMu.Lock()
+	s.inFlightCollection = append(s.inFlightCollection, collections)
+	s.overlapMu.Unlock()
+	return s.reindexInFlightErr
+}
+
+// reindexInFlightCollections returns what each participant-side gate call was
+// scoped to.
+func (s *fakeSourcer) reindexInFlightCollections() [][]string {
+	s.overlapMu.Lock()
+	defer s.overlapMu.Unlock()
+	return append([][]string(nil), s.inFlightCollection...)
+}
+
+// reindexOverlapErr backs RefuseIfReindexOverlapped as a plain field so a test
+// can distinguish "live at commit" from "overlapped and already finished".
+//
+// The arguments are recorded as well: the answer alone says nothing about which
+// window the check was asked about, and asking about the wrong one is a silent
+// way for this backstop to stop backstopping.
+func (s *fakeSourcer) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
+	s.overlapMu.Lock()
+	s.overlapCalls++
+	s.overlapClasses = classes
+	s.overlapSince = since
+	s.overlapMu.Unlock()
+
+	if s.reindexOverlapFn != nil {
+		return s.reindexOverlapFn(ctx)
+	}
+	return s.reindexOverlapErr
+}
+
+// lastOverlapQuery returns the arguments of the most recent
+// RefuseIfReindexOverlapped call, plus how many calls have been made.
+func (s *fakeSourcer) lastOverlapQuery() (classes []string, since time.Time, calls int) {
+	s.overlapMu.Lock()
+	defer s.overlapMu.Unlock()
+	return s.overlapClasses, s.overlapSince, s.overlapCalls
 }
 
 func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
@@ -220,4 +282,33 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 	fb.files[backupID+"/"+key] = buf.Bytes()
 
 	return n, err
+}
+
+// fakeStatusSlot stands in for the node's operation slot, recording what a
+// status poll would read at each change.
+type fakeStatusSlot struct {
+	statuses []backup.Status
+	reason   string
+	// onChange runs at each status change, for a test that has to read some
+	// other state at exactly that instant.
+	onChange func(backup.Status)
+}
+
+func (f *fakeStatusSlot) set(st backup.Status) {
+	f.statuses = append(f.statuses, st)
+	if f.onChange != nil {
+		f.onChange(st)
+	}
+}
+
+func (f *fakeStatusSlot) setFailed(reason string) {
+	f.reason = reason
+	f.set(backup.Failed)
+}
+
+func (f *fakeStatusSlot) last() backup.Status {
+	if len(f.statuses) == 0 {
+		return ""
+	}
+	return f.statuses[len(f.statuses)-1]
 }

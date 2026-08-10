@@ -1201,16 +1201,130 @@ catches that gap.
    sidecar dirs for the dropped index type, plus the tracker dir.
 4. Subsequent re-enable starts from clean state.
 
-## 13. Out of scope (broken; tracked follow-up)
+## 13. Backup, restore, and the reindex guard
 
-Backups and migrations across runtime-reindex state are intentionally
-left broken on this branch and will not be fixed in the v1.38 Preview
-merge. The fixes live on `backup-runtime-reindex-fixes` and will
-land as a follow-up PR. Tracking: weaviate/0-weaviate-issues#215.
+Backup, restore and reindex all rewrite the same on-disk buckets, so
+each refuses to start while another is running:
 
-Operators should not rely on backup/restore or schema migration
-interacting cleanly with an in-flight or recently-completed reindex
-while running v1.38 Preview.
+| Submitted | Refused when | Where |
+| --- | --- | --- |
+| Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
+| Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
+| Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
+
+These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
+off by default, and with it off these gates return before checking anything —
+see "Where each gate fails open" below, whose third window is that default.
+
+**Where each gate fails closed.** Once its lookup is installed, every
+gate treats an uncertain answer as a blocking one. The backup gate
+refuses every backup while the cluster task manager cannot be listed.
+A live task whose payload cannot be read is the same uncertainty in a
+smaller shape, and the refusal is scoped to how much of the payload
+survives (`db.DecodeReindexTaskPayload`, consulted by
+`newShardReindexActivityBuilder` in `configure_api.go`):
+
+| What survives | What is refused |
+| --- | --- |
+| The collection, but not the shards (a field a newer node retyped) | Every backup of that one collection, and every restore that includes it |
+| Nothing — no collection either (unparseable, or a collection field a newer node renamed) | Every backup and every restore in the cluster |
+
+A payload that names no collection is unreadable even when it decodes
+without error: a renamed field leaves an empty collection behind, and
+nothing then says which shards the task holds. The cancel endpoint
+accepts such a task from any collection, which is the operator's remedy
+for the cluster-wide case. Because that cancel reaches a migration on a
+collection the URL does not name, it requires `UPDATE` on every
+collection, not just the one in the URL; a caller without that gets the
+same `NO_OP` it would get if no such task existed.
+
+The commit-time overlap check draws the same two lines through the same
+decoder, so admission and commit cannot disagree about what unreadable
+means. It also does not waive an unreadable task that already finished:
+the teardown is addressed by the shards the payload names, so nothing
+tore it down, and the refusal stands until the completed-task TTL drops
+the task. The restore gate refuses the restore on the same failure. The
+reindex gate answers 503 for a node that does not respond to the probe.
+An `Index` built without a back-reference to `DB` refuses the backup
+outright.
+
+**Where each gate fails open.** Three windows are deliberately left
+open. Two are logged; the third is silent by design and is the default
+configuration:
+
+- *Lookup not yet installed.* The lookups are wired from a
+  post-bootstrap goroutine in `configure_api.go`. Until it runs, the
+  backup gate, the restore gate, the commit-time overlap check
+  (`DB.RefuseIfReindexOverlapped`) and the reindex gate each allow the
+  operation and emit a WARN, rate-limited to one line per hour so a
+  persistent misconfiguration stays visible to whoever reads the log
+  next. This window is reachable from outside: a request that arrives
+  early enough in startup is answered before the goroutine installs the
+  lookups, and has been observed doing so. So a WARN here is a real
+  signal — it names an operation that ran without its gate — and not
+  evidence that the wiring is broken.
+  The cleanup half of both gates is narrower than this: it reads only
+  this node's own provider, so `configure_api.go` installs it
+  synchronously before that goroutine is even started, and it is never
+  nil while the goroutine waits. A submission that is sweeping sidecars
+  right now therefore refuses a concurrent backup and restore for the
+  whole of that window. It is skipped without a WARN when only the
+  activity lookup is installed, which is the shape module-test fixtures
+  use.
+- *Old node during a rolling upgrade.* A node that predates
+  `GET /backups/node-activity` answers 404. The reindex gate counts that
+  node as free of backups and admits the submission, with a WARN naming
+  the node. So a backup running only on not-yet-upgraded nodes is
+  invisible to the reindex gate. The commit-time overlap check is the
+  backstop on the backup side: a backup whose capture window overlapped
+  a reindex fails at commit rather than being stored as good.
+- *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
+  before it looks at anything, so no gate refuses and none of them logs:
+  this window is silent by design, and it is the shipped default. It is
+  wider than "no reindex can start" implies — a task already running when
+  the flag went off keeps running, a node that BOOTS with the flag off
+  resumes a `STARTED` task from DTM, and cancel stays allowed so a
+  teardown can still be in flight. With the gates off a backup can span
+  any of the three, and no commit-time backstop catches it either, since
+  that check is off too. What the flag lifts is exactly the backup and
+  restore refusals (and the commit-time backstop with them), so it cannot
+  itself fail backups. It is not an escape hatch for the whole feature:
+  the schema gates that block `DeleteClass`, property updates and tenant
+  mutations while a task is in flight sit on the RAFT apply path and never
+  read this flag, so they keep refusing until the task reaches a terminal
+  state.
+
+**The commit-time backstop compares two clocks.** `RefuseIfReindexOverlapped`
+clears a task when its `FinishedAt` is before the backup's start time. Those two
+stamps come from different machines: the start time from the node capturing the
+backup, `FinishedAt` from whichever node proposed the task to RAFT. If the
+proposer's clock runs far enough behind, a migration that really did finish
+inside the backup window reads as having finished before it, and the backup is
+published as clean while it is torn.
+
+This is accepted, not a bug to be worked around here. Backup state is not
+tracked in RAFT, so there is no cluster-wide consistent answer to "when did this
+backup start" to order task state against — every timestamp comparison
+downstream of that inherits the same window. Two attempts to close it locally
+(a fixed skew allowance, then a task-set snapshot taken at backup start and
+re-read at commit) were reverted for that reason: both were workarounds for a
+limitation in the backup subsystem, placed in the reindex code. Closing it means
+putting backup state in RAFT.
+
+Refusals are retryable, never terminal:
+
+- A reindex refused because of a backup gets 409; if a node cannot be
+  reached it gets 503, since an unanswered node cannot be assumed idle.
+- A restore refused because of a reindex gets 422.
+- Nothing needs operator action to clear. A backup or restore slot is
+  held in process memory only, so it dies with the process. Participant
+  slots expire on their own within 20s of an abandoned operation; a
+  coordinator slot can be held until its node-down timeout
+  (`_TimeoutNodeDown`, 7 minutes), which delays reindex submissions but
+  never blocks a backup.
+
+Schema migration against an in-flight reindex is still unguarded.
+Tracking: weaviate/0-weaviate-issues#215.
 
 ## 14. Files of interest
 

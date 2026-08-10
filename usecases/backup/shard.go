@@ -133,6 +133,27 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 func (s *backupStat) setFailed(reason string) {
 	s.Lock()
 	defer s.Unlock()
+	s.setFailedLocked(reason)
+}
+
+// setFailedIfOwned is [backupStat.setFailed] under the ownership rule of
+// [backupStat.setIfOwned], for the callers that publish a failure they may no
+// longer own the slot for. Reports whether it wrote.
+func (s *backupStat) setFailedIfOwned(id string, reason string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.setFailedLocked(reason)
+	return true
+}
+
+// setFailedLocked must be called with the lock held.
+func (s *backupStat) setFailedLocked(reason string) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
@@ -143,19 +164,6 @@ func (s *backupStat) setFailed(reason string) {
 	}
 	s.rememberedFailureID = s.reqState.ID
 	s.rememberedFailureReason = reason
-}
-
-// rememberedFailure reports why the operation with this id ended failed, for
-// polls arriving after the slot was released. Absent for anything that did not
-// end failed with a reason. The id has to match: a poll for one backup must
-// never be answered with what happened to another.
-func (s *backupStat) rememberedFailure(id string) (string, bool) {
-	s.Lock()
-	defer s.Unlock()
-	if id == "" || s.rememberedFailureID != id {
-		return "", false
-	}
-	return s.rememberedFailureReason, true
 }
 
 // resetIfOwned clears the slot only if generation is still the claim holding
@@ -176,6 +184,19 @@ func (s *backupStat) resetIfOwned(generation uint64) bool {
 	return true
 }
 
+// rememberedFailure reports why the operation with this id ended failed, for
+// polls arriving after the slot was released. Absent for anything that did not
+// end failed with a reason. The id has to match: a poll for one backup must
+// never be answered with what happened to another.
+func (s *backupStat) rememberedFailure(id string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.rememberedFailureID != id {
+		return "", false
+	}
+	return s.rememberedFailureReason, true
+}
+
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	defer s.Unlock()
@@ -193,12 +214,15 @@ func (s *backupStat) set(st backup.Status) {
 // slot reading Cancelled makes coordinator.commit abort the operation as
 // "cancelled externally". Reports whether it wrote.
 //
-// Matches on the id, not on the generation resetIfOwned takes: the caller is
-// not the holder and has no claim of its own, and cancelling whichever
-// operation currently runs under that id is what a cancel is asking for. The
-// same is true of [backupStat.resetIfCancelled], whose caller is a fresh
-// restore attempt that has not claimed anything yet — which is why that one
-// checks the status instead.
+// Matches on the id, not on the generation resetIfOwned takes: a cancel is not
+// the holder and has no claim of its own, and cancelling whichever operation
+// currently runs under that id is what a cancel is asking for. The same is true
+// of [backupStat.resetIfCancelled], whose caller is a fresh restore attempt that
+// has not claimed anything yet — which is why that one checks the status
+// instead. The restore coordinator's own status writes use the id they claimed
+// with: keying those on the generation would mean threading it through
+// [coordinator.commit], and an id match already stops a write landing on an
+// unrelated operation.
 func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
 	s.Lock()
 	defer s.Unlock()

@@ -1087,6 +1087,108 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	})
 }
 
+// TestSchedulerRestoreRefusedByParticipantIsUnprocessable pins that a participant
+// refusing over a live migration surfaces as 422, not a paging 500.
+func TestSchedulerRestoreRefusedByParticipantIsUnprocessable(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "MyClass-A"
+		nodeA       = "Node-A"
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+		path        = "bucket/backups/" + backupID
+	)
+	meta := backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		StartedAt:     time.Now().UTC(),
+		Version:       Version,
+		ServerVersion: "1.23",
+		Status:        backup.Success,
+		Nodes:         map[string]*backup.NodeDescriptor{nodeA: {Classes: []string{cls}}},
+	}
+	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
+	shardingStateBytes, _ := json.Marshal(&sharding.State{
+		IndexID:  cls,
+		Physical: map[string]sharding.Physical{"S1": {Name: "S1"}},
+	})
+	nodeMetaBytes, _ := json.Marshal(backup.BackupDescriptor{
+		ID:     backupID,
+		Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{
+			Name: cls, Schema: rawClassBytes, ShardingState: shardingStateBytes,
+		}},
+	})
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA}))
+	fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID+"/"+nodeA, BackupFile).Return(nodeMetaBytes, nil)
+	fs.backend.On("HomeDir", any, any, any).Return(path)
+	fs.backend.On("PutObject", any, any, GlobalRestoreFile, any).Return(nil)
+	fs.client.On("CanCommit", any, nodeA, any).Return(&CanCommitResponse{
+		Method:  OpRestore,
+		ID:      backupID,
+		Err:     "restore blocked: runtime-reindex in flight in the cluster: retry after the migration finishes",
+		ErrKind: CanCommitErrRestoreBlockedByReindex,
+	}, nil)
+	fs.client.On("Abort", any, any, any).Return(nil)
+
+	_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+		ID: backupID, Include: []string{cls}, Backend: backendName,
+	}, false)
+
+	require.Error(t, err)
+	assert.IsType(t, backup.ErrUnprocessable{}, err,
+		"a participant refusing over a live migration must not surface as a 500")
+	assert.Contains(t, err.Error(), "restore blocked: runtime-reindex in flight in the cluster")
+	assert.NotContains(t, err.Error(), nodeA,
+		"the reindex refusal is node-free by construction; the coordinator must not prefix it with the node name")
+}
+
+// TestSchedulerBackupRefusedByParticipantIsUnprocessable is the backup-side
+// counterpart of TestSchedulerRestoreRefusedByParticipantIsUnprocessable.
+func TestSchedulerBackupRefusedByParticipantIsUnprocessable(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "Class-A"
+		node        = "Node-A"
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+	)
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.selector.On("ListClasses", ctx).Return([]string{cls})
+	fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
+	fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("HomeDir", any, any, any).Return("bucket/backups/" + backupID)
+	fs.backend.On("Initialize", ctx, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
+		Method:  OpCreate,
+		ID:      backupID,
+		Err:     "backup blocked: runtime-reindex in flight",
+		ErrKind: CanCommitErrInFlightReindex,
+	}, nil)
+	fs.client.On("Abort", any, any, any).Return(nil)
+
+	_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+		ID: backupID, Include: []string{cls}, Backend: backendName,
+	})
+
+	require.Error(t, err)
+	assert.IsType(t, backup.ErrUnprocessable{}, err,
+		"a participant refusing over a live migration must not surface as a 500")
+	assert.Contains(t, err.Error(), "backup blocked: runtime-reindex in flight")
+	assert.NotContains(t, err.Error(), node,
+		"the reindex refusal is node-free by construction; the coordinator must not prefix it with the node name")
+}
+
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (

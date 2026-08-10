@@ -312,6 +312,13 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
+		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
+			// Its own kind, not classifyCanCommitErr, so the coordinator can
+			// answer 422: a migration in progress is not a server fault.
+			ret.Err = fmt.Sprintf("restore blocked: %v", err)
+			ret.ErrKind = CanCommitErrRestoreBlockedByReindex
+			return ret
+		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()

@@ -196,6 +196,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
+		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
+			errors.Is(err, backup.ErrReindexInFlight) {
+			// Retryable, so 422: a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()
@@ -238,6 +243,20 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
+			// The gate answers before existence does: a caller who cannot
+			// restore right now should be told that, not sent to fix an id
+			// that was never the problem.
+			if !explicitInclude {
+				// This path has no classes to authorize against, so a broad
+				// grant stands in — the gate's cluster-wide answer must not
+				// reach a principal with no backup permission at all.
+				if authErr := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...); authErr != nil {
+					return nil, authErr
+				}
+			}
+			if gateErr := s.refuseRestoreDuringReindex(ctx, nil); gateErr != nil {
+				return nil, gateErr
+			}
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
@@ -249,6 +268,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			return nil, err
 		}
 		meta.Include(allowed)
+	}
+
+	// Gated here, after validateRestoreRequest expands any wildcard include
+	// against the backup's classes — gating earlier would ask the lookup
+	// about the pattern itself, which matches no collection.
+	if err := s.refuseRestoreDuringReindex(ctx, meta.Classes()); err != nil {
+		return nil, err
 	}
 
 	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -284,6 +310,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
+		if errors.Is(err, backup.ErrReindexInFlight) {
+			// The participant saw a migration the cluster-wide check above missed.
+			// Retryable, so 422: a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	}
 
@@ -309,6 +340,21 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
 	}
 	return allowed, nil
+}
+
+// refuseRestoreDuringReindex refuses a restore while a runtime-reindex task is
+// live on any of collections, anywhere in the cluster. Refuses rather than
+// waits, since waiting would hold the restore slot the reverse guard reads,
+// deadlocking both sides. Every caller must authorize first: the refusal
+// discloses cluster-wide reindex state. collections must be resolved class
+// names, never wildcards; nil asks about every collection. Fails closed: a
+// task whose payload cannot be read refuses the collection the payload still
+// names, and one naming no collection at all refuses every restore.
+func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
+	if err := s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("restore blocked: %w", err))
+	}
+	return nil
 }
 
 // authorizeBackupByID authorizes the caller against the classes recorded in the
@@ -540,14 +586,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
-		// stamped says whether this node's restore slot took the status. False
-		// means the slot holds some other restore, which is why an operator who
-		// cancelled sees no change in what this node reports.
-		stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
-		s.logger.WithField("action", "cancel_restore").
-			WithField("backup_id", backupID).
-			WithField("slot_stamped", stamped).
-			Debug("marked restore cancelling")
+		s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -567,11 +606,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// Only when this node's restore slot is still held by the restore being
 	// cancelled: the slot is one per node and shared by every restore this node
 	// coordinates, and OnStatus reads it only for a matching id anyway.
-	stamped := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
-	s.logger.WithField("action", "cancel_restore").
-		WithField("backup_id", backupID).
-		WithField("slot_stamped", stamped).
-		Debug("marked restore cancelled")
+	s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 
 	// Write final CANCELED status to restore_config.json
 	if meta != nil {

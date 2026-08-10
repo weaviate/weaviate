@@ -58,7 +58,10 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
-  run_acceptance_reindex_backup=false
+  run_acceptance_reindex_backup_suite=false
+  run_acceptance_reindex_backup_a=false
+  run_acceptance_reindex_backup_b=false
+  run_acceptance_reindex_backup_cluster=false
   run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -117,7 +120,10 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
-          --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --acceptance-reindex-backup-suite|-arbs) run_all_tests=false; run_acceptance_reindex_backup_suite=true;;
+          --acceptance-reindex-backup-a|-arba) run_all_tests=false; run_acceptance_reindex_backup_a=true;;
+          --acceptance-reindex-backup-b|-arbb) run_all_tests=false; run_acceptance_reindex_backup_b=true;;
+          --acceptance-reindex-backup-cluster|-arbc) run_all_tests=false; run_acceptance_reindex_backup_cluster=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -166,7 +172,10 @@ function main() {
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
-              "--acceptance-reindex-backup | -arb"\
+              "--acceptance-reindex-backup-suite | -arbs"\
+              "--acceptance-reindex-backup-a | -arba"\
+              "--acceptance-reindex-backup-b | -arbb"\
+              "--acceptance-reindex-backup-cluster | -arbc"\
               "--acceptance-backups | -ab"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -396,7 +405,7 @@ function main() {
   fi
 
   if $run_acceptance_reindex_singlenode_b; then
-    echo "running reindex singlenode acceptance tests — sub-shard B (PropertyStateMigrationMatrix + PostRestartFinalize)"
+    echo "running reindex singlenode acceptance tests — sub-shard B (PropertyStateMigrationMatrix only)"
     run_acceptance_reindex_singlenode_b
   fi
 
@@ -410,9 +419,24 @@ function main() {
     run_acceptance_reindex_mt
   fi
 
-  if $run_acceptance_reindex_backup; then
-    echo "running backup × runtime-reindex acceptance tests"
-    run_acceptance_reindex_backup
+  if $run_acceptance_reindex_backup_suite; then
+    echo "running backup × runtime-reindex acceptance tests (single-node suite)"
+    run_acceptance_reindex_backup_suite
+  fi
+
+  if $run_acceptance_reindex_backup_a; then
+    echo "running backup × runtime-reindex acceptance tests (single-node guards A)"
+    run_acceptance_reindex_backup_a
+  fi
+
+  if $run_acceptance_reindex_backup_b; then
+    echo "running backup × runtime-reindex acceptance tests (single-node guards B)"
+    run_acceptance_reindex_backup_b
+  fi
+
+  if $run_acceptance_reindex_backup_cluster; then
+    echo "running backup × runtime-reindex acceptance tests (multi-node)"
+    run_acceptance_reindex_backup_cluster
   fi
 
   if $run_acceptance_backups; then
@@ -644,6 +668,10 @@ function run_aof_group() {
     extra_flags+=(-skip "$AOF_GROUP_SKIP")
   fi
 
+  # Go's per-package timeout fires as a hard panic, so a group whose tests can
+  # legitimately run longer than the default needs its own budget.
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+
   local testFailed=0
   for path in "${package_paths[@]}"; do
     for pkg in $(go list "./$path" 2>/dev/null || true); do
@@ -656,7 +684,7 @@ function run_aof_group() {
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1019,11 +1047,80 @@ function run_acceptance_reindex_mt() {
     test/acceptance/reindex_mt
 }
 
-function run_acceptance_reindex_backup() {
+# The single-node half of test/acceptance/reindex_backup is spread over the
+# three groups below. Every filter matches by exact name; a typo runs zero
+# tests and still reports green, which is what
+# TestCIAllowlistCoversEveryTestInThisPackage exists to catch (it has to be
+# listed itself to be able to run).
+#
+# Each group's budget is the sum of the deadlines its own tests wait on, which
+# is why they differ. A budget below that sum has go test killed by the runner
+# before it can panic with stacks, so TestCIGroupTimeoutFitsTheJobWindow reads
+# the per-test worst cases below and holds every budget to their sum. Keep the
+# AOF_TEST_BUDGET lines next to the derivation; the guard fails on a test that
+# has none.
+#
+#   AOF_TEST_BUDGET TestBackupVsReindexSuite 35m   9 sequential subtests
+#   AOF_TEST_BUDGET TestReindexRefusedWhileRestoreRuns 20m   three 5m waits + 60s + 60s + 180s
+#   AOF_TEST_BUDGET TestReindexBlockClearsAfterNodeCrash 17m   two 5m probes + 120s + 60s + 60s + 180s
+#   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 15m   two 5m waits + 30s + 60s + 180s, rounded up from 14.5m
+#   AOF_TEST_BUDGET TestRestoreRefusedDuringInFlightReindex 6m   3m backup + 2m restore + 30s
+#   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup waits + six 60s waits
+#   AOF_TEST_BUDGET TestCIAllowlistCoversEveryTestInThisPackage 0m   no deadline; costs a package build
+#   AOF_TEST_BUDGET TestCIWorkflowInvokesEveryGroupThatRunsThisPackage 0m   no deadline
+#   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
+#
+# That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
+# are budgeted at exactly theirs, on the assumption their tests finish well
+# inside their own deadlines. Container startup and the -race build sit outside
+# every per-test deadline, so they come out of that slack rather than out of a
+# separate allowance. In practice each group finishes in under 5 minutes,
+# because the deadlines are ceilings a healthy run never approaches. If that
+# stops holding, these two groups go red first.
+#
+# Those sum to ~119m against a 45m job window that also has to fit the ~5m
+# image build, which is why the package is split over four entries rather than
+# run under one budget.
+
+function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-backup"
-  run_aof_group "reindex-backup" \
-    test/acceptance/reindex_backup
+  echo_green "acceptance — reindex-backup-suite (single-node, TestBackupVsReindexSuite)"
+  # One test, so it gets the entry to itself.
+  AOF_GROUP_TIMEOUT=35m \
+    AOF_GROUP_RUN='^TestBackupVsReindexSuite$' \
+    run_aof_group "reindex-backup-suite" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_a() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-a (single-node restore guards)"
+  # Carries the three CI guards, which cost a package build and a
+  # `go test -list` rather than a container. They ride in the shortest group so
+  # their compile time has the most room.
+  AOF_GROUP_TIMEOUT=27m \
+    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
+    run_aof_group "reindex-backup-a" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_b() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-b (single-node backup guards)"
+  # Both tests are backup-side guards, so a change to that side lands in one
+  # group rather than two.
+  AOF_GROUP_TIMEOUT=32m \
+    AOF_GROUP_RUN='^(TestReindexBlockClearsAfterNodeCrash|TestReindexRefusedWhileBackupRuns)$' \
+    run_aof_group "reindex-backup-b" test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup-cluster (multi-node)"
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m this budget
+  # carries over its floor buys padding for the multi-node cluster, which takes
+  # the longest of the four groups to come up.
+  AOF_GROUP_TIMEOUT=35m \
+    AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
+    run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
 }
 
 function run_acceptance_backups() {

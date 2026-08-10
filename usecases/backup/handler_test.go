@@ -207,19 +207,35 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 
 // TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
 // the local sourcer (DB.Backupable) refuses with the
-// "backup blocked: runtime-reindex in flight on this shard" sentinel
+// "backup blocked: runtime-reindex in flight" sentinel
 // message, OnCanCommit stamps CanCommitErrInFlightReindex on the response so
 // the coordinator can promote it back to a typed error. Other refusal
 // reasons must keep falling back to CanCommitErrCannotCommit.
+//
+// The restore arm is here too: it refuses on a different input (the
+// cluster-wide gate rather than the per-class sourcer) but lands on the same
+// three response fields, and it additionally has to refuse before the
+// descriptor is read.
 func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 	ctx := context.Background()
 	backendName := "s3"
 
 	tests := []struct {
-		name        string
+		name string
+		// method defaults to OpCreate when empty.
+		method Op
+		// backupErr is what the per-class sourcer refuses with; gateErr is what
+		// the cluster-wide restore gate refuses with. A row sets one.
 		backupErr   error
+		gateErr     error
 		wantContain string
-		wantKind    CanCommitErrorKind
+		// wantExactErr, when set, pins the whole message rather than a
+		// substring of it.
+		wantExactErr string
+		wantKind     CanCommitErrorKind
+		// wantDescriptorRead says whether the participant is allowed to have
+		// read the backup descriptor before answering.
+		wantDescriptorRead bool
 	}{
 		{
 			name: "in-flight reindex sentinel surfaces as CanCommitErrInFlightReindex",
@@ -252,21 +268,39 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 			wantContain: "unrelated boom",
 			wantKind:    CanCommitErrCannotCommit,
 		},
+		{
+			// A restore is refused by the cluster-wide gate, and it has to be
+			// refused before restorer.validate reads the descriptor. The
+			// per-shard backup kind would re-materialize the message under the
+			// backup sentinel; this kind carries the cluster-wide one.
+			name:    "restore refused by the cluster-wide gate",
+			method:  OpRestore,
+			gateErr: gateRefusal(),
+			wantExactErr: "restore blocked: runtime-reindex in flight in the cluster: " +
+				"retry after the migration finishes",
+			wantKind: CanCommitErrRestoreBlockedByReindex,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := &fakeBackend{}
+			// The backend answers rather than rejecting, so a dropped gate
+			// fails an assertion instead of panicking in the mock.
+			backend := newFakeBackend()
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
-			backend.On("GetObject", ctx, mock.Anything, BackupFile).Return(nil, errNotFound).Maybe()
+			backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, errNotFound).Maybe()
 
-			sourcer := &fakeSourcer{}
-			sourcer.On("Backupable", ctx, mock.Anything).Return(tc.backupErr)
+			sourcer := &fakeSourcer{reindexInFlightErr: tc.gateErr}
+			sourcer.On("Backupable", ctx, mock.Anything).Return(tc.backupErr).Maybe()
 
 			bm := createManager(sourcer, nil, backend, nil)
 
+			method := tc.method
+			if method == "" {
+				method = OpCreate
+			}
 			req := Request{
-				Method:   OpCreate,
+				Method:   method,
 				ID:       "1",
 				Classes:  []string{"MyClass"},
 				Backend:  backendName,
@@ -276,9 +310,43 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 			}
 			resp := bm.OnCanCommit(ctx, &req)
 
-			assert.Contains(t, resp.Err, tc.wantContain)
+			if tc.wantExactErr != "" {
+				assert.Equal(t, tc.wantExactErr, resp.Err)
+			} else {
+				assert.Contains(t, resp.Err, tc.wantContain)
+			}
 			assert.Equal(t, tc.wantKind, resp.ErrKind)
 			assert.Equal(t, time.Duration(0), resp.Timeout)
+			if !tc.wantDescriptorRead {
+				backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
+			}
 		})
 	}
+}
+
+// gateRefusal mirrors the error shape DB.RefuseIfAnyReindexInFlight returns.
+func gateRefusal() error {
+	return fmt.Errorf("%w: retry after the migration finishes", backup.ErrReindexInFlight)
+}
+
+// TestOnCanCommitRestoreGatesOnTheRequestedClasses pins the participant half of
+// the restore gate to the class list the coordinator resolved. Asking it about
+// anything else — a wildcard pattern, an empty list — makes the check answer a
+// question nobody asked.
+func TestOnCanCommitRestoreGatesOnTheRequestedClasses(t *testing.T) {
+	// The gate is shut so OnCanCommit returns on it, before the validation that
+	// would need a populated backend.
+	sourcer := &fakeSourcer{reindexInFlightErr: gateRefusal()}
+	classes := []string{"Movies", "Actors"}
+
+	createManager(sourcer, nil, newFakeBackend(), nil).OnCanCommit(context.Background(), &Request{
+		Method:   OpRestore,
+		ID:       "1",
+		Classes:  classes,
+		Backend:  "s3",
+		Duration: time.Millisecond * 20,
+	})
+
+	require.Equal(t, [][]string{classes}, sourcer.reindexInFlightCollections(),
+		"the participant must ask about exactly the classes the restore names")
 }

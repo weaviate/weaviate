@@ -257,6 +257,101 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 	}
 }
 
+// setFailedIfOwned carries the reason next to the FAILED, under the same
+// ownership rule as setIfOwned. A failure published onto someone else's claim
+// is worse than a lost one: the coordinator latches what a participant reports,
+// so it would end a live operation with an unrelated reason.
+func TestBackupStatSetFailedIfOwned(t *testing.T) {
+	t.Parallel()
+
+	const reason = "object storage unreachable"
+
+	tests := []struct {
+		name       string
+		claimedID  string
+		status     backup.Status
+		setID      string
+		reason     string
+		wantOK     bool
+		wantStatus backup.Status
+		wantErr    string
+		wantRemem  bool
+	}{
+		{
+			name:       "holder gets the failure and its reason",
+			claimedID:  "op-1",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			reason:     reason,
+			wantOK:     true,
+			wantStatus: backup.Failed,
+			wantErr:    reason,
+			wantRemem:  true,
+		},
+		{
+			name:       "slot held by a different operation",
+			claimedID:  "op-2",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			reason:     reason,
+			wantOK:     false,
+			wantStatus: backup.Transferring,
+		},
+		{
+			name:       "cancelled is terminal",
+			claimedID:  "op-1",
+			status:     backup.Cancelled,
+			setID:      "op-1",
+			reason:     reason,
+			wantOK:     false,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "slot is free",
+			claimedID:  "",
+			setID:      "op-1",
+			reason:     reason,
+			wantOK:     false,
+			wantStatus: "",
+		},
+		{
+			// Nothing to remember without a reason, and remembering an empty
+			// one would make it the permanent answer for the next poll.
+			name:       "no reason leaves nothing remembered",
+			claimedID:  "op-1",
+			status:     backup.Transferring,
+			setID:      "op-1",
+			reason:     "",
+			wantOK:     true,
+			wantStatus: backup.Failed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			if tc.claimedID != "" {
+				prevID, _ := s.renew(tc.claimedID, "path", "bucket", "override")
+				require.Empty(t, prevID)
+				s.set(tc.status)
+			}
+
+			require.Equal(t, tc.wantOK, s.setFailedIfOwned(tc.setID, tc.reason))
+			require.Equal(t, tc.wantStatus, s.get().Status)
+			if tc.wantErr != "" {
+				require.Equal(t, tc.wantErr, s.get().Err)
+			}
+
+			remembered, ok := s.rememberedFailure(tc.setID)
+			require.Equal(t, tc.wantRemem, ok)
+			if tc.wantRemem {
+				require.Equal(t, tc.reason, remembered)
+			}
+		})
+	}
+}
+
 // The whole point of the single acquisition: whoever holds the slot after a
 // losing resetIf must still hold every field of its claim.
 func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {

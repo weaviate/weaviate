@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,7 +246,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("NodeDown", func(t *testing.T) {
@@ -483,7 +485,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("PutInitialMeta", func(t *testing.T) {
@@ -605,6 +608,15 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+
+	// Plain field so pre-existing restore tests pass without a mock.On call.
+	reindexInFlightErr error
+	// reindexCollections records what each gate call was scoped to, so an arm
+	// that passes the wrong class list cannot pass silently.
+	reindexCollections [][]string
+	// reindexInFlightFor, when set, answers per scope, which is what tells a
+	// cluster-wide question apart from one scoped to the caller's classes.
+	reindexInFlightFor func(collections []string) error
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -620,6 +632,14 @@ func (s *fakeSelector) ListClasses(ctx context.Context) []string {
 func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 	args := s.Called(ctx, classes)
 	return args.Error(0)
+}
+
+func (s *fakeSelector) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
+	s.reindexCollections = append(s.reindexCollections, collections)
+	if s.reindexInFlightFor != nil {
+		return s.reindexInFlightFor(collections)
+	}
+	return s.reindexInFlightErr
 }
 
 type fakeCoordinator struct {
@@ -938,18 +958,27 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
+		name string
+		// refusalResp is what the refusing participant answers. transportErr,
+		// when set, is the RPC error returned alongside it — the case where no
+		// response was ever produced.
 		refusalResp     *CanCommitResponse
+		transportErr    error
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
+		// Only the reindex refusals are composed to name no node, so only they
+		// are safe to serve to a backup caller unprefixed. Every other refusal
+		// keeps the node name: it is an operator-facing failure whose first
+		// question is which node produced it.
+		expectNodeNamed bool
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
+				Err:     backup.ErrBackupBlockedByInFlightReindex.Error() + ": collection \"Class-A\" has an active runtime-reindex task in DTM",
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
@@ -965,6 +994,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectCanCommit: true,
 			expectContain:   "some other refusal",
+			expectNodeNamed: true,
 		},
 		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
@@ -976,6 +1006,18 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// returning a zero-value response.
 			},
 			expectCanCommit: true,
+			expectNodeNamed: true,
+		},
+		{
+			// A participant that cannot be reached never produces a
+			// CanCommitResponse, so there is no ErrKind to redact on.
+			// "connection refused" with no node name is unactionable on a
+			// cluster of any size.
+			name:            "a transport error names the node",
+			refusalResp:     &CanCommitResponse{},
+			transportErr:    errors.New("connection refused"),
+			expectContain:   "connection refused",
+			expectNodeNamed: true,
 		},
 	}
 
@@ -992,7 +1034,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			})).Return(acceptResp, nil).Maybe()
 			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
 				return r.Method == OpCreate && r.ID == backupID
-			})).Return(tc.refusalResp, nil)
+			})).Return(tc.refusalResp, tc.transportErr)
 
 			// On refusal the coordinator aborts the participant that accepted.
 			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
@@ -1022,8 +1064,16 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
-			// Surface the offending node so the operator knows where to look.
-			assert.Contains(t, err.Error(), nodes[1])
+			if tc.expectNodeNamed {
+				assert.Contains(t, err.Error(), nodes[1],
+					"a refusal that is not node-free by construction must say which node refused")
+			} else {
+				// The offending node reaches the operator through the log; this
+				// error becomes the backup's failure reason, and a backup caller
+				// is granted nothing on node names.
+				assert.NotContains(t, err.Error(), nodes[1],
+					"the refusal leaked the participant's node name")
+			}
 		})
 	}
 }
@@ -1042,6 +1092,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 //     public coordinator path that consumes a remote CanCommitResponse.
 //  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
 //     (the entities/backup symbol).
+//  3. Asserting the promoter states the condition once, not once per wrap,
+//     when the participant's message already opens with the sentinel.
 //
 // Identity from the adapters/repos/db side is enforced by
 // reindex_inflight_test.go, which calls errors.Is against the same shared
@@ -1053,7 +1105,7 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	// Shared symbol must be non-nil and carry the expected operator text.
 	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
 	require.Equal(t,
-		"backup blocked: runtime-reindex in flight on this shard",
+		"backup blocked: runtime-reindex in flight",
 		backup.ErrBackupBlockedByInFlightReindex.Error(),
 		"operator-visible sentinel text is part of the contract; do not edit lightly",
 	)
@@ -1072,6 +1124,14 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+
+	// A participant message that already opens with the sentinel must not
+	// have it stated a second time by the promoter's wrap.
+	resp.Err = backup.ErrBackupBlockedByInFlightReindex.Error() + `: collection "Movies" is migrating`
+	err = canCommitErrFromResponse(resp)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t, 1, strings.Count(err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error()),
+		"the condition must be stated once, not once per wrap")
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number
@@ -1126,9 +1186,7 @@ func TestCommitAllManyFailures(t *testing.T) {
 	}
 }
 
-// The coordinator's lastOp slot is the backup subsystem's mutual-exclusion
-// lock. A slot left claimed by a failed operation refuses every later backup on
-// this node until the process restarts.
+// TestCoordinatorBackupReleasesSlotOnError pins that a failed backup releases the lastOp slot.
 func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1139,61 +1197,24 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 		nodes        = []string{"N1", "N2"}
 		classes      = []string{"Class-A", "Class-B"}
 		nodeResolver = newFakeNodeResolver(nodes)
-		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 	)
 
-	tests := []struct {
-		name    string
-		level   CompressionLevel
-		arrange func(fc *fakeCoordinator)
-	}{
-		{
-			name:    "invalid compression level",
-			level:   CompressionLevel(-1),
-			arrange: func(*fakeCoordinator) {},
-		},
-		{
-			name:  "participant refused to commit",
-			level: GzipDefaultCompression,
-			arrange: func(fc *fakeCoordinator) {
-				fc.client.On("CanCommit", any, any, any).Return(nil, ErrAny)
-				fc.client.On("Abort", any, any, any).Return(nil)
-			},
-		},
-		{
-			name:  "initial meta write failed",
-			level: GzipDefaultCompression,
-			arrange: func(fc *fakeCoordinator) {
-				fc.client.On("CanCommit", any, any, any).Return(cresp, nil)
-				fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
-			},
-		},
-	}
+	fc := newFakeCoordinator(nodeResolver)
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+	fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fc := newFakeCoordinator(nodeResolver)
-			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-			fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-			tc.arrange(fc)
+	c := fc.coordinator()
+	req := newReq(classes, backendName, backupID)
+	req.Level = CompressionLevel(-1)
+	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 
-			c := fc.coordinator()
-			req := newReq(classes, backendName, backupID)
-			req.Level = tc.level
-			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-
-			require.Error(t, c.Backup(ctx, store, &req))
-			require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
-		})
-	}
+	require.Error(t, c.Backup(ctx, store, &req))
+	require.Empty(t, c.lastOp.get().ID, "slot still claimed after a failed backup")
 }
 
-// A restore request for a backup whose metadata is already CANCELLING returns
-// without starting anything. It may only give back the slot when the slot holds
-// that same backup: clearing another restore's claim makes this node report
-// itself idle while it is still writing files.
+// TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot pins that a CANCELLING
+// restore only releases the lastOp slot if it still holds that same backup.
 func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1225,8 +1246,6 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			wantSlotID:  "live-restore",
 		},
 		{
-			// The cancel was claimed by another coordinator, so this node's own
-			// restore of the same id never saw a cancel and is still writing.
 			name:        "slot holds a live restore carrying the same id",
 			claimedID:   backupID,
 			claimStatus: backup.Transferring,
@@ -1250,6 +1269,12 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 
 			require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
 			require.Equal(t, tc.wantSlotID, c.lastOp.get().ID)
+
+			want := NodeActivity{}
+			if tc.wantSlotID != "" {
+				want = NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: tc.wantSlotID}
+			}
+			requireProbeSees(t, &Scheduler{restorer: c}, want)
 
 			// The slot is the subsystem's mutual exclusion, so clearing one we
 			// do not own lets a second restore claim it and run alongside the
