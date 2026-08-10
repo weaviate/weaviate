@@ -211,6 +211,23 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			trackers:  map[string][]string{"enable_filterable_other_1": {"started.mig"}},
 			sidecars:  []string{"property_other__enable_filterable_ingest_1"},
 		},
+		// Property names may contain underscores, so "category"'s tracker
+		// prefix is a prefix of "category_x"'s tracker dir. The gate would
+		// hydrate every tenant of the collection for state that is not this
+		// property's, and the sweep it gates would then delete that property's
+		// live deferred-finalize tracker.
+		{
+			name:      "a property whose name extends this one, awaiting finalize",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_category_x_1": completed},
+			sidecars:  []string{"property_category_x__enable_filterable_ingest_1"},
+		},
+		{
+			name:      "a property whose name extends this one, left mid-run",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_category_x_1": {"started.mig"}},
+			sidecars:  []string{"property_category_x__enable_filterable_ingest_1"},
+		},
 		// A class-level migration in deferred-finalize state leaves a live
 		// sidecar on EVERY tenant of the collection. A gate that does not
 		// preserve those hydrates the whole collection, which is the one thing
@@ -320,4 +337,38 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 					"must not find anything either — a shard it skips is never looked at again")
 		})
 	}
+}
+
+// A sweep of one property must leave a property whose name extends it alone.
+// The tidied.mig it would delete is what promotes that property's ingest dir to
+// canonical on the next restart, and losing it empties the canonical bucket.
+func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *testing.T) {
+	const (
+		mine   = "enable_filterable_category_1"
+		theirs = "enable_filterable_category_x_1"
+		// Their sidecar is out of reach of this sweep's bucket prefix
+		// already ("property_category__" is not a prefix of it), and stays
+		// here so the whole of their state is in the fixture.
+		theirSidecar = "property_category_x__enable_filterable_ingest_1"
+	)
+	ctx := testCtx()
+	class := newTestClassWithProps("ColdSweepPrefix_"+uuid.NewString()[:8], []string{"category"})
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+	lsm := shard.pathLSM()
+
+	mkTrackerDir(t, lsm, mine, "started.mig")
+	mkTrackerDir(t, lsm, theirs, "started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+	mkSidecarDir(t, lsm, theirSidecar)
+
+	require.NoError(t, shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+
+	assert.False(t, dirExistsAt(t, lsm, ".migrations/"+mine),
+		"this property's cancelled run is what the sweep is for")
+	assert.True(t, dirExistsAt(t, lsm, ".migrations/"+theirs),
+		"another property's completed migration is live state, not this sweep's to remove")
+	assert.True(t, dirExistsAt(t, lsm, theirSidecar),
+		"the bucket that tracker still points at")
 }

@@ -13,6 +13,8 @@ package db
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigrationDirName pins the wire-format dir names each strategy produces.
@@ -141,5 +143,82 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 			t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, must NOT include class-level %q",
 				got, MigrationDirSearchableMapToBlockmax)
 		}
+	}
+}
+
+// Property names may contain underscores, so the tracker prefix of one
+// property can be a prefix of another property's tracker dir. Matching on that
+// makes a sweep of the first property hydrate and then delete the second one's
+// state.
+func TestIsMigrationDirOf(t *testing.T) {
+	catPrefixes := migrationDirsForPropertyIndex("cat", "filterable")
+	require.Contains(t, catPrefixes, "enable_filterable_cat")
+
+	tests := []struct {
+		name     string
+		dir      string
+		prefixes []string
+		want     bool
+	}{
+		{
+			name:     "this property's tracker",
+			dir:      "enable_filterable_cat_1",
+			prefixes: catPrefixes,
+			want:     true,
+		},
+		{
+			name:     "a later generation of this property's tracker",
+			dir:      "enable_filterable_cat_12",
+			prefixes: catPrefixes,
+			want:     true,
+		},
+		{
+			name:     "a tracker dir from before generations existed",
+			dir:      "enable_filterable_cat",
+			prefixes: catPrefixes,
+			want:     true,
+		},
+		{
+			name:     "a property whose name extends this one",
+			dir:      "enable_filterable_cat_x_1",
+			prefixes: catPrefixes,
+			want:     false,
+		},
+		{
+			name:     "a property whose name this one extends",
+			dir:      "enable_filterable_ca_1",
+			prefixes: catPrefixes,
+			want:     false,
+		},
+		{
+			name:     "a tracker of the same property under another strategy",
+			dir:      "filterable_retokenize_cat_1",
+			prefixes: catPrefixes,
+			want:     true,
+		},
+		{
+			name:     "another index type's tracker for this property",
+			dir:      "enable_searchable_cat_1",
+			prefixes: catPrefixes,
+			want:     false,
+		},
+		{
+			name:     "the class-level tracker every property shares",
+			dir:      "filterable_roaringset_refresh_1",
+			prefixes: catPrefixes,
+			want:     false,
+		},
+		{
+			name:     "no prefixes to match against",
+			dir:      "enable_filterable_cat_1",
+			prefixes: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isMigrationDirOf(tc.dir, tc.prefixes))
+		})
 	}
 }

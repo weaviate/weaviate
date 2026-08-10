@@ -433,9 +433,20 @@ func isSidecarDirOf(name, mainBucketName string) bool {
 
 // isMigrationDirOf reports whether name is a migration tracker dir of one of
 // prefixes, in any generation.
+//
+// The generation is split off before the comparison rather than matched as a
+// prefix, because a property name may itself contain underscores: property
+// "cat" builds the prefix "enable_filterable_cat", which is a prefix of
+// property "cat_x"'s dir "enable_filterable_cat_x_1". Matching on that would
+// hydrate a cold tenant whose only state belongs to "cat_x", and then delete
+// that tenant's deferred-finalize tracker — the preserve set does not shield
+// it, since [forEachCompletedMigration] matches the parsed base exactly.
 func isMigrationDirOf(name string, prefixes []string) bool {
+	base, _, ok := parseMigrationDirName(name)
 	for _, p := range prefixes {
-		if name == p || strings.HasPrefix(name, p+"_") {
+		// A dir with no generation suffix predates [genSuffix] and carries the
+		// prefix as its whole name.
+		if name == p || (ok && base == p) {
 			return true
 		}
 	}
