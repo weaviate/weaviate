@@ -557,6 +557,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
+	// db.indices does not receive this Index until every one of its shards has
+	// loaded, so shards are tallied onto the DB here, as each is stored.
+	startupShards := i.Config.StartupShards
+	if startupShards == nil {
+		startupShards = &startupShardCounters{}
+	}
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -574,6 +581,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
+				startupShards.lazy.Add(1)
 				return nil
 			default:
 				// avoid footprint of empty shards
@@ -581,6 +589,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
+					startupShards.lazy.Add(1)
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -598,6 +607,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				startupShards.eager.Add(1)
 				return nil
 			}
 		}, shardName)
@@ -1163,6 +1173,7 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
