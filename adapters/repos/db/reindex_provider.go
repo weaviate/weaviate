@@ -1650,7 +1650,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // teardown sees [distributedtask.TaskStatus.IsActive]==false but the on-disk
 // __reindex / __ingest sidecars are still being torn out. Registering
 // every shard the task touched in [cleanupInProgress] before
-// CleanStalePartialReindexState fires (and unregistering after) makes
+// the sweep fires (and unregistering after) makes
 // "cleanup is still happening on this shard" an explicit state the
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
@@ -1668,7 +1668,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
 	// The unregister fires from the defer so any return path — including
-	// a panic inside CleanStalePartialReindexState — releases the slot.
+	// a panic inside the sweep — releases the slot.
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
@@ -1680,12 +1680,11 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	// Shared across the loop so each shard's directories are read once.
-	dirs := &dirNamesCache{}
+	// One sweep for the whole loop, so each shard's directories are read once.
+	sweep := p.db.NewStalePartialReindexSweep()
 	worst := sweepTerminalTuples(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
-			return p.db.cleanStalePartialReindexState(
-				cleanupCtx, payload.Collection, propName, indexType, dirs)
+			return sweep(cleanupCtx, payload.Collection, propName, indexType)
 		},
 		func(propName, indexType string, failure error) {
 			logger.WithField("property", propName).WithField("index_type", indexType).
@@ -2335,7 +2334,7 @@ func maybeClearTokenizationOverlayOnAllFailed(
 // [distributedtask.Manager.CancelDistributedTask] cannot safely tear
 // down the __reindex / __ingest sidecar buckets while the worker
 // goroutine is still writing to them. Calling WaitForLocalTaskDrain
-// between CancelDistributedTask and [DB.CleanStalePartialReindexState]
+// between CancelDistributedTask and [DB.NewStalePartialReindexSweep]'s sweep
 // closes that race window.
 //
 // Returns nil immediately if no goroutine is running for this descriptor

@@ -805,6 +805,12 @@ func (i *Index) closeCause() error {
 // signal no cause (tenant delete, offload, replica move) are caught instead
 // by diffing unvisited names against the shard set captured before the walk,
 // reported as [errShardsSkipped].
+//
+// The set is captured at the start, so a shard that was already gone is never
+// in scope while one that leaves mid-walk is reported. That asymmetry is
+// deliberate: from here a benign deactivation and a removal racing whatever
+// the caller is about to do with the result look identical, and only the
+// second one can invalidate a "reached every shard" claim.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeCause(); cause != nil {
 		return cause
@@ -826,7 +832,9 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 	return nil
 }
 
-// shardNameSet is the set of shards in the map right now.
+// shardNameSet is the set of shards in the map right now. It is bounded by
+// the collection's live shard count and dropped when the walk that built it
+// returns, so it needs no cap of its own.
 func (i *Index) shardNameSet() map[string]struct{} {
 	names := map[string]struct{}{}
 	i.shards.Range(func(name string, _ ShardLike) error {

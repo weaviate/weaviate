@@ -24,10 +24,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// CleanStalePartialReindexState wipes any on-disk runtime-reindex state for
-// the given (collection, property, indexType) tuple across every local shard
-// of the collection. It is the CANCEL→retry counterpart to the cleanup that
-// updatePropertyBuckets does on DELETE→re-enable.
+// NewStalePartialReindexSweep returns a sweep that wipes any on-disk
+// runtime-reindex state for the given (collection, property, indexType) tuple
+// across every local shard of the collection. It is the CANCEL→retry
+// counterpart to the cleanup that updatePropertyBuckets does on
+// DELETE→re-enable.
 //
 // Call sites:
 //
@@ -53,22 +54,11 @@ import (
 // ([IsCleanupCollectionDropped]) rather than as a clean sweep, since nothing
 // was actually cleared.
 //
-// Production uses [DB.NewStalePartialReindexSweep], which shares a directory
-// cache across a run of sweeps; this is the single-sweep form for tests.
-func (db *DB) CleanStalePartialReindexState(
-	ctx context.Context,
-	collection, propName, indexType string,
-) error {
-	return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, nil)
-}
-
-// NewStalePartialReindexSweep returns a [DB.CleanStalePartialReindexState]
-// that shares a directory-listing cache across every call, so a run of sweeps
-// over one collection reads each shard's directories once instead of once per
-// index type.
-//
-// Not safe for concurrent use, and must be short-lived: it answers from a
-// filesystem snapshot taken on first read (see [dirNamesCache]).
+// The returned sweep shares a directory-listing cache across every call, so a
+// run of sweeps over one collection reads each shard's directories once
+// instead of once per index type. It is therefore not safe for concurrent
+// use, and must be short-lived: it answers from a filesystem snapshot taken
+// on first read (see [dirNamesCache]).
 func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
@@ -76,9 +66,9 @@ func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection
 	}
 }
 
-// cleanStalePartialReindexState is [DB.CleanStalePartialReindexState] with the
-// directory listings the cold-shard gate reads shareable across a run of
-// sweeps. A nil cache reads the filesystem every time.
+// cleanStalePartialReindexState is one sweep of
+// [DB.NewStalePartialReindexSweep]. A nil cache reads the filesystem every
+// time.
 func (db *DB) cleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
@@ -94,10 +84,16 @@ func (db *DB) cleanStalePartialReindexState(
 }
 
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
-// ran out of time, started on a closing index, hit an unmappable index type,
-// or a shard left the map before the walk reached it. Those shards are
-// "unknown", not "failed" — often benign (e.g. a HOT→COLD transition removing
-// a tenant mid-walk), but still unverified, so callers report it at Error.
+// ran out of time, started on a shutting-down or unsignalled-closing index,
+// hit an unmappable index type, or a shard left the map before the walk
+// reached it. Those shards are "unknown", not "failed" — often benign (e.g. a
+// HOT→COLD transition removing a tenant mid-walk), but still unverified.
+//
+// Callers report it at the severity of what they were about to do with the
+// state: the REST handlers log Error, because a submit or cancel proceeds on
+// top of state that may still be stale. The background cleanup after a
+// terminal task logs Warn, because nothing acts on the result and the next
+// load's stale-sentinel check is still the backstop.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -132,7 +128,7 @@ func classifyCloseCause(err error) error {
 	}
 }
 
-// CleanStalePartialReindexState iterates every local shard of this index
+// cleanStalePartialReindexState iterates every local shard of this index
 // and calls the per-shard cleanup. Per-shard errors are collected and
 // returned together, capped at [maxReportedErrors], so the caller can decide
 // whether to refuse the submit or proceed with a warning.
@@ -150,18 +146,8 @@ func classifyCloseCause(err error) error {
 // An unloaded shard is only hydrated if it actually has on-disk state to
 // remove, to avoid hydrating every cold tenant of a large collection.
 //
-// Production uses [DB.NewStalePartialReindexSweep]; this is the single-sweep
-// form for tests.
-func (i *Index) CleanStalePartialReindexState(
-	ctx context.Context,
-	propName, indexType string,
-) error {
-	return i.cleanStalePartialReindexState(ctx, propName, indexType, nil)
-}
-
-// cleanStalePartialReindexState is [Index.CleanStalePartialReindexState] with
-// the directory listings the cold-shard gate reads shareable across a run of
-// sweeps. A nil cache reads the filesystem every time.
+// dirs carries the directory listings the cold-shard gate reads across a run
+// of sweeps; a nil cache reads the filesystem every time.
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -341,10 +327,12 @@ func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([
 		if c.listings == nil {
 			c.listings = map[dirNamesKey]dirNamesListing{}
 		}
-		// Clipped because listDirNames sizes the slice for the whole directory:
-		// a filtered listing that kept nothing would otherwise hold a backing
-		// array as big as the shard's bucket count for the rest of the run.
-		c.listings[key] = dirNamesListing{names: slices.Clip(names), err: err}
+		// Cloned, not clipped, because listDirNames sizes the slice for the whole
+		// directory: clipping only shrinks the header, so the full-size backing
+		// array would stay alive for the rest of the run. A filtered listing that
+		// kept nothing is the common case on a cold tenant, and it is charged 1
+		// against the bound no matter how big that array is.
+		c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
 		c.cost += len(names) + 1
 	}
 	return names, err

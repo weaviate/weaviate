@@ -26,7 +26,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// See [Index.CleanStalePartialReindexState] for why hydrating every cold
+// See [Index.cleanStalePartialReindexState] for why hydrating every cold
 // tenant to check it is too expensive to do unconditionally.
 func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 	const (
@@ -100,7 +100,7 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 				sweepCtx = cancelled
 			}
 
-			err := idx.CleanStalePartialReindexState(sweepCtx, propName, indexType)
+			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, nil)
 
 			assert.Equalf(t, tc.wantColdLoaded, cold.isLoaded(),
 				"cold shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
@@ -554,18 +554,31 @@ func TestDirNamesCache(t *testing.T) {
 				"untouched produces nothing but those")
 	})
 
-	// An empty filtered listing must not pin a backing array sized for the
-	// shard's whole bucket count for the rest of the run.
+	// The cache must own its copy: listDirNames sizes the slice for the whole
+	// directory, so a filtered listing that shared that array would pin one
+	// array per shard's bucket count for the rest of the run, while costing 1
+	// against the bound. Aliasing is the observable side of that sharing.
 	t.Run("a cached listing does not retain the whole directory", func(t *testing.T) {
 		root := t.TempDir()
 		for i := range 100 {
 			require.NoError(t, os.Mkdir(filepath.Join(root, fmt.Sprintf("property_%d", i)), 0o755))
 		}
+		require.NoError(t, os.Mkdir(filepath.Join(root, "property_a__blockmax_ingest_1"), 0o755))
+
 		cache := &dirNamesCache{}
-		_, err := cache.listSidecarCandidates(root)
+		names, err := cache.listSidecarCandidates(root)
 		require.NoError(t, err)
+		require.Equal(t, []string{"property_a__blockmax_ingest_1"}, names)
+		require.Greater(t, cap(names), len(names),
+			"the returned slice is sized for the whole directory, which is what "+
+				"the cache must not hold on to")
+
 		cached := cache.listings[dirNamesKey{path: root, filter: "sidecar"}]
-		require.Zero(t, cap(cached.names))
+		require.Equal(t, len(cached.names), cap(cached.names))
+
+		names[0] = "overwritten"
+		require.Equal(t, []string{"property_a__blockmax_ingest_1"}, cached.names,
+			"the cached listing shares a backing array with the full-directory slice")
 	})
 
 	// The full and the filtered listing are different answers about one path;
@@ -616,7 +629,7 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, cold)
 
-	err := idx.CleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know")
+	err := idx.cleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know", nil)
 
 	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
 	require.False(t, cold.isLoaded(),
@@ -675,6 +688,9 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "a property named after a number", dir: main + "__12", want: false},
 		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
+		// An empty tail is not a generation, so this is property
+		// "category__ingest_"'s own main bucket.
+		{name: "a property whose name ends in a role word and a separator", dir: main + "__ingest_", want: false},
 		{name: "a sidecar whose suffix carries a strategy word", dir: main + "__blockmax_ingest", want: true},
 		// Known collision (weaviate/weaviate#12574): sweeping "category"
 		// also removes "category__ingest"'s own bucket.

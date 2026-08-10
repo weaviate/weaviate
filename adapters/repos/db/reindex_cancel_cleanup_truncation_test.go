@@ -249,7 +249,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			if indexType == "" {
 				indexType = "filterable"
 			}
-			err := idx.CleanStalePartialReindexState(ctx, "title", indexType)
+			err := idx.cleanStalePartialReindexState(ctx, "title", indexType, nil)
 
 			if !tc.wantErr {
 				require.NoError(t, err,
@@ -481,7 +481,7 @@ func TestReportedShardNames(t *testing.T) {
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 
-	err := db.CleanStalePartialReindexState(context.Background(), "Movies", "title", "filterable")
+	err := db.NewStalePartialReindexSweep()(context.Background(), "Movies", "title", "filterable")
 
 	require.True(t, IsCleanupCollectionDropped(err),
 		"the caller has nothing to act on, and no later sweep to retry")
