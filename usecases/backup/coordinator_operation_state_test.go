@@ -27,10 +27,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// restoreMetaBackend serves and stores the global restore descriptor. It stands
-// in for fakeBackend, which closes a channel the first time a terminal
-// descriptor is stored, and a second terminal descriptor is exactly what the
-// tests below are about.
+// restoreMetaBackend serves and stores the global restore descriptor. It
+// stands in for fakeBackend, which closes on the first terminal descriptor,
+// while these tests need a second one to land too.
 type restoreMetaBackend struct {
 	sync.Mutex
 	stored   []byte
@@ -102,14 +101,12 @@ func (b *restoreMetaBackend) setStored(t *testing.T, desc backup.DistributedBack
 	b.stored = data
 }
 
-// readCount is how many times the global restore descriptor has been read.
 func (b *restoreMetaBackend) readCount() int {
 	b.Lock()
 	defer b.Unlock()
 	return b.reads
 }
 
-// storedStatuses is every status stored so far, in order.
 func (b *restoreMetaBackend) storedStatuses(t *testing.T) []backup.Status {
 	t.Helper()
 	b.Lock()
@@ -125,7 +122,6 @@ func (b *restoreMetaBackend) Read(context.Context, string, string, string, strin
 	return 0, nil
 }
 
-// storedStatus is the status of the descriptor currently in the store.
 func (b *restoreMetaBackend) storedStatus(t *testing.T) backup.Status {
 	t.Helper()
 	b.Lock()
@@ -149,8 +145,7 @@ func restoreDescriptor(id, node string) *backup.DistributedBackupDescriptor {
 }
 
 // overlappingRestores wires a coordinator whose participant never fails, so a
-// restore keeps polling until the test says otherwise. Both restores in these
-// tests run against it under the same id, which is what a cancel-then-retry is.
+// restore keeps polling until the test says otherwise.
 type overlappingRestores struct {
 	c        *coordinator
 	backend  *restoreMetaBackend
@@ -195,10 +190,8 @@ func (o *overlappingRestores) finish(t *testing.T) {
 		20*time.Second, 10*time.Millisecond, "a restore goroutine never released its slot")
 }
 
-// Pins that a cancelled restore's goroutine and the retry that took the slot
-// over keep their operation state apart. They used to share the coordinator's,
-// and the overlapping map writes are a fatal error in production; here the
-// race detector is what turns them into a test failure.
+// Pins that a cancelled restore's goroutine and the retry that took its slot
+// share no operation state (race-detected).
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()
 	const (
@@ -242,9 +235,8 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 	o.finish(t)
 }
 
-// Pins that a cancelled restore's goroutine cannot persist its own outcome once
-// the retry owns the slot. Both write the same object, so the stale write
-// reports the retry as finished while it is still staging.
+// Pins that a cancelled restore's stale write cannot overwrite the retry's
+// stored metadata once the retry owns the slot.
 func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *testing.T) {
 	t.Parallel()
 	const (

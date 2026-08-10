@@ -84,11 +84,8 @@ func (r *restorer) restore(
 
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
-	// Only Cancelled is reachable on a participant's slot today: Cancelling is
-	// written by the cancel endpoint, which runs on the coordinator. Refusing on
-	// either is still the right rule, so that a cancel which later grows a
-	// participant-side in-flight state cannot race a restore of the same id
-	// past this point.
+	// Only Cancelled is reachable here today (Cancelling is coordinator-only),
+	// but refusing on both keeps this correct if that changes.
 	if lastOp := r.lastOp.get(); lastOp.ID == req.ID && lastOp.Status.IsCancellation() {
 		err := fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", req.ID)
 		// The caller only learns this through the CanCommit response, so the
@@ -167,12 +164,9 @@ func (r *restorer) restore(
 // restoreAll restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 //
-// slot is the claim restore() took; status writes below go through it rather
-// than re-deriving ownership from desc.ID. None of them acts on a refusal,
-// deliberately: every one of them is this node reporting where it got to, and
-// what a refusal says (this restore was cancelled, or the slot has moved on)
-// is either already what the code is doing or not this node's call to make.
-// Cancellation reaches the participant through ctx, not through the slot.
+// slot is the claim restore() took. Writes below ignore its refusal, since
+// each is just this node reporting where it got to; cancellation reaches the
+// participant through ctx, not through the slot.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,

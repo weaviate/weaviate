@@ -321,9 +321,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 	tests := []struct {
 		name string
 		// stolen hands the slot to a newer restore before restoreAll runs,
-		// which is what a cancel-then-retry does. The claim restoreAll was
-		// given is stale from then on, and stamping the slot CANCELLED
-		// through it would cancel a restore nobody cancelled.
+		// leaving restoreAll's claim stale.
 		stolen bool
 		// newID is the id the newer restore claims with.
 		newID      string

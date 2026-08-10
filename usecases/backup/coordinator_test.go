@@ -1127,9 +1127,8 @@ func TestCommitAllManyFailures(t *testing.T) {
 	}
 }
 
-// The coordinator's lastOp slot is the backup subsystem's mutual-exclusion
-// lock. A slot left claimed by a failed operation refuses every later backup on
-// this node until the process restarts.
+// Pins that a failed backup releases the slot, which is what future backups
+// on this node are refused against.
 func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1191,10 +1190,8 @@ func TestCoordinatorBackupReleasesSlotOnError(t *testing.T) {
 	}
 }
 
-// A restore request for a backup whose metadata is already CANCELLING returns
-// without starting anything. It may only give back the slot when the slot holds
-// that same backup: clearing another restore's claim makes this node report
-// itself idle while it is still writing files.
+// Pins that a restore refused for a CANCELLING backup gives back only its own
+// slot, not one held by a different restore.
 func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 	t.Parallel()
 	var (

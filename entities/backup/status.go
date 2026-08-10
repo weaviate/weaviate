@@ -25,8 +25,7 @@ const (
 )
 
 // IsCancellation reports whether the operation is being cancelled or has been.
-// A reader that tests only for Cancelled treats a cancel that has been claimed
-// but not finished as a live operation, and goes on to overwrite it.
+// Testing only for Cancelled would treat an in-flight cancel as live.
 func (s Status) IsCancellation() bool {
 	return s == Cancelling || s == Cancelled
 }
