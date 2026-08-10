@@ -368,7 +368,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpCreate:
 		st, err := m.backupper.OnStatus(ctx, req)
 		ret.Status = st.Status
-		// mm
+		ret.Err = st.Err
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
