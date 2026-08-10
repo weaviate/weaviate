@@ -270,3 +270,46 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	out := uniqueShardsFromPayload(payload)
 	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
+
+// A dropped collection is not a failed sweep. Nothing was swept either way, so
+// the difference is only visible in what the operator is told.
+func TestTerminalCleanupOutcome(t *testing.T) {
+	tests := []struct {
+		name     string
+		swept    bool
+		dropped  bool
+		wantWarn bool
+		wantMsg  string
+	}{
+		{
+			name:    "every shard swept",
+			swept:   true,
+			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node",
+		},
+		{
+			name:    "the collection is being deleted",
+			swept:   true,
+			dropped: true,
+			wantMsg: "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it",
+		},
+		{
+			name:     "state is left on disk",
+			wantWarn: true,
+			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+		},
+		{
+			name:     "a failure on one property and a delete on another still warns",
+			dropped:  true,
+			wantWarn: true,
+			wantMsg:  "auto-cleanup after terminal status: some partial sidecar state is still on this node",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, warn := terminalCleanupOutcome(tc.swept, tc.dropped)
+			require.Equal(t, tc.wantMsg, msg)
+			require.Equal(t, tc.wantWarn, warn)
+		})
+	}
+}

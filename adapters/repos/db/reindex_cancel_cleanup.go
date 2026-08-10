@@ -13,7 +13,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -54,6 +58,32 @@ func (db *DB) CleanStalePartialReindexState(
 	return idx.CleanStalePartialReindexState(ctx, propName, indexType)
 }
 
+// ErrCleanupSweepTruncated marks a sweep that stopped before it had visited
+// every shard. The shards after that point were never looked at, so the
+// caller's answer is "unknown from here on" and not "these shards failed".
+var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
+
+// ErrCleanupCollectionDropped marks a sweep that ran while the collection was
+// being deleted. Nothing was swept and nothing needs to be: the sidecar state
+// lives under the collection's directory and goes away with it, so there is no
+// later sweep to retry either.
+var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is being deleted")
+
+// classifyCloseCause tags a walk that a close cut short, so the caller can tell
+// the two ends apart: a deleted collection leaves nothing behind, anything else
+// leaves every shard unswept. Anything that is not a close is passed through
+// untouched.
+func classifyCloseCause(err error) error {
+	switch {
+	case errors.Is(err, errIndexDropped):
+		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
+	case errors.Is(err, errIndexShutdown), errors.Is(err, errIndexClosed):
+		return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+	default:
+		return err
+	}
+}
+
 // CleanStalePartialReindexState iterates every local shard of this index
 // and calls the per-shard cleanup. Per-shard errors are collected and
 // returned together so the caller can decide whether to refuse the submit
@@ -62,43 +92,131 @@ func (db *DB) CleanStalePartialReindexState(
 // Errors do NOT stop iteration: a stuck shard must not prevent the other
 // shards from being cleaned, otherwise a one-shard failure would
 // permanently wedge the (collection, prop, indexType) tuple at every
-// future submit.
+// future submit. Context cancellation DOES stop it: every caller blocks
+// something for the whole sweep — [ReindexProvider.autoCleanupAfterTerminal]
+// registers the task's shards in cleanupInProgress, which the backup gate
+// consults, and the REST submit and cancel handlers hold the
+// (collection, property) submit mutex — so the work left after the deadline
+// has to end rather than continue as a run of failed loads. That abort is
+// joined into the returned error and tagged with
+// [ErrCleanupSweepTruncated], because a caller that sees only the shard
+// failures reads a bounded problem where the truth is that the sweep stopped.
+//
+// A closing index is also truncated, not clean: the shard walk visits nothing
+// at all there, so reporting success would tell the caller every shard was
+// swept when none was. A collection being deleted is neither, and is tagged
+// with [ErrCleanupCollectionDropped]: its state is deleted along with it.
+//
+// A shard that is not loaded is loaded only if it has on-disk state this sweep
+// would remove. Unwrapping every cold shard of a large multi-tenant collection
+// hydrates thousands of tenants (LSM store, vector index) under that gate, for
+// a sweep that finds nothing on almost all of them.
 func (i *Index) CleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 ) error {
-	var firstErr error
-	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
+	var shardErrs error
+	// forEachShardStrict rather than ForEachShard, which answers a closing
+	// index with a silent nil that is indistinguishable here from a sweep that
+	// reached every shard.
+	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
+		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
-			// LazyLoadShard or other wrapper — skip cleanly. If the shard
-			// is not loaded its on-disk state is also not in use by an
-			// in-process goroutine, but we cannot reach the cleanup
-			// helper without unwrapping. The post-restart finalize and
-			// the OnAfterLsmInitAsync stale-sentinel check both fire on
-			// next load, so the safety net is intact even when we skip
-			// here.
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
+				// An unrecognized wrapper is skipped rather than failed: the
+				// post-restart finalize and the OnAfterLsmInitAsync stale
+				// sentinel check both fire when that shard is next loaded, so
+				// the safety net still catches whatever is left here.
+				return nil
+			}
+			// Read-only, so it cannot race a concurrent load: the removals
+			// still happen through the loaded shard below.
+			if !lazy.isLoaded() &&
+				!hasStalePartialReindexState(shardPathLSM(i.path(), name), propName, indexType) {
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
 			if unwrapErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
-				}
+				shardErrs = errors.Join(shardErrs,
+					fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr))
 				return nil
 			}
 			shard = unwrapped
 		}
 		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("shard %q: %w", name, err)
-			}
+			shardErrs = errors.Join(shardErrs, fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil
-	}); err != nil {
-		return fmt.Errorf("iterating shards for partial-reindex cleanup: %w", err)
+	})
+	return errors.Join(shardErrs, classifyCloseCause(walkErr))
+}
+
+// hasStalePartialReindexState reports whether the shard rooted at lsmPath has
+// any on-disk state [Shard.CleanStalePartialReindexState] would remove for this
+// (propName, indexType). Read-only: it never loads the shard.
+//
+// Answers true on anything it cannot read. A directory it could not enumerate
+// is a question it could not ask, and the sweep it gates reports whatever it
+// then finds; guessing "nothing to clean" would leave a stale started.mig for
+// the next task to resume against.
+//
+// A directory that is absent is the exception, and answers false. An inactive
+// tenant that was never populated has no directory yet, which is the common
+// case this whole check exists for. A tenant with no local data because it was
+// offloaded is not this case: freezing removes the shard from the index's shard
+// map before it removes the files, so the sweep never reaches one.
+func hasStalePartialReindexState(lsmPath, propName, indexType string) bool {
+	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
+	if !ok {
+		return true
 	}
-	return firstErr
+
+	entries, err := os.ReadDir(lsmPath)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	var sidecarSuffixes []string
+	for _, entry := range entries {
+		if entry.IsDir() && isSidecarDirOf(entry.Name(), mainBucketName) {
+			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(entry.Name(), mainBucketName))
+		}
+	}
+	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
+	// migration — those are live state the sweep preserves. The preserve set
+	// costs its own .migrations walk, so it is only computed once a candidate
+	// sidecar turned up, which on a cold shard it almost never does.
+	if len(sidecarSuffixes) > 0 {
+		preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
+		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
+			preservePrefixes = append(preservePrefixes, classDir)
+		}
+		preserveSidecars := completedMigrationSidecarSuffixes(lsmPath, preservePrefixes)
+		for _, suffix := range sidecarSuffixes {
+			if !preserveSidecars[suffix] {
+				return true
+			}
+		}
+	}
+
+	// Migration tracker dirs, minus the deferred-finalize generations.
+	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	preservedGens := completedMigrationGens(lsmPath, prefixes)
+	entries, err = os.ReadDir(filepath.Join(lsmPath, ".migrations"))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !isMigrationDirOf(entry.Name(), prefixes) {
+			continue
+		}
+		if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preservedGens[gen] {
+			continue
+		}
+		return true
+	}
+	return false
 }
