@@ -255,8 +255,11 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
-		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+		// The sourcer takes a backup.Op whose Fence is a process-unique counter,
+		// so pin the operation by ID only.
+		opForThisBackup := mock.MatchedBy(func(op backup.Op) bool { return op.ID == backupID })
+		sourcer.On("BackupDescriptors", any, opForThisBackup, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, opForThisBackup, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(sourcePath)
