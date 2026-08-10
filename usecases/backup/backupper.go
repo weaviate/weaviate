@@ -91,9 +91,9 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // fail before any descriptor is written have nowhere else to leave one, so
 // without this the operator polls a backup that failed minutes ago and is told
 // only that its metadata is missing.
-func (b *backupper) publishFailure(err error) {
+func (b *backupper) publishFailure(slot slotOwner, err error) {
 	b.lastAsyncError = err
-	b.lastOp.setFailed(err.Error())
+	slot.setFailed(err.Error())
 }
 
 // backup checks if the node is ready to back up (can commit phase)
@@ -114,28 +114,29 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	// make sure there is no active backup
-	if prevID, _ := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	prevID, slot := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	if prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
-		defer b.lastOp.reset()
+		defer slot.release()
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
-			b.publishFailure(err)
+			b.publishFailure(slot, err)
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, slot, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").Error(err)
-			b.publishFailure(err)
+			b.publishFailure(slot, err)
 			return
 		}
 
@@ -151,7 +152,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)
-				b.publishFailure(err)
+				b.publishFailure(slot, err)
 				return
 			}
 			// This node was absent from the base backup (it joined the cluster

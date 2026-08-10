@@ -185,7 +185,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	prevID, slotGeneration := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	prevID, slot := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
 	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
@@ -194,7 +194,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	// backup and restore this node coordinates, until restart.
 	defer func() {
 		if err != nil {
-			c.lastOp.resetIfOwned(slotGeneration)
+			slot.release()
 		}
 	}()
 
@@ -242,9 +242,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	f := func() {
-		defer c.lastOp.resetIfOwned(slotGeneration)
+		defer slot.release()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		c.commit(ctx, &statusReq, nodes, false, slot)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -273,21 +273,27 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Only give back the slot when it holds a cancelled restore. Another
-			// restore owns it otherwise — even one carrying this same id, since
-			// the cancel could have been claimed by a different coordinator —
-			// and clearing it makes this node report itself idle while it is
-			// still writing files. The check and the clear share one lock
-			// acquisition so a restore that claims the slot in between does not
-			// lose it.
-			c.lastOp.resetIfCancelled(desc.ID)
-			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
+			// Only give back the slot when it holds a restore that has been
+			// cancelled. Another restore owns it otherwise — even one carrying
+			// this same id, since the cancel could have been claimed by a
+			// different coordinator — and clearing it makes this node report
+			// itself idle while it is still writing files. The check and the
+			// clear share one lock acquisition so a restore that claims the slot
+			// in between does not lose it.
+			released := c.lastOp.resetIfCancelled(desc.ID)
+			c.log.WithFields(logrus.Fields{
+				"action":      OpRestore,
+				"backup_id":   desc.ID,
+				"slot_freed":  released,
+				"slot_holder": c.lastOp.get().ID,
+				"slot_status": c.lastOp.get().Status,
+			}).Info("restore cancellation already in progress, nothing started")
 			return nil
 		}
 	}
 
 	// make sure there is no active backup
-	prevID, slotGeneration := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	prevID, slot := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
 	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
@@ -302,23 +308,23 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		// Not a plain reset: unlike the backupper slot, this one has writers
-		// outside Restore (a cancel, and a retry's early return), so by the
-		// time we get here it may already belong to a newer restore.
-		c.lastOp.resetIfOwned(slotGeneration)
+		// Not a plain reset: unlike the backup coordinator's slot, this one has
+		// writers outside Restore (a cancel, and a retry's early return), so by
+		// the time we get here it may already belong to a newer restore.
+		slot.release()
 		return err
 	}
 
 	// Set status to Transferring now that staging has begun
 	c.descriptor.Status = backup.Transferring
-	c.lastOp.set(backup.Transferring)
+	slot.set(backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.resetIfOwned(slotGeneration)
+		slot.release()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
@@ -326,7 +332,7 @@ func (c *coordinator) Restore(
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
-		defer c.lastOp.resetIfOwned(slotGeneration)
+		defer slot.release()
 		ctx := context.Background()
 
 		// checkStorageCancelled reads from storage to check if restore was cancelled.
@@ -339,13 +345,13 @@ func (c *coordinator) Restore(
 			if err != nil {
 				return false // Can't read storage, continue with operation
 			}
-			if storedMeta.Status == backup.Cancelled || storedMeta.Status == backup.Cancelling {
+			if storedMeta.Status.IsCancellation() {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = storedMeta.Error
 				if c.descriptor.Error == "" {
 					c.descriptor.Error = errCancelled.Error()
 				}
-				c.lastOp.set(backup.Cancelled)
+				slot.set(backup.Cancelled)
 				return true
 			}
 			return false
@@ -353,7 +359,7 @@ func (c *coordinator) Restore(
 
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
-		c.commit(ctx, &statusReq, nodes, true)
+		c.commit(ctx, &statusReq, nodes, true, slot)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Check storage for cancellation before transitioning to Finalizing.
@@ -368,13 +374,16 @@ func (c *coordinator) Restore(
 		// Block cancellation by setting status to Finalizing before schema apply
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
-			// Check for external cancellation via lastOp (same-node cancellation)
-			if c.lastOp.get().Status == backup.Cancelled {
+			// Check for external cancellation via the slot (same-node
+			// cancellation). A cancel that is still in flight counts: it has
+			// already been claimed, and moving on to Finalizing is past the
+			// point where CancelRestore can still be refused.
+			if st, ok := slot.status(); ok && st.IsCancellation() {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = errCancelled.Error()
 			} else {
 				c.descriptor.Status = backup.Finalizing
-				c.lastOp.set(backup.Finalizing)
+				slot.set(backup.Finalizing)
 				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 				}
@@ -394,7 +403,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.publishStatus()
+		c.publishStatus(slot)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -628,6 +637,7 @@ func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
 	toleratePartialFailure bool,
+	slot slotOwner,
 ) {
 	// create a new copy for commitAll and queryAll to mutate
 	node2Host := make(map[string]string, len(node2Addr))
@@ -636,7 +646,7 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	// Check for external cancellation before starting
-	if c.lastOp.get().Status == backup.Cancelled {
+	if cancelledExternally(slot) {
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
 		c.descriptor.Status = backup.Cancelled
 		c.descriptor.Error = errCancelled.Error()
@@ -648,7 +658,7 @@ func (c *coordinator) commit(ctx context.Context,
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
-		if c.lastOp.get().Status == backup.Cancelled {
+		if cancelledExternally(slot) {
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: operation was cancelled externally")
 			// Mark remaining nodes as cancelled
 			for node := range node2Host {
@@ -748,28 +758,40 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
-	// Respect external cancellation from CancelRestore() - if lastOp was already
-	// set to Cancelled, propagate that to descriptor so storage writes are consistent
-	if c.lastOp.get().Status == backup.Cancelled {
+	// Respect external cancellation from CancelRestore() - if the slot was
+	// already stamped, propagate that to descriptor so storage writes are consistent
+	if cancelledExternally(slot) {
 		c.descriptor.Status = backup.Cancelled
 		if reason == "" {
 			reason = "restore canceled by user"
 		}
 	}
 	c.descriptor.Error = reason
-	c.publishStatus()
+	c.publishStatus(slot)
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// cancelledExternally reports whether somebody outside this operation has
+// cancelled it, which the operation learns by finding a cancellation on its own
+// slot. A cancel that has only been claimed so far (Cancelling) counts: the
+// operator has asked and CancelRestore is already aborting the participants.
+//
+// A slot this operation no longer holds says nothing about it, so it reads as
+// not cancelled: the newer claim's status belongs to the newer operation.
+func cancelledExternally(slot slotOwner) bool {
+	st, ok := slot.status()
+	return ok && st.IsCancellation()
 }
 
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a
 // poll reads until the descriptor is written to object storage. A failure goes
 // through setFailed so it is never published without the reason next to it.
-func (c *coordinator) publishStatus() {
+func (c *coordinator) publishStatus(slot slotOwner) {
 	if c.descriptor.Status == backup.Failed {
-		c.lastOp.setFailed(c.descriptor.Error)
+		slot.setFailed(c.descriptor.Error)
 		return
 	}
-	c.lastOp.set(c.descriptor.Status)
+	slot.set(c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally
