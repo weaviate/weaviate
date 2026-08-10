@@ -338,9 +338,10 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeResolve := time.Now()
+	// Children on the desugared path, keys on the batched one.
 	n := len(pv.children)
-	if pv.containsValues != nil {
-		n = len(pv.containsValues)
+	if ln := pv.containsValues.Len(); ln > 0 {
+		n = ln
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", n)
 	dbm, err := pv.resolveDocIDs(ctx, s, limit)
@@ -1132,9 +1133,24 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 }
 
 // newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
+//
+// The keys arrive ascending, ordered by whichever producer built them, because
+// that is where ordering is cheapest: the text path sorts the slab it has just
+// filled, and the fixed-width encoders sort theirs in place, where a key's
+// position is its rank. The fold that consumes them walks the bucket once in
+// key order.
+//
+// A leaf must hold at least one key, and that is checked here because the
+// routing predicate downstream is a key count rather than a presence test: a
+// batched leaf holding none would not look like one at all, and would resolve
+// through the children dispatch with no children to resolve.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
-	class *models.Class, keys [][]byte,
+	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
+	if keys.Len() == 0 {
+		return nil, fmt.Errorf("%w: batched contains leaf for property %q has no keys",
+			inverted.ErrInternal, property.Name)
+	}
 	pv, err := newPropValuePair(class)
 	if err != nil {
 		return nil, err
@@ -1144,6 +1160,20 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 	pv.hasFilterableIndex = true
 	pv.containsValues = keys
 	return pv, nil
+}
+
+// wrapExtractErr reports what a batched arm could not encode.
+//
+// An internal fault is logged as well as returned. It reaches the API through
+// the same channel as a value the user got wrong — and under the same prefix —
+// so without this a broken sort or a misused builder arrives looking like a
+// malformed filter, with nothing on the server saying otherwise.
+func (s *Searcher) wrapExtractErr(prop string, err error) error {
+	if errors.Is(err, inverted.ErrInternal) {
+		s.logger.WithField("prop", prop).
+			Errorf("batched contains could not encode its keys: %v", err)
+	}
+	return fmt.Errorf("extract contains values: %w", err)
 }
 
 // batchedContainsUUID builds the batched leaf for string values on a UUID
@@ -1156,7 +1186,7 @@ func (s *Searcher) batchedContainsUUID(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeUUIDKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1172,24 +1202,25 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	prepared := tokenizer.NewPreparedAnalyzer(property.TextAnalyzer)
 	batch, err := tokenizer.AnalyzeBatch(values, models.PropertyTokenizationField, class.Class, prepared, nil)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
-	total := 0
-	for i, valueTokens := range batch.All() {
-		if len(valueTokens) != 1 {
-			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
-		}
-		total += len(valueTokens[0])
+	// FIELD gives one token per value, and the key is that token's bytes.
+	total, err := batch.SingleTokenBytes()
+	if err != nil {
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
-	// all keys share one backing slab; the three-index sub-slices cap each
-	// key's capacity at its own end, so an append to one key cannot clobber
-	// the next
-	keys := make([][]byte, batch.Len())
-	slab := make([]byte, 0, total)
-	for i, valueTokens := range batch.All() {
-		start := len(slab)
-		slab = append(slab, valueTokens[0]...)
-		keys[i] = slab[start:len(slab):len(slab)]
+
+	// Fill first, order in Build — the same shape the fixed-width encoders use.
+	// Ordering the tokens here instead would mean a comparison sort over string
+	// headers, which dereferences into the tokenizer's backing array;
+	// ordering the slab lets equal-width keys go through a radix.
+	kb := inverted.NewVarKeyBuilder(batch.Len(), total)
+	for _, valueTokens := range batch.All() {
+		kb.AppendString(valueTokens[0])
+	}
+	keys, err := kb.Build()
+	if err != nil {
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1199,7 +1230,7 @@ func (s *Searcher) batchedContainsInt(property *models.Property, operator filter
 ) (*propValuePair, error) {
 	keys, err := encodeIntKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1209,7 +1240,7 @@ func (s *Searcher) batchedContainsNumber(property *models.Property, operator fil
 ) (*propValuePair, error) {
 	keys, err := encodeNumberKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1219,7 +1250,7 @@ func (s *Searcher) batchedContainsBool(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeBoolKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1229,7 +1260,7 @@ func (s *Searcher) batchedContainsDate(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeDateKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, s.wrapExtractErr(property.Name, err)
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -47,9 +49,14 @@ type propValuePair struct {
 	Class              *models.Class // The schema
 
 	// containsValues holds pre-encoded on-disk keys for a flat, single-property
-	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
+	// Contains(Any|All|None) filter. When it holds any, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below.
-	containsValues [][]byte
+	//
+	// The count is what routes: an empty list and an unset field are the same
+	// value, so nothing else distinguishes a batched leaf.
+	// newBatchedContainsPair rejects a leaf holding no keys, so the two
+	// cannot diverge.
+	containsValues entsInverted.SortedKeys
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -64,9 +71,10 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return nil, err
 	}
 
-	if pv.containsValues != nil {
+	if pv.containsValues.Len() > 0 {
 		if !pv.operator.IsContains() {
-			return nil, fmt.Errorf("pre-encoded contains keys with non-contains operator %q", pv.operator.Name())
+			return nil, fmt.Errorf("%w: pre-encoded contains keys with non-contains operator %q",
+				entsInverted.ErrInternal, pv.operator.Name())
 		}
 		return pv.fetchContainsBatch(ctx, s)
 	}
@@ -369,12 +377,12 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	// A batched Contains always carries at least two keys — extraction does not
-	// batch below that, and every path errors rather than dropping a value. Zero
-	// keys is therefore a caller bug, and answering it here would mean inventing
-	// a result for each operator; the fold rejects it for the same reason.
-	if len(pv.containsValues) == 0 {
-		return nil, fmt.Errorf("contains filter on prop %q carries no keys", pv.prop)
+	// A batched Contains carries at least one key — extraction does not batch
+	// below two values. Zero is a caller bug: answering it would mean inventing
+	// a result for each operator, and the fold refuses it for the same reason.
+	if pv.containsValues.Len() == 0 {
+		return nil, fmt.Errorf("%w: contains filter on prop %q carries no keys",
+			entsInverted.ErrInternal, pv.prop)
 	}
 
 	before := time.Now()
@@ -391,7 +399,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				"count":          dbm.count(),
 				"failed":         err != nil,
 				"strategy":       lsmkv.StrategyRoaringSet,
-				"batched_values": len(pv.containsValues),
+				"batched_values": pv.containsValues.Len(),
 			}
 		})
 	}()
