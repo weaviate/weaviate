@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -34,7 +33,12 @@ import (
 // tests below are about.
 type restoreMetaBackend struct {
 	sync.Mutex
-	stored []byte
+	stored   []byte
+	statuses []backup.Status
+	// onRead runs before every read answers, numbered from one. It is the seam
+	// a test changes the world in between two steps of a restore goroutine.
+	onRead func(n int)
+	reads  int
 }
 
 func (b *restoreMetaBackend) IsExternal() bool       { return true }
@@ -50,22 +54,44 @@ func (b *restoreMetaBackend) AllBackups(context.Context) ([]*backup.DistributedB
 func (b *restoreMetaBackend) Initialize(context.Context, string, string, string) error { return nil }
 
 func (b *restoreMetaBackend) GetObject(_ context.Context, _, key, _, _ string) ([]byte, error) {
-	b.Lock()
-	defer b.Unlock()
-	if key != GlobalRestoreFile || b.stored == nil {
+	if key != GlobalRestoreFile {
 		return nil, backup.ErrNotFound{}
 	}
-	return b.stored, nil
+	b.Lock()
+	b.reads++
+	n, stored, onRead := b.reads, b.stored, b.onRead
+	b.Unlock()
+
+	if onRead != nil {
+		onRead(n)
+	}
+	if stored == nil {
+		return nil, backup.ErrNotFound{}
+	}
+	return stored, nil
 }
 
 func (b *restoreMetaBackend) PutObject(_ context.Context, _, key, _, _ string, data []byte) error {
 	if key != GlobalRestoreFile {
 		return nil
 	}
+	var desc backup.DistributedBackupDescriptor
+	if err := json.Unmarshal(data, &desc); err != nil {
+		return err
+	}
 	b.Lock()
 	defer b.Unlock()
 	b.stored = append([]byte(nil), data...)
+	b.statuses = append(b.statuses, desc.Status)
 	return nil
+}
+
+// storedStatuses is every status stored so far, in order.
+func (b *restoreMetaBackend) storedStatuses(t *testing.T) []backup.Status {
+	t.Helper()
+	b.Lock()
+	defer b.Unlock()
+	return append([]backup.Status(nil), b.statuses...)
 }
 
 func (b *restoreMetaBackend) Write(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error) {
@@ -87,16 +113,6 @@ func (b *restoreMetaBackend) storedStatus(t *testing.T) backup.Status {
 	var desc backup.DistributedBackupDescriptor
 	require.NoError(t, json.Unmarshal(b.stored, &desc))
 	return desc.Status
-}
-
-// cancelAndFreeSlot does to the slot what a cancel does: stamp the restore
-// holding it and give the slot back, leaving that restore's goroutine running.
-// assert, not require: this runs on that goroutine or inside a mock callback,
-// where Goexit surfaces as a hang instead of the failure.
-func cancelAndFreeSlot(t *testing.T, stat *backupStat, id string) {
-	t.Helper()
-	assert.True(t, stat.setIfOwned(id, backup.Cancelled))
-	assert.True(t, stat.resetIfCancelled(id))
 }
 
 func restoreDescriptor(id, node string) *backup.DistributedBackupDescriptor {
@@ -252,7 +268,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 	close(resumed)
 
 	require.Never(t, func() bool { return o.backend.storedStatus(t) != backup.Transferring },
-		2*time.Second, 10*time.Millisecond,
+		200*time.Millisecond, 10*time.Millisecond,
 		"the cancelled restore persisted its own outcome as the retry's")
 	o.finish(t)
 }

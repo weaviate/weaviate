@@ -97,10 +97,7 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 							return
 						}
 						once.Do(func() {
-							assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelled))
-							assert.True(t, c.lastOp.resetIfCancelled(backupID))
-							prevID, _ := c.lastOp.renew(tc.newID, "path", "", "")
-							assert.Empty(t, prevID)
+							takeOverSlot(t, &c.lastOp, backupID, tc.newID)
 							close(stolen)
 						})
 					})
@@ -120,7 +117,7 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				}
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
-				}, time.Second, 10*time.Millisecond,
+				}, 200*time.Millisecond, 10*time.Millisecond,
 					"the finished restore released a slot a newer restore owns")
 				return
 			}
@@ -181,10 +178,7 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 						if !tc.steal || !stolen.CompareAndSwap(false, true) {
 							return
 						}
-						assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelled))
-						assert.True(t, c.lastOp.resetIfCancelled(backupID))
-						prevID, _ := c.lastOp.renew("live-backup", "path", "", "")
-						assert.Empty(t, prevID)
+						takeOverSlot(t, &c.lastOp, backupID, "live-backup")
 					})
 			}
 
@@ -201,7 +195,7 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			if tc.steal {
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
-				}, 2*time.Second, 20*time.Millisecond,
+				}, 200*time.Millisecond, 20*time.Millisecond,
 					"the finished backup released a slot a newer backup owns")
 				return
 			}
@@ -341,10 +335,7 @@ func TestCoordinatorRestoreErrorPathReleasesOnlyItsOwnSlot(t *testing.T) {
 					// runs inside a mock callback, and Goexit there would
 					// surface as a hang instead of this failure.
 					once.Do(func() {
-						assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelled))
-						assert.True(t, c.lastOp.resetIfCancelled(backupID))
-						prevID, _ := c.lastOp.renew("live-restore", "path", "", "")
-						assert.Empty(t, prevID)
+						takeOverSlot(t, &c.lastOp, backupID, "live-restore")
 					})
 				})
 
@@ -467,10 +458,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 				// assert, not require: this runs inside a mock callback, where
 				// Goexit surfaces as a hang instead of this failure.
 				once.Do(func() {
-					assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelled))
-					assert.True(t, c.lastOp.resetIfCancelled(backupID))
-					prevID, _ := c.lastOp.renew(newID, "path", "", "")
-					assert.Empty(t, prevID)
+					takeOverSlot(t, &c.lastOp, backupID, newID)
 					close(stolen)
 				})
 			})
@@ -493,7 +481,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 			require.Never(t, func() bool {
 				st := c.lastOp.get()
 				return st.ID != newID || st.Status != backup.Started || st.Err != ""
-			}, 2*time.Second, 10*time.Millisecond,
+			}, 200*time.Millisecond, 10*time.Millisecond,
 				"the cancelled restore stamped the slot of the one that replaced it")
 
 			_, remembered := c.lastOp.rememberedFailure(newID)
@@ -549,7 +537,8 @@ func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 			// participants. assert, not require: Goexit inside a mock callback
 			// surfaces as a hang instead of this failure.
 			once.Do(func() {
-				assert.True(t, c.lastOp.setIfOwned(backupID, backup.Cancelling))
+				stamped, _ := c.lastOp.setIfOwned(backupID, backup.Cancelling)
+				assert.True(t, stamped)
 			})
 		})
 

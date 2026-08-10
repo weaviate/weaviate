@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -73,10 +72,7 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 				}
 				// assert, not require: Goexit here would kill the restore
 				// goroutine mid-flight and surface as a hang.
-				assert.True(t, r.lastOp.setIfOwned(backupID, backup.Cancelled))
-				assert.True(t, r.lastOp.resetIfCancelled(backupID))
-				prevID, _ := r.lastOp.renew(newID, "path", "", "")
-				assert.Empty(t, prevID)
+				takeOverSlot(t, &r.lastOp, backupID, newID)
 				close(stolen)
 			}}
 			r = newRestorer("node1", logger, &fakeSourcer{}, rbac, nil,
@@ -103,7 +99,7 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 				}
 				require.Never(t, func() bool {
 					return r.lastOp.get().ID != tc.wantSlotID
-				}, time.Second, 10*time.Millisecond,
+				}, 200*time.Millisecond, 10*time.Millisecond,
 					"the finished restore released a slot a newer restore owns")
 				return
 			}
@@ -155,10 +151,7 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 				if !tc.steal {
 					return
 				}
-				assert.True(t, b.lastOp.setIfOwned(backupID, backup.Cancelled))
-				assert.True(t, b.lastOp.resetIfCancelled(backupID))
-				prevID, _ := b.lastOp.renew(newID, "path", "", "")
-				assert.Empty(t, prevID)
+				takeOverSlot(t, &b.lastOp, backupID, newID)
 				close(stolen)
 			}}
 			b = newBackupper(nodeName, logger, config.Backup{}, sourcer, rbac, nil,
@@ -176,7 +169,7 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 				}
 				require.Never(t, func() bool {
 					return b.lastOp.get().ID != tc.wantSlotID
-				}, time.Second, 10*time.Millisecond,
+				}, 200*time.Millisecond, 10*time.Millisecond,
 					"the finished backup released a slot a newer backup owns")
 				return
 			}

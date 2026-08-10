@@ -18,6 +18,7 @@ import (
 )
 
 func TestStatusIsCancellation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status Status
 		want   bool

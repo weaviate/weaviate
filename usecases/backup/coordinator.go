@@ -133,7 +133,7 @@ func newCoordinator(
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
 ) *coordinator {
-	return &coordinator{
+	c := &coordinator{
 		selector:           selector,
 		client:             client,
 		schema:             schema,
@@ -145,6 +145,8 @@ func newCoordinator(
 		timeoutCanCommit:   _TimeoutCanCommit,
 		timeoutNextRound:   _NextRoundPeriod,
 	}
+	c.initSlot(log)
+	return c
 }
 
 // operation is the state of a single distributed backup or restore: the
@@ -289,7 +291,7 @@ func (c *coordinator) Restore(
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
-) error {
+) (err error) {
 	req.Method = OpRestore
 
 	// Check if a cancellation is already in progress before asking nodes to commit.
@@ -297,8 +299,7 @@ func (c *coordinator) Restore(
 		if existingMeta.Status == backup.Cancelling {
 			// Only give back the slot when it still holds this cancelled restore;
 			// another restore (even a retry under the same id) may already own it.
-			released := c.lastOp.resetIfCancelled(desc.ID)
-			held := c.lastOp.get()
+			released, held := c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithFields(logrus.Fields{
 				"action":      OpRestore,
 				"backup_id":   desc.ID,
@@ -306,7 +307,12 @@ func (c *coordinator) Restore(
 				"slot_holder": held.ID,
 				"slot_status": held.Status,
 			}).Info("restore cancellation already in progress, nothing started")
-			return nil
+			// Refused, not started: a nil error here reaches the caller as
+			// STARTED, and the id it then polls answers with the terminal
+			// status of the restore being cancelled. The participants refuse
+			// the same request with the same wording.
+			return backup.NewErrUnprocessable(
+				fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", desc.ID))
 		}
 	}
 
@@ -315,6 +321,17 @@ func (c *coordinator) Restore(
 	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
+	// From here the slot is ours until the goroutine below takes it over, so
+	// every error return has to give it back. A leaked slot blocks every later
+	// backup and restore this node coordinates, until restart. Not a plain
+	// reset: unlike the backup coordinator's slot, this one has writers outside
+	// Restore (a cancel, and a retry's early return), so by the time an error
+	// return runs it may already belong to a newer restore.
+	defer func() {
+		if err != nil {
+			slot.release()
+		}
+	}()
 
 	op := newOperation(desc.ResetStatus())
 
@@ -323,10 +340,6 @@ func (c *coordinator) Restore(
 	nodes, err := c.canCommit(ctx, op, req)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
-		// Not a plain reset: unlike the backup coordinator's slot, this one has
-		// writers outside Restore (a cancel, and a retry's early return), so by
-		// the time we get here it may already belong to a newer restore.
-		slot.release()
 		return err
 	}
 
@@ -338,11 +351,10 @@ func (c *coordinator) Restore(
 	overridePath := req.Path
 
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, op.descriptor, overrideBucket, overridePath); err != nil {
-		slot.release()
-		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-		c.abortAll(ctx, req, nodes)
-		return fmt.Errorf("put initial metadata: %w", err)
+	if putErr := store.PutMeta(ctx, GlobalRestoreFile, op.descriptor, overrideBucket, overridePath); putErr != nil {
+		abortReq := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
+		c.abortAll(ctx, abortReq, nodes)
+		return fmt.Errorf("put initial metadata: %w", putErr)
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
