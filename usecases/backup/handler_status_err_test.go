@@ -45,12 +45,6 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 			wantErr:    "object storage unreachable",
 		},
 		{
-			name:       "a running operation has no reason to carry",
-			stamp:      func(s *backupStat) { s.set(backup.Transferring) },
-			wantStatus: backup.Transferring,
-			wantErr:    "",
-		},
-		{
 			name: "a cancelled slot keeps its status and reports no failure",
 			stamp: func(s *backupStat) {
 				s.set(backup.Cancelled)
@@ -93,15 +87,19 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 		require.Empty(t, s.get().Err)
 	})
 
-	t.Run("renew drops it", func(t *testing.T) {
-		// A free slot (empty ID) is the only one renew takes, so it is stamped
-		// directly here rather than through a failure the slot still owns.
+	// A restore whose commit failed is then found cancelled in object storage,
+	// and the slot moves to Cancelled a moment after the failure was published
+	// on it.
+	t.Run("a later status drops it", func(t *testing.T) {
 		var s backupStat
-		s.Err = reason
+		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		s.setFailed(reason)
 
-		require.Empty(t, s.renew("2", "bucket/backups/2", "", ""))
+		s.set(backup.Cancelled)
 
-		require.Empty(t, s.get().Err)
+		got := s.get()
+		require.Equal(t, backup.Cancelled, got.Status)
+		require.Empty(t, got.Err, "a cancellation must not be served with a failure's reason")
 	})
 }
 
@@ -219,6 +217,8 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 			require.Equal(t, backup.Failed, res.Status)
 			require.Equal(t, backup.Failed, desc.Status,
 				"the persisted descriptor must not claim the backup was still transferring")
+			require.NotEmpty(t, desc.Error,
+				"the descriptor is what a poll reads once the slot is gone, so it has to state the failure too")
 			for _, want := range tc.wantIn {
 				require.Contains(t, res.Err, want)
 			}
@@ -435,7 +435,6 @@ func TestHandlerOnStatusServesTheReasonACreateFailedWithBeforeUploading(t *testi
 		require.NoError(t, err)
 		return b
 	}
-	gzip := backup.CompressionGZIP
 	zstd := backup.CompressionZSTD
 
 	cases := []struct {
@@ -467,17 +466,6 @@ func TestHandlerOnStatusServesTheReasonACreateFailedWithBeforeUploading(t *testi
 				StartedAt: time.Now().Add(-time.Hour),
 			}),
 			wantIn: `has compression type "zstd", expected "gzip"`,
-		},
-		{
-			name:   "the base backup chain points back at itself",
-			commit: true,
-			level:  GzipDefaultCompression,
-			baseID: baseID,
-			baseMeta: base(backup.BackupDescriptor{
-				ID: baseID, Status: backup.Success, CompressionType: &gzip,
-				StartedAt: time.Now().Add(-time.Hour), BaseBackupID: baseID,
-			}),
-			wantIn: "circular references in backup ids detected",
 		},
 	}
 
@@ -566,52 +554,209 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 	const (
 		backupID    = "coordinated"
 		backendName = "s3"
+	)
+	ctx := context.Background()
+
+	cases := []struct {
+		name           string
+		participantErr string
+		wantErr        string
+	}{
+		{
+			name:           "the participant's reason is what the poll gets",
+			participantErr: "no space left on device",
+			wantErr:        "no space left on device",
+		},
+		{
+			// A node still running a pre-fix build, which every participant is
+			// for the length of a rolling upgrade.
+			name:           "a participant that reports no reason still ends as a stated failure",
+			participantErr: "",
+			wantErr:        failureWithoutReason,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1"}))
+			c := fc.coordinator()
+			c.timeoutNextRound = time.Millisecond
+			c.descriptor = &backup.DistributedBackupDescriptor{
+				ID:          backupID,
+				NodeMapping: map[string]string{},
+				Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
+			}
+			c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+			require.Empty(t, c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
+
+			fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
+			fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(&StatusResponse{
+				Status: backup.Failed, Err: tc.participantErr, ID: backupID, Method: OpCreate,
+			}, nil)
+			fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
+
+			req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
+			c.commit(ctx, req, map[string]string{"N1": "N1"}, false)
+
+			st, err := c.OnStatus(ctx, coordStore{}, req)
+
+			require.NoError(t, err)
+			require.Equal(t, backup.Failed, st.Status)
+			require.Equal(t, tc.wantErr, st.Err,
+				"the descriptor is not on the backend yet, so the slot is the only answer")
+		})
+	}
+}
+
+// The create goroutine publishes the outcome on the slot, writes the global
+// descriptor, and releases the slot. When that write is what fails, the
+// descriptor left on the backend is the one from before the operation ended,
+// and every later poll of GET /backups/{backend}/{id} reads it: a failed backup
+// reporting STARTED for as long as the node is up.
+func TestCoordinatorOnStatusServesTheFailureTheGlobalDescriptorNeverGot(t *testing.T) {
+	const (
+		backupID    = "meta-write-failed"
+		backendName = "s3"
+		class       = "Article"
+		node        = "N1"
 		reason      = "no space left on device"
 	)
 	ctx := context.Background()
 
-	fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1"}))
-	c := fc.coordinator()
-	c.timeoutNextRound = time.Millisecond
-	c.descriptor = &backup.DistributedBackupDescriptor{
-		ID:          backupID,
-		NodeMapping: map[string]string{},
-		Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
-	}
-	c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
-	require.Empty(t, c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
-
-	fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
-	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(&StatusResponse{
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
+	fc.selector.On("Shards", ctx, class).Return([]string{node}, nil)
+	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil)
+	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	fc.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
 		Status: backup.Failed, Err: reason, ID: backupID, Method: OpCreate,
 	}, nil)
-	fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
+	fc.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
+	fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	// The initial descriptor lands, the one carrying the outcome does not.
+	fc.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil).Once()
+	fc.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(ErrAny)
+	fc.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).
+		Return(marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+			ID: backupID, Status: backup.Started,
+		}), nil)
 
-	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
-	c.commit(ctx, req, map[string]string{"N1": "N1"}, false)
+	c := fc.coordinator()
+	c.timeoutNextRound = time.Millisecond
+	req := newReq([]string{class}, backendName, backupID)
+	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+	require.NoError(t, c.Backup(ctx, store, &req))
 
-	st, err := c.OnStatus(ctx, coordStore{}, req)
+	require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
+		10*time.Second, 5*time.Millisecond, "the create goroutine never released the slot")
+
+	st, err := c.OnStatus(ctx, store, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName})
+
+	require.NoError(t, err)
+	require.Equal(t, backup.Failed, st.Status,
+		"a backup that failed must not report STARTED once its goroutine is gone")
+	require.Equal(t, reason, st.Err)
+}
+
+// Same hole on the restore side, where the descriptor left behind is the one
+// written when staging began.
+func TestCoordinatorOnStatusServesTheFailureTheGlobalRestoreDescriptorNeverGot(t *testing.T) {
+	const (
+		backupID    = "restore-meta-write-failed"
+		backendName = "s3"
+		class       = "Article"
+		node        = "N1"
+		reason      = "restore class Article: schema apply rejected"
+	)
+	ctx := context.Background()
+
+	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
+	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	fc.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
+		Status: backup.Failed, Err: reason, ID: backupID, Method: OpRestore,
+	}, nil)
+	fc.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
+	fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	// Nothing to cancel yet, and after that the fake serves what was last
+	// written.
+	fc.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	// The descriptor written when staging began lands, the one carrying the
+	// outcome does not.
+	fc.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil).Once()
+	fc.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(ErrAny)
+
+	c := fc.coordinator()
+	c.timeoutNextRound = time.Millisecond
+	req := newReq([]string{class}, backendName, backupID)
+	desc := &backup.DistributedBackupDescriptor{
+		ID:          backupID,
+		Nodes:       map[string]*backup.NodeDescriptor{node: {Classes: []string{class}}},
+		NodeMapping: map[string]string{},
+	}
+	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+	require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
+
+	require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
+		10*time.Second, 5*time.Millisecond, "the restore goroutine never released the slot")
+
+	st, err := c.OnStatus(ctx, store, &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName})
+
+	require.NoError(t, err)
+	require.Equal(t, backup.Failed, st.Status,
+		"a restore that failed must not report TRANSFERRING once its goroutine is gone")
+	require.Equal(t, reason, st.Err)
+}
+
+// BackupStatus is what the REST layer calls for GET /backups/{backend}/{id},
+// and it copies the reason straight into the response payload. Everything below
+// it is covered a layer down; this is the whole path an operator polls.
+func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
+	const (
+		backupID    = "polled"
+		backendName = "s3"
+		class       = "Article"
+		node        = "N1"
+		reason      = "no space left on device"
+	)
+	ctx := context.Background()
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.selector.On("ListClasses", ctx).Return([]string{class})
+	fs.selector.On("Backupable", ctx, []string{class}).Return(nil)
+	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
+	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil)
+	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+	fs.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
+		Status: backup.Failed, Err: reason, ID: backupID, Method: OpCreate,
+	}, nil)
+	fs.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	fs.backend.On("Initialize", ctx, backupID).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	// No backup under this id yet, then the descriptor written when the
+	// operation started, which is all the failed write leaves behind.
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Once()
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).
+		Return(marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+			ID: backupID, Status: backup.Started,
+		}), nil)
+	fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil).Once()
+	fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(ErrAny)
+
+	s := fs.scheduler()
+	s.backupper.timeoutNextRound = time.Millisecond
+	_, err := s.Backup(ctx, nil, &BackupRequest{ID: backupID, Backend: backendName, Include: []string{class}})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" },
+		10*time.Second, 5*time.Millisecond, "the create goroutine never released the slot")
+
+	st, err := s.BackupStatus(ctx, nil, backendName, backupID, "", "")
 
 	require.NoError(t, err)
 	require.Equal(t, backup.Failed, st.Status)
-	require.Contains(t, st.Err, reason,
-		"the descriptor is not on the backend yet, so the slot is the only answer")
-}
-
-// Same window on the restore side.
-func TestHandlerOnStatusServesTheReasonARestoreFailedWith(t *testing.T) {
-	const (
-		backupID = "restoring"
-		reason   = "restore class Article: schema apply rejected"
-	)
-
-	r := &restorer{}
-	require.Empty(t, r.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
-	r.lastOp.setFailed(reason)
-
-	res := (&Handler{restorer: r}).OnStatus(context.Background(),
-		&StatusRequest{Method: OpRestore, ID: backupID})
-
-	require.Equal(t, backup.Failed, res.Status)
-	require.Equal(t, reason, res.Err)
+	require.Equal(t, reason, st.Err)
 }

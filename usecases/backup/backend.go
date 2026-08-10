@@ -281,7 +281,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				// coordinator count the node done and report a backup that
 				// cannot be restored as good.
 				desc.Status = backup.Transferred
-				u.slot.setFailed(publishableErrMsg(err))
+				u.slot.setFailed(err.Error())
 			} else {
 				u.slot.set(backup.Success)
 			}
@@ -289,7 +289,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = publishableErrMsg(err)
+		desc.Error = nonEmptyErrMsg(err)
 
 		// Handle error cases
 		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
@@ -312,7 +312,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(publishableErrMsg(err))
+			u.slot.setFailed(err.Error())
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -386,15 +386,13 @@ Loop:
 	return nil
 }
 
-// publishableErrMsg is the failure text safe to serve from the status API.
-func publishableErrMsg(err error) string {
-	msg := err.Error()
-	if msg == "" {
-		// A failure published with no text at all reads as no failure; say at
-		// least that there was one.
-		return "backup failed without a reported reason"
+// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
+// text is served verbatim from the status API, backend messages and all.
+func nonEmptyErrMsg(err error) string {
+	if msg := err.Error(); msg != "" {
+		return msg
 	}
-	return msg
+	return failureWithoutReason
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
