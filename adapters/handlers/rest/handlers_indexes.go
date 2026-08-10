@@ -600,8 +600,12 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
+		// One cache for the whole loop: every index type asks the same cold
+		// shards about a different tuple, and this runs in the request under
+		// the (collection, property) submit lock.
+		sweep := h.appState.DB.NewStalePartialReindexSweep()
 		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
-			return h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup)
+			return sweep(ctx, collection, propertyName, indexTypeForCleanup)
 		})
 		for _, failure := range cleanupErrs {
 			h.appState.Logger.WithFields(logrus.Fields{
@@ -823,8 +827,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
+			// One cache for the whole loop; see the submit path for why.
+			sweep := h.appState.DB.NewStalePartialReindexSweep()
 			cleanupErrs := sweepStaleReindexState(indexTypesToClean, func(it string) error {
-				return h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it)
+				return sweep(ctx, collection, propertyName, it)
 			})
 			if len(cleanupErrs) > 0 {
 				h.appState.Logger.WithFields(logrus.Fields{
