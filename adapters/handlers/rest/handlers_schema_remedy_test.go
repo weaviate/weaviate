@@ -313,9 +313,10 @@ func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 			Payload:        payload,
 		}
 	}
-	// Both conflict on C.name; only the ordering differs.
-	sorted := []*distributedtask.Task{task("T_a"), task("T_b")}
-	unsorted := []*distributedtask.Task{task("T_b"), task("T_a")}
+	// All three conflict on C.name; only the ordering differs. Three, not
+	// two, so that reversing the insertion order does not happen to sort it.
+	sorted := []*distributedtask.Task{task("T_a"), task("T_b"), task("T_c")}
+	unsorted := []*distributedtask.Task{task("T_b"), task("T_a"), task("T_c")}
 
 	h := &schemaHandlers{
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
@@ -330,4 +331,5 @@ func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 	require.Equal(t, applyGate.Error(), preCheck)
 	require.Contains(t, preCheck, `"T_a"`)
 	require.NotContains(t, preCheck, `"T_b"`)
+	require.NotContains(t, preCheck, `"T_c"`)
 }
