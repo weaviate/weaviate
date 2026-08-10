@@ -103,6 +103,10 @@ func (s *backupStat) set(st backup.Status) {
 		return
 	}
 	s.reqState.Status = st
+	// Every status other than Failed is reached through here, and none of them
+	// has a reason. Keeping an earlier one would serve it next to a status it
+	// does not belong to.
+	s.reqState.Err = ""
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

@@ -13,11 +13,15 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // The coordinator latches the first terminal answer a participant gives and
@@ -71,15 +75,79 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 	}
 }
 
-// renew hands the slot to a new operation, so a reason left by the previous one
-// must not be served as this one's.
-func TestBackupStatRenewClearsThePreviousFailure(t *testing.T) {
-	var s backupStat
+// A reason belongs to the failure that produced it. Every path that moves the
+// slot off that failure has to drop it, or the next reader is served a reason
+// for something that did not happen.
+func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
+	const reason = "object storage unreachable"
 
-	require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
-	s.setFailed("object storage unreachable")
-	s.reset()
+	t.Run("set drops it", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		s.setFailed(reason)
 
-	require.Empty(t, s.renew("2", "bucket/backups/2", "", ""))
-	require.Empty(t, s.get().Err)
+		s.set(backup.Success)
+
+		require.Equal(t, backup.Success, s.get().Status)
+		require.Empty(t, s.get().Err)
+	})
+
+	t.Run("reset drops it", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		s.setFailed(reason)
+
+		s.reset()
+
+		require.Empty(t, s.get().Err)
+	})
+
+	t.Run("renew drops it", func(t *testing.T) {
+		// A free slot (empty ID) is the only one renew takes, so it is stamped
+		// directly here rather than through a failure the slot still owns.
+		var s backupStat
+		s.reqState.Err = reason
+
+		require.Empty(t, s.renew("2", "bucket/backups/2", "", ""))
+
+		require.Empty(t, s.get().Err)
+	})
+}
+
+// The reason has to survive the whole way out of the uploader: a poll landing
+// before the operation slot is released reads it from there, not from the
+// descriptor.
+func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+	)
+	uploadErr := errors.New("collect shard files: no space left on device")
+
+	descriptors := make(chan backup.ClassDescriptor, 1)
+	descriptors <- backup.ClassDescriptor{Name: class, Error: uploadErr}
+	close(descriptors)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(descriptors))
+	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+	backend := newFakeBackend()
+	backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+	desc := backup.BackupDescriptor{ID: backupID}
+	require.ErrorIs(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""), uploadErr)
+
+	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpCreate, ID: backupID})
+
+	require.Equal(t, backup.Failed, res.Status)
+	require.Equal(t, uploadErr.Error(), res.Err)
 }
