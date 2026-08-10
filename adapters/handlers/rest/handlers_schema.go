@@ -340,7 +340,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 				"schema mutations on this property are blocked until the "+
 				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status, db.ReindexGateRemedy(task.Status))
+			propertyName, task.Status,
+			db.ReindexGateRemedy(task.Status, db.ReindexCancelCall(payload)))
 	}
 	return ""
 }

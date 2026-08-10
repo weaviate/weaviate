@@ -718,11 +718,14 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 
 // TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that all three
 // schema gates only tell the operator to cancel while cancel still works.
-// DTM cancels a task while it is STARTED and refuses past that point, so a
-// PREPARING or SWAPPING refusal naming cancel sends the operator at a call
-// that is guaranteed to answer 409. Past STARTED the text must also stop
+// DTM cancels a task while it is STARTED. Past that point the cancel endpoint
+// matches no task and answers 202 with Status NO_OP, so a PREPARING or
+// SWAPPING refusal naming cancel hands the operator a success-shaped reply
+// for a migration that is still running. Past STARTED the text must also stop
 // short of promising the wait ends: a node that owned part of the task
-// leaving the cluster wedges it there for good.
+// leaving the cluster wedges it there for good. A status this build does not
+// know reaches the gates too (they admit everything non-terminal), and must
+// claim nothing about cancel in either direction.
 func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -756,8 +759,12 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		},
 	}
 
+	// Every part of the cancel call is filled in from the same task the
+	// message describes: an operator can paste it as printed. A placeholder
+	// they have to guess would land on the 202 NO_OP this test exists to
+	// keep them away from.
 	cancelWorks := []string{
-		`{"<indexType>":{"cancel":true}}`,
+		`cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
 		"or wait for it to finish",
 	}
 	cancelRefused := []string{
@@ -765,15 +772,20 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"can only be waited out",
 		"wedges it here for good",
 	}
+	cancelUnknown := []string{
+		"this build does not know that status",
+		"read the task on a node that knows the status",
+	}
 
 	statuses := []struct {
-		status     distributedtask.TaskStatus
-		wantText   []string
-		refuseText []string
+		status  distributedtask.TaskStatus
+		want    []string
+		notWant []string
 	}{
-		{distributedtask.TaskStatusStarted, cancelWorks, cancelRefused},
-		{distributedtask.TaskStatusPreparing, cancelRefused, cancelWorks},
-		{distributedtask.TaskStatusSwapping, cancelRefused, cancelWorks},
+		{distributedtask.TaskStatusStarted, cancelWorks, concat(cancelRefused, cancelUnknown)},
+		{distributedtask.TaskStatusPreparing, cancelRefused, concat(cancelWorks, cancelUnknown)},
+		{distributedtask.TaskStatusSwapping, cancelRefused, concat(cancelWorks, cancelUnknown)},
+		{unknownFutureStatus, cancelUnknown, concat(cancelWorks, cancelRefused)},
 	}
 
 	for _, gate := range gates {
@@ -786,13 +798,63 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				}}
 				err := gate.call(tasks)
 				require.Error(t, err)
-				for _, want := range st.wantText {
+				for _, want := range st.want {
 					require.Contains(t, err.Error(), want)
 				}
-				for _, unwanted := range st.refuseText {
+				for _, unwanted := range st.notWant {
 					require.NotContains(t, err.Error(), unwanted)
 				}
 			})
 		}
+	}
+}
+
+func concat(sets ...[]string) []string {
+	var out []string
+	for _, s := range sets {
+		out = append(out, s...)
+	}
+	return out
+}
+
+// TestReindexCancelCall_OnlyRendersWhatItCanFillIn pins the rule the gate
+// messages rely on: either the whole call is filled in from the task, or
+// nothing is rendered. A half-filled URL costs the operator a 202 NO_OP.
+func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload ReindexTaskPayload
+		want    string
+	}{
+		{
+			name:    "single property, known type",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
+			want:    `PUT /v1/schema/C/indexes/num {"rangeable":{"cancel":true}}`,
+		},
+		{
+			name:    "type touching two indexes names one that cancels",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}},
+			want:    `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+		},
+		{
+			name:    "no property to name",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable},
+			want:    "",
+		},
+		{
+			name:    "several properties, no single URL",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			want:    "",
+		},
+		{
+			name:    "migration type this build cannot map",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: "invent-index", Properties: []string{"num"}},
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, ReindexCancelCall(tc.payload))
+		})
 	}
 }
