@@ -48,7 +48,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
-	b.initSlot(logger)
+	b.setSlotLogger(logger)
 	return b
 }
 
@@ -93,6 +93,9 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // fail before any descriptor is written have nowhere else to leave one, so
 // without this the operator polls a backup that failed minutes ago and is told
 // only that its metadata is missing.
+//
+// A refused write is not acted on: the caller is on its way out either way, and
+// lastAsyncError keeps the reason for debugging.
 func (b *backupper) publishFailure(slot slotOwner, err error) {
 	b.lastAsyncError = err
 	slot.setFailed(err.Error())
