@@ -397,7 +397,7 @@ func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
 		"a cross-node admission shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
@@ -423,7 +423,7 @@ func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }

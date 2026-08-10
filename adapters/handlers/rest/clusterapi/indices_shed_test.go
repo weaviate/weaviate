@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -42,7 +43,7 @@ type overloadedShards struct {
 func (o overloadedShards) Search(context.Context, string, string,
 	[]models.Vector, []string, float32, int, *filters.LocalFilter, *searchparams.KeywordRanking,
 	[]filters.Sort, *filters.Cursor, *searchparams.GroupBy, additional.Properties,
-	*dto.TargetCombination, []string,
+	*dto.TargetCombination, []string, *searchparams.Selection,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, o.err
 }
@@ -77,13 +78,13 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 	idx := NewIndices(overloadedShards{err: searchErr}, startedDB{},
 		NewNoopAuthHandler(), func() bool { return false }, logger)
 
-	body, err := IndicesPayloads.SearchParams.Marshal(
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+	body, err := shared.IndicesPayloads.SearchParams.Marshal(
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/indices/MyClass/shards/myshard/objects/_search", bytes.NewReader(body))
-	IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
+	shared.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 
 	rec := httptest.NewRecorder()
 	idx.Indices().ServeHTTP(rec, req)
