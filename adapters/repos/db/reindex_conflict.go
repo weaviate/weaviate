@@ -175,7 +175,8 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
+		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable:
 		return true
 	case ReindexTypeRepairFilterable,
 		ReindexTypeChangeTokenizationFilterable,
@@ -200,6 +201,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 		return true
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable,
 		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable:
 		return false

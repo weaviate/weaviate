@@ -913,6 +913,60 @@ func concat(sets ...[]string) []string {
 	return out
 }
 
+// TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
+// migration type a submit can produce panics the conflict check.
+//
+// typesConflictReason sanity-checks both types through TouchesSearchable and
+// TouchesFilterable, whose default arms panic on a type they do not list.
+// rebuild-searchable was missing from both, so submitting
+// {"searchable":{"rebuild":true}} against a collection with any reindex in
+// flight panicked — on the REST pre-check and, worse, inside the schema FSM's
+// apply path, where CheckConflict runs.
+func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
+	migrationTypes := []ReindexMigrationType{
+		ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable,
+		ReindexTypeRepairFilterable,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableSearchable,
+		ReindexTypeChangeTokenization,
+		ReindexTypeChangeTokenizationFilterable,
+	}
+
+	provider := &ReindexProvider{}
+
+	// Both sides of the check reach the predicates, so every ordered pair
+	// has to survive, not just every type in the submitted position.
+	for _, newType := range migrationTypes {
+		for _, existType := range migrationTypes {
+			t.Run(string(newType)+" while "+string(existType)+" is in flight", func(t *testing.T) {
+				newPayload, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: newType, Properties: []string{"prop"},
+				})
+				require.NoError(t, err)
+				existPayload, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: existType, Properties: []string{"prop"},
+				})
+				require.NoError(t, err)
+
+				existing := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+					Status:         distributedtask.TaskStatusStarted,
+					Payload:        existPayload,
+				}}
+
+				require.NotPanics(t, func() {
+					// Overlapping properties, so this is the conflict the
+					// check exists for: it must refuse, not crash.
+					require.Error(t, provider.CheckConflict(newPayload, existing))
+				})
+			})
+		}
+	}
+}
+
 // TestReindexCancelCall_OnlyRendersWhatItCanFillIn pins the rule the gate
 // messages rely on: either the whole call is filled in from the task, or
 // nothing is rendered. A half-filled URL costs the operator a 202 NO_OP.
