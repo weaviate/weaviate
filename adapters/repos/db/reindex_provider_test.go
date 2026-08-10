@@ -47,9 +47,8 @@ import (
 //      one tuple never bleeds into a sibling tuple.
 //   5. The builder closure exposes a fresh probe each time so the
 //      backup gate sees the live state, not a stale snapshot.
-//   6. uniqueShardsFromPayload dedupes shards across UnitToShard
-//      entries (multi-property migrations route multiple units to
-//      the same shard).
+//   6. MarkCleanupInProgress gates the whole collection, because the
+//      sweep it guards walks every local shard.
 
 // newCleanupRegistryProvider builds a minimal *ReindexProvider with
 // only the cleanup registry initialized. Mirrors the literal-
@@ -229,55 +228,8 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// TestUniqueShardsFromPayload_Dedupes pins that the helper used by
-// [autoCleanupAfterTerminal] to enumerate shards collapses duplicates
-// — multi-property semantic migrations route N units to the same
-// shard, and we must register each shard exactly once so the
-// matching unregister loop releases the slot symmetrically.
-func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "shardB",
-			"u3": "shardA", // dup
-			"u4": "shardB", // dup
-			"u5": "shardC",
-		},
-	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA", "shardB", "shardC"}, out,
-		"unique shards must include each distinct value exactly once")
-}
-
-// TestUniqueShardsFromPayload_EmptyPayload pins the boundary: an
-// empty UnitToShard returns a nil slice (callers iterate it with
-// range, so nil is correct).
-func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
-	payload := &ReindexTaskPayload{Collection: "C", UnitToShard: nil}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-
-	payload = &ReindexTaskPayload{Collection: "C", UnitToShard: map[string]string{}}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-}
-
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins defensive
-// handling of a UnitToShard entry whose value is an empty string —
-// a malformed payload should not produce a zero-string registration
-// that the gate would silently never match.
-func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "",
-		},
-	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA"}, out)
-}
-
-// TestMarkCleanupInProgress pins that all shards a task touched get gated, and released together.
+// TestMarkCleanupInProgress pins that the gate covers the collection, and that
+// one release reopens it.
 func TestMarkCleanupInProgress(t *testing.T) {
 	p := newCleanupRegistryProvider()
 	payload := &ReindexTaskPayload{
@@ -290,7 +242,6 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	release := p.MarkCleanupInProgress(payload)
 	assert.True(t, p.IsCleanupInProgress("C", "shard1"))
 	assert.True(t, p.IsCleanupInProgress("C", "shard2"))
-	assert.False(t, p.IsCleanupInProgress("C", "shard3"))
 	assert.True(t, p.AnyCleanupInProgress(),
 		"the restore gate asks the collection-blind question")
 
@@ -299,6 +250,28 @@ func TestMarkCleanupInProgress(t *testing.T) {
 		"a shard named by two units must not need two releases")
 	assert.False(t, p.IsCleanupInProgress("C", "shard2"))
 	assert.False(t, p.AnyCleanupInProgress())
+}
+
+// A multi-tenant submission scoped to one tenant produces a payload naming only
+// that tenant's shard, but the sweep it guards
+// ([Index.CleanStalePartialReindexState]) takes no shard list and removes every
+// local shard's __reindex / __ingest dirs. Gating only the named shard let a
+// backup hardlink a sibling tenant mid-delete.
+func TestMarkCleanupInProgressGatesShardsThePayloadDoesNotName(t *testing.T) {
+	p := newCleanupRegistryProvider()
+
+	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToShard: map[string]string{"u1": "t1"},
+	})
+
+	assert.True(t, p.IsCleanupInProgress("Movies", "t2"),
+		"the sweep deletes t2's sidecars too, so a backup of t2 must be refused")
+	assert.Equal(t, ReindexHoldCleanup, p.HoldForShard("Movies", "t2"),
+		"the refusal must name the teardown, not fall through to no hold")
+
+	release()
+	assert.False(t, p.IsCleanupInProgress("Movies", "t2"))
 }
 
 // TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
@@ -333,14 +306,6 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 			registerAs:     "movies",
 			probeAs:        "Actors",
 			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: false,
-		},
-		{
-			name:           "shard names stay exact",
-			registerAs:     "Movies",
-			probeAs:        "Movies",
-			shards:         map[string]string{"u1": "Shard1"},
 			probeShard:     "shard1",
 			wantInProgress: false,
 		},

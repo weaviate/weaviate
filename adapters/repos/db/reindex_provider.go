@@ -1813,45 +1813,21 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 }
 
-// uniqueShardsFromPayload returns the distinct shard names referenced
-// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
-// each shard exactly once in [cleanupInProgress] — multiple units can
-// map to the same shard for multi-property migrations.
-func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
-	if len(payload.UnitToShard) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(payload.UnitToShard))
-	out := make([]string, 0, len(payload.UnitToShard))
-	for _, shardName := range payload.UnitToShard {
-		if shardName == "" {
-			continue
-		}
-		if _, ok := seen[shardName]; ok {
-			continue
-		}
-		seen[shardName] = struct{}{}
-		out = append(out, shardName)
-	}
-	return out
-}
-
-// MarkCleanupInProgress holds the backup and restore gates closed on every shard
-// the task touched, and returns the release; caller must defer it. This is the
-// only thing stopping a backup from capturing half-removed __reindex/__ingest dirs.
+// MarkCleanupInProgress holds the backup and restore gates closed on the whole
+// collection while a terminal task's sidecars are torn down, and returns the
+// release; caller must defer it. This is the only thing stopping a backup from
+// capturing half-removed __reindex/__ingest dirs.
+//
+// The sweep it guards ([Index.CleanStalePartialReindexState]) takes no shard
+// list and walks every local shard, so gating only the shards the payload names
+// would leave the rest of the collection open. A multi-tenant submission scoped
+// to one tenant is exactly that case: the payload names that tenant's shard, the
+// sweep removes every tenant's sidecars. Same reasoning, and the same single
+// key, as [ReindexProvider.MarkSubmitInProgress].
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
-	shards := uniqueShardsFromPayload(payload)
-	if len(shards) == 0 {
-		// No named shard: close the gate on the whole collection instead.
-		shards = []string{cleanupWholeCollection}
-	}
-	for _, shardName := range shards {
-		p.registerCleanup(payload.Collection, shardName)
-	}
+	p.registerCleanup(payload.Collection, cleanupWholeCollection)
 	return func() {
-		for _, shardName := range shards {
-			p.unregisterCleanup(payload.Collection, shardName)
-		}
+		p.unregisterCleanup(payload.Collection, cleanupWholeCollection)
 	}
 }
 
@@ -1919,9 +1895,9 @@ func (p *ReindexProvider) registerCleanup(collection, shard string) {
 // task lifetimes.
 //
 // Calling unregisterCleanup without a matching registerCleanup is a
-// programming error and would underflow the count; the [autoCleanup
-// AfterTerminal] defer pairs every register with one unregister via
-// the same shard slice so this cannot happen in practice.
+// programming error and would underflow the count; every register goes
+// through [ReindexProvider.MarkCleanupInProgress], whose release pairs
+// it with exactly one unregister on the same key.
 func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
