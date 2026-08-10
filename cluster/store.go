@@ -691,9 +691,8 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 	t := time.NewTicker(period)
 	defer t.Stop()
-	// The wait is a phase, not a heartbeat: say so once and leave the rest of
-	// the startup log to trackDBLoadProgress.
-	var announced bool
+	const logInterval = time.Minute
+	var lastLog time.Time
 	for {
 		select {
 		case <-close:
@@ -704,9 +703,9 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 			if st.dbLoaded.Load() {
 				return nil
 			}
-			if !announced {
+			if time.Since(lastLog) >= logInterval {
 				st.log.Info("waiting for database to be restored")
-				announced = true
+				lastLog = time.Now()
 			}
 		}
 	}
