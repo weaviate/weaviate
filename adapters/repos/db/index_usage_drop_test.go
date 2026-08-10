@@ -34,14 +34,49 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestDeleteIndexAbortsInFlightUsageScan verifies that dropping a collection aborts an
-// in-flight usage scan of that collection instead of waiting behind its dropIndex.RLock,
-// and that the aborted scan is reported as skipped (nil usage, nil error).
-func TestDeleteIndexAbortsInFlightUsageScan(t *testing.T) {
-	ctx := context.Background()
+// TestUsageScanAbortedByTeardown verifies that a drop or a node shutdown aborts an
+// in-flight usage scan rather than waiting behind its locks, and that only a dropped
+// collection is skipped: a shutdown must surface, or the report loses collections.
+func TestUsageScanAbortedByTeardown(t *testing.T) {
 	nodeName := "test-node"
 	className := "DropDuringUsage"
 	shardName := "shard1"
+
+	tests := []struct {
+		name string
+		// teardown starts the operation that must not wait for the scan
+		teardown func(*DB) error
+		// shutsDown skips the deferred shutdown, as DB.Shutdown is not repeatable
+		shutsDown   bool
+		wantScanErr bool
+	}{
+		{
+			name: "dropping the collection skips it",
+			teardown: func(repo *DB) error {
+				return repo.DeleteIndex(entschema.ClassName(className))
+			},
+		},
+		{
+			name: "shutting the node down surfaces the error",
+			teardown: func(repo *DB) error {
+				return repo.Shutdown(context.Background())
+			},
+			shutsDown:   true,
+			wantScanErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runUsageScanTeardown(t, nodeName, className, shardName, tt.teardown, tt.shutsDown, tt.wantScanErr)
+		})
+	}
+}
+
+func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
+	teardown func(*DB) error, shutsDown, wantScanErr bool,
+) {
+	ctx := context.Background()
 
 	class := &models.Class{
 		Class:             className,
@@ -94,7 +129,9 @@ func TestDeleteIndexAbortsInFlightUsageScan(t *testing.T) {
 	require.NoError(t, err)
 	repo.SetSchemaGetter(mockSchemaGetter)
 	require.NoError(t, repo.WaitForStartup(ctx))
-	defer repo.Shutdown(ctx)
+	if !shutsDown {
+		defer repo.Shutdown(ctx)
+	}
 
 	// drain the shard-reader semaphore so the scan blocks while holding dropIndex.RLock —
 	// only a scan abort can unblock it
@@ -117,25 +154,31 @@ func TestDeleteIndexAbortsInFlightUsageScan(t *testing.T) {
 		t.Fatal("usage scan did not start")
 	}
 
-	deleteDone := make(chan error, 1)
+	teardownDone := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		deleteDone <- repo.DeleteIndex(entschema.ClassName(className))
+		teardownDone <- teardown(repo)
 	}, logger)
 
 	select {
-	case err := <-deleteDone:
+	case err := <-teardownDone:
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("DeleteIndex is blocked behind the in-flight usage scan")
+		t.Fatal("teardown is blocked behind the in-flight usage scan")
 	}
 
 	select {
 	case res := <-scanDone:
-		assert.NoError(t, res.err)
-		assert.Nil(t, res.usage, "scan of a dropped collection should be skipped")
+		assert.Nil(t, res.usage, "an aborted scan reports no usage")
+		if wantScanErr {
+			assert.Error(t, res.err, "a scan aborted by shutdown must not be silently skipped")
+		} else {
+			assert.NoError(t, res.err, "scan of a dropped collection should be skipped")
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("usage scan did not abort")
 	}
 
-	assert.Nil(t, repo.GetIndex(entschema.ClassName(className)))
+	if !shutsDown {
+		assert.Nil(t, repo.GetIndex(entschema.ClassName(className)))
+	}
 }

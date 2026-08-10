@@ -50,6 +50,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -296,6 +297,12 @@ func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecTwelveLabs(apiKey string) *Compose {
+	d.weaviateEnvs["TWELVELABS_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vectwelvelabs.Name)
 	return d
 }
 

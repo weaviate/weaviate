@@ -225,6 +225,12 @@ func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 	return v.(ShardLike), ok
 }
 
+// causes of Index.closeRequestedCtx
+var (
+	errIndexDropped  = stderrors.New("collection is being deleted")
+	errIndexShutdown = stderrors.New("node is shutting down")
+)
+
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -271,12 +277,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
-	// before the drop starts waiting for dropIndex. Long-running readers holding
-	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
-	// the drop.
-	dropRequestedCtx    context.Context
-	signalDropRequested context.CancelFunc
+	// closeRequestedCtx is cancelled when a drop or shutdown is requested, before
+	// it waits for dropIndex or closeLock, so readers holding either can abort
+	// instead of blocking the teardown. Its cause tells the two apart: a reader may
+	// leave out a collection being deleted, but not one that is only shutting down.
+	// Shutdown signals unconditionally, so an index built without these panics.
+	closeRequestedCtx    context.Context
+	signalCloseRequested context.CancelCauseFunc
 
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
@@ -291,6 +298,8 @@ type Index struct {
 	// backupProtectedShards tracks shard names protected during non-hardlink backup.
 	// Activation and destructive status changes are blocked until ReleaseBackup.
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
+	//
+	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 	backupProtectedShards sync.Map
 
 	metrics          *Metrics
@@ -431,7 +440,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
-	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -698,6 +707,21 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 		return bucket.IterateObjects(ctx, wrapper)
 	})
+}
+
+// cancelOnCloseRequested derives a context cancelled on close request, so a teardown
+// does not wait behind a lock the caller holds. Call the returned func when done.
+// The derived context is cancelled with the same cause, so a caller can tell a
+// drop from a shutdown.
+func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, func()) {
+	derived, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(i.closeRequestedCtx, func() {
+		cancel(context.Cause(i.closeRequestedCtx))
+	})
+	return derived, func() {
+		stop()
+		cancel(nil)
+	}
 }
 
 // ForEachShard applies func f on each shard in the index.
@@ -2782,6 +2806,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
 		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 	}
@@ -2882,6 +2907,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
+			// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 			}
@@ -3223,6 +3249,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
+	// a reader holding closeLock would hold up the whole DB shutdown
+	i.signalCloseRequested(errIndexShutdown)
+
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 

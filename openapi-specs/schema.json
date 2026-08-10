@@ -996,12 +996,14 @@
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-omitempty": false
         },
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-omitempty": false
         }
       },
       "type": "object"

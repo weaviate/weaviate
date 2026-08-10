@@ -170,6 +170,8 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 		}
 		return nil, fmt.Errorf("vector not found for ID %d", indexID)
 	})
+	setDelegatingTempThunk(cfg)
+	createObjectsBucket(t, store)
 
 	index, err := New(cfg, ent.NewDefaultUserConfig(), store)
 	require.NoError(t, err)

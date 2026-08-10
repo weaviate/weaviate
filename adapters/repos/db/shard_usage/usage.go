@@ -373,15 +373,23 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek(ctx, []byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next(ctx) {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
 			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = len(v)
+			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
 			}
 		}
 	default:
@@ -395,9 +403,12 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek([]byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next() {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
@@ -405,8 +416,16 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = v.GetCardinality()
 			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
+			}
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return dimensionality, err
+	}
 	return dimensionality, nil
 }

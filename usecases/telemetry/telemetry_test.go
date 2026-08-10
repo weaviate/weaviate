@@ -290,25 +290,39 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	})
 
 	t.Run("failure path", func(t *testing.T) {
-		t.Run("fail to get node status", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter(t)
-			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
-			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(nil)
-			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
-			assert.Nil(t, payload)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), "get object count")
-		})
+		tests := []struct {
+			name       string
+			nodeStatus []interface{}
+			wantErr    string
+		}{
+			{
+				name:       "fail to get node status",
+				nodeStatus: []interface{}{nil},
+				wantErr:    "get object count",
+			},
+			{
+				name:       "fail to get node status stats",
+				nodeStatus: []interface{}{&models.NodeStatus{}},
+				wantErr:    "get object count",
+			},
+			{
+				name:       "node status scan reports why it stopped",
+				nodeStatus: []interface{}{nil, fmt.Errorf("node is shutting down")},
+				wantErr:    "node is shutting down",
+			},
+		}
 
-		t.Run("fail to get node status stats", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter(t)
-			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
-			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
-			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
-			assert.Nil(t, payload)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), "get object count")
-		})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				tel, sg, sm := newTestTelemeter(t)
+				sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+				sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).
+					Return(tt.nodeStatus...)
+				payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
+				assert.Nil(t, payload)
+				require.ErrorContains(t, err, tt.wantErr)
+			})
+		}
 	})
 }
 

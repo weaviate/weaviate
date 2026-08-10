@@ -13,7 +13,9 @@ package dynamic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -1017,4 +1019,248 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// newUpgradeTestDynamic builds a dynamic index for tests around the
+// flat->HNSW upgrade path. The caller controls the commit logger thunk so
+// tests can observe the on-disk HNSW commit log directory.
+func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
+	db *bbolt.DB, vectors [][]float32, thunk hnsw.MakeCommitLogger,
+) *dynamic {
+	t.Helper()
+
+	distancer := distancer.NewL2SquaredProvider()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	idx, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              rootPath,
+		ID:                    id,
+		TargetVector:          targetVector,
+		MakeCommitLoggerThunk: thunk,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: uint64(len(vectors)),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	return idx
+}
+
+// failingAddBatchIndex fails every AddBatch call, simulating an HNSW index
+// that can no longer ingest vectors (e.g. because the shard is shutting down).
+type failingAddBatchIndex struct {
+	VectorIndex
+	err error
+}
+
+func (f *failingAddBatchIndex) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	return f.err
+}
+
+func TestDynamicCopyToVectorIndexPropagatesAddBatchError(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, _ := testinghelpers.RandomVecs(100, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", "", db, vectors, hnsw.MakeNoopCommitLogger)
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	expectedErr := errors.New("add batch failed")
+	err = idx.copyToVectorIndex(&failingAddBatchIndex{err: expectedErr})
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestDynamicAbortedUpgradeCleansPartialCommitLog(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const id = "upgrade-abort-test"
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, _ := testinghelpers.RandomVecs(1_000, 0, 20)
+	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func() (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+	})
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	called := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() {
+		close(called)
+	}))
+
+	// close the index to cancel the in-flight upgrade
+	require.NoError(t, idx.Shutdown(context.Background()))
+
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+
+	require.False(t, idx.upgraded.Load(), "upgrade should have been aborted")
+
+	// the partially-written HNSW commit log must not survive the abort:
+	// on the next hnsw.New() it would be replayed, resurrecting partial state
+	_, err = os.Stat(hnswCommitLogDirectory(rootPath, id))
+	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
+}
+
+// An upgrade that builds the HNSW successfully but fails to persist the
+// upgraded state must tear the new index down like any other aborted
+// upgrade: it is never installed, so its commit log and resources would
+// otherwise be orphaned.
+func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const id = "upgrade-persist-fail-test"
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+
+	vectors, _ := testinghelpers.RandomVecs(200, 0, 8)
+	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func() (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+	})
+	t.Cleanup(func() {
+		idx.Shutdown(context.Background())
+	})
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	// close the bbolt db so persisting the upgraded state fails after the
+	// HNSW has been fully built
+	require.NoError(t, db.Close())
+
+	called := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() {
+		close(called)
+	}))
+
+	select {
+	case <-called:
+	case <-time.After(30 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+
+	require.False(t, idx.upgraded.Load(), "upgrade should have been aborted")
+
+	_, err = os.Stat(hnswCommitLogDirectory(rootPath, id))
+	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
+}
+
+// A crashed upgrade never runs the abort cleanup, so a partial HNSW commit
+// log can still be on disk at the next shard load. init() must remove it
+// unless the vector is positively marked as upgraded — otherwise the partial
+// state gets replayed into the rebuilt index.
+func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
+	const id = "stale-commitlog-test"
+
+	tests := []struct {
+		name         string
+		targetVector string
+		storedState  []byte // value stored under the vector's bbolt key, nil for no key
+		wantDirKept  bool
+	}{
+		{
+			name:        "not upgraded: stale commit log removed",
+			storedState: []byte{0},
+			wantDirKept: false,
+		},
+		{
+			name:        "upgraded: commit log kept",
+			storedState: []byte{1},
+			wantDirKept: true,
+		},
+		{
+			// migration from versions without per-target-vector keys: an
+			// existing commit log dir is assumed to be a completed upgrade
+			name:         "target vector without state key: dir kept",
+			targetVector: "vec1",
+			storedState:  nil,
+			wantDirKept:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+
+			db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				db.Close()
+			})
+
+			// simulate a commit log left on disk by a previous run. An empty
+			// commit log file is valid, so the "kept" cases can load it.
+			commitLogDir := hnswCommitLogDirectory(rootPath, id)
+			require.NoError(t, os.MkdirAll(commitLogDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(commitLogDir, "1000"), nil, 0o644))
+
+			if tt.storedState != nil {
+				key := composerUpgradedKey
+				if tt.targetVector != "" {
+					key += "_" + tt.targetVector
+				}
+				err = db.Update(func(tx *bbolt.Tx) error {
+					b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+					if err != nil {
+						return err
+					}
+					return b.Put([]byte(key), tt.storedState)
+				})
+				require.NoError(t, err)
+			}
+
+			vectors, _ := testinghelpers.RandomVecs(10, 0, 8)
+			idx := newUpgradeTestDynamic(t, rootPath, id, tt.targetVector, db, vectors, hnsw.MakeNoopCommitLogger)
+			t.Cleanup(func() {
+				idx.Shutdown(context.Background())
+			})
+
+			_, err = os.Stat(commitLogDir)
+			if tt.wantDirKept {
+				require.NoError(t, err, "commit log dir should have been kept")
+			} else {
+				require.True(t, os.IsNotExist(err), "stale commit log dir should have been removed")
+			}
+		})
+	}
 }

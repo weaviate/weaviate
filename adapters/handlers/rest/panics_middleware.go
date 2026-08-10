@@ -56,7 +56,10 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 		return
 	}
 
-	if errors.Is(err, syscall.EPIPE) {
+	// A peer that vanishes mid-write surfaces as either errno depending on how it
+	// went away: EPIPE when it closed cleanly, ECONNRESET when it (or a load
+	// balancer in front of it) reset the connection. Both are client-caused.
+	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
 		metricRequestsTotal.logUserError("")
 		handleBrokenPipe(err, logger, r)
 		return
