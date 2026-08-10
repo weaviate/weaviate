@@ -355,6 +355,11 @@ func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, u
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
+	args := f.Called(ctx, class, updates)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	args := f.Called(ctx, class, tenants)
 	return args.Error(0)

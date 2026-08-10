@@ -3156,17 +3156,32 @@ func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName stri
 }
 
 // LoadLocalShardForReplicaAdd loads a shard for the apply that records this node
-// as a replica of it, with no replica movement to keep going. A namespace that
-// keeps no shards open loads none and returns nil rather than erroring: the
-// apply's schema half has already committed, so the replica is recorded either
-// way, and the shard is materialized by whatever next loads it. A state that
-// cannot be read still errors.
+// as a replica of it, with no replica movement to keep going.
 func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName string) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplicaAdd)
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerReplicaAdd, "replica added")
+}
+
+// LoadLocalShardForTenantProcess loads a shard for the apply that records a
+// finished offload or onload. That report arrives once and is never re-sent, so
+// erroring here reports a failure nothing acts on while the shard is meant to stay
+// closed.
+func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName string) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerTenantProcess, "tenant status applied")
+}
+
+// loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
+// has already committed. A namespace that keeps no shards open loads none and
+// returns nil rather than erroring. The schema change stands either way, and the
+// shard is materialized by whatever next loads it. A state that cannot be read
+// still errors.
+func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
+	caller shardLoadCaller, change string,
+) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, caller)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
-		}).Infof("replica added without loading the shard: %v", err)
+		}).Infof("%s without loading the shard: %v", change, err)
 		return nil
 	}
 	return err

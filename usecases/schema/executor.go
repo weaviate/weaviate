@@ -356,7 +356,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates, true); err != nil {
+	if err := e.migrator.UpdateTenantsForProcess(ctx, cls, updates); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

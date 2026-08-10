@@ -654,6 +654,23 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
+	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
+		return idx.LoadLocalShard(ctx, name, implicitTenantActivation)
+	})
+}
+
+// UpdateTenantsForProcess applies the statuses a finished offload or onload
+// reported. A namespace that keeps no shards open leaves the tenant's shard closed
+// instead of failing the apply.
+func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
+		return idx.LoadLocalShardForTenantProcess(ctx, name)
+	})
+}
+
+func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload,
+	loadShard func(ctx context.Context, idx *Index, name string) error,
+) error {
 	indexID := indexID(schema.ClassName(class.Class))
 
 	m.classLocks.Lock(indexID)
@@ -710,7 +727,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.LoadLocalShard(ctx, name, implicitTenantActivation); err != nil {
+				if err := loadShard(ctx, idx, name); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",

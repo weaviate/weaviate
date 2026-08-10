@@ -239,6 +239,96 @@ func TestExecutor(t *testing.T) {
 		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrAny)
 	})
 
+	report := func(status string) *api.TenantProcessRequest {
+		return &api.TenantProcessRequest{
+			Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+			TenantsProcesses: []*api.TenantsProcess{
+				{Op: api.TenantsProcess_OP_DONE, Tenant: &api.Tenant{Name: "T1", Status: status}},
+			},
+		}
+	}
+
+	// A finished offload or onload has to reach UpdateTenantsForProcess, the call
+	// whose shard load a namespace keeping its shards closed may skip. Routing it to
+	// UpdateTenants instead panics on the unexpected call.
+	//
+	// Only the tenant's name and status are read, so the table walks the statuses the
+	// schema can report rather than the offload and onload actions, which converge on
+	// the same payload here.
+	t.Run("UpdateTenantsProcess", func(t *testing.T) {
+		cases := []struct {
+			name string
+			req  *api.TenantProcessRequest
+			want []*UpdateTenantPayload
+		}{
+			{
+				name: "an unfreeze to HOT, and an aborted freeze of a HOT tenant",
+				req:  report(models.TenantActivityStatusHOT),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusHOT}},
+			},
+			{
+				name: "an unfreeze to COLD, and an aborted freeze of a COLD tenant",
+				req:  report(models.TenantActivityStatusCOLD),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusCOLD}},
+			},
+			{
+				name: "a completed freeze",
+				req:  report(models.TenantActivityStatusFROZEN),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusFROZEN}},
+			},
+			{
+				// An unfreeze every node aborted leaves no status behind to read back.
+				name: "an unfreeze with no status to report",
+				req:  report(""),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: ""}},
+			},
+			{
+				name: "the entries the schema dropped for this node carry nothing",
+				req: &api.TenantProcessRequest{
+					Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+					TenantsProcesses: []*api.TenantsProcess{
+						nil,
+						{Op: api.TenantsProcess_OP_DONE, Tenant: nil},
+					},
+				},
+				want: []*UpdateTenantPayload{},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				migrator := &fakeMigrator{}
+				migrator.On("UpdateTenantsForProcess", Anything, cls, tc.want).Return(nil)
+				x := newMockExecutor(migrator, store)
+
+				require.NoError(t, x.UpdateTenantsProcess("A", tc.req))
+				migrator.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("UpdateTenantsProcessWithoutProcesses", func(t *testing.T) {
+		x := newMockExecutor(&fakeMigrator{}, store)
+
+		require.NoError(t, x.UpdateTenantsProcess("A", &api.TenantProcessRequest{}))
+	})
+
+	t.Run("UpdateTenantsProcessClassNotFound", func(t *testing.T) {
+		store := &fakeSchemaManager{}
+		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
+		x := newMockExecutor(&fakeMigrator{}, store)
+
+		assert.ErrorIs(t, x.UpdateTenantsProcess("A", report(models.TenantActivityStatusHOT)), ErrNotFound)
+	})
+
+	t.Run("UpdateTenantsProcessError", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		migrator.On("UpdateTenantsForProcess", Anything, cls, Anything).Return(ErrAny)
+		x := newMockExecutor(migrator, store)
+
+		assert.ErrorIs(t, x.UpdateTenantsProcess("A", report(models.TenantActivityStatusHOT)), ErrAny)
+	})
+
 	t.Run("AddTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.AddTenantsRequest{Tenants: tenants}

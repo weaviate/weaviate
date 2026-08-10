@@ -63,6 +63,9 @@ const (
 	// shard, with no movement under way. A namespace that keeps no shards open
 	// gets none opened for it.
 	callerReplicaAdd
+	// callerTenantProcess is the apply that records a finished offload or onload.
+	// A namespace that keeps no shards open gets none opened for it.
+	callerTenantProcess
 )
 
 // refuseShardDecision logs why a shard decision is being refused and returns
@@ -173,7 +176,7 @@ func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 	switch caller {
 	case callerUserRequest:
 		return namespaces.RequireShardLoadable(state)
-	case callerResume, callerReplicaAdd:
+	case callerResume, callerReplicaAdd, callerTenantProcess:
 		if !namespaces.ShardsShouldBeOpen(state) {
 			return errShardNamespaceClosed
 		}

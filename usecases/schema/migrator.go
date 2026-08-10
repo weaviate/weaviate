@@ -55,6 +55,7 @@ type Migrator interface {
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error
+	UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error
 
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
