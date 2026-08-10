@@ -622,8 +622,9 @@ func (s *Scheduler) tick() {
 
 		// TTL-cleanup of finished tasks. IsActive() excludes every
 		// non-terminal status — PREPARING, SWAPPING, and anything a newer
-		// node introduced all carry a zero-time FinishedAt, so
-		// clock.Since(zero) would otherwise mis-classify them as expired.
+		// node introduced. Their FinishedAt is stamped when the units
+		// completed and ages from there, so the age check alone would
+		// propose a cleanup for a task still mid-coordination.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

@@ -1811,10 +1811,10 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns its on-disk tracker dirs.
 //
-// Deliberately delegates rather than re-enumerating the statuses: when
-// the two predicates each owned a switch they disagreed on the
-// unrecognized case, so a task from a newer node was live to the backup
-// gate but invisible to conflict detection.
+// Delegates to IsActive so the two liveness answers cannot drift apart.
+// While each owned its own switch, both independently fell through to
+// false on an unrecognized status: a task from a newer node released its
+// tracker dirs to the startup orphan audit.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return status.IsActive()
 }

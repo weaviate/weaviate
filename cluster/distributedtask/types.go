@@ -411,13 +411,26 @@ func (t TaskStatus) String() string {
 // destructive side-effects (per-shard swaps, file moves) should
 // short-circuit on terminal status to avoid running them again.
 //
-// Introducing a new terminal status is visible to a rolling upgrade: an
-// older node does not recognize it and reads it as in-flight (see
-// [TaskStatus.IsActive]), so for the whole mixed-version window that node
-// blocks new migrations on the property, keeps the task alive against the
-// TTL sweep, and refuses backups on its shards. Only add one once every
-// node in the supported upgrade range recognizes it. A new non-terminal
-// status carries no such cost.
+// Introducing a new terminal status is expensive during a rolling
+// upgrade, in a way that is easy to underestimate. An older node does not
+// recognize it and reads it as in-flight (see [TaskStatus.IsActive]).
+// The schema mutation guards run inside the schema FSM apply and return
+// before the entry is applied, so on that node an UpdateProperty, a
+// DeleteClass or a tenant mutation the rest of the cluster committed is
+// dropped: not a refused user request, but silent schema divergence on an
+// entry RAFT will never resend. The node also refuses backups on its
+// shards, pins the migration's tracker dirs, keeps the task alive against
+// the TTL sweep, and offers the operator no escape.
+//
+// It does not end with the upgrade either: the scheduler's task list is
+// leader-routed, so once an upgraded leader deletes its copy the task is
+// invisible to every scheduler in the cluster and no cleanup is ever
+// proposed again. The older node's copy survives indefinitely.
+//
+// Only add a terminal status once every node in the supported upgrade
+// range recognizes it. A new non-terminal status is cheaper but not free:
+// an older node still refuses backups on the collection and reports the
+// index as "ready".
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -433,9 +446,10 @@ func (t TaskStatus) IsTerminal() bool {
 // It is the exact negation of [TaskStatus.IsTerminal] so a status this
 // build does not recognize — one a newer node introduced during a rolling
 // upgrade — counts as in-flight. Guessing "not active" would admit a
-// second migration onto a property the newer node is still migrating, and
-// would let the TTL sweep evict a live task (its FinishedAt is zero, so
-// the age check is trivially satisfied).
+// second migration onto a property the newer node is still migrating, let
+// the startup orphan audit delete a live migration's tracker dirs, and
+// let the TTL sweep evict a task that has merely been in flight longer
+// than completedTaskTTL.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
