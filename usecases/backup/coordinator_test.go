@@ -1254,8 +1254,8 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			// The slot is the subsystem's mutual exclusion, so clearing one we
 			// do not own lets a second restore claim it and run alongside the
 			// live one.
-			require.Equal(t, tc.wantSlotID,
-				c.lastOp.renew("intruder", "path", "", ""),
+			prevID, _ := c.lastOp.renew("intruder", "path", "", "")
+			require.Equal(t, tc.wantSlotID, prevID,
 				"a live restore must still refuse a second claim")
 		})
 	}

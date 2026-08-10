@@ -51,11 +51,17 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 		name string
 		// steal reproduces a newer restore taking the slot over while the
 		// goroutine of the previous one is still in its final PutMeta.
-		steal      bool
+		steal bool
+		// newID is the id the newer restore claims the slot with. The retry
+		// case reuses this restore's own id, which is what a cancel-then-retry
+		// looks like and what an id-keyed ownership check cannot tell from the
+		// first attempt still holding the slot.
+		newID      string
 		wantSlotID string
 	}{
 		{name: "slot still held by this restore", steal: false, wantSlotID: ""},
-		{name: "slot taken over by a newer restore", steal: true, wantSlotID: "live-restore"},
+		{name: "slot taken over by a newer restore", steal: true, newID: "live-restore", wantSlotID: "live-restore"},
+		{name: "slot taken over by a retry of the same id", steal: true, newID: backupID, wantSlotID: backupID},
 	}
 
 	for _, tc := range tests {
@@ -113,7 +119,8 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				// below, which is what unparks the restore goroutine.
 				c.lastOp.set(backup.Cancelled)
 				assert.True(t, c.lastOp.resetIfCancelled(backupID))
-				assert.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
+				prevID, _ := c.lastOp.renew(tc.newID, "path", "", "")
+				assert.Empty(t, prevID)
 			}
 			close(release)
 
@@ -195,7 +202,8 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 						}
 						c.lastOp.set(backup.Cancelled)
 						assert.True(t, c.lastOp.resetIfCancelled(backupID))
-						assert.Empty(t, c.lastOp.renew("live-backup", "path", "", ""))
+						prevID, _ := c.lastOp.renew("live-backup", "path", "", "")
+						assert.Empty(t, prevID)
 					})
 			}
 
@@ -279,7 +287,8 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 			s := fakeScheduler.scheduler()
-			require.Empty(t, s.restorer.lastOp.renew(test.slotHolder, "", "", ""))
+			prevID, _ := s.restorer.lastOp.renew(test.slotHolder, "", "", "")
+			require.Empty(t, prevID)
 
 			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancelled, "", ""))
 
@@ -360,7 +369,8 @@ func TestCoordinatorRestoreErrorPathReleasesOnlyItsOwnSlot(t *testing.T) {
 					once.Do(func() {
 						c.lastOp.set(backup.Cancelled)
 						assert.True(t, c.lastOp.resetIfCancelled(backupID))
-						assert.Empty(t, c.lastOp.renew("live-restore", "path", "", ""))
+						prevID, _ := c.lastOp.renew("live-restore", "path", "", "")
+						assert.Empty(t, prevID)
 					})
 				})
 

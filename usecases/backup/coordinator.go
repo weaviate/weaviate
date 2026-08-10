@@ -185,7 +185,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	prevID, slotGeneration := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	// From here the slot is ours until the goroutine below takes it over, so
@@ -193,7 +194,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	// backup and restore this node coordinates, until restart.
 	defer func() {
 		if err != nil {
-			c.lastOp.reset()
+			c.lastOp.resetIfOwned(slotGeneration)
 		}
 	}()
 
@@ -241,7 +242,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	f := func() {
-		defer c.lastOp.resetIfOwned(req.ID)
+		defer c.lastOp.resetIfOwned(slotGeneration)
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -286,7 +287,8 @@ func (c *coordinator) Restore(
 	}
 
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	prevID, slotGeneration := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path)
+	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
@@ -303,7 +305,7 @@ func (c *coordinator) Restore(
 		// Not a plain reset: unlike the backupper slot, this one has writers
 		// outside Restore (a cancel, and a retry's early return), so by the
 		// time we get here it may already belong to a newer restore.
-		c.lastOp.resetIfOwned(desc.ID)
+		c.lastOp.resetIfOwned(slotGeneration)
 		return err
 	}
 
@@ -316,7 +318,7 @@ func (c *coordinator) Restore(
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-		c.lastOp.resetIfOwned(desc.ID)
+		c.lastOp.resetIfOwned(slotGeneration)
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
@@ -324,7 +326,7 @@ func (c *coordinator) Restore(
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
-		defer c.lastOp.resetIfOwned(desc.ID)
+		defer c.lastOp.resetIfOwned(slotGeneration)
 		ctx := context.Background()
 
 		// checkStorageCancelled reads from storage to check if restore was cancelled.
