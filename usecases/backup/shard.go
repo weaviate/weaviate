@@ -236,6 +236,19 @@ func (o slotOwner) setFailed(reason string) bool {
 	return true
 }
 
+// holds reports whether this claim still owns the slot. It is how an operation
+// tells "I am still the current one" from "I was cancelled and somebody has
+// since taken over", which is the point past which its remaining work belongs
+// to nobody.
+func (o slotOwner) holds() bool {
+	if o.stat == nil {
+		return false
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	return o.owns()
+}
+
 // status is the slot's status as long as this claim still holds it. The second
 // return is false once it does not, which readers take as "nothing to learn
 // here" rather than as the status of an operation that is not theirs.
