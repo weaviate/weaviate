@@ -1736,7 +1736,13 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	swept := make(chan string, 4)
 	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
-			swept <- taskID
+			// Non-blocking: a regression sweeps on every tick, and a
+			// blocked send here would park the tick goroutine and bury the
+			// real failure under a leaktest report.
+			select {
+			case swept <- taskID:
+			default:
+			}
 			if taskID != "control" {
 				// t.Errorf, not require: this runs on the scheduler's tick
 				// goroutine, and a FailNow there would Goexit mid-tick and
