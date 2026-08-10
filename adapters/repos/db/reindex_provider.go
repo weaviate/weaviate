@@ -32,6 +32,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1575,14 +1576,17 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
-		// FAILED additionally logs operator repair guidance.
+		// FAILED/CANCELLED both auto-clean partial sidecar state on every
+		// node and both log operator repair guidance — they reach the same
+		// end state on a node that already committed its swap, and cleanup
+		// deliberately preserves such a swap.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+				logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "FAILED")
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
+				logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
@@ -1835,14 +1839,26 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
-// command an operator should issue to recover from a FAILED semantic
-// migration. The failure mode it targets: sub-tasks that swapped BEFORE
-// the failed sibling left their bucket NEW-tokenized while the cluster-
-// wide schema flip was correctly skipped — every query against the
-// affected inverted index returns 0 until the index is rebuilt against
-// the current schema.
-func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
+// logOperatorRepairGuidanceOnTerminalSemanticMigration logs the exact REST
+// command an operator should issue to recover from a semantic migration
+// that reached `outcome` (FAILED or CANCELLED) without the cluster-wide
+// schema flip. The failure mode it targets: sub-tasks that swapped BEFORE
+// the task terminalized left their bucket NEW-tokenized while the schema
+// flip was correctly skipped — every query against the affected inverted
+// index returns 0 until the index is rebuilt against the current schema.
+//
+// CANCELLED reaches the same end state as FAILED, and on a node whose swap
+// committed it is worse: the in-memory tokenization overlay masks the
+// mismatch until the process restarts, at which point
+// FinalizeCompletedMigrations promotes the swapped sidecar to canonical
+// and nothing rebuilds the overlay. So cancel needs this guidance at least
+// as much as failure does.
+//
+// The repair command names the SHORT collection: payload.Collection is
+// namespace-qualified, and a qualified name in the path is rejected by
+// namespacing.ValidateNamespacePrefix for namespace-confined callers. Same
+// rendering rule as [ReindexCancelCall].
+func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -1850,8 +1866,8 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		// Reserved for a future whole-collection rebuild. No targeted
 		// guidance possible; the generic operator runbook applies.
 		logger.Errorf(
-			"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
-			payload.MigrationType, payload.Collection)
+			"reindex provider: %s on %s %s with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
+			payload.MigrationType, payload.Collection, outcome)
 		return
 	}
 	for _, propName := range payload.Properties {
@@ -1880,16 +1896,16 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			"migration_type": payload.MigrationType,
 			"repair_command": fmt.Sprintf(
 				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, repairBody),
+				namespacing.StripQualification(payload.Collection), propName, repairBody),
 		}).Errorf(
-			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
-				"that committed their swap BEFORE the failure left the "+
+			"reindex provider: %s on %s.%s %s; per-shard sub-tasks "+
+				"that committed their swap first left the "+
 				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
+				"data while the schema stayed at pre-migration state "+
 				"— issue the repair_command above to rebuild the "+
 				"affected inverted index(es) from raw objects against "+
 				"the current schema",
-			payload.MigrationType, payload.Collection, propName)
+			payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
 

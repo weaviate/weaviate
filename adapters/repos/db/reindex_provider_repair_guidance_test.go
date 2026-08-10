@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogOperatorRepairGuidanceOnFailedSemanticMigration_* pin the
+// TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_* pin the
 // operator-actionable-error half of #221: when a semantic-migration
 // task transitions to FAILED, OnTaskCompleted logs the exact REST
 // command an operator should issue to repair the partial-completion
@@ -30,7 +30,7 @@ import (
 // repair_command field (so the operator's copy-pasteable command stays
 // stable).
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBothIndexes(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenizationBothIndexes(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -39,7 +39,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T1"), payload)
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T1"), payload, "FAILED")
 
 	require.Len(t, hook.Entries, 1, "expected one error entry per property")
 	entry := hook.Entries[0]
@@ -55,7 +55,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 	require.Contains(t, entry.Message, "bucket")
 }
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -64,7 +64,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 		Properties:         []string{"category"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T2"), payload)
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T2"), payload, "FAILED")
 
 	require.Len(t, hook.Entries, 1)
 	entry := hook.Entries[0]
@@ -75,7 +75,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 		entry.Data["repair_command"])
 }
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_MultipleProperties(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -83,7 +83,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t
 		MigrationType: ReindexTypeEnableFilterable,
 		Properties:    []string{"a", "b", "c"},
 	}
-	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T3"), payload)
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T3"), payload, "FAILED")
 
 	// One entry per property — easier for log scrapers to alert per-prop.
 	require.Len(t, hook.Entries, 3)
@@ -94,7 +94,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
 }
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	// Format-only migrations must not emit operator guidance.
@@ -109,14 +109,14 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 				MigrationType: mt,
 				Properties:    []string{"name"},
 			}
-			logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T"), payload)
+			logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T"), payload, "FAILED")
 			require.Empty(t, hook.Entries,
 				"format-only migration %s must not produce repair guidance", mt)
 		})
 	}
 }
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_EmptyPropertiesEmitsGenericGuidance(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_EmptyPropertiesEmitsGenericGuidance(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -124,8 +124,47 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_EmptyPropertiesEmits
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    nil, // reserved for future whole-collection rebuild
 	}
-	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T4"), payload)
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T4"), payload, "FAILED")
 
 	require.Len(t, hook.Entries, 1, "empty Properties → one generic guidance entry")
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
+}
+
+// The repair command must be callable. Collection is stored
+// namespace-qualified, and PUT /v1/schema/{className}/... rejects a
+// qualified name with a 400 for namespace-confined callers.
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectionRendersShort(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	payload := &ReindexTaskPayload{
+		Collection:    "customer1:Products",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	}
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T5"), payload, "FAILED")
+
+	require.Len(t, hook.Entries, 1)
+	require.Equal(t,
+		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		hook.Entries[0].Data["repair_command"])
+}
+
+// CANCELLED reaches the same bucket↔schema end state as FAILED on a node
+// that already committed its swap, so it gets the same guidance.
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMessage(t *testing.T) {
+	for _, outcome := range []string{"FAILED", "CANCELLED"} {
+		t.Run(outcome, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			payload := &ReindexTaskPayload{
+				Collection:    "Products",
+				MigrationType: ReindexTypeChangeTokenization,
+				Properties:    []string{"name"},
+			}
+			logOperatorRepairGuidanceOnTerminalSemanticMigration(
+				logger.WithField("taskID", "T6"), payload, outcome)
+
+			require.Len(t, hook.Entries, 1)
+			require.Contains(t, hook.Entries[0].Message, outcome)
+		})
+	}
 }
