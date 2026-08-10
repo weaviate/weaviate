@@ -22,8 +22,9 @@ import (
 
 // unknownFutureStatus stands in for a status a newer release introduced
 // and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade.
-const unknownFutureStatus TaskStatus = "VALIDATING"
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // TestTaskStatus_UnknownIsActive pins that an unrecognized status counts
 // as in-flight everywhere. Reading it as "not active" would let a second

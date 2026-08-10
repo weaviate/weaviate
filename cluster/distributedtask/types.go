@@ -410,6 +410,14 @@ func (t TaskStatus) String() string {
 // startup can still observe terminal tasks — providers that own
 // destructive side-effects (per-shard swaps, file moves) should
 // short-circuit on terminal status to avoid running them again.
+//
+// Introducing a new terminal status is visible to a rolling upgrade: an
+// older node does not recognize it and reads it as in-flight (see
+// [TaskStatus.IsActive]), so for the whole mixed-version window that node
+// blocks new migrations on the property, keeps the task alive against the
+// TTL sweep, and refuses backups on its shards. Only add one once every
+// node in the supported upgrade range recognizes it. A new non-terminal
+// status carries no such cost.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -419,8 +427,8 @@ func (t TaskStatus) IsTerminal() bool {
 	}
 }
 
-// IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
-// SWAPPING) — used by conflict detection and the schema MutationGuard.
+// IsActive is true for every non-terminal status — used by conflict
+// detection and the schema MutationGuard.
 //
 // It is the exact negation of [TaskStatus.IsTerminal] so a status this
 // build does not recognize — one a newer node introduced during a rolling
@@ -434,6 +442,12 @@ func (t TaskStatus) IsActive() bool {
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
 // (PREPARING, SWAPPING) — i.e. the scheduler-driven callback states.
+//
+// An unrecognized status is deliberately NOT a coordination phase, the
+// opposite of how [TaskStatus.IsActive] treats it: this method makes a
+// positive claim ("the task is in this specific phase"), where IsActive
+// makes a safety claim ("this build cannot prove the task is done"). A
+// caller that needs the safety claim must use IsActive.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
