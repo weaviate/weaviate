@@ -28,9 +28,10 @@ import (
 // directly.
 //
 // The tree must not be mutated for the cursor's lifetime, and the returned keys
-// and bitmaps belong to the tree — a caller that mutates one corrupts it. Both
-// hold for a memtable that has been swapped out of active use and whose writers
-// have drained; nothing else should use this.
+// and bitmaps belong to the tree — a caller that mutates one corrupts it. Two
+// callers can promise that: the flush path, whose memtable has been swapped out
+// of active use and whose writers have drained, and a batch read that holds the
+// memtable's read lock for the walk and copies what it keeps.
 type SealedBinarySearchTreeCursor struct {
 	root *BinarySearchNode
 	node *BinarySearchNode

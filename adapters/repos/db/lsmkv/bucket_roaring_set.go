@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -227,10 +228,11 @@ func (r *RoaringSetBatchReader) KeyDocColumn() *keydoccolumn.Index {
 	return r.view.Bucket.KeyDocColumn()
 }
 
-// MemtableReaders returns readers over the unflushed layers of the held view,
-// for a caller resolving against an index that covers only what was flushed.
-func (r *RoaringSetBatchReader) MemtableReaders() []roaringset.LayerReader {
-	return r.view.MemtableReaders()
+// MemtableMatches reads a sorted batch of keys from the unflushed layers of the
+// held view, for a caller resolving against an index that covers only what was
+// flushed. One pass per memtable, not one per key.
+func (r *RoaringSetBatchReader) MemtableMatches(keys inverted.SortedKeys) ([]roaringset.LayerMatches, error) {
+	return r.view.MemtableMatches(keys)
 }
 
 // Release releases the held view. Later calls are no-ops: a second decRef could

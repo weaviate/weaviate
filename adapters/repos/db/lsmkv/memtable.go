@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -76,6 +77,7 @@ type memtable interface {
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
 	newSealedRoaringSetCursor() roaringset.InnerCursor
+	roaringSetGetBatch(keys inverted.SortedKeys) (roaringset.LayerMatches, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 

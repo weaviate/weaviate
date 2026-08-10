@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
@@ -677,33 +678,31 @@ func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
 }
 
-type memtableLayerReader struct{ mt memtable }
-
-func (r memtableLayerReader) Get(key []byte) (roaringset.BitmapLayer, error) {
-	layer, err := r.mt.roaringSetGet(key)
-	if err != nil && errors.Is(err, lsmkv.NotFound) {
-		return roaringset.BitmapLayer{}, nil
-	}
-	return layer, err
-}
-
-// MemtableReaders returns readers over the layers this view holds that are not
-// flushed yet, oldest first — flushing before active, so a caller replaying them
-// in order sees a document added while flushing and deleted in the active
-// memtable as deleted. Empty memtables are left out.
+// MemtableMatches reads the keys of a sorted batch from the layers this view holds
+// that are not flushed yet, oldest first — flushing before active, so a caller
+// replaying them in order sees a document added while flushing and deleted in
+// the active memtable as deleted. Empty memtables are left out, and so are
+// memtables holding none of the batch's keys.
 //
-// Exists because resolving a query against an index that covers only flushed
-// data has to consult these too, and memtables and their accessors are not
-// reachable from outside this package.
-func (cv BucketConsistentView) MemtableReaders() []roaringset.LayerReader {
-	var readers []roaringset.LayerReader
+// Exists because resolving a batched query against an index that covers only
+// flushed data has to consult these too, and doing it per key costs a lock and a
+// tree descent for every key — most of which miss, since a memtable is a delta.
+func (cv BucketConsistentView) MemtableMatches(keys inverted.SortedKeys) ([]roaringset.LayerMatches, error) {
+	var all []roaringset.LayerMatches
 	for _, mt := range []memtable{cv.Flushing, cv.Active} {
 		if mt == nil || mt.Size() == 0 {
 			continue
 		}
-		readers = append(readers, memtableLayerReader{mt: mt})
+		matched, err := mt.roaringSetGetBatch(keys)
+		if err != nil {
+			return nil, err
+		}
+		if matched.Len() == 0 {
+			continue
+		}
+		all = append(all, matched)
 	}
-	return readers
+	return all, nil
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
