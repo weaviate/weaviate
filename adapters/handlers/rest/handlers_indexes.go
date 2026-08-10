@@ -916,9 +916,8 @@ const (
 	finalizeWindowMax = 10 * time.Second
 )
 
-// staleSweepFailure is one index type's sweep failure. The index type stays a
-// field of its own so a handler can log it as a structured field and not only
-// as text in the message.
+// staleSweepFailure pairs a sweep error with its index type so a handler can
+// log it as a structured field, not just text.
 type staleSweepFailure struct {
 	indexType string
 	err       error
@@ -930,17 +929,10 @@ func (f staleSweepFailure) Error() string {
 
 func (f staleSweepFailure) Unwrap() error { return f.err }
 
-// sweepStaleReindexState runs sweep once per index type the migration touches
-// and returns the failures an operator has to act on, index type included.
-//
-// A collection being deleted is not one of them. The partial reindex state this
-// sweep removes lives under the collection's own directory and is deleted with
-// it, so nothing was left behind — and neither of the two things the callers
-// promise on failure applies: there is no next task to short-circuit on the
-// state, and no later submit that could retry the cleanup. That only holds when
-// the delete is the whole story, which is what
-// [db.IsCleanupCollectionDropped] answers: a sweep that failed on a shard
-// before the delete landed did leave that shard's state behind.
+// sweepStaleReindexState runs sweep once per index type and returns only the
+// failures an operator must act on. A dropped-collection error isn't one:
+// [db.IsCleanupCollectionDropped] means the collection's own delete already
+// removed the state, so there's nothing left to short-circuit on or retry.
 func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
 	var failures []staleSweepFailure
 	for _, indexType := range indexTypes {

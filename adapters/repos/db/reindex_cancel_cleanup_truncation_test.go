@@ -49,13 +49,9 @@ func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reserva
 
 func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
 
-// The caller logs what the sweep gives it. A sweep that stopped part-way
-// through left the shards after that point untouched — if the only thing it
-// reports is the shard that failed before it, the caller reads a bounded
-// failure where the truth is "unknown, from here on". A sweep that visited nothing at all,
-// because the node is shutting down, is the same answer in its worst form. A
-// collection being deleted is the one close that is neither: its state is
-// deleted with it, so there is nothing left for any sweep to remove.
+// Pins CleanStalePartialReindexState's three outcomes — clean, truncated, and
+// collection-dropped — against a walk that fails, aborts, or never starts. See
+// the function doc for why each is reported differently.
 func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -228,14 +224,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
-// A close that lands mid-walk is the same false clean as one that lands before
-// it. Index.drop signals its cause, then deletes each shard from the map as it
-// goes — and a sync.Map range may skip entries deleted while it runs, so the
-// walk can end early with every remaining shard unswept and nothing to report.
-//
-// A whole-index drop is the only deleter that signals a cause. A tenant delete,
-// an offload and a replica move all take a shard out of the same map without
-// one, and the walk has to answer for those too.
+// Pins forEachShardStrict against a close landing mid-walk. See its doc for
+// why a whole-index drop is the only deleter that signals a cause.
 func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 	tests := []struct {
 		name string
@@ -324,11 +314,8 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 	}
 }
 
-// Every shard walk now asks closeCause first, and the two contexts it reads are
-// set by the Index constructor rather than by the zero value. Calling Err or
-// Cause on a nil context panics, so an Index assembled without them — a test
-// double, or any future construction path that skips one — would take down the
-// walk instead of answering it.
+// Pins that closeCause never panics on an Index missing its close contexts —
+// a test double, or a future construction path that skips them.
 func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
 	closedCtx, closeIndex := context.WithCancel(context.Background())
 	closeIndex()

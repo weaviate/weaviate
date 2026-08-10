@@ -21,17 +21,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// droppedDuringSweep is what the sweep answers when the collection is deleted
-// underneath it: the sentinel wrapped around the close cause, the way
-// Index.CleanStalePartialReindexState returns it.
+// droppedDuringSweep mirrors what CleanStalePartialReindexState returns when
+// the collection is deleted mid-sweep.
 func droppedDuringSweep() error {
 	return fmt.Errorf("%w: %w", db.ErrCleanupCollectionDropped,
 		errors.New("collection is being deleted"))
 }
 
-// droppedAfterAShardFailed is the same delete landing mid-walk, after the sweep
-// had already failed on a shard. The one error carries both, and the shard's
-// state is still on disk.
+// droppedAfterAShardFailed is the same delete landing after the sweep already
+// failed on a shard; the one error carries both.
 func droppedAfterAShardFailed() error {
 	return errors.Join(
 		fmt.Errorf("%w: %w", db.ErrCleanupShardFailed,

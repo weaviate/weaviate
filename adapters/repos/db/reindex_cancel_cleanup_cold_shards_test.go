@@ -25,14 +25,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Every caller of this sweep blocks something for its whole duration: the
-// auto-cleanup after a terminal task registers the task's shards as
-// cleanup-in-progress, which the backup gate refuses backups on, and the REST
-// submit and cancel handlers hold the (collection, property) submit mutex.
-// Loading every cold tenant of a multi-tenant collection to look for state that
-// is not there stretches that hold across thousands of hydrations, and an
-// expired context did not stop the walk — it only turned the remaining shards
-// into failed loads that were still attempted.
+// See [Index.CleanStalePartialReindexState] for why hydrating every cold
+// tenant to check it is too expensive to do unconditionally.
 func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 	const (
 		propName  = "category"
@@ -150,12 +144,9 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 	return out
 }
 
-// hasStalePartialReindexState is a second implementation of the rules
-// Shard.CleanStalePartialReindexState removes by, living in another file: it
-// re-derives the preserve sets rather than sharing them. A shard it answers
-// false for is never loaded, so anything the hydrated sweep would still have
-// removed there stays on disk until someone else finds it. This runs both over
-// the same fixtures and pins them together.
+// hasStalePartialReindexState re-derives, independently, the same rules
+// Shard.CleanStalePartialReindexState removes by. This pins the two against
+// the same fixtures so they can't drift apart.
 func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 	// A completed-but-deferred migration: the tracker carries tidied.mig and
 	// its ingest sidecar is the live bucket, which the sweep preserves.
