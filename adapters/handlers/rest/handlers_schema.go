@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -299,7 +300,15 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if err != nil {
 		return ""
 	}
-	for _, task := range tasksByNamespace[db.ReindexNamespace] {
+	// Sort by task ID for the same reason the apply gate does
+	// (Manager.sortedTasksWithLock): with two or more matching tasks the
+	// two layers would otherwise name different ones in an
+	// otherwise-identical message.
+	tasks := slices.Clone(tasksByNamespace[db.ReindexNamespace])
+	slices.SortFunc(tasks, func(a, b *distributedtask.Task) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	for _, task := range tasks {
 		// Every non-terminal status counts as in-flight — see
 		// [checkReindexConflict]'s godoc for why (races the in-flight
 		// per-shard bucket-pointer flip).

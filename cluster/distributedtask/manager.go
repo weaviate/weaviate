@@ -167,15 +167,30 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 		if detector == nil {
 			continue
 		}
-		var existing []*Task
-		for _, t := range m.tasks[namespace] {
-			existing = append(existing, t)
-		}
-		if err := callDetector(detector, existing); err != nil {
+		if err := callDetector(detector, m.sortedTasksWithLock(namespace)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sortedTasksWithLock returns the namespace's tasks ordered by task ID.
+// Caller must hold m.mu.
+//
+// m.tasks[namespace] is a map, so ranging it directly gives a different
+// order per process. Accept/reject is the same either way — a detector
+// reports a conflict if any task conflicts — but WHICH conflicting task
+// the rejection names is not, so unsorted input lets two nodes (and two
+// retries on one node) quote different task IDs for the same refusal, and
+// lets the REST pre-check quote a different one from the apply gate.
+// Sorting makes the message stable without changing the decision.
+func (m *Manager) sortedTasksWithLock(namespace string) []*Task {
+	tasks := make([]*Task, 0, len(m.tasks[namespace]))
+	for _, t := range m.tasks[namespace] {
+		tasks = append(tasks, t)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	return tasks
 }
 
 // SetSchedulerNotifier installs the scheduler wake-up notifier. Safe to
@@ -302,11 +317,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newPayload, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
-		var existing []*Task
-		for _, t := range m.tasks[r.Namespace] {
-			existing = append(existing, t)
-		}
-		if err := cd.CheckConflict(r.Payload, existing); err != nil {
+		if err := cd.CheckConflict(r.Payload, m.sortedTasksWithLock(r.Namespace)); err != nil {
 			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
 		}
 	}
@@ -435,6 +446,11 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// advance to SWAPPING and run the schema flip on a half-failed
 			// migration.
 			task.Status = TaskStatusFailed
+			// Name a reason, like the per-unit failure path above does:
+			// an operator seeing FAILED with an empty Error has nothing
+			// to act on, and the repair-guidance logging has nothing to
+			// quote.
+			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
 		} else if task.NeedsPreparationBarrier {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
 			task.Status = TaskStatusPreparing

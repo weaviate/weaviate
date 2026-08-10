@@ -725,6 +725,9 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			tasks, err := h.manager.ListDistributedTasks(context.Background())
 			require.NoError(t, err)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+			// An operator reading FAILED needs a reason, and the
+			// repair-guidance logging needs something to quote.
+			assert.NotEmpty(t, tasks["ns"][0].Error)
 		})
 	}
 }
@@ -1520,7 +1523,16 @@ type fakeSchemaMutationDetector struct {
 	lastClassName string
 	lastPropName  string
 	lastTaskCount int
+	lastTaskIDs   []string
 	rejectWith    error
+}
+
+func (f *fakeSchemaMutationDetector) record(existingTasks []*Task) {
+	f.lastTaskCount = len(existingTasks)
+	f.lastTaskIDs = nil
+	for _, t := range existingTasks {
+		f.lastTaskIDs = append(f.lastTaskIDs, t.ID)
+	}
 }
 
 func (f *fakeSchemaMutationDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {}
@@ -1534,21 +1546,21 @@ func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
@@ -1613,6 +1625,35 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
 		require.Equal(t, 1, detector.lastTaskCount,
 			"detector MUST be passed the FSM-stored task list at apply time")
+	})
+
+	// The task list is stored in a map, so an unsorted walk names a
+	// different task in the refusal per process. Accept/reject doesn't
+	// change, but two nodes applying the same entry — and the REST
+	// pre-check that mirrors this gate — must quote the same task ID.
+	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"test": detector,
+		})
+
+		// Insertion order is deliberately not sorted order.
+		for i, id := range []string{"T3", "T1", "T4", "T2"} {
+			c := toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "test",
+				Id:                    id,
+				SubmittedAtUnixMillis: time.Now().UnixMilli(),
+				UnitIds:               []string{"su-1"},
+			})
+			require.NoError(t, h.manager.AddTask(c, uint64(200+i)))
+		}
+
+		want := []string{"T1", "T2", "T3", "T4"}
+		for range 10 {
+			require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+			require.Equal(t, want, detector.lastTaskIDs)
+		}
 	})
 
 	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {

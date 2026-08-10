@@ -433,6 +433,14 @@ func (t TaskStatus) String() string {
 // closes, and combined with the leader-routing above, nothing ages the
 // task out and no exit remains.
 //
+// A new terminal status also diverges CancelTask across versions.
+// [Manager.CancelTask] gates on [TaskStatus.IsActive], the exact negation
+// of this method, so applying one CancelTask log entry an older node sees
+// non-terminal and writes TaskStatusCancelled while a newer node sees
+// terminal and returns errTaskNotRunning: different FSM state at the same
+// log index. Inherited from the cancel design, not from this method, and
+// tracked for the distributed-task layer rather than fixed here.
+//
 // So a new terminal status is only safe once every version in the
 // supported upgrade AND rollback range recognizes it, which means it
 // cannot ship in the same release as the code that depends on it. A new

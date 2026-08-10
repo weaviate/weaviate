@@ -540,8 +540,11 @@ func (s *Scheduler) tick() {
 				// non-terminal status (see manager.go:CancelTask), so cancel
 				// may land anywhere from STARTED to mid-SWAP. Skipping
 				// PREP/SWAP/the ack barriers here is what stops the
-				// migration, whatever phase it was in — already-committed
-				// shard swaps stay committed (see db.ReindexGateRemedy).
+				// migration, whatever phase it was in. Nothing here rolls
+				// back a shard swap a provider already committed, so a
+				// cancel that lands mid-SWAP leaves those shards swapped
+				// and the schema unflipped; the provider's OnTaskCompleted
+				// owns whatever reconciliation that needs.
 				//
 				// All other branches (STARTED, PREPARING, SWAPPING,
 				// FAILED, FINISHED) fall through to the in-flight ack
