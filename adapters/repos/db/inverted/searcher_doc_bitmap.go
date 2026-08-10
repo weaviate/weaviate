@@ -294,13 +294,17 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	isDenyList := pv.operator == filters.ContainsNone
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	// Serve ContainsAny from the resident key/doc column when the property was
+	// Serve the union from the resident key/doc column when the property was
 	// configured for one; a property that was not simply has no index attached.
 	// Any miss — no index, a build that declined, a flush that detached it —
 	// falls through to the standard fold below, which returns the same documents
 	// either way.
-	if pv.operator == filters.ContainsAny {
-		if dbm, ok := s.resolveContainsKeyDocColumn(reader, pv); ok {
+	//
+	// ContainsNone wants that same union, denied: the index answers which
+	// documents hold one of the values, and whether that set is the answer or
+	// its complement is the caller's flag, not the index's work.
+	if pv.operator == filters.ContainsAny || pv.operator == filters.ContainsNone {
+		if dbm, ok := s.resolveContainsKeyDocColumn(reader, pv, isDenyList); ok {
 			return dbm, nil
 		}
 	}
@@ -333,13 +337,13 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
-// resolveContainsKeyDocColumn serves a ContainsAny query from the resident
-// key/doc column over the bucket the reader holds a view of. It returns
-// (result, true) when the index served the query, or (_, false) when the caller
-// must fall back to the standard fold, which the bucket carrying no index is the
-// only reason for.
+// resolveContainsKeyDocColumn serves the union of a query's keys from the
+// resident key/doc column over the bucket the reader holds a view of, denying it
+// if asked. It returns (result, true) when the index served the query, or
+// (_, false) when the caller must fall back to the standard fold, which the
+// bucket carrying no index is the only reason for.
 func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
-	pv *propValuePair,
+	pv *propValuePair, denyList bool,
 ) (docBitmap, bool) {
 	idx := reader.KeyDocColumn()
 	if idx == nil {
@@ -356,7 +360,7 @@ func (s *Searcher) resolveContainsKeyDocColumn(reader containsBatchReader,
 	}
 	res.ApplyMemtableMatches(matches)
 	bm, put := s.bitmapFactory.BufPool().SortedListToBuf(res.SortedDocs())
-	return docBitmap{docIDs: bm, release: put, isDenyList: false}, true
+	return docBitmap{docIDs: bm, release: put, isDenyList: denyList}, true
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a

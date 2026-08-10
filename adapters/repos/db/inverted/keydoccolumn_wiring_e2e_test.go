@@ -277,18 +277,29 @@ func TestKeyDocColumnWiring_DocIDsMatchesFold(t *testing.T) {
 		return vals
 	}
 
-	run := func(s *Searcher, values []string) []uint64 {
-		al, err := s.DocIDs(ctx, containsFilter(filters.ContainsAny, values),
+	run := func(s *Searcher, op filters.Operator, values []string) []uint64 {
+		al, err := s.DocIDs(ctx, containsFilter(op, values),
 			additional.Properties{}, className)
 		require.NoError(t, err)
 		defer al.Close()
 		return sortedDocIDs(al)
 	}
 
+	// ContainsNone is the same union denied, and the index computes the union
+	// either way — so it has to agree with the fold on both, and the two answers
+	// have to remain complements of each other. A deny flag left unset would
+	// still match the fold's *union*, so only comparing against ContainsAny
+	// would miss it.
 	requireMatchesFold := func(t *testing.T, values []string) {
 		t.Helper()
-		require.Equal(t, run(plain, values), run(indexed, values),
-			"the key/doc column must answer exactly as the standard fold does")
+		any := run(indexed, filters.ContainsAny, values)
+		none := run(indexed, filters.ContainsNone, values)
+		require.Equal(t, run(plain, filters.ContainsAny, values), any,
+			"the key/doc column must answer ContainsAny exactly as the standard fold does")
+		require.Equal(t, run(plain, filters.ContainsNone, values), none,
+			"the key/doc column must answer ContainsNone exactly as the standard fold does")
+		require.Empty(t, intersect(any, none),
+			"a document cannot both hold one of the values and hold none of them")
 	}
 
 	// The filter's value order is the user's, and the index requires its
@@ -341,6 +352,59 @@ func TestKeyDocColumnWiring_DocIDsMatchesFold(t *testing.T) {
 	bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
 	require.NotNil(t, bkt.KeyDocColumn(),
 		"key/doc column must be attached and serving")
+}
+
+// TestKeyDocColumnWiring_ServesContainsNone pins that the index itself answers
+// ContainsNone, which no black-box comparison can show: the fold returns the
+// same documents, so a query that quietly fell back to it looks identical. It
+// asks the index directly, and checks the deny flag is what the operator
+// changes — the documents are the same union either way.
+func TestKeyDocColumnWiring_ServesContainsNone(t *testing.T) {
+	const numDocs = 2_000
+	indexed, store := newUniqueTextSearcher(t, numDocs)
+
+	bkt := store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+	require.NotNil(t, bkt.KeyDocColumn())
+
+	reader, err := bkt.NewRoaringSetBatchReader()
+	require.NoError(t, err)
+	defer reader.Release()
+
+	values := []string{benchValue(3), benchValue(11), benchValue(1_500)}
+	pv := &propValuePair{
+		prop:           benchPropName,
+		containsValues: keyDocColumnSortedKeys(values),
+	}
+
+	allowed, ok := indexed.resolveContainsKeyDocColumn(reader, pv, false)
+	require.True(t, ok, "the index must serve the query")
+	defer allowed.release()
+
+	denied, ok := indexed.resolveContainsKeyDocColumn(reader, pv, true)
+	require.True(t, ok, "the index must serve the query when it is denied too")
+	defer denied.release()
+
+	require.False(t, allowed.IsDenyList())
+	require.True(t, denied.IsDenyList(), "ContainsNone must come back denied")
+	require.Equal(t, []uint64{3, 11, 1_500}, allowed.docIDs.ToArray())
+	require.Equal(t, allowed.docIDs.ToArray(), denied.docIDs.ToArray(),
+		"the operator changes the flag, not the documents")
+}
+
+// intersect is the documents two results agree on, for assertions about results
+// that must not overlap.
+func intersect(a, b []uint64) []uint64 {
+	inA := make(map[uint64]struct{}, len(a))
+	for _, id := range a {
+		inA[id] = struct{}{}
+	}
+	var both []uint64
+	for _, id := range b {
+		if _, ok := inA[id]; ok {
+			both = append(both, id)
+		}
+	}
+	return both
 }
 
 // TestKeyDocColumnWiring_MultiKeyDocDeletion covers a document that sits under more
