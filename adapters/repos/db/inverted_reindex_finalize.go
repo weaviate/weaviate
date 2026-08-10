@@ -149,10 +149,9 @@ func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool 
 // carries tidied.mig or merged.mig (completed in-process, awaiting
 // next-restart finalize).
 //
-// The dir listing comes from the scope's cache, so a cold-shard gate that asks
-// this once per (property, index type) reads the shard's .migrations dir once
-// for the whole run. The two sentinel Stats per matching dir are not cached;
-// only a dir this scope matches pays them.
+// The dir listing comes from the scope's cache, so a run of calls over one
+// shard reads its .migrations dir once; the sentinel Stats per matching dir
+// are not cached.
 func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) {
 	migrationsDir := filepath.Join(scope.lsmPath, ".migrations")
 	names, err := scope.dirs.list(migrationsDir)

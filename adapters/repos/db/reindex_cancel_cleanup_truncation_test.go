@@ -73,9 +73,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// dropOnCall deletes the collection on the nth shard load, so the
 		// delete lands after that shard has already failed.
 		dropOnCall int
-		// closing closes the index, which is what makes the shard walk visit
-		// nothing. closeCause is what the close was signalled with; nil stands
-		// for a close nobody named a cause for.
+		// closing closes the index (walk visits nothing); closeCause is what
+		// it was signalled with, nil for an unsignalled close.
 		closing    bool
 		closeCause error
 		// staleOnDisk writes a tracker dir for the swept tuple on every
@@ -102,9 +101,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			shards: []string{"shard-a"},
 		},
 		{
-			// Refused before the walk: no shard is loaded, and no shard is
-			// swept either, so reporting a clean run would claim state was
-			// cleared for an input the node never processed.
+			// Refused before the walk starts; no shard is loaded or swept.
 			name:          "an index type this build cannot map is refused, not swept",
 			shards:        []string{"shard-a"},
 			staleOnDisk:   true,
@@ -159,10 +156,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated: true,
 		},
 		{
-			// The state this sweep removes lives under the collection's own
-			// directory, so the delete removes it. Reporting truncation here
-			// would send the operator after shards that are going away, and
-			// promise a retry on a submit that will never come.
+			// The delete removes this sweep's state along with it, so this must
+			// not report truncation or promise a retry.
 			name:        "a collection being deleted has nothing left to sweep",
 			shards:      []string{"shard-a", "shard-b"},
 			closing:     true,
@@ -308,9 +303,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 	tests := []struct {
 		name string
-		// closeCause is signalled from inside the walk, after the first shard.
-		// nil deletes the remaining shards without signalling anything, which
-		// is what every deleter other than a whole-index drop does.
+		// closeCause is signalled mid-walk, after the first shard; nil deletes
+		// the remaining shards without signalling anything.
 		closeCause error
 		// deleteSiblings drops the shards the walk has not reached yet.
 		deleteSiblings bool
@@ -366,9 +360,7 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 				if visited > 1 || !tc.deleteSiblings {
 					return nil
 				}
-				// What DeleteIndex and Index.drop do, in their order: the
-				// cause first, then the shards leave the map one by one.
-				// Every other deleter skips the first step.
+				// Whole-index drop order: signal the cause, then remove shards.
 				if tc.closeCause != nil {
 					signalCloseRequested(tc.closeCause)
 					closeIndex()
@@ -446,9 +438,7 @@ func TestCloseCauseAnswersAnIndexWithoutCloseContexts(t *testing.T) {
 	}
 }
 
-// The names a walk did not reach go into an operator-facing message, and a node
-// runs tens of thousands of tenants. The count has to survive the cap: it is
-// what says how much of the collection is unaccounted for.
+// The count of skipped shards must survive the [maxReportedErrors] cap.
 func TestReportedShardNames(t *testing.T) {
 	nameSet := func(names ...string) map[string]struct{} {
 		out := map[string]struct{}{}

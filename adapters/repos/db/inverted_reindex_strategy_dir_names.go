@@ -157,23 +157,14 @@ func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 }
 
 // migrationDirPrefixesForIndexType returns the per-property migration
-// strategy prefixes whose tracker dirs — if marked tidied on disk — would
-// lie after a (property, indexType) bucket has been removed. Called from
-// updatePropertyBuckets after a DELETE so that a subsequent re-enable
-// starts from a clean slate instead of short-circuiting on a stale
-// "previous run completed" sentinel.
+// strategy prefixes for a "filterable"/"searchable"/"rangeable" indexType,
+// whose tracker dirs would lie (report "previous run completed") after the
+// bucket has been removed on a property DELETE.
 //
-// indexType is the canonical inverted-index discriminator:
-// "filterable", "searchable", or "rangeable".
-//
-// Class-level migration dirs (searchable_map_to_blockmax,
-// filterable_roaringset_refresh) are deliberately omitted — they
-// aggregate state across every property of the class and per-property
-// progress lives inside the dir, not as the dir's own existence.
-// Wholesale-deleting them on a single property's DELETE would corrupt
-// the class-level migration; their per-property entries are pruned by
-// the strategy's own bookkeeping. [migrationDirScope.preserving] adds
-// them back for the preserve set, which must span them.
+// Class-level migration dirs are deliberately omitted: they aggregate state
+// across every property, so deleting one on a single property's DELETE would
+// corrupt migrations for the rest of the class.
+// [migrationDirScope.preserving] adds them back for the preserve set.
 func migrationDirPrefixesForIndexType(indexType string) []string {
 	switch indexType {
 	case "filterable":
@@ -200,20 +191,12 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // type) cleanup owns on one shard, and decides which dir on disk is one of
 // them.
 //
-// The dir name alone cannot decide that. [migrationDirWithProps] joins a
-// task's whole property list into the name, so "enable_filterable_a_b_1" is
-// the tracker of a two-property task on "a" and "b" and the tracker of a
-// single property named "a_b", written identically. The task recorded its
-// property list in payload.mig before it wrote anything else, so that list
-// decides. The name is only read when there is no readable payload, and then
-// it answers for the single-property shape alone: a multi-property tracker
-// with no payload is left to the next-restart finalizer rather than matched
-// on a guess that could delete another property's state.
-//
-// One ambiguity survives in that fallback, from before payload.mig existed: a
-// sweep of "cat" matches "enable_filterable_cat_2", which is either this
-// property's generation 2 or the generation-less tracker of property "cat_2".
-// It is matched, as it was before generations existed.
+// The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
+// two-property tracker for "a" and "b" and a single-property tracker for
+// "a_b" — so payload.mig, written before anything else, decides. Falling back
+// to the name (no readable payload) answers only for the single-property
+// shape; a multi-property tracker with no payload is left to the
+// next-restart finalizer rather than matched on a guess.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache
@@ -242,14 +225,11 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 	return migrationDirScope{lsmPath: lsmPath, classDirs: []string{classDir}}
 }
 
-// preserving widens a cleanup's scope to the dirs whose completed generations
-// it must not remove. That is MORE than it deletes: a class-level migration's
-// tracker is excluded from deletion, but a completed one owns live sidecars of
-// every property, and wiping those is #10675-shape data loss.
-//
-// The gate that decides whether to load a cold shard and the sweep that runs on
-// the loaded one both build their preserve set here, so the two cannot drift
-// into a gate that skips shards the sweep would have cleaned.
+// preserving widens the scope to include the class-level tracker for
+// indexType: excluded from deletion, but a completed one owns live sidecars
+// of every property, so it must still be in the preserve set (else
+// #10675-shape data loss). Used identically by the cold-shard gate and the
+// sweep so the two can't drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
 		// Cloned because the receiver is a value: appending into the caller's
@@ -274,10 +254,7 @@ func (s migrationDirScope) matches(name string) bool {
 		}
 	}
 	if !s.hasStrategyPrefix(base) {
-		// Nothing this cleanup owns is named like this, so its payload is not
-		// worth reading. A cold shard's .migrations dir is walked once per
-		// (property, index type), and most of what is in it belongs to other
-		// tuples.
+		// Not this cleanup's dir; skip reading its payload.
 		return false
 	}
 	if props, ok := s.taskProperties(name); ok {

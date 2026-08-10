@@ -1680,9 +1680,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	// Every sweep in this loop asks the same unhydrated shards the same
-	// question about a different tuple, and the answer comes from a directory
-	// listing. Sharing one cache across the loop reads each shard's dirs once.
+	// Shared across the loop so each shard's directories are read once.
 	dirs := &dirNamesCache{}
 	worst := sweepTerminalTuples(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
@@ -1701,12 +1699,9 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 }
 
-// sweepTerminalTuples runs sweep once per (property, index type) and returns
-// the worst outcome of the run, reporting each failure to onFailure as it goes.
-//
-// Worst-of, not last-of: the run reports one line to the operator, and a sweep
-// that left a shard's state on disk still speaks for the run after a later
-// tuple comes back clean. Every failure is reported individually regardless.
+// sweepTerminalTuples runs sweep once per (property, index type), reporting
+// each failure to onFailure, and returns the worst outcome of the run — a
+// later clean tuple must not mask an earlier one that left state behind.
 func sweepTerminalTuples(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
@@ -1725,10 +1720,9 @@ func sweepTerminalTuples(
 	return worst
 }
 
-// terminalSweepOutcome is what one sweep left for the operator, ordered by how
-// much of the collection is unaccounted for. A post-terminal cleanup runs one
-// sweep per (property, index type) and reports the worst of them, so the
-// ordering is what decides which one speaks for the whole run.
+// terminalSweepOutcome is what one sweep left for the operator, ordered by
+// how much of the collection is unaccounted for; the max across a run's
+// sweeps is what's reported.
 type terminalSweepOutcome int
 
 const (
@@ -1746,12 +1740,9 @@ const (
 )
 
 // classifyTerminalSweep splits one sweep's error into what it left behind and
-// the failure the operator has to act on.
-//
-// A sweep can report several at once: a shard fails, then the collection is
-// deleted before the walk ends. The worst of them is what the sweep left — a
-// deleted collection takes its own state with it, but not the state of a shard
-// the sweep already failed on.
+// the failure the operator has to act on. A shard can fail before the
+// collection is deleted mid-walk; that outcome is [terminalSweepFailed], not
+// [terminalSweepDropped] — the delete doesn't erase the earlier failure.
 func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure error) {
 	switch {
 	case err == nil:
@@ -1763,20 +1754,14 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 	case errors.Is(err, ErrCleanupSweepTruncated):
 		return terminalSweepUnknown, err
 	default:
-		// No producer reaches here: every shard failure carries the shard
-		// marker, and every value the shard walk can end with is one of the
-		// other two. An error that does slip through is one nothing can say
-		// what happened to, which is what unknown means.
+		// Not expected to be reached; an unmarked error is unknown, not clean.
 		return terminalSweepUnknown, err
 	}
 }
 
 // terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. A collection that is not on this node has no partial state here, so
-// there is nothing to act on even though no shard was swept. The other two both
-// warrant a warning, and are told apart by what the sweep got to do: one
-// reached shards it could not sweep, the other never reached them at all.
-// Neither establishes that state is there, so neither says it is.
+// sweep. A dropped collection warrants no warning (no state left to act on);
+// failed and unknown both do, since neither confirms the state is gone.
 func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
 	switch outcome {
 	case terminalSweepFailed:

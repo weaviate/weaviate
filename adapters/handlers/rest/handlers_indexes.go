@@ -600,9 +600,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
-		// One cache for the whole loop: every index type asks the same cold
-		// shards about a different tuple, and this runs in the request under
-		// the (collection, property) submit lock.
+		// One cache for the whole loop: every index type asks the same cold shards.
 		sweep := h.appState.DB.NewStalePartialReindexSweep()
 		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
 			return sweep(ctx, collection, propertyName, indexTypeForCleanup)
@@ -936,9 +934,8 @@ func (f staleSweepFailure) Error() string {
 func (f staleSweepFailure) Unwrap() error { return f.err }
 
 // sweepStaleReindexState runs sweep once per index type and returns only the
-// failures an operator must act on. A dropped-collection error isn't one:
-// [db.IsCleanupCollectionDropped] means the collection's own delete already
-// removed the state, so there's nothing left to short-circuit on or retry.
+// failures an operator must act on; [db.IsCleanupCollectionDropped] errors are
+// skipped since the collection's own delete already removed the state.
 func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
 	var failures []staleSweepFailure
 	for _, indexType := range indexTypes {

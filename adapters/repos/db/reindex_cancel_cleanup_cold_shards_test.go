@@ -44,9 +44,8 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 		cancelBeforeWalk bool
 		wantColdLoaded   bool
 		wantColdTracker  bool
-		// wantHotTracker is what proves the walk stopped: the loaded shard's
-		// tracker dir is removed by a sweep that reaches it, and steps 2 and 3
-		// of the per-shard sweep never consult the context themselves.
+		// wantHotTracker proves the walk stopped: a reached shard's tracker dir
+		// is removed.
 		wantHotTracker bool
 		wantErr        bool
 	}{
@@ -162,9 +161,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 		indexType string
 		// trackers are .migrations dirs, mapped to the sentinels inside them.
 		trackers map[string][]string
-		// payloads is the property list a tracker's task recorded, which is
-		// what tells a two-property task from a property whose name contains
-		// the join character. A tracker missing here gets no payload.mig.
+		// payloads is the property list a tracker's task recorded, distinguishing
+		// a two-property task from a property whose name contains the join char.
 		payloads map[string][]string
 		// sidecars are dirs at the LSM root.
 		sidecars []string
@@ -188,10 +186,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
 			wantStale: true,
 		},
-		// PropertyNameRegex allows "__" in a property name, so this dir is
-		// property "category__extra"'s own main bucket. Reading it as a sidecar
-		// makes the gate hydrate every tenant of the collection, and then makes
-		// the sweep it gates RemoveAll the other property's inverted index.
+		// "__" is allowed in a property name, so this is property
+		// "category__extra"'s own main bucket, not a sidecar of "category".
 		{
 			name:      "another property whose name carries the sidecar separator",
 			indexType: "filterable",
@@ -239,10 +235,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			trackers:  map[string][]string{"enable_filterable_category_x_1": {"started.mig"}},
 			sidecars:  []string{"property_category_x__enable_filterable_ingest_1"},
 		},
-		// A class-level migration in deferred-finalize state leaves a live
-		// sidecar on EVERY tenant of the collection. A gate that does not
-		// preserve those hydrates the whole collection, which is the one thing
-		// it exists to stop.
+		// A class-level migration awaiting finalize leaves a live sidecar on
+		// every tenant of the collection.
 		{
 			name:      "filterable: a class-level roaringset refresh awaiting finalize",
 			indexType: "filterable",
@@ -277,19 +271,15 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
 			wantStale: true,
 		},
-		// Fail closed. The index-wide sweep refuses this input before the walk
-		// starts (see TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType),
-		// so the gate is not asked in production — but answering "nothing here"
-		// is the one answer that could turn it into a clean-sweep report.
+		// Fail closed: not reachable in production (the sweep refuses this
+		// input earlier), but "nothing here" would read as a clean sweep.
 		{
 			name:      "an index type this build cannot map to a bucket",
 			indexType: "an-index-type-this-build-does-not-know",
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
 			wantStale: true,
 		},
-		// A two-property task writes one tracker for both, and the cleanup runs
-		// once per property. A gate that does not recognize it leaves the
-		// cancelled run's started.mig for the retry to short-circuit on.
+		// A two-property task writes one tracker for both properties.
 		{
 			name:      "a two-property task this property is part of",
 			indexType: "filterable",
@@ -307,9 +297,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 				"enable_filterable_other_third_1": {"other", "third"},
 			},
 		},
-		// A question the gate could not ask is not an answer of "nothing to
-		// clean": that would leave a stale started.mig for the next task to
-		// resume against, the short-circuit this whole sweep guards against.
+		// An unreadable dir fails open, not "nothing to clean".
 		{
 			name:       "an LSM dir the gate cannot enumerate",
 			indexType:  "filterable",
@@ -410,9 +398,7 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 }
 
 // A cancelled two-property task leaves one tracker dir for both properties,
-// and the cleanup that follows runs once per property. Leaving it behind is
-// what lets the retry resume against the cancelled run's started.mig,
-// short-circuit to a no-op, and report success against a partial bucket.
+// and cleanup runs once per property.
 func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testing.T) {
 	const tracker = "enable_filterable_a_b_1"
 
@@ -450,10 +436,8 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	}
 }
 
-// The gate answers from a directory listing; a shard that is already loaded is
-// swept without asking it. This pins that guarantee by handing the sweep a
-// listing that no longer matches the disk: without the guard, the shard's
-// state survives a sweep that was standing on it.
+// A loaded shard is swept unconditionally, without consulting the gate, even
+// with a stale directory listing on hand.
 func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *testing.T) {
 	const (
 		propName  = "category"
@@ -614,10 +598,8 @@ func TestMainBucketForPropertyIndexHasAKnownNameCollision(t *testing.T) {
 		"and the sidecar rule cannot tell them apart either")
 }
 
-// An index type this build cannot map to a bucket is refused before the walk.
-// Left to the gate, an all-cold collection would skip every shard, the walk
-// would end with nothing to report, and the operator would be told the partial
-// state was cleared for an input the node never processed.
+// An unmappable index type is refused before the walk starts, without
+// hydrating any shard.
 func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.T) {
 	const (
 		propName = "category"
@@ -644,10 +626,8 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 		"an input the node cannot process is not a swept collection")
 }
 
-// Every migration strategy's sidecar suffix has to be recognized as one:
-// [isSidecarDirOf] matches on the trailing role word, so a strategy that
-// invents a new one would leave its sidecars unswept and its dirs invisible to
-// the cold-shard gate. Extend [sidecarRoleWords] when that happens.
+// Every migration strategy's sidecar suffix must be recognized by
+// [isSidecarDirOf]; extend [sidecarRoleWords] if a new one is added.
 func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 	const main = "property_category"
 

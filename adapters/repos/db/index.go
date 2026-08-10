@@ -779,22 +779,11 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 	}
 }
 
-// closeCause reports why the index is closing, or nil while it is still open.
-// Walking the shards of a closing index risks a panic, so every walk asks this
-// first. The cause tells a collection being deleted apart from a node shutting
-// down: a deleted collection takes its on-disk state with it, a shut-down one
-// leaves it for the next start. A close nobody signalled a cause for reads as
-// [errIndexClosed], which callers must treat like a shutdown. No production
-// teardown reaches that: both of them signal a cause before they close, so it
-// only answers a test double or a future teardown that forgets to.
-//
-// It is also the nil-safe way to ask whether the index is closing, which is why
-// [Index.ForEachShard] and [Index.ForEachShardConcurrently] ask it rather than
-// closingCtx: an Index built without the close contexts panics on the latter.
+// closeCause reports why the index is closing, or nil if still open. It is
+// nil-safe (unlike calling Err on closingCtx directly), and lets callers tell
+// a collection delete (on-disk state gone) from a shutdown (state persists);
+// an unsignalled close reads as [errIndexClosed].
 func (i *Index) closeCause() error {
-	// Calling Err on a nil context panics, and an Index built without either
-	// context is still one this has to answer for. Nothing has closed an index
-	// that has no closingCtx, so it is open.
 	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
 	}
@@ -807,30 +796,19 @@ func (i *Index) closeCause() error {
 	return errIndexClosed
 }
 
-// forEachShardStrict is [Index.ForEachShard] for callers that cannot read a
-// walk that skipped shards as a walk that reached every shard. It reports what
-// ForEachShard answers with a silent nil: a closing index, and a shard the walk
-// never visited.
+// forEachShardStrict is [Index.ForEachShard] for callers that must not treat
+// a walk that skipped shards as one that reached them all: a closing index or
+// an unvisited shard is reported as an error, not swallowed into a nil.
 //
-// The close cause is asked again after the walk, because a close that lands
-// mid-walk is the same false clean: [Index.drop] deletes each shard from the
-// map as it goes, and a sync.Map range may skip entries deleted while it runs,
-// so the walk can end early with nothing to report.
-//
-// Whole-index drops are only one of the ways a shard leaves the map, though,
-// and the only one that signals a cause. A tenant delete, an offload and a
-// replica move all delete from the same map without one, so the walk is
-// compared against the names in it when the walk started: a name it did not
-// reach is reported as [errShardsSkipped], whether or not anything explained
-// why. Names that arrive mid-walk are not in that list and are not expected —
-// a tenant activated while the walk runs is not a shard the walk skipped.
+// sync.Map.Range can skip entries deleted mid-walk, so the close cause is
+// re-checked after the walk to catch a drop landing mid-range. Removals that
+// signal no cause (tenant delete, offload, replica move) are caught instead
+// by diffing unvisited names against the shard set captured before the walk,
+// reported as [errShardsSkipped].
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeCause(); cause != nil {
 		return cause
 	}
-	// The names left in here when the walk ends are the ones it did not reach.
-	// A name that arrives mid-walk is not one of them and is not expected to
-	// be: deleting a name the set never held does nothing.
 	unvisited := i.shardNameSet()
 	err := i.shards.Range(func(name string, shard ShardLike) error {
 		delete(unvisited, name)
@@ -858,11 +836,9 @@ func (i *Index) shardNameSet() map[string]struct{} {
 	return names
 }
 
-// reportedShardNames orders names for an operator-facing message and caps them
-// at [maxReportedErrors], so a node with many tenants cannot produce one no
-// operator can read. The cap is reported as its own entry rather than dropped,
-// because the count is the part that says how much of the collection is
-// unaccounted for.
+// reportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message; the cap itself is reported as an entry so the
+// count of unaccounted shards isn't lost.
 func reportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {

@@ -38,10 +38,8 @@ func droppedAfterAShardFailed() error {
 	)
 }
 
-// The submit handler logs one operator-facing Error per returned failure,
-// telling the operator the new task may short-circuit on state left behind. A
-// collection being deleted left nothing behind and has no new task, so it must
-// not reach that log.
+// A collection deleted mid-sweep must not be logged as an operator-facing
+// failure: it left no stale state and there's no new task to warn about.
 func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	// change-tokenization submits both index types, which is the case where a
 	// concurrent delete can be seen by one sweep and not the other.
@@ -104,9 +102,8 @@ func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	}
 }
 
-// The cancel handler logs an Error promising that the next submit's
-// defense-in-depth cleanup will retry. For a collection being deleted there is
-// no next submit, so the promise must never be made.
+// A collection being deleted has no next submit to retry the cleanup, so the
+// cancel handler must not promise one.
 func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -326,10 +326,8 @@ func TestTerminalSweepOutcomeOrdering(t *testing.T) {
 	require.Greater(t, terminalSweepDropped, terminalSweepClean)
 }
 
-// The run reports one line to the operator, and the ordering only means
-// something if the fold keeps the worst outcome rather than the last one. A
-// clean sweep on the last tuple must not speak over a shard the first tuple
-// left state on.
+// The fold must keep the worst outcome, not the last one: a clean sweep on
+// the last tuple must not mask a shard an earlier tuple left state on.
 func TestSweepTerminalTuples(t *testing.T) {
 	diskFull := fmt.Errorf("%w: %w", ErrCleanupShardFailed, errors.New("disk is full"))
 	truncated := classifyCloseCause(errIndexShutdown)

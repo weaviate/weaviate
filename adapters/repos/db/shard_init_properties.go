@@ -333,22 +333,11 @@ func preserveSidecarsSlice(preserveSidecars map[string]bool) []string {
 // CleanStalePartialReindexState to compute the prefix that identifies
 // per-property sidecar buckets.
 //
-// KNOWN COLLISION, pre-existing and wider than this function: a bucket name is
-// "property_<prop>" plus a fixed suffix, and PropertyNameRegex lets a property
-// name end in one. Two shapes follow, both tracked in
-// https://github.com/weaviate/weaviate/issues/12574:
-//
-//  1. Property "cat_searchable" filterable and property "cat" searchable both
-//     answer "property_cat_searchable", so a sweep of either reaches the other's
-//     sidecars.
-//  2. A property named "<x>__<strategy>_<role>" (e.g. "a__blockmax_ingest")
-//     produces a main bucket that [isSidecarDirOf] reads as a sidecar of
-//     property "x", so a sweep of "x" deletes it. Property names that carry
-//     "__" without ending in a role word — the far likelier case — are not
-//     affected; isSidecarDirOf checks the role word for exactly that reason.
-//
-// Closing either means renaming buckets on disk, so it is not this function's
-// to fix.
+// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than this
+// function: bucket names are "property_<prop>" plus a fixed suffix, and
+// property names may collide with them — e.g. "cat_searchable" filterable and
+// "cat" searchable share a bucket name, so a sweep of either reaches the
+// other's sidecars. Fixing it means renaming buckets on disk.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":
@@ -371,11 +360,9 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // "rename: file exists" the next time RunSwapOnShard tries to move the
 // fresh main into __backup.
 //
-// The sidecar names are <mainBucket>__<strategy>_<role>, optionally with a
-// generation tail. Matching on the prefix plus the role word rather than the
-// whole per-strategy suffix absorbs future strategies without letting a
-// property whose own name carries "__" be read as a sidecar; see
-// [isSidecarDirOf].
+// Sidecar names are <mainBucket>__<strategy>_<role>[_<gen>]; see
+// [isSidecarDirOf] for why matching on the role word (not the whole suffix)
+// avoids reading a property's own name as a sidecar.
 //
 // In addition to removing the on-disk dirs, this function ALSO drops the
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
@@ -442,19 +429,10 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
-// mainBucketName — the same name on disk and in the bucket registry.
-//
-// The "__" a sidecar carries is not enough on its own: property names may
-// contain "__" too (PropertyNameRegex allows it), so "property_a__b" is
-// property "a__b"'s own main bucket and not a sidecar of property "a". The role
-// word decides, because the callers of this both act on a true answer — the
-// gate hydrates the shard, and the sweep removes the dir.
-//
-// Shared with [hasStalePartialReindexState], which decides from the same rule
-// whether an unhydrated shard has to be loaded at all.
-//
-// A property whose name ends in "__<strategy>_<role>" still collides; see the
-// KNOWN COLLISION note on [mainBucketForPropertyIndex].
+// mainBucketName. "__" alone isn't enough: property names may contain "__"
+// too, so "property_a__b" is property "a__b"'s own main bucket, not a
+// sidecar of "a" — the trailing role word decides instead. Shared with
+// [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {

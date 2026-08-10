@@ -183,12 +183,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:  "enable_filterable_cat",
 			want: true,
 		},
-		// A multi-property task writes one tracker for its whole list; each
-		// property in it must match the same dir.
-		// The ambiguity [migrationDirScope] documents as deliberately kept: with
-		// no payload this is either "cat" generation 2 or the generation-less
-		// tracker of a property called "cat_2". Matched, as it was before
-		// generations existed.
+		// The [migrationDirScope] ambiguity kept deliberately: with no payload
+		// this is either "cat" generation 2 or property "cat_2"'s tracker.
 		{
 			name: "a generation suffix with no payload to tell it from a property name",
 			dir:  "enable_filterable_cat_2",
