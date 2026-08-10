@@ -593,12 +593,12 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 			fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1"}))
 			c := fc.coordinator()
 			c.timeoutNextRound = time.Millisecond
-			c.descriptor = &backup.DistributedBackupDescriptor{
+			op := newOperation(&backup.DistributedBackupDescriptor{
 				ID:          backupID,
 				NodeMapping: map[string]string{},
 				Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
-			}
-			c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+			})
+			op.participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
 			prevID, slot := c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", "")
 			require.Empty(t, prevID)
 
@@ -609,7 +609,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 			fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
 
 			req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
-			c.commit(ctx, req, map[string]string{"N1": "N1"}, false, slot)
+			c.commit(ctx, op, req, map[string]string{"N1": "N1"}, false, slot)
 
 			st, err := c.OnStatus(ctx, coordStore{}, req)
 

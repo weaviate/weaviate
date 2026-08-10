@@ -755,22 +755,22 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		coordinator := fc.coordinator()
 		// Initialize descriptor with nodes that match participant node names
 		// The node names in Nodes must match what ToOriginalNodeName will return
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+		op := newOperation(&backup.DistributedBackupDescriptor{
 			ID:          backupID,
 			NodeMapping: make(map[string]string), // Empty mapping means ToOriginalNodeName returns node as-is
 			Nodes: map[string]*backup.NodeDescriptor{
 				"N1": {Classes: []string{"Class1"}},
 				"N2": {Classes: []string{"Class2"}},
 			},
-		}
+		})
 
 		// Pre-populate Participants - these must exist before commitAll/queryAll run
 		// The node names must match the keys in node2Addr
-		coordinator.Participants["N1"] = participantStatus{
+		op.participants["N1"] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now(),
 		}
-		coordinator.Participants["N2"] = participantStatus{
+		op.participants["N2"] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now(),
 		}
@@ -805,32 +805,32 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
-		coordinator.commit(ctx, req, node2Addr, true, slotOwner{})
+		coordinator.commit(ctx, op, req, node2Addr, true, slotOwner{})
 
 		// After commit, queryAll should have updated Participants with Cancelled status
 		// Verify that queryAll was called and updated the status
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status, "N1 should have Cancelled status after queryAll")
-		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason, "N1 should have cancellation reason")
-		assert.Equal(t, backup.Success, coordinator.Participants["N2"].Status, "N2 should have Success status")
+		assert.Equal(t, backup.Cancelled, op.participants["N1"].Status, "N1 should have Cancelled status after queryAll")
+		assert.Equal(t, "restore cancelled", op.participants["N1"].Reason, "N1 should have cancellation reason")
+		assert.Equal(t, backup.Success, op.participants["N2"].Status, "N2 should have Success status")
 
 		// The overall descriptor status should be Cancelled because N1 is Cancelled
-		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status, "Overall status should be Cancelled")
-		assert.Contains(t, coordinator.descriptor.Error, "restore cancelled", "Error message should contain cancellation reason")
+		assert.Equal(t, backup.Cancelled, op.descriptor.Status, "Overall status should be Cancelled")
+		assert.Contains(t, op.descriptor.Error, "restore cancelled", "Error message should contain cancellation reason")
 	})
 
 	t.Run("DetectCancelledStatusInQueryAll", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+		op := newOperation(&backup.DistributedBackupDescriptor{
 			ID:          backupID,
 			NodeMapping: make(map[string]string),
 			Nodes: map[string]*backup.NodeDescriptor{
 				"N1": {Classes: []string{"Class1"}},
 			},
-		}
+		})
 
 		// Set up participant with initial status
-		coordinator.Participants["N1"] = participantStatus{
+		op.participants["N1"] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now(),
 		}
@@ -847,26 +847,26 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
 		node2Addr := map[string]string{"N1": "N1"}
 
-		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+		nFailures := coordinator.queryAll(ctx, op, req, node2Addr)
 
 		assert.Equal(t, 1, nFailures)
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
-		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason)
+		assert.Equal(t, backup.Cancelled, op.participants["N1"].Status)
+		assert.Equal(t, "restore cancelled", op.participants["N1"].Reason)
 	})
 
 	t.Run("DetectContextCanceledInCommitAll", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+		op := newOperation(&backup.DistributedBackupDescriptor{
 			ID:          backupID,
 			NodeMapping: make(map[string]string),
 			Nodes: map[string]*backup.NodeDescriptor{
 				"N1": {Classes: []string{"Class1"}},
 			},
-		}
+		})
 
 		// Set up participant
-		coordinator.Participants["N1"] = participantStatus{
+		op.participants["N1"] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now(),
 		}
@@ -877,26 +877,26 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
 		node2Addr := map[string]string{"N1": "N1"}
 
-		nFailures := coordinator.commitAll(ctx, req, node2Addr)
+		nFailures := coordinator.commitAll(ctx, op, req, node2Addr)
 
 		assert.Equal(t, 1, nFailures)
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
-		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+		assert.Equal(t, backup.Cancelled, op.participants["N1"].Status)
+		assert.Contains(t, op.participants["N1"].Reason, context.Canceled.Error())
 	})
 
 	t.Run("DetectCancelledStatusInQueryAllTimeout", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+		op := newOperation(&backup.DistributedBackupDescriptor{
 			ID:          backupID,
 			NodeMapping: make(map[string]string),
 			Nodes: map[string]*backup.NodeDescriptor{
 				"N1": {Classes: []string{"Class1"}},
 			},
-		}
+		})
 
 		// Set up participant with old timestamp to trigger timeout
-		coordinator.Participants["N1"] = participantStatus{
+		op.participants["N1"] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now().Add(-10 * time.Minute), // Old timestamp
 		}
@@ -910,11 +910,11 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		// Set timeoutNodeDown to a small value for testing
 		coordinator.timeoutNodeDown = 1 * time.Second
 
-		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+		nFailures := coordinator.queryAll(ctx, op, req, node2Addr)
 
 		assert.Equal(t, 1, nFailures)
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
-		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+		assert.Equal(t, backup.Cancelled, op.participants["N1"].Status)
+		assert.Contains(t, op.participants["N1"].Reason, context.Canceled.Error())
 	})
 }
 
@@ -1098,10 +1098,11 @@ func TestCommitAllManyFailures(t *testing.T) {
 
 	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
 	coordinator := fc.coordinator()
+	op := newOperation(&backup.DistributedBackupDescriptor{ID: backupID})
 
 	node2Addr := make(map[string]string, numNodes)
 	for _, n := range nodes {
-		coordinator.Participants[n] = participantStatus{
+		op.participants[n] = participantStatus{
 			Status:   backup.Transferring,
 			LastTime: time.Now(),
 		}
@@ -1115,7 +1116,7 @@ func TestCommitAllManyFailures(t *testing.T) {
 
 	done := make(chan int, 1)
 	enterrors.GoWrapper(func() {
-		done <- coordinator.commitAll(ctx, req, node2Addr)
+		done <- coordinator.commitAll(ctx, op, req, node2Addr)
 	}, coordinator.log)
 
 	select {

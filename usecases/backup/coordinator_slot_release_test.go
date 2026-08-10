@@ -569,5 +569,5 @@ func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 
 	require.Zero(t, schemaManager.applies.Load(),
 		"a restore cancelled while it was staging must not go on to apply the schema")
-	require.Equal(t, backup.Cancelled, c.descriptor.Status)
+	require.Equal(t, backup.Cancelled, fc.backend.getGlobalMetaStatus())
 }
