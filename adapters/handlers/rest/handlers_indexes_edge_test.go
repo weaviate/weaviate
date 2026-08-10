@@ -758,12 +758,10 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}
 }
 
-// Status-priority ranking: PREPARING and SWAPPING both rank alongside
-// STARTED (priority=2), so a fresh in-flight task surfaces ahead of an
-// older FAILED attempt's terminal entry. Without PREPARING in the
-// switch, the priority would fall through to the default (priority=0)
-// and an older FAILED attempt with priority=1 would win the tiebreak —
-// the user would see the stale failure instead of the live PREP barrier.
+// Status-priority ranking: every non-terminal status ranks above every
+// terminal one, so a fresh in-flight task surfaces ahead of an older
+// FAILED attempt's terminal entry. If a status ranked below FAILED, the
+// user would see the stale failure instead of the live migration.
 func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
 		return &distributedtask.Task{
@@ -779,6 +777,7 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 		{"STARTED", distributedtask.TaskStatusStarted, 2},
 		{"PREPARING", distributedtask.TaskStatusPreparing, 2},
 		{"SWAPPING", distributedtask.TaskStatusSwapping, 2},
+		{"unrecognized", unknownFutureStatus, 2},
 		{"FAILED", distributedtask.TaskStatusFailed, 1},
 		{"CANCELLED", distributedtask.TaskStatusCancelled, 1},
 		{"FINISHED", distributedtask.TaskStatusFinished, 1},
@@ -786,6 +785,116 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, taskStatusPriority(mkTask(tt.status)),
 				"status %s must rank at priority %d", tt.status, tt.want)
+		})
+	}
+}
+
+// unknownFutureStatus stands in for a status a newer release introduced
+// and this build has never heard of — what a mixed-version cluster sees
+// during a rolling upgrade. Keep it a string no release will ever declare,
+// or these tests silently start asserting facts about a real status.
+const unknownFutureStatus distributedtask.TaskStatus = "VERIFYING"
+
+// A task in a status this build cannot recognize must read as in-flight
+// on the display path too. The same binary answers 409 on PUT, counts the
+// task against the per-collection cap and refuses backups on the
+// collection; leaving the entry at the base "ready" (or letting a stale
+// FAILED attempt outrank it) makes one node contradict itself within a
+// single request.
+func TestMergeReindexStatus_UnknownStatusOutranksStaleFailure(t *testing.T) {
+	now := time.Now()
+
+	staleFailure := buildTask(t, "C:enable-filterable:foo:0001",
+		distributedtask.TaskStatusFailed,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.1, Error: "disk full"},
+		},
+	)
+	staleFailure.StartedAt = now.Add(-2 * time.Hour)
+
+	live := buildTask(t, "C:enable-filterable:foo:0002",
+		unknownFutureStatus,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
+		},
+	)
+	live.StartedAt = now
+
+	t.Run("alone", func(t *testing.T) {
+		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(live), time.Hour, nil)
+
+		require.Equal(t, "indexing", idx.Status,
+			"a task this build cannot prove is done must not read as 'ready'")
+		require.InDelta(t, 0.9, idx.Progress, 0.0001)
+	})
+
+	for _, order := range []struct {
+		name  string
+		tasks []*distributedtask.Task
+	}{
+		{"failed-first", []*distributedtask.Task{staleFailure, live}},
+		{"unknown-first", []*distributedtask.Task{live, staleFailure}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable", false,
+				parseReindexTasks(order.tasks), time.Hour, nil)
+
+			require.Equal(t, "indexing", idx.Status,
+				"the live task must beat the older FAILED attempt regardless of slice order")
+			require.InDelta(t, 0.9, idx.Progress, 0.0001,
+				"the stale attempt's progress must not be surfaced")
+		})
+	}
+}
+
+// findCancelTarget must accept every non-terminal status. The conflict
+// guards block schema mutations on the collection for all of them and name
+// the cancel endpoint as the remedy; a cancel that answered NO_OP would
+// leave the operator with nothing left to try.
+func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+
+	for _, tc := range []struct {
+		status distributedtask.TaskStatus
+		want   bool
+	}{
+		{distributedtask.TaskStatusStarted, true},
+		{distributedtask.TaskStatusPreparing, true},
+		{distributedtask.TaskStatusSwapping, true},
+		{unknownFutureStatus, true},
+		{distributedtask.TaskStatusFinished, false},
+		{distributedtask.TaskStatusFailed, false},
+		{distributedtask.TaskStatusCancelled, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := buildTask(t, "T1", tc.status, payload, nil)
+
+			target, gotPayload, found := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "foo", "filterable")
+
+			require.Equal(t, tc.want, found,
+				"%q must be a cancel target: %v", tc.status, tc.want)
+			if !tc.want {
+				return
+			}
+			require.Equal(t, "T1", target.ID)
+			require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
 		})
 	}
 }

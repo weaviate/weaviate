@@ -688,13 +688,44 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
-// cancelReindexTask finds the STARTED reindex task targeting
+// findCancelTarget picks the in-flight reindex task targeting
+// (collection, propertyName, indexType).
+//
+// Every non-terminal status is a cancel target, matching what the
+// conflict guards treat as in-flight. Skipping the coordination phases,
+// or a status a newer node introduced, would leave the operator with no
+// exit: those guards refuse schema mutations on the collection and name
+// this endpoint as the remedy, while the cancel answered NO_OP.
+func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload, bool) {
+	for _, task := range tasks {
+		if task.Status.IsTerminal() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !slices.Contains(payload.Properties, propertyName) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+			continue
+		}
+		return task, payload, true
+	}
+	return nil, db.ReindexTaskPayload{}, false
+}
+
+// cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
 // Idempotent cancel: by the time this runs the caller's (collection,
 // property) tuple has already been verified to exist by [updateIndex] —
 // a missing class or property would have produced a 404 there. So when
-// no STARTED task matches the cancel target we return 202 + Status:
+// no task matches the cancel target we return 202 + Status:
 // NO_OP rather than 404. That mirrors how callers think about cancel:
 // "make sure no reindex is running on this property" is the same
 // idempotent intent whether or not a task happened to be in flight at
@@ -721,32 +752,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("listing tasks: %v", err)))
 	}
 
-	// Find the STARTED task that targets this (collection, prop, indexType).
-	var target *distributedtask.Task
-	var targetPayload db.ReindexTaskPayload
-	for _, task := range tasks[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		target = task
-		targetPayload = payload
-		break
-	}
+	target, targetPayload, found := findCancelTarget(tasks[db.ReindexNamespace], collection, propertyName, indexType)
 
-	if target == nil {
+	if !found {
 		// Idempotent cancel: caller's (collection, property) is known to
 		// exist (updateIndex verified before dispatch). No task to cancel
 		// means the request is a no-op — surface that explicitly via
@@ -1196,6 +1204,15 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Progress = 1.0
 			surfaceSyntheticFields = true
 		}
+	default:
+		// A status a newer node introduced. The same binary already treats
+		// it as in-flight when it answers 409 on PUT, counts it against the
+		// per-collection cap and refuses backups; leaving the entry at the
+		// base "ready" would make one node contradict itself within a
+		// single request.
+		idx.Status = "indexing"
+		idx.Progress = aggregateProgress(best)
+		surfaceSyntheticFields = true
 	}
 
 	// Only paint the per-migration-type "in-flight" side-effect fields when
@@ -1241,23 +1258,18 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // the synthetic "indexing@100%" entry visible until the schema flip
 // propagates — see the FINISHED case there).
 func taskStatusPriority(task *distributedtask.Task) int {
-	switch task.Status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		// PREPARING and SWAPPING rank alongside STARTED: from the user's
-		// perspective the task is still running (PREP barrier or swap
-		// pending; schema flip has not yet committed). Surface their
-		// synthetic "indexing@100%" entry instead of an older FAILED
-		// attempt's terminal entry.
+	// Anything non-terminal outranks every terminal task, including a
+	// status this build does not recognize. Otherwise a stale FAILED
+	// attempt outranks the live migration and the user sees the old
+	// failure with its old progress.
+	// PREPARING and SWAPPING rank alongside STARTED: from the user's
+	// perspective the task is still running (PREP barrier or swap pending;
+	// schema flip has not yet committed). Surface their synthetic
+	// "indexing@100%" entry instead of an older FAILED attempt's entry.
+	if !task.Status.IsTerminal() {
 		return 2
-	case distributedtask.TaskStatusFailed,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFinished:
-		return 1
-	default:
-		return 0
 	}
+	return 1
 }
 
 // aggregateProgress averages Unit.Progress across all units in the task.

@@ -2006,3 +2006,119 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 		})
 	}
 }
+
+// nonTerminalFixture puts a task into the given non-terminal status and
+// returns its (namespace, id, version). PREPARING and SWAPPING are driven
+// through RecordUnitCompletion so the fixture carries the same FinishedAt
+// stamp production writes; a status this build does not recognize has no
+// production path, so it is assigned directly.
+func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
+	t.Helper()
+
+	const (
+		ns      = "ns"
+		id      = "task1"
+		version = uint64(10)
+	)
+
+	switch status {
+	case TaskStatusPreparing:
+		addBarrierTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		drivePreparing(t, h, ns, id, version, []string{"n1"})
+	case TaskStatusSwapping:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		completeUnit(t, h, ns, id, version, "n1", "u-n1")
+	case TaskStatusStarted:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+	default:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		h.manager.tasks[ns][id].Status = status
+	}
+
+	require.Equal(t, status, h.manager.tasks[ns][id].Status,
+		"fixture did not reach %q", status)
+	return ns, id, version
+}
+
+// nonTerminalStatuses are every status this build treats as in-flight,
+// including the one it cannot recognize.
+var nonTerminalStatuses = []TaskStatus{
+	TaskStatusStarted,
+	TaskStatusPreparing,
+	TaskStatusSwapping,
+	unknownFutureStatus,
+}
+
+// TestManager_CleanUpTask_RefusesNonTerminalStatus pins the FSM-side
+// eviction guard. FinishedAt is stamped when the units completed and ages
+// from there, so a task stuck past completedTaskTTL clears the age check
+// and only the liveness check stands between it and deletion from RAFT
+// state.
+func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
+	for _, status := range nonTerminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			ns, id, version := nonTerminalFixture(t, h, status)
+
+			// Past the TTL: the age check no longer protects the task.
+			h.clock.Advance(2 * h.completedTaskTTL)
+
+			err := h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+				Namespace: ns,
+				Id:        id,
+				Version:   version,
+			}))
+			require.ErrorContains(t, err, "still running")
+			require.Contains(t, h.manager.tasks[ns], id,
+				"a task in %q must survive cleanup", status)
+		})
+	}
+}
+
+// TestManager_CancelTask_AcceptsEveryNonTerminalStatus pins the
+// operator's only exit. The schema mutation guards refuse UpdateProperty,
+// DeleteClass and tenant mutations for every non-terminal status and name
+// the cancel endpoint as the remedy; a cancel that refused would leave the
+// collection wedged with nothing left to try.
+func TestManager_CancelTask_AcceptsEveryNonTerminalStatus(t *testing.T) {
+	for _, status := range nonTerminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			ns, id, version := nonTerminalFixture(t, h, status)
+
+			cancelledAt := h.clock.Now().Add(time.Minute)
+			require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+				Namespace:             ns,
+				Id:                    id,
+				Version:               version,
+				CancelledAtUnixMillis: cancelledAt.UnixMilli(),
+			})))
+
+			task := h.manager.tasks[ns][id]
+			require.Equal(t, TaskStatusCancelled, task.Status,
+				"a task in %q must actually cancel", status)
+			require.Equal(t, cancelledAt.UnixMilli(), task.FinishedAt.UnixMilli())
+		})
+	}
+}
+
+// TestManager_CancelTask_RefusesTerminalStatus is the counterpart: a task
+// that already reached a terminal state has nothing left to cancel.
+func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
+	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+		t.Run(string(status), func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			ns, id, version := nonTerminalFixture(t, h, TaskStatusStarted)
+			h.manager.tasks[ns][id].Status = status
+
+			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+				Namespace:             ns,
+				Id:                    id,
+				Version:               version,
+				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+			}))
+			require.Error(t, err)
+			require.Equal(t, status, h.manager.tasks[ns][id].Status)
+		})
+	}
+}

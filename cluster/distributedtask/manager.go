@@ -818,7 +818,11 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
+	// Every non-terminal status is cancellable, not just STARTED. The
+	// conflict guards block schema mutations for any non-terminal status
+	// and tell the operator to cancel the task; refusing the cancel here
+	// would leave a collection wedged with no way out.
+	if task.Status.IsTerminal() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
@@ -845,9 +849,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Every non-terminal status, not just STARTED: PREPARING/SWAPPING and
-	// any status a newer node introduced have a zero FinishedAt, so the TTL
-	// check below cannot stop them being deleted while still in flight.
+	// Every non-terminal status, not just STARTED. A non-terminal task's
+	// FinishedAt is set at the units-completion moment and ages from there,
+	// so a task stuck past completedTaskTTL clears the age check below and
+	// only this liveness check stands between it and deletion.
 	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
