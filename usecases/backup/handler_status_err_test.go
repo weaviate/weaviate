@@ -58,7 +58,8 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			bp := &backupper{}
-			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+			require.Empty(t, prevID)
 			tc.stamp(&bp.lastOp)
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
@@ -76,10 +77,12 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 func TestBackupStatRenewClearsThePreviousFailure(t *testing.T) {
 	var s backupStat
 
-	require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+	prevID, _ := s.renew("1", "bucket/backups/1", "", "")
+	require.Empty(t, prevID)
 	s.setFailed("object storage unreachable")
 	s.reset()
 
-	require.Empty(t, s.renew("2", "bucket/backups/2", "", ""))
+	prevID, _ = s.renew("2", "bucket/backups/2", "", "")
+	require.Empty(t, prevID)
 	require.Empty(t, s.get().Err)
 }

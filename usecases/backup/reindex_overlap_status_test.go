@@ -113,7 +113,8 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	// Real slot on a real backupper, not a stub, to exercise what OnStatus serves.
 	bp := &backupper{}
 	slot := &bp.lastOp
-	require.Empty(t, slot.renew(backupID, "bucket/backups/1", "", ""))
+	prevID, _ := slot.renew(backupID, "bucket/backups/1", "", "")
+	require.Empty(t, prevID)
 
 	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
 	require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
@@ -260,7 +261,8 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 			setup: func(s *backupStat) {
 				s.setFailed(reason)
 				s.reset()
-				require.Empty(t, s.renew(failedID, "bucket/backups/a", "", ""))
+				prevID, _ := s.renew(failedID, "bucket/backups/a", "", "")
+				require.Empty(t, prevID)
 			},
 			pollID:    failedID,
 			wantFound: false,
@@ -270,7 +272,8 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 			setup: func(s *backupStat) {
 				s.setFailed(reason)
 				s.reset()
-				require.Empty(t, s.renew(otherID, "bucket/backups/b", "", ""))
+				prevID, _ := s.renew(otherID, "bucket/backups/b", "", "")
+				require.Empty(t, prevID)
 			},
 			pollID:     failedID,
 			wantFound:  true,
@@ -296,7 +299,8 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var slot backupStat
-			require.Empty(t, slot.renew(failedID, "bucket/backups/a", "", ""))
+			prevID, _ := slot.renew(failedID, "bucket/backups/a", "", "")
+			require.Empty(t, prevID)
 			tc.setup(&slot)
 
 			gotReason, gotFound := slot.rememberedFailure(tc.pollID)

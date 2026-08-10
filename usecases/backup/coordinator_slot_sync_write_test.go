@@ -194,7 +194,8 @@ func stealSlot(t *testing.T, slot *backupStat, cancelStatus backup.Status, heldI
 	t.Helper()
 	slot.set(cancelStatus)
 	assert.True(t, slot.resetIfCancelled(heldID))
-	assert.Empty(t, slot.renew(newID, "path", "", ""))
+	prevID, _ := slot.renew(newID, "path", "", "")
+	assert.Empty(t, prevID)
 }
 
 // requireProbeSees pins what a probe attached to sched reports.
