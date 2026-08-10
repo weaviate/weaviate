@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -221,6 +222,12 @@ func BenchmarkKeyDocColumnLayers(b *testing.B) {
 // ContainsAny on a strictly-unique text property, comparing the standard fold
 // (flag off) against the resident key/doc column (flag on). This is the
 // end-to-end number: extraction + resolution + allowlist, through the real API.
+//
+// TODO aliszka:keydoccolumn feed the values shuffled. sampleUniqueValues walks
+// the corpus in order, so the keys arrive already sorted — which no real filter
+// does, and which flatters both paths: the sort short-circuits, and the per-key
+// row reads are sequential either way. Numbers read off this benchmark have
+// twice led to the wrong conclusion about what ordering costs.
 func BenchmarkKeyDocColumnWiring_DocIDs(b *testing.B) {
 	indexed, _ := newUniqueTextSearcher(b, benchCorpusSize)
 	plain, _ := newUniqueTextSearcherNoIndex(b, benchCorpusSize)
@@ -389,6 +396,20 @@ func TestKeyDocColumnWiring_ServesContainsNone(t *testing.T) {
 	require.Equal(t, []uint64{3, 11, 1_500}, allowed.docIDs.ToArray())
 	require.Equal(t, allowed.docIDs.ToArray(), denied.docIDs.ToArray(),
 		"the operator changes the flag, not the documents")
+}
+
+func keyDocColumnSortedKeys(values []string) entsInverted.SortedKeys {
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	total := 0
+	for _, v := range sorted {
+		total += len(v)
+	}
+	kb := entsInverted.NewKeyBuilder(len(sorted), total)
+	for _, v := range sorted {
+		kb.AppendString(v)
+	}
+	return kb.Build()
 }
 
 // intersect is the documents two results agree on, for assertions about results

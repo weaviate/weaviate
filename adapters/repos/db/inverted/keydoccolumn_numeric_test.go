@@ -31,16 +31,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// POC benchmark for the FIXED-WIDTH key backing. The shared text
-// fixture exercises blobKeyColumn (variable-length); this builds a standalone
-// int64 roaringset corpus so the build selects fixedKeyColumn (8-byte
-// LexicographicallySortableInt64 keys) and we can measure the fixed path and
-// compare it against roaringset point lookups on the same numeric data.
-//
-// Run:
-//
-//	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnNumericPOC' \
-//	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
+// Coverage for the fixed-width key backing. The shared text fixture exercises
+// blobKeyColumn (variable-length); this builds a standalone int64 roaringset
+// corpus so the build selects fixedKeyColumn instead — 8-byte
+// LexicographicallySortableInt64 keys — which nothing else here reaches.
 
 type numericFixture struct {
 	store   *lsmkv.Store
@@ -140,9 +134,10 @@ func numericPointLookup(ctx context.Context, b *lsmkv.Bucket, keys entinverted.S
 	return acc.Bitmap()
 }
 
-// TestKeyDocColumnNumericPOC_Correctness confirms the fixed-width backing is
-// selected and that it resolves the same docIDs as point lookups.
-func TestKeyDocColumnNumericPOC_Correctness(t *testing.T) {
+// TestKeyDocColumnNumericFixedWidthKeys confirms an int64 corpus selects the
+// fixed-width backing, and that resolving through it answers what reading the
+// same keys one at a time does.
+func TestKeyDocColumnNumericFixedWidthKeys(t *testing.T) {
 	f := newNumericFixture(t, 20_000)
 	ctx := context.Background()
 
@@ -162,9 +157,18 @@ func TestKeyDocColumnNumericPOC_Correctness(t *testing.T) {
 	}
 }
 
-// BenchmarkKeyDocColumnNumericPOC A/Bs the fixed-width resolve against
-// roaringset point lookups on the shared 300K int64 corpus.
-func BenchmarkKeyDocColumnNumericPOC(b *testing.B) {
+// TODO aliszka:keydoccolumn drop before the PR is finished — the fixed-width
+// numbers are worth having while the backings are being tuned, but the
+// correctness test above is what has to survive.
+//
+// BenchmarkKeyDocColumnNumeric A/Bs the fixed-width resolve against roaringset
+// point lookups on the shared 300K int64 corpus.
+//
+// Run:
+//
+//	go test -tags integrationTest -run '^$' -bench 'KeyDocColumnNumeric' \
+//	    -benchmem -benchtime 20x -count 3 ./adapters/repos/db/inverted/
+func BenchmarkKeyDocColumnNumeric(b *testing.B) {
 	f := newNumericFixture(b, benchCorpusSize)
 	ctx := context.Background()
 
