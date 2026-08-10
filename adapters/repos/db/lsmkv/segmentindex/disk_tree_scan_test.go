@@ -128,7 +128,9 @@ func TestDiskTreeForEachNodeInRange(t *testing.T) {
 
 func TestDiskTreeSplitNodeRanges(t *testing.T) {
 	for _, numKeys := range []int{0, 1, 2, 5, 100} {
-		for _, parts := range []int{0, 1, 2, 3, 4, 7, 16, 1000} {
+		// 1<<28 is the clamp case: parts far past the node ceiling must cost the
+		// same as parts == nodes, not iterate per part
+		for _, parts := range []int{0, 1, 2, 3, 4, 7, 16, 1000, 1 << 28} {
 			t.Run(fmt.Sprintf("keys=%d parts=%d", numKeys, parts), func(t *testing.T) {
 				keys := variedKeys(numKeys)
 				data := marshalTree(t, keys)

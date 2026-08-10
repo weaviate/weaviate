@@ -353,13 +353,17 @@ func (t *DiskTree) SplitNodeRanges(parts int) [][2]int {
 	if n == 0 {
 		return nil
 	}
+	// a range holds at least one node, so parts beyond that ceiling can only add
+	// boundary arithmetic. Clamping keeps the walk O(nodes) for any caller value.
+	if ceiling := n/TREE_KEY_STORE_OVERHEAD + 1; parts > ceiling {
+		parts = ceiling
+	}
 	if parts <= 1 {
 		return [][2]int{{0, n}}
 	}
-	// no more ranges than nodes, so an oversized parts cannot size the allocation
-	ranges := make([][2]int, 0, min(parts, n/TREE_KEY_STORE_OVERHEAD+1))
-	start, pos := 0, 0
-	for next := 1; next < parts && pos < n; {
+	ranges := make([][2]int, 0, parts)
+	start, pos, next := 0, 0, 1
+	for next < parts && pos < n {
 		if n-pos < TREE_KEY_STORE_OVERHEAD {
 			break
 		}
