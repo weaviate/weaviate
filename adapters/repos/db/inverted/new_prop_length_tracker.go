@@ -40,6 +40,10 @@ type JsonShardMetaData struct {
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
 	closed           bool
+	// Properties already reported as over-subtracted. The condition persists
+	// once reached -- every later untrack re-enters it -- so an unlatched log
+	// is one line per delete for the life of the shard.
+	warnedTallies map[string]struct{}
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -151,8 +155,55 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
+	t.clampCorruptTallies()
 	t.Flush()
 	return t, nil
+}
+
+// clampCorruptTallies repairs tallies that were already impossible on disk.
+// Without it a shard inherits them silently: sum=-12 over count=-2 divides to a
+// perfectly plausible 6.0, so neither the searcher's validity check nor the
+// untrack clamp ever sees anything wrong.
+func (t *JsonShardMetaData) clampCorruptTallies() {
+	// An explicit null in the file leaves either map nil, and the repair below
+	// writes to both. A nil-map write panics out of the load, and the recover
+	// returns before the repair is flushed -- so the file stays as it was and
+	// every later restart fails identically. Materialize first.
+	if t.data.CountData == nil {
+		t.data.CountData = map[string]int{}
+	}
+	if t.data.SumData == nil {
+		t.data.SumData = map[string]int{}
+	}
+
+	props := make(map[string]struct{}, len(t.data.CountData))
+	for prop := range t.data.CountData {
+		props[prop] = struct{}{}
+	}
+	// Union rather than CountData alone: a sum without a count would otherwise
+	// skip the check entirely and later divide into a negative mean, which is
+	// neither NaN nor Inf and so passes every downstream guard.
+	for prop := range t.data.SumData {
+		props[prop] = struct{}{}
+	}
+
+	for prop := range props {
+		count, sum := t.data.CountData[prop], t.data.SumData[prop]
+		if count > 0 && sum >= 0 {
+			continue
+		}
+		// A property whose objects have all been deleted legitimately sits at
+		// zero: nothing removes the key, so this is the routine empty state and
+		// not a corruption. Relaxing the guard above to count >= 0 would cover
+		// it, and would also re-admit (sum>0, count==0), whose mean is +Inf.
+		if count == 0 && sum == 0 {
+			continue
+		}
+		t.logger.Warnf("prop length tally for %q loaded impossible (sum=%d count=%d); resetting to empty",
+			prop, t.data.SumData[prop], count)
+		t.data.CountData[prop] = 0
+		t.data.SumData[prop] = 0
+	}
 }
 
 func (t *JsonShardMetaData) Clear() {
@@ -242,15 +293,43 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+	// No bucket map means the property was never tracked at all, so there is
+	// nothing to subtract. It does NOT mean this object was tracked: the map is
+	// created by the first post-migration write, and from then on untracking an
+	// object that predates enable-* reaches the arithmetic below and subtracts a
+	// length that was never added, because enable-* does not backfill the tally
+	// (weaviate/0-weaviate-issues#319).
+	if _, ok := t.data.BucketedData[propName]; !ok {
+		return nil
+	}
+
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
 
-	bucketId := t.bucketFromValue(value)
-	if _, ok := t.data.BucketedData[propName]; ok {
-		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
-	} else {
-		return errors.New("property not found")
+	// Subtracting objects the tally never held drives it below zero. Both fields
+	// must be clamped: a lone sum over a zero count gives PropertyMean +/-Inf,
+	// and a zero sum over a negative count gives -0.0 — neither is NaN, so both
+	// survive the searcher's validity check and are averaged in as if real.
+	// Collapsing to the empty tally is the one state a consumer recognises as
+	// absent. This contains the damage; backfilling the tally is the fix.
+	if t.data.CountData[propName] <= 0 {
+		if _, warned := t.warnedTallies[propName]; !warned &&
+			(t.data.SumData[propName] != 0 || t.data.CountData[propName] < 0) {
+			if t.warnedTallies == nil {
+				t.warnedTallies = make(map[string]struct{}, 1)
+			}
+			t.warnedTallies[propName] = struct{}{}
+			t.logger.Warnf(
+				"prop length tally for %q went non-positive (sum=%d count=%d); "+
+					"objects predating enable-* are untracked but still subtracted. Resetting to empty",
+				propName, t.data.SumData[propName], t.data.CountData[propName])
+		}
+		t.data.CountData[propName] = 0
+		t.data.SumData[propName] = 0
 	}
+
+	bucketId := t.bucketFromValue(value)
+	t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
 
 	return nil
 }

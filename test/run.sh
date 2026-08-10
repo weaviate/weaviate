@@ -627,6 +627,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_multinode' \
     | grep -v 'test/acceptance/reindex_singlenode' \
     | grep -v 'test/acceptance/reindex_concurrent' \
+    | grep -v 'test/acceptance/reindex_rangeable' \
     | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
@@ -837,8 +838,8 @@ function run_acceptance_reindex_multinode() {
   #                 (rebalanced off -scale for wall-clock, 2026-07)
   #   -scale      : TestMultiNode_HappyPath, _QueryConsistencyDuringReindex,
   #                 _ConcurrentDifferentMigrations*,
-  #                 _EnableRangeable_* (NoPartialCountsInFlight here;
-  #                 ConcurrentUpdatesNoLossNoPanic on #12211) +
+  #                 _EnableRangeable_* (NoPartialCountsInFlight +
+  #                 ConcurrentUpdatesNoLossNoPanic) +
   #                 _PostRestartReapplyMigrations_* (moved back off
   #                 -changetok for wall-clock, 2026-07)
   #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
@@ -911,17 +912,13 @@ function run_acceptance_reindex_multinode_restart_b() {
 function run_acceptance_reindex_multinode_scale() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-scale"
-  # Scale / orchestration tests. 5 tests:
+  # Scale / orchestration tests. 6 tests:
   #   TestMultiNode_HappyPath
   #   TestMultiNode_QueryConsistencyDuringReindex
   #   TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle
   #   TestMultiNode_EnableRangeable_NoPartialCountsInFlight
+  #   TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic
   #   TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas
-  #
-  # The EnableRangeable_ alternative below also matches
-  # TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic, which pins
-  # the post-swap/pre-flip write window and lives on
-  # weaviate/weaviate#12211. It runs here once that PR is merged in.
   #
   # 2026-07 rebalance history: this shard hit 11m27s once the RF3
   # concurrent-update rangeable test was wired in, so the two heaviest
@@ -1029,12 +1026,14 @@ function run_acceptance_reindex_concurrent() {
   # historically runs the longest of the three. Split out of the
   # singlenode bundle for fast feedback.
   #
-  # test/acceptance/reindex_rangeable used to be co-located here. Its only
-  # test (TestEnableRangeable_ConcurrentWrites) pins the post-swap/pre-flip
-  # write window and lives on weaviate/weaviate#12211 instead, which carries
-  # the package and this shard's wiring for it.
+  # reindex_rangeable (TestEnableRangeable_ConcurrentWrites) is co-located here
+  # rather than left to the fast-acceptance catch-all: it is a single-node
+  # concurrent-reindex test that belongs with its siblings, and folding it into
+  # this existing named job keeps it named without a new CI matrix entry. It is
+  # excluded from get_fast_acceptance_packages so it runs exactly once.
   run_aof_group "reindex-concurrent" \
-    test/acceptance/reindex_concurrent
+    test/acceptance/reindex_concurrent \
+    test/acceptance/reindex_rangeable
 }
 
 function run_acceptance_reindex_mt() {

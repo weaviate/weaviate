@@ -370,7 +370,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 				effectiveTokenization: effectiveTok,
 				tokKey:                tokKey,
 				propMean:              float64(propMean),
-				meanValid:             !math.IsNaN(float64(propMean)),
+				meanValid:             !math.IsNaN(float64(propMean)) && !math.IsInf(float64(propMean), 0),
 			})
 		default:
 			return queryTerms{}, queryStats{}, pins, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)

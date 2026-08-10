@@ -89,7 +89,12 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if !inverted.HasAnyInvertedIndex(prop) {
+		// A property whose enable-* migration swapped but whose flag has not
+		// flipped is indexed on this shard even though the live schema says
+		// otherwise; its bucket holds the migrated data and needs
+		// null/length entries too — see [Shard.ensureNullLengthBucketsForMigration].
+		_, forced := s.forcedIndexOverlay(prop.Name)
+		if !inverted.HasAnyInvertedIndex(prop) && !forced {
 			continue
 		}
 
@@ -479,7 +484,12 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
-	if inverted.HasFilterableIndex(prop) {
+	// Same gate as the analyzer's: a forced overlay means the migration
+	// already swapped this bucket, so it exists and is authoritative
+	// regardless of the pre-flip schema flag.
+	forced, _ := s.forcedIndexOverlay(prop.Name)
+
+	if inverted.HasFilterableIndex(prop) || forced.ForceFilterable {
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
@@ -501,7 +511,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasSearchableIndex(prop) {
+	if inverted.HasSearchableIndex(prop) || forced.ForceSearchable {
 		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
 		searchableBucketOpts := makeBucketOptions(strategy)
 
@@ -519,7 +529,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasRangeableIndex(prop) {
+	if inverted.HasRangeableIndex(prop) || forced.ForceRangeable {
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketRangeableFromPropNameLSM(prop.Name),
 			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
@@ -563,6 +573,42 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		helpers.BucketFromPropNameNullLSM(prop.Name),
 		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
 	)
+}
+
+// ensureNullLengthBucketsForMigration creates the null/length buckets that
+// initPropertyBuckets skips for an unindexed property. An enable-* migration
+// makes such a property analyzable, so writes start emitting null/length
+// entries for it — without this they'd hit a missing-bucket error.
+func (s *Shard) ensureNullLengthBucketsForMigration(ctx context.Context, propName string) {
+	if !s.index.invertedIndexConfig.IndexNullState && !s.index.invertedIndexConfig.IndexPropertyLength {
+		return
+	}
+	class := s.index.getSchema.ReadOnlyClass(s.index.Config.ClassName.String())
+	if class == nil {
+		return
+	}
+	var prop *models.Property
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			prop = p
+			break
+		}
+	}
+	if prop == nil || len(prop.DataType) == 0 {
+		return
+	}
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.createPropertyNullIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create null bucket: %v", err)
+		}
+	}
+	if s.index.invertedIndexConfig.IndexPropertyLength {
+		if err := s.createPropertyLengthIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create length bucket: %v", err)
+		}
+	}
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
