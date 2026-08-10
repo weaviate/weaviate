@@ -26,10 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// Pins that commit treats a cancel still in flight (CANCELLING) as a cancel,
-// at both the guard before it starts and the one in its polling loop. The
-// restore's other cancellation guard covers the same journey, so each of these
-// has to be driven on its own or the two hide each other's regressions.
+// Pins that commit treats an in-flight cancel (CANCELLING) as a cancel, both
+// before it starts and in its polling loop.
 func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 	t.Parallel()
 	const (
@@ -41,9 +39,7 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// stampBeforeCommit puts the cancel on the slot before commit runs,
-		// which is the guard commit opens with. Otherwise it lands on the
-		// first participant poll, which is the guard in the polling loop.
+		// If false, the cancel lands during the first participant poll instead.
 		stampBeforeCommit bool
 		wantCommits       int
 	}{
@@ -73,9 +69,8 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 					commits++
 					mu.Unlock()
 				})
-			// Staging that ends after a handful of polls, so a commit that does
-			// not abort still finishes and fails on the assertion rather than
-			// polling until the test times out.
+			// Ends after a handful of polls so a commit that fails to abort
+			// still finishes instead of timing out.
 			staging := func(*StatusRequest) bool {
 				mu.Lock()
 				defer mu.Unlock()
@@ -121,9 +116,7 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 	}
 }
 
-// Pins the restore's own cancellation guard, the one between staging and the
-// schema apply. Driven on its own: the cancel arrives after commit has already
-// returned, so commit's guards never see it.
+// Pins the restore's cancellation guard between staging and schema apply.
 func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(t *testing.T) {
 	t.Parallel()
 	const (
@@ -170,10 +163,7 @@ func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(
 		"FINALIZING is the point past which a cancel is refused; a cancelled restore must never reach it")
 }
 
-// Pins the whole journey the cancel endpoint's first stamp exists for: a cancel
-// arriving while a restore is staging makes that restore stop before the schema
-// apply. Without the stamp the restore never learns of the cancel from this
-// node, and keeps going.
+// Pins that a cancel arriving while a restore is staging stops it before schema apply.
 func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 	t.Parallel()
 	const (
@@ -239,11 +229,8 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 		"a restore cancelled while staging must not go on to apply the schema")
 }
 
-// Pins that a restore already applying its schema is refused a cancel even when
-// the stored descriptor still reads TRANSFERRING, which is what a failed
-// FINALIZING put leaves behind. Going ahead would abort nothing, since the
-// schema apply runs over RAFT, and would report CANCELLED for classes that do
-// get restored.
+// Pins that a restore applying its schema refuses a cancel even when the
+// stored descriptor still reads TRANSFERRING.
 func TestCancelRestoreRefusesARestoreThatIsApplyingItsSchema(t *testing.T) {
 	t.Parallel()
 	const (
@@ -283,10 +270,8 @@ func TestCancelRestoreRefusesARestoreThatIsApplyingItsSchema(t *testing.T) {
 	fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Pins the race the CANCELLING claim is read back for: a coordinator whose
-// claim is overtaken by one that has already finished cancelling must not carry
-// the cancellation out itself. The restore of that id may since have been
-// retried, and the abort would hit the retry.
+// Pins that a coordinator whose CANCELLING claim is overtaken by one that
+// already finished cancelling does not carry the cancellation out itself.
 func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 	t.Parallel()
 	const backupID = "1"

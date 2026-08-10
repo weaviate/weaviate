@@ -220,16 +220,10 @@ type uploader struct {
 	log  logrus.FieldLogger
 }
 
-// statusPublisher is the observable half of a node's operation slot, as seen by
-// the operation that claimed it. Every write is ownership-checked, see
-// [slotOwner]. Failing goes through its own method so a failure can never be
-// published without the reason that belongs to it.
-//
-// The uploader ignores every result, deliberately: nothing outside the
-// uploader writes a backup slot, so a refusal here means either that the upload
-// outlived its claim, or that it already wrote its own cancellation when its
-// context was cancelled. In both cases the outcome is no longer this write's to
-// report. What the upload does next is decided by err, not by the slot.
+// statusPublisher is the observable half of a node's operation slot. Writes
+// are ownership-checked (see [slotOwner]) and the uploader ignores their
+// bool result: a refusal just means the claim already ended elsewhere, and
+// what happens next is decided by err, not by the slot.
 type statusPublisher interface {
 	set(st backup.Status) bool
 	setFailed(reason string) bool

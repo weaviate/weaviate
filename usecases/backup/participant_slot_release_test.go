@@ -111,11 +111,8 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 	}
 }
 
-// Pins the participant half of the cancel refusal: a restore is refused while
-// its own cancellation is still in flight, and a cancellation belonging to a
-// different restore is not mistaken for one. The refusal has to name the
-// cancellation, because "already in progress" is what the coordinator retries
-// against.
+// Pins that a restore is refused while its own cancellation is in flight, and
+// that a different restore's cancellation isn't mistaken for its own.
 func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T) {
 	t.Parallel()
 	const (
