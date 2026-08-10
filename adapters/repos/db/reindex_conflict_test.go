@@ -794,3 +794,84 @@ func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that all three
+// schema gates only tell the operator to cancel while cancel still works.
+// DTM cancels a task while it is STARTED and refuses past that point, so a
+// PREPARING or SWAPPING refusal naming cancel sends the operator at a call
+// that is guaranteed to answer 409. Past STARTED the text must also stop
+// short of promising the wait ends: a node that owned part of the task
+// leaving the cluster wedges it there for good.
+func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+
+	gates := []struct {
+		name string
+		call func(tasks []*distributedtask.Task) error
+	}{
+		{
+			name: "property update",
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate("C", "name", tasks)
+			},
+		},
+		{
+			name: "delete class",
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation("C", tasks)
+			},
+		},
+		{
+			name: "tenant mutation",
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			},
+		},
+	}
+
+	cancelWorks := []string{
+		`{"<indexType>":{"cancel":true}}`,
+		"or wait for it to finish",
+	}
+	cancelRefused := []string{
+		"past the point where cancel works",
+		"can only be waited out",
+		"wedges it here for good",
+	}
+
+	statuses := []struct {
+		status     distributedtask.TaskStatus
+		wantText   []string
+		refuseText []string
+	}{
+		{distributedtask.TaskStatusStarted, cancelWorks, cancelRefused},
+		{distributedtask.TaskStatusPreparing, cancelRefused, cancelWorks},
+		{distributedtask.TaskStatusSwapping, cancelRefused, cancelWorks},
+	}
+
+	for _, gate := range gates {
+		for _, st := range statuses {
+			t.Run(gate.name+"/"+string(st.status), func(t *testing.T) {
+				tasks := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy", Version: 1},
+					Status:         st.status,
+					Payload:        payload,
+				}}
+				err := gate.call(tasks)
+				require.Error(t, err)
+				for _, want := range st.wantText {
+					require.Contains(t, err.Error(), want)
+				}
+				for _, unwanted := range st.refuseText {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+			})
+		}
+	}
+}

@@ -604,16 +604,6 @@ func (t *Task) AllUnitsTerminal() bool {
 	return true
 }
 
-// AnyUnitFailed returns true if any unit has FAILED status.
-func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusFailed {
-			return true
-		}
-	}
-	return false
-}
-
 // LocalUnitIDs returns the IDs of units assigned to the given node.
 func (t *Task) LocalUnitIDs(nodeID string) []string {
 	var ids []string
