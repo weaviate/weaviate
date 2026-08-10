@@ -693,9 +693,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := classDirMover(class); err != nil {
 			return err
 		}
-		// Background ctx: invoked from the RAFT FSM apply path,
-		// which does not propagate an audit-scoped ctx.
-		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		// serverShutdownCtx, not Background: this runs on the RAFT FSM
+		// apply path, and the audit's first step is a leader query that
+		// only a cancellable ctx releases on SIGTERM.
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(serverShutdownCtx)
 		if err != nil {
 			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
 				WithField("class", class).
@@ -1036,8 +1037,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// "treat every tracker as known" closure, which silently
 		// misclassified orphans during a DTM partition. Explicit
 		// error makes the failure path operator-observable.
-		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+		//
+		// The query runs on the caller's ctx: on a follower it leaves
+		// the node, and shard init consults it from the RAFT apply
+		// goroutine, so the caller is the only one that knows how long
+		// it may block.
+		buildKnownTask := func(ctx context.Context) (db.KnownReindexTaskLookup, error) {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
@@ -1077,7 +1083,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
 		}
-		startupLookup, startupBuildErr := buildKnownTask()
+		startupLookup, startupBuildErr := buildKnownTask(auditCtx)
 		if startupBuildErr != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
@@ -1088,7 +1094,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		// Install the audit deps so the post-restore-class-dir hook
 		// (wired into RestoreClassDir above) can run the audit.
-		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
+		repo.SetReindexAuditDeps(auditCtx, buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
 		// consults DTM rather than per-shard filesystem markers. A list

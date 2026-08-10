@@ -127,6 +127,13 @@ type DB struct {
 	reindexAuditLookupBuilder KnownReindexTaskLookupBuilder
 	reindexAuditLogger        logrus.FieldLogger
 
+	// reindexAuditCtx is the context [DB.SetReindexAuditDeps] was
+	// installed with (the server shutdown context in production). It is
+	// the parent of the bounded leader query in
+	// [DB.reindexTaskLivenessLookup], so a SIGTERM can shorten a wait
+	// that would otherwise hold up RAFT apply for the full bound.
+	reindexAuditCtx context.Context
+
 	// reindexAuditDeferredRequests counts the number of times
 	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
 	// were installed (typically from the per-class-dir restore hook

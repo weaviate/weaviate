@@ -12,11 +12,15 @@
 package db
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestHasUntidiedTracker pins the on-disk recovery-detection signal:
@@ -158,8 +162,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 	}
 }
 
-// TestIsSemanticMigration pins the semantic/format-only classification
-// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic).
+// TestIsSemanticMigration pins the semantic/format-only classification:
+// semantic iff the migration requires a global schema flip
+// (weaviate/0-weaviate-issues#254, #465).
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,
@@ -167,11 +172,11 @@ func TestIsSemanticMigration(t *testing.T) {
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableSearchable,
 		ReindexTypeChangeAlgorithm,
+		ReindexTypeEnableRangeable,
 	}
 	formatOnly := []ReindexMigrationType{
 		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable,
 	}
 	for _, mt := range semantic {
@@ -187,9 +192,9 @@ func TestIsSemanticMigration(t *testing.T) {
 }
 
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
-// mapping. Format-only migrations (repair-*, enable-rangeable) MUST
-// return nil here — they don't go through the swap barrier, so
-// LocalCallbacksDone has nothing to check for them.
+// mapping. Format-only migrations MUST return nil here — they don't go
+// through the swap barrier, so LocalCallbacksDone has nothing to check
+// for them.
 func TestSemanticMigrationIndexTypes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -227,8 +232,18 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "enable-rangeable → empty (format-only)",
+			name: "enable-rangeable → rangeable",
 			mt:   ReindexTypeEnableRangeable,
+			want: []string{"rangeable"},
+		},
+		{
+			name: "repair-rangeable → empty (format-only, no schema flip)",
+			mt:   ReindexTypeRepairRangeable,
+			want: nil,
+		},
+		{
+			name: "rebuild-searchable → empty (format-only)",
+			mt:   ReindexTypeRebuildSearchable,
 			want: nil,
 		},
 	}
@@ -239,4 +254,87 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// A change-tokenization tracker dir found on disk must revive only its own
+// sub-task, not its sibling.
+func TestTasksOwningMigrationDir(t *testing.T) {
+	rec := reindexRecoveryRecord{
+		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			Collection:         "Articles",
+			Properties:         []string{"text"},
+			TargetTokenization: models.PropertyTokenizationLowercase,
+			BucketStrategy:     lsmkv.StrategyMapCollection,
+		},
+	}
+	logger, _ := test.NewNullLogger()
+	built, err := buildRecoveryTasks(rec, "shard-0", 1, logger, nil)
+	require.NoError(t, err)
+	require.Len(t, built, 2, "change-tokenization has a searchable and a filterable sub-task")
+
+	for _, dirName := range []string{
+		MigrationDirPrefixFilterableRetokenize + "_text_1",
+		MigrationDirPrefixSearchableRetokenize + "_text_1",
+	} {
+		t.Run(dirName, func(t *testing.T) {
+			owned := tasksOwningMigrationDir(built, dirName, logger)
+			require.Len(t, owned, 1, "only the sub-task whose tracker dir this is may be revived")
+			require.Equal(t, dirName, owned[0].MigrationDirName())
+		})
+	}
+
+	t.Run("unrecognized dir keeps every sub-task", func(t *testing.T) {
+		require.Equal(t, built, tasksOwningMigrationDir(built, "something_else_1", logger))
+	})
+}
+
+// Same rule from the startup entry point: with both sub-task trackers
+// in flight, each dir must revive only its own sub-task.
+func TestDiscoverInFlightReindexTasks_ChangeTokenizationRevivesOnlyOwnSubTask(t *testing.T) {
+	rec := reindexRecoveryRecord{
+		TaskID: "task-1", TaskVersion: 3, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			Collection:         "Articles",
+			Properties:         []string{"text"},
+			TargetTokenization: models.PropertyTokenizationLowercase,
+			BucketStrategy:     lsmkv.StrategyMapCollection,
+		},
+	}
+	payload, err := json.Marshal(rec)
+	require.NoError(t, err)
+
+	dirNames := []string{
+		MigrationDirPrefixSearchableRetokenize + "_text_1",
+		MigrationDirPrefixFilterableRetokenize + "_text_1",
+	}
+
+	rootPath := t.TempDir()
+	migsDir := filepath.Join(rootPath, "articles", "shard-0", "lsm", ".migrations")
+	for _, dirName := range dirNames {
+		dir := filepath.Join(migsDir, dirName)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		// started + reindexed without tidied is the recovery window.
+		for _, s := range []string{"started.mig", "reindexed.mig"} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+		}
+		require.NoError(t, os.WriteFile(
+			filepath.Join(dir, reindexRecoveryPayloadFile), payload, 0o644))
+	}
+
+	logger, _ := test.NewNullLogger()
+	recovered, err := DiscoverInFlightReindexTasks(rootPath, logger, nil)
+	require.NoError(t, err)
+	require.Len(t, recovered, 2, "one entry per tracker dir on disk")
+
+	var revived []string
+	for _, rr := range recovered {
+		for _, task := range rr.Tasks {
+			revived = append(revived, task.MigrationDirName())
+		}
+	}
+	require.ElementsMatch(t, dirNames, revived,
+		"each tracker dir may revive only the sub-task that owns it")
 }

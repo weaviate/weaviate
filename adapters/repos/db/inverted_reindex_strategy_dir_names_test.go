@@ -13,6 +13,8 @@ package db
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigrationDirName pins the wire-format dir names each strategy produces.
@@ -142,4 +144,14 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 				got, MigrationDirSearchableMapToBlockmax)
 		}
 	}
+}
+
+// A rangeable tracker must not be listed under "filterable"
+// (weaviate/0-weaviate-issues#465): see the rationale on
+// [migrationDirFamiliesForIndexType].
+func TestMigrationDirsForPropertyIndex_RangeableIsNotAFilterableDir(t *testing.T) {
+	rangeableDir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{"price"})
+
+	require.NotContains(t, migrationDirsForPropertyIndex("price", "filterable"), rangeableDir)
+	require.Contains(t, migrationDirsForPropertyIndex("price", "rangeable"), rangeableDir)
 }

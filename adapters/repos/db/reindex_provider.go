@@ -45,7 +45,8 @@ import (
 //
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
-//     change-tokenization-filterable, enable-filterable, enable-searchable.
+//     change-tokenization-filterable, enable-filterable,
+//     enable-searchable, change-algorithm, enable-rangeable.
 //     These get the full barrier dance: every shard reindexes first
 //     (RunReindexOnlyOnShard), and only after every unit is terminal does
 //     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
@@ -53,18 +54,12 @@ import (
 //     No shard serves new data until ALL shards are ready. This is where
 //     the SWAPPING-window tokenization overlay lives.
 //
-//   - "Format-only" migrations don't change query semantics — they only
-//     change the on-disk bucket format. enable-rangeable, repair-rangeable,
+//   - "Format-only" migrations require no schema change — they rebuild or
+//     re-format an index that is already enabled. repair-rangeable,
 //     repair-filterable, repair-searchable (Map→Blockmax), and the
-//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
-//     full lifecycle independently via RunOnShard; there is no cluster-wide
-//     schema flip to coordinate.
-//
-// Note on enable-rangeable: it is intentionally NOT classified as
-// semantic. Range queries' correctness during the migration is gated
-// by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
-// not by the barrier dance — falling back to the filterable bucket walk
-// on shards that haven't completed locally is slow but correct.
+//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the full lifecycle
+//     independently via RunOnShard; there is no cluster-wide schema flip
+//     to coordinate.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -417,6 +412,23 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// claimUnitIfDeferred takes the re-entry claim for a unit whose swap is
+// deferred to the group callbacks, and returns false when another worker
+// already holds it. Inline units need no claim: they finish the whole
+// lifecycle themselves and hand no cached task state to OnGroupCompleted,
+// so a second entry cannot clobber a generation the first one is still
+// using.
+func (p *ReindexProvider) claimUnitIfDeferred(
+	desc distributedtask.TaskDescriptor, unitID string, inline bool,
+) bool {
+	if inline {
+		return true
+	}
+	return p.claimActiveWorker(desc, unitID)
+}
+
+// releaseActiveWorker drops the claim. Safe to call for a unit that never
+// took one, which is what inline units do.
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -560,10 +572,11 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// For semantic migrations (change-tokenization, enable-rangeable), use
-	// two-phase execution: reindex only, then swap after all units complete.
-	// For format-only migrations, run the full lifecycle per shard.
-	semantic := IsSemanticMigration(payload.MigrationType)
+	// Semantic migrations use two-phase execution: reindex only, then swap
+	// after all units complete. Format-only migrations — and rangeable
+	// tasks submitted before rangeable became semantic — run the full
+	// lifecycle per shard.
+	inline := runsUnitsInline(task, payload.MigrationType)
 
 	// Re-entry guard. The DTM scheduler can relaunch our task handle a
 	// few tens of ms after the previous handle's per-unit goroutines
@@ -595,13 +608,11 @@ func (p *ReindexProvider) processOneUnit(
 	// forever after a leader restart (the QA c01-leader-postfix repro
 	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
 	// failure both surfaced this).
-	if semantic {
-		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
-			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
-			return
-		}
-		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
+	if !p.claimUnitIfDeferred(task.TaskDescriptor, unitID, inline) {
+		logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
+		return
 	}
+	defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
@@ -612,7 +623,7 @@ func (p *ReindexProvider) processOneUnit(
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
 	)
-	if semantic {
+	if !inline {
 		tasks = p.cachedReindexTasks(task.TaskDescriptor, unitID)
 		cached = len(tasks) > 0
 	}
@@ -651,7 +662,7 @@ func (p *ReindexProvider) processOneUnit(
 	// On the cached-tasks path (post-restart recovery or FSM-lag re-entry)
 	// we already have these instances in the map; only write on the
 	// fresh-tasks path.
-	if semantic && !cached {
+	if !inline && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
 
@@ -684,7 +695,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	for _, reindexTask := range tasks {
 		var runErr error
-		if semantic {
+		if !inline {
 			runErr = reindexTask.RunReindexOnlyOnShard(ctx, shard)
 		} else {
 			runErr = reindexTask.RunOnShard(ctx, shard)
@@ -812,7 +823,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -1483,8 +1494,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return fmt.Errorf("load payload: %w", err)
 	}
 
-	if !IsSemanticMigration(payload.MigrationType) {
-		logger.Info("reindex provider: group-completion (format-only, no-op)")
+	if runsUnitsInline(task, payload.MigrationType) {
+		logger.Info("reindex provider: group-completion (units ran their full lifecycle inline, no-op)")
 		return nil
 	}
 
@@ -1597,9 +1608,9 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("load payload: %w", err)
 	}
 
-	if !IsSemanticMigration(payload.MigrationType) {
-		// Defensive: format-only migrations shouldn't carry NeedsPreparationBarrier.
-		logger.Warn("reindex provider: swap-requested for non-semantic migration (NeedsPreparationBarrier inconsistency); no-op")
+	if runsUnitsInline(task, payload.MigrationType) {
+		// Defensive: inline-shape tasks shouldn't carry NeedsPreparationBarrier.
+		logger.Warn("reindex provider: swap-requested for an inline-shape migration (NeedsPreparationBarrier inconsistency); no-op")
 		return nil
 	}
 
@@ -2063,10 +2074,9 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
 // command an operator should issue to recover from a FAILED semantic
 // migration. The failure mode it targets: sub-tasks that swapped BEFORE
-// the failed sibling left their bucket NEW-tokenized while the cluster-
-// wide schema flip was correctly skipped — every query against the
-// affected inverted index returns 0 until the index is rebuilt against
-// the current schema.
+// the failed sibling left their bucket holding the migration's output
+// while the cluster-wide schema flip was correctly skipped, so the two
+// disagree until the index is rebuilt against the current schema.
 func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -2094,7 +2104,15 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			ReindexTypeEnableFilterable,
 			ReindexTypeRepairFilterable:
 			repairBody = `{"filterable":{"rebuild":true}}`
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		case ReindexTypeEnableRangeable:
+			// The flag never flipped, so there is no rangeable index to
+			// rebuild — re-running enable is what clears the residue.
+			repairBody = `{"rangeable":{"enabled":true}}`
+		case ReindexTypeRepairRangeable:
+			// Unreachable: repair-rangeable is format-only, so the
+			// early return above already sent it away. Kept for the
+			// same reason as the repair-filterable arm, so a future
+			// reclassification does not land here silently.
 			repairBody = `{"rangeable":{"rebuild":true}}`
 		default:
 			// Fallback for any future migration type: rebuild everything.
@@ -2109,11 +2127,11 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		}).Errorf(
 			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
 				"that committed their swap BEFORE the failure left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+				"canonical inverted bucket holding the migration's "+
+				"output while the schema stayed at its pre-migration "+
+				"state — issue the repair_command above to bring the "+
+				"affected inverted index(es) back in line with the "+
+				"current schema",
 			payload.MigrationType, payload.Collection, propName)
 	}
 }
@@ -2130,7 +2148,9 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
 		return true
 	}
-	if !IsSemanticMigration(payload.MigrationType) {
+	if runsUnitsInline(task, payload.MigrationType) {
+		// No deferred group callback exists for these — reporting "not
+		// done" would re-fire a callback that no-ops.
 		return true
 	}
 	if p.db == nil {
@@ -2193,9 +2213,11 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"filterable"}
 	case ReindexTypeChangeAlgorithm:
 		return []string{"searchable"}
+	case ReindexTypeEnableRangeable:
+		return []string{"rangeable"}
 	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
@@ -2328,6 +2350,23 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
+	case ReindexTypeEnableRangeable:
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		logger.Info("reindex provider: enable-rangeable cutover committed")
+		return nil
+
 	case ReindexTypeChangeAlgorithm:
 		// Defer until every local searchable bucket is blockmax — submit is
 		// per-property, so the class may still have map buckets.
@@ -2386,16 +2425,42 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	return false, nil
 }
 
-// IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// IsSemanticMigration returns true for migration types that require a
+// global schema flip, and therefore the cross-replica swap barrier that
+// makes the flip safe: no shard may serve the new state until every shard
+// can.
+//
+// repair-rangeable is deliberately absent. It changes no schema — it
+// rebuilds an index that is already enabled, into a parallel bucket that
+// is atomically swapped in per shard. With nothing to flip there is
+// nothing to coordinate, so it keeps the format-only shape and, with it,
+// per-tenant targeting: repairing 20 tenants out of 50,000 must not
+// require touching all of them.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
-		mt == ReindexTypeChangeAlgorithm
+		mt == ReindexTypeChangeAlgorithm ||
+		mt == ReindexTypeEnableRangeable
+}
+
+// runsUnitsInline reports whether a task's units run the full
+// reindex+prep+swap lifecycle inside processOneUnit, leaving the group
+// callbacks nothing to do.
+//
+// enable-rangeable tasks submitted before it joined the semantic family
+// carry NeedsPreparationBarrier=false and must keep running with the
+// shape they were submitted with: their units already swapped inline, so
+// re-running the swap from OnGroupCompleted would fail on trackers that
+// are already tidied. Every other semantic task defers the swap to the
+// group callbacks regardless of the barrier flag — that has always been
+// their shape.
+func runsUnitsInline(task *distributedtask.Task, mt ReindexMigrationType) bool {
+	if mt == ReindexTypeEnableRangeable {
+		return !task.NeedsPreparationBarrier
+	}
+	return !IsSemanticMigration(mt)
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a

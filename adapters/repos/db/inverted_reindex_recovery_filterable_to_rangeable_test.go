@@ -166,22 +166,15 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 
 // newFilterableToRangeableTask wraps a FilterableToRangeableStrategy in
 // the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
-// (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
-// but with two test-side adaptations:
-//
-//  1. schemaManager is nil — the test wrapper overrides OnMigrationComplete
-//     so the schema-flag flip never runs, and the strategy doesn't touch
-//     schemaManager outside that call.
-//  2. The OnMigrationComplete observer is a flag setter, so the baseline
-//     test can assert the hook fired without needing a real RAFT/schema
-//     wire-up.
+// (the production constructor in inverted_reindexer_filterable_to_rangeable.go),
+// with the OnMigrationComplete observer replaced by a flag setter so the
+// baseline test can assert the hook fired.
 func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
-			schemaManager: nil, // OnMigrationComplete is overridden below
-			propNames:     []string{propName},
-			generation:    1,
+			propNames:  []string{propName},
+			generation: 1,
 		},
 	}
 
@@ -213,12 +206,8 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete
-// with a flag-setter so the test can assert the hook fired without
-// needing a real schema manager. Mirrors testMigrationStrategy and
-// testFilterableRetokenizeStrategyWrapper. The wrapper also intentionally
-// avoids the setRangeableLocallyReady side effect that the production
-// hook does; that flag is a query-path optimization, not a correctness
-// invariant for the bucket-content fingerprint we're testing.
+// with a flag-setter so the test can assert the hook fired. Mirrors
+// testMigrationStrategy and testFilterableRetokenizeStrategyWrapper.
 //
 // preReindexHookCount counts every PreReindexHook fire so tests can
 // pin "the IsTidied-on-entry recovery branch in OnBeforeLsmInit MUST

@@ -44,19 +44,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// IsRangeableLocallyReady returns true when this shard's local rangeable
-// bucket for the given property is fully populated and safe to query.
-// During an enable-rangeable migration the cluster-wide schema flag
-// `IndexRangeFilters` can flip to true as soon as the first replica
-// completes its swap, but other replicas may still be mid-iteration
-// with an empty PreReindexHook-created rangeable bucket — so a query
-// using the rangeable bucket on those replicas would return partial /
-// zero counts. When this callback returns false, the filter resolver
-// treats the property as if it had no rangeable index for THIS shard
-// only and falls back to the filterable bucket walk (slow but correct).
-// Returns true for properties that have no in-flight migration on disk
-// — i.e. either never migrated (native rangeable from collection
-// creation) or already-completed migrations.
+// IsRangeableLocallyReady reports whether this shard has a rangeable
+// bucket for the given property.
+//
+// It lets a shard whose schema says IndexRangeFilters=true but whose
+// bucket is missing fall back to the filterable bucket walk (slow but
+// correct) instead of failing the query with "bucket for prop %s not
+// found". The fallback applies to THIS shard only.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {

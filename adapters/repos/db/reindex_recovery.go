@@ -136,6 +136,7 @@ func DiscoverInFlightReindexTasks(
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
 					continue
 				}
+				tasks = tasksOwningMigrationDir(tasks, migEntry.Name(), logger)
 				recovered = append(recovered, RecoveredReindex{
 					Descriptor: distributedtask.TaskDescriptor{
 						ID:      rec.TaskID,
@@ -232,7 +233,7 @@ func buildRecoveryTasks(
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{
@@ -296,6 +297,33 @@ func buildRecoveryTasks(
 		t.constrainToShard(payload.Collection, shardName)
 	}
 	return raw, nil
+}
+
+// tasksOwningMigrationDir narrows the sub-tasks [buildRecoveryTasks] built
+// for a migration type down to the one whose tracker dir was actually found
+// on disk. A change-tokenization unit has a searchable and a filterable
+// sub-task, each with its own tracker dir, and the migration type alone
+// cannot tell them apart; without this filter, one sub-task's dir also
+// revives its sibling, re-creating a dir the startup finalizer already
+// removed and re-running a full iteration over already-migrated data.
+//
+// Falls back to the full set if nothing matches, so an unexpected dir name
+// degrades to the previous behavior rather than dropping recovery.
+func tasksOwningMigrationDir(tasks []*ShardReindexTaskGeneric, dirName string,
+	logger logrus.FieldLogger,
+) []*ShardReindexTaskGeneric {
+	owned := make([]*ShardReindexTaskGeneric, 0, 1)
+	for _, t := range tasks {
+		if t.MigrationDirName() == dirName {
+			owned = append(owned, t)
+		}
+	}
+	if len(owned) == 0 {
+		logger.WithField("migrationDir", dirName).
+			Warn("reindex recovery: no reconstructed task claims this tracker dir; registering all sub-tasks of the migration type")
+		return tasks
+	}
+	return owned
 }
 
 // NewShardReindexerV3FromRecovered wires the recovered tasks into a

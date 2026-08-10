@@ -147,12 +147,9 @@ func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *test
 	_, shard, _, _, _, wrapped, _, calls, hook := setupRangeableFinalizeDegradeFixture(t, "RangeableRebuildDegrade_")
 
 	assert.True(t, wrapped.migrationCompleted,
-		"OnMigrationComplete must still run on a non-cancellation rebuild failure (WARN-and-continue): "+
-			"in production this is exactly what flips the ready flag (setRangeableLocallyReady), so a "+
-			"replica reaching this point serves via hasUsableRangeableIndex, not MissingFilterableIndexError. "+
-			"This harness's test wrapper intentionally skips the real setRangeableLocallyReady side effect "+
-			"(see testFilterableToRangeableStrategyWrapper's doc comment), so this flag is the load-bearing "+
-			"proxy for it here; that side effect itself is unchanged, existing production code.")
+		"OnMigrationComplete must still run on a non-cancellation rebuild failure (WARN-and-continue), "+
+			"so the migration reaches completion and the shard keeps serving the property from its "+
+			"rangeable bucket instead of MissingFilterableIndexError")
 	assert.GreaterOrEqual(t, calls.Load(), int32(1), "rebuildRangeableRepFn must have been invoked")
 
 	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
@@ -251,12 +248,9 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	require.NotNil(t, bucketA)
 	require.True(t, bucketA.RangeableServesFromMemory())
 
-	// Replica B: rebuild is fault-injected to fail. In a real cluster the
-	// schema flag is already committed cluster-wide by replica A here;
-	// replica B's own OnMigrationComplete must still run so its local ready
-	// flag converges too. wrappedB.migrationCompleted proxies that flag
-	// since this harness's wrapper skips the real setRangeableLocallyReady
-	// side effect.
+	// Replica B: rebuild is fault-injected to fail. Its OnMigrationComplete
+	// must still run so the migration completes locally and the replica
+	// converges on the same disk state as replica A.
 	ctxB, shardB, idxB, classNameB := newReplica("RangeableMultiReplicaB_")
 	failing := &atomic.Bool{}
 	failing.Store(true)
@@ -265,8 +259,8 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	require.NoError(t, runReindexToCompletionOrError(t, ctxB, taskB, shardB),
 		"a non-cancellation rebuild failure must not fail the migration")
 	require.True(t, wrappedB.migrationCompleted,
-		"replica B's OnMigrationComplete must still run so its local ready flag converges, "+
-			"exactly as it would need to once the cluster-wide schema flag is already true")
+		"replica B's OnMigrationComplete must still run so its migration completes locally, "+
+			"exactly as it must once the cluster-wide schema flag is already true")
 	assert.GreaterOrEqual(t, calls.Load(), int32(1))
 
 	bucketB := shardB.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
