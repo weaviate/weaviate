@@ -346,6 +346,22 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	return ec.ToError()
 }
 
+// drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
+// so a drop does not tear the store down underneath a running request.
+func (s *Shard) drainRefsForDrop() error {
+	s.dropRequested.Store(true)
+
+	return backoff.Retry(func() error {
+		s.shutdownLock.Lock()
+		defer s.shutdownLock.Unlock()
+
+		if inUse := s.inUseCounter.Load(); inUse > 0 {
+			return fmt.Errorf("shard %q holds %d reference(s): %w", s.name, inUse, errShardStillInUse)
+		}
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(300*time.Millisecond), 100)) // 30 seconds
+}
+
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
 
 func (s *Shard) preventShutdown() (release func(), err error) {
@@ -354,6 +370,10 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
+
+	if s.dropRequested.Load() {
+		return func() {}, errDropInProgress
+	}
 
 	if s.shut.Load() {
 		return func() {}, errAlreadyShutdown
