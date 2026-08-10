@@ -15,8 +15,6 @@ package db
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -29,10 +27,11 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// loadTestShard returns the single-shard test index's shard, loaded, as both
-// the map key and the concrete instance the teardown paths operate on.
+// loadTestShard returns the single-shard test index's shard, loaded, by name
+// and as the concrete instance the teardown paths operate on.
 func loadTestShard(t *testing.T, index *Index) (string, *Shard) {
 	t.Helper()
 
@@ -47,8 +46,8 @@ func loadTestShard(t *testing.T, index *Index) (string, *Shard) {
 	return name, entry.(*LazyLoadShard).shard
 }
 
-// dropTestShard pins the shard — the same pin Index.withShardForWrite holds
-// around a write — and starts a drop() racing it in the background.
+// dropTestShard pins the shard as Index.withShardForWrite does, then races a
+// drop() against it. Returns once that drop is inside its drain.
 func dropTestShard(t *testing.T, index *Index) (shard *Shard, release func(), dropped <-chan error) {
 	t.Helper()
 
@@ -62,6 +61,11 @@ func dropTestShard(t *testing.T, index *Index) (shard *Shard, release func(), dr
 
 	ch := make(chan error, 1)
 	go func() { ch <- shard.drop(false) }()
+
+	// the flag is drainRefsForDrop's first action
+	require.Eventually(t, shard.dropRequested.Load, 10*time.Second, time.Millisecond,
+		"drop never entered its drain")
+
 	return shard, release, ch
 }
 
@@ -85,8 +89,7 @@ func dropTestObject(vec []float32) (*storobj.Object, []byte) {
 
 // TestShardDropWaitsForInFlightReferences pins the race that crashed nodes:
 // drop tore the store down while a pinned write was mid-flight, so
-// Store.Bucket(objects) went nil under it (nil *Bucket -> Get ->
-// GetConsistentView -> SIGSEGV).
+// Store.Bucket(objects) went nil under it.
 func TestShardDropWaitsForInFlightReferences(t *testing.T) {
 	index, cleanup := initIndexAndPopulate(t, t.TempDir())
 	defer cleanup()
@@ -107,10 +110,9 @@ func TestShardDropWaitsForInFlightReferences(t *testing.T) {
 	requireDropped(t, dropped)
 }
 
-// TestShardDropDrainsRealBatchWrite is the end-to-end form. The write paths
-// dereference Store.Bucket unguarded, so the drain is the only thing between
-// this batch and a SIGSEGV — every object must succeed, not merely fail
-// cleanly.
+// TestShardDropDrainsRealBatchWrite is the end-to-end form: every object must
+// succeed, not merely fail cleanly. Asserting success is what keeps the drain
+// responsible for this case rather than objectsBucket's backstop.
 func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 	index, cleanup := initIndexAndPopulate(t, t.TempDir())
 	defer cleanup()
@@ -135,9 +137,7 @@ func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 
 // TestShardDropProceedsWhenDrainTimesOut pins the escape hatch: the drain is
 // bounded on purpose, so a reference held past the window must not wedge the
-// delete — and must be logged, since that line is the only warning preceding
-// the crash TestUnguardedWriteAfterTeardownCrashesProcess documents. Runs for
-// the full drain window (~30s).
+// delete, and must be logged. Runs for the full drain window (~30s).
 func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
 	index, cleanup := initIndexAndPopulate(t, t.TempDir())
 	defer cleanup()
@@ -150,7 +150,7 @@ func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
 	defer release()
 
 	requireDropped(t, dropped)
-	// the drain window is ~30s; anything near-instant means it never waited
+	// ~30s window; near-instant means it never waited
 	require.Greater(t, time.Since(start), 10*time.Second, "drop gave up well short of the drain window")
 
 	var warned bool
@@ -161,32 +161,57 @@ func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
 	require.True(t, warned, "a drop that outran its drain must be logged, not silent")
 }
 
-// TestUnguardedWriteAfterTeardownCrashesProcess pins the known-bad path left
-// open on purpose: the write paths dereference Store.Bucket unguarded, so a
-// write outliving a teardown drain kills the node instead of failing the
-// request. The drain keeps it unreachable in practice; this makes the trade
-// visible in code. Subprocess, because the failure is a process-level SIGSEGV.
-//
-// Reintroducing a nil guard on the write path fails this test — delete it in
-// that same change.
-func TestUnguardedWriteAfterTeardownCrashesProcess(t *testing.T) {
-	if os.Getenv("WEAVIATE_TEST_TORN_STORE_CHILD") == "1" {
-		index, cleanup := initIndexAndPopulate(t, t.TempDir())
-		defer cleanup()
+// TestObjectWritesAfterStoreTeardownReturnErrors covers the backstop: a write
+// outliving the drain must fail on the deregistered bucket rather than
+// dereference nil, and must be reported once.
+func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
+	index, cleanup := initIndexAndPopulate(t, t.TempDir())
+	defer cleanup()
 
-		_, shard := loadTestShard(t, index)
-		require.NoError(t, shard.store.Shutdown(context.Background()))
+	logger, hook := test.NewNullLogger()
+	index.logger = logger
 
-		obj, idBytes := dropTestObject(nil)
-		_, _ = shard.putObjectLSM(context.Background(), obj, idBytes)
-		t.Fatal("write against a torn-down store returned instead of crashing")
+	_, shard := loadTestShard(t, index)
+	// the state a teardown that outran its drain leaves behind
+	require.NoError(t, shard.store.Shutdown(context.Background()))
+
+	obj, idBytes := dropTestObject(nil)
+	id := obj.ID()
+	merge := objects.MergeDocument{Class: "Test", ID: id}
+
+	mutations := map[string]func() error{
+		"put": func() error {
+			_, err := shard.putObjectLSM(context.Background(), obj, idBytes)
+			return err
+		},
+		"delete": func() error {
+			_, err := shard.deleteObject(context.Background(), id, time.Now(), false)
+			return err
+		},
+		"batch delete": func() error {
+			return shard.batchDeleteObject(context.Background(), id, time.Now())
+		},
+		"merge": func() error {
+			_, _, err := shard.mergeObjectInStorage(context.Background(), merge, idBytes, index.getClass())
+			return err
+		},
+		"mutable merge": func() error {
+			_, err := shard.mutableMergeObjectLSM(context.Background(), merge, idBytes)
+			return err
+		},
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestUnguardedWriteAfterTeardownCrashesProcess")
-	cmd.Env = append(os.Environ(), "WEAVIATE_TEST_TORN_STORE_CHILD=1")
-	out, err := cmd.CombinedOutput()
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, mutate(), errAlreadyShutdown)
+		})
+	}
 
-	require.Errorf(t, err, "child survived a write against a torn-down store:\n%s", out)
-	require.Contains(t, string(out), "nil pointer dereference")
-	require.Contains(t, string(out), "GetConsistentView")
+	var reports int
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "mutation reached a torn-down store") {
+			reports++
+		}
+	}
+	require.Equal(t, 1, reports, "an outrun drain must be reported exactly once per shard")
 }
