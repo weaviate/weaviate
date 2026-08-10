@@ -267,7 +267,6 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 			Path:      st.Path,
 			StartedAt: st.Starttime,
 			Status:    st.Status,
-			Err:       st.Err,
 		}, nil
 	}
 	ref := basePath(backend, ID)

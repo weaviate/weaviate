@@ -514,7 +514,21 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		Size:         float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		BaseBackupID: meta.BaseBackupID,
 	}
+	if reason, ok := c.lastOp.rememberedFailure(req.ID); ok && !isFinalStatus(meta.Status) {
+		// The operation ended failed and writing that outcome to the backend
+		// is what failed, so the descriptor still reads as in progress. Serving
+		// it would report a failed backup as running for as long as this node
+		// is up.
+		status.Status = backup.Failed
+		status.Err = reason
+	}
 	return status, nil
+}
+
+// isFinalStatus reports whether a stored descriptor status is the operation's
+// last word, and so must not be second-guessed from memory.
+func isFinalStatus(st backup.Status) bool {
+	return st == backup.Success || st == backup.Failed || st == backup.Cancelled
 }
 
 // remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
