@@ -1587,9 +1587,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusCancelled:
 				// Cleanup first: it drains the local worker, so the tracker
 				// dirs the check reads are no longer being written. It
-				// preserves everything the check looks for.
-				p.autoCleanupAfterTerminal(task, payload, logger)
-				if p.promotableReindexStateOnThisNode(payload) {
+				// preserves everything the check looks for. When the drain
+				// times out it reports so, and the check's answer is treated
+				// as unusable rather than trusted mid-write.
+				drained := p.autoCleanupAfterTerminal(task, payload, logger)
+				if !IsSemanticMigration(payload.MigrationType) {
+					// No schema flip to skip, so no inversion either way.
+					break
+				}
+				if !drained || p.promotableReindexStateOnThisNode(payload) {
 					logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
 				} else {
 					logger.Info("reindex provider: cancelled before any generation merged on this node; the buckets and the schema are both still pre-migration here, so there is nothing to repair")
@@ -1664,16 +1670,21 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // "cleanup is still happening on this shard" an explicit state the
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
-func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+//
+// Returns false when the local worker did not drain within
+// [reindexTerminalCleanupDrainTimeout]. Callers that read tracker dirs
+// afterwards must not trust what they find on that path — the worker is
+// still writing them.
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
-		return
+		return false
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return
+		return true
 	}
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
@@ -1711,6 +1722,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	} else {
 		logger.Info(msg)
 	}
+	return true
 }
 
 // terminalCleanupOutcome is what the operator is told after the post-terminal
@@ -1867,20 +1879,31 @@ func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLog
 		return
 	}
 	for _, propName := range payload.Properties {
+		repairCall := ReindexRepairCall(*payload, propName)
+		if repairCall == "" {
+			logger.WithFields(map[string]any{
+				"property":       propName,
+				"migration_type": payload.MigrationType,
+			}).Errorf(
+				"reindex provider: %s on %s.%s %s; the canonical inverted "+
+					"bucket may hold new-format data under the pre-migration "+
+					"schema, and this build cannot name the request that would "+
+					"repair it — re-run the migration from the node that "+
+					"submitted it",
+				payload.MigrationType, payload.Collection, propName, outcome)
+			continue
+		}
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
-			"repair_command": fmt.Sprintf(
-				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, reindexRepairBody(payload.MigrationType)),
+			"repair_command": repairCall,
 		}).Errorf(
 			"reindex provider: %s on %s.%s %s; per-shard sub-tasks "+
 				"that merged or swapped before the task terminalized left the "+
 				"canonical inverted bucket holding new-tokenization "+
 				"data while the schema stayed at pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+				"— issue the repair_command above to re-run the migration "+
+				"against the current schema",
 			payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
@@ -1910,29 +1933,6 @@ func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskP
 		}
 	}
 	return false
-}
-
-// reindexRepairBody is the `PUT /v1/schema/{class}/indexes/{prop}` body that
-// rebuilds every inverted index migration type mt could have torn. Which
-// sub-task got how far is not knowable from the outside, and rebuild is
-// idempotent on a healthy index, so the body is keyed on the type alone.
-func reindexRepairBody(mt ReindexMigrationType) string {
-	switch mt {
-	case ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable,
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRebuildSearchable:
-		return `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
-	case ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeRepairFilterable:
-		return `{"filterable":{"rebuild":true}}`
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		return `{"rangeable":{"rebuild":true}}`
-	default:
-		// Any future migration type: rebuild everything.
-		return `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
-	}
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].

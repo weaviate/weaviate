@@ -46,10 +46,11 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
 	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
-	// change-tokenization can tear either inverted index; guidance must
-	// instruct the operator to rebuild both.
+	// The repair is the request that submitted the migration, not a
+	// rebuild: the task skipped its schema flip, and {"searchable":
+	// {"rebuild":true}} is refused while the algorithm is still WAND.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		`PUT /v1/schema/Products/indexes/name {"searchable":{"tokenization":"field"}}`,
 		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
@@ -71,7 +72,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 	// change-tokenization-filterable touches ONLY the filterable bucket;
 	// guidance must scope to that.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/category {"filterable":{"rebuild":true}}`,
+		`PUT /v1/schema/Products/indexes/category {"filterable":{"tokenization":"field"}}`,
 		entry.Data["repair_command"])
 }
 
@@ -137,15 +138,16 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectio
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
-		Collection:    "customer1:Products",
-		MigrationType: ReindexTypeChangeTokenization,
-		Properties:    []string{"name"},
+		Collection:         "customer1:Products",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "field",
 	}
 	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T5"), payload, "FAILED")
 
 	require.Len(t, hook.Entries, 1)
 	require.Equal(t,
-		`PUT /v1/schema/customer1:Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		`PUT /v1/schema/customer1:Products/indexes/name {"searchable":{"tokenization":"field"}}`,
 		hook.Entries[0].Data["repair_command"])
 }
 
@@ -156,9 +158,10 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMe
 		t.Run(outcome, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			payload := &ReindexTaskPayload{
-				Collection:    "Products",
-				MigrationType: ReindexTypeChangeTokenization,
-				Properties:    []string{"name"},
+				Collection:         "Products",
+				MigrationType:      ReindexTypeChangeTokenization,
+				Properties:         []string{"name"},
+				TargetTokenization: "field",
 			}
 			logOperatorRepairGuidanceOnTerminalSemanticMigration(
 				logger.WithField("taskID", "T6"), payload, outcome)
@@ -167,4 +170,22 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMe
 			require.Contains(t, hook.Entries[0].Message, outcome)
 		})
 	}
+}
+
+// A tokenization change submitted by an older binary carries no target, so
+// no repair command can be rendered. The operator still has to hear that the
+// buckets may be inverted — a silent terminal is the worse failure.
+func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_NoTargetTokenizationStillWarns(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	payload := &ReindexTaskPayload{
+		Collection:    "Products",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	}
+	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T7"), payload, "FAILED")
+
+	require.Len(t, hook.Entries, 1)
+	require.NotContains(t, hook.Entries[0].Data, "repair_command")
+	require.Contains(t, hook.Entries[0].Message, "cannot name the request")
 }

@@ -111,15 +111,9 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 				"the sidecar was renamed, not copied")
 			require.NoDirExists(t, filepath.Join(lsm, ".migrations", tracker),
 				"the tracker dir is removed, so nothing on disk records that "+
-					"this shard is ahead of the schema")
-
-			// A restarted process starts with an empty overlay and no way to
-			// rebuild it: the tracker dir finalize just removed was the last
-			// on-disk trace of the migration.
-			restarted := &Shard{}
-			require.Equal(t, oldTok, restarted.TokenizationFor(propName, oldTok),
-				"post-restart the buckets hold %s data under a schema that says %s",
-				newTok, oldTok)
+					"this shard is ahead of the schema — a restarted process "+
+					"has no way to rebuild the overlay, and the buckets hold "+
+					"%s data under a schema that says %s", newTok, oldTok)
 		})
 	}
 }

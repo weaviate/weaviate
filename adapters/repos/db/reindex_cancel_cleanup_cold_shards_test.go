@@ -259,3 +259,62 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 		})
 	}
 }
+
+// hasPromotableReindexState gates whether an operator is told their buckets
+// may be inverted after a cancel, so a question it could not ask has to
+// answer "maybe" — the same fail-closed rule as
+// [hasStalePartialReindexState]. An absent .migrations dir is the exception:
+// a shard that never ran a migration is the common case.
+func TestHasPromotableReindexStateFailsClosed(t *testing.T) {
+	const propName = "category"
+
+	tests := []struct {
+		name      string
+		indexType string
+		setup     func(t *testing.T, lsm string)
+		want      bool
+	}{
+		{
+			name:      "a shard that never ran a migration",
+			indexType: "filterable",
+		},
+		{
+			name:      "a generation that only started",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				mkTrackerDir(t, lsm, "enable_filterable_category_1", "started.mig")
+			},
+		},
+		{
+			name:      "a generation the next restart promotes",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				mkTrackerDir(t, lsm, "enable_filterable_category_1", "started.mig", "merged.mig")
+			},
+			want: true,
+		},
+		{
+			name:      "a .migrations path that cannot be enumerated",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				require.NoError(t, os.WriteFile(filepath.Join(lsm, ".migrations"), []byte("x"), 0o600))
+			},
+			want: true,
+		},
+		{
+			name:      "an index type this build cannot map to a bucket",
+			indexType: "an-index-type-this-build-does-not-know",
+			want:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsm := t.TempDir()
+			if tc.setup != nil {
+				tc.setup(t, lsm)
+			}
+			require.Equal(t, tc.want, hasPromotableReindexState(lsm, propName, tc.indexType))
+		})
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,8 +64,10 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					Properties:    []string{"name"},
 				})
 			},
+			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
 		},
 		{
+			// The asked-for property is named, not the first one in the task.
 			name: "the property among several",
 			build: func(t *testing.T) []byte {
 				return marshal(t, db.ReindexTaskPayload{
@@ -73,6 +76,8 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					Properties:    []string{"other", "name"},
 				})
 			},
+			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
+			notInReason:  []string{"/indexes/other"},
 		},
 		{
 			// Empty Properties means "all properties" via different code on
@@ -103,9 +108,10 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			className: "customer1:C",
 			build: func(t *testing.T) []byte {
 				return marshal(t, db.ReindexTaskPayload{
-					MigrationType: db.ReindexTypeChangeTokenization,
-					Collection:    "customer1:C",
-					Properties:    []string{"name"},
+					MigrationType:      db.ReindexTypeChangeTokenization,
+					Collection:         "customer1:C",
+					Properties:         []string{"name"},
+					TargetTokenization: "word",
 				})
 			},
 			wantInReason: []string{`PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
@@ -230,4 +236,98 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 			require.Contains(t, payload.Error[0].Message, tc.want)
 		})
 	}
+}
+
+// TestEveryDeclaredTypeRendersAnAcceptedRepairCall closes the loop the gate
+// messages open: a remedy the operator cannot execute is worse than none,
+// because it costs a round trip to find out. Both rendered calls are parsed
+// back into the request body the handler takes and run through the real
+// group-exclusivity check.
+//
+// The rebuild-shaped bodies this replaced named two groups at once, which
+// validateBodyExclusivity refuses with 400.
+func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
+	// The full declared set; a type added without a repair body fails the
+	// "renders something" assertion rather than silently rendering nothing.
+	migrationTypes := []db.ReindexMigrationType{
+		db.ReindexTypeChangeAlgorithm,
+		db.ReindexTypeRebuildSearchable,
+		db.ReindexTypeRepairFilterable,
+		db.ReindexTypeEnableRangeable,
+		db.ReindexTypeRepairRangeable,
+		db.ReindexTypeEnableFilterable,
+		db.ReindexTypeEnableSearchable,
+		db.ReindexTypeChangeTokenization,
+		db.ReindexTypeChangeTokenizationFilterable,
+	}
+
+	bodyOf := func(t *testing.T, call string) *models.IndexUpdateRequest {
+		t.Helper()
+		require.True(t, strings.HasPrefix(call, "PUT /v1/schema/C/indexes/name {"),
+			"unexpected call shape: %s", call)
+		var body models.IndexUpdateRequest
+		require.NoError(t, json.Unmarshal(
+			[]byte(call[strings.Index(call, "{"):]), &body))
+		return &body
+	}
+
+	for _, mt := range migrationTypes {
+		t.Run(string(mt), func(t *testing.T) {
+			payload := db.ReindexTaskPayload{
+				Collection:         "C",
+				MigrationType:      mt,
+				Properties:         []string{"name"},
+				TargetTokenization: "word",
+			}
+
+			repair := db.ReindexRepairCall(payload, "name")
+			require.NotEmpty(t, repair, "every declared type needs a repair call")
+			require.NoError(t, validateBodyExclusivity(bodyOf(t, repair)))
+
+			cancel := db.ReindexCancelCall(payload, "name")
+			require.NotEmpty(t, cancel, "every declared type needs a cancel call")
+			require.NoError(t, validateBodyExclusivity(bodyOf(t, cancel)))
+		})
+	}
+}
+
+// TestBothLayersNameTheSameTaskWhenSeveralConflict pins the pre-check's sort.
+// The apply gate sees the task list sorted by ID (Manager.sortedTasksWithLock);
+// the pre-check gets it in whatever order the lister returns. Without its own
+// sort the two layers name different tasks for the same request, so a retry is
+// told to wait for a different migration than the first attempt was.
+func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
+	payload, err := json.Marshal(db.ReindexTaskPayload{
+		MigrationType:      db.ReindexTypeChangeTokenization,
+		Collection:         "C",
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
+	})
+	require.NoError(t, err)
+
+	task := func(id string) *distributedtask.Task {
+		return &distributedtask.Task{
+			Namespace:      db.ReindexNamespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: id},
+			Status:         distributedtask.TaskStatusStarted,
+			Payload:        payload,
+		}
+	}
+	// Both conflict on C.name; only the ordering differs.
+	sorted := []*distributedtask.Task{task("T_a"), task("T_b")}
+	unsorted := []*distributedtask.Task{task("T_b"), task("T_a")}
+
+	h := &schemaHandlers{
+		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
+			db.ReindexNamespace: unsorted,
+		}},
+	}
+	preCheck := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "name")
+
+	applyGate := (&db.ReindexProvider{}).CheckPropertyUpdate("C", "name", sorted)
+	require.Error(t, applyGate)
+
+	require.Equal(t, applyGate.Error(), preCheck)
+	require.Contains(t, preCheck, `"T_a"`)
+	require.NotContains(t, preCheck, `"T_b"`)
 }

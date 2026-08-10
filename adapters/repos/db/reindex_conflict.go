@@ -128,7 +128,9 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 			"already running %s for overlapping properties; migration type %q "+
 				"is not known to this build (most likely submitted by a newer "+
 				"node), so it cannot be proven safe to run alongside — wait for "+
-				"the in-flight task to finish, or retry on a node that knows the type",
+				"the in-flight task to finish. Submitting from a node that knows "+
+				"the type does not help: every node applies the same RAFT entry, "+
+				"including this one",
 			existType, unknown)
 	}
 	if newType == existType {
@@ -236,21 +238,66 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 		p.Collection, reindexNamedProperty(p, askedProperty), indexes[0])
 }
 
-// ReindexRebuildCall renders the request that repairs the property after a
-// cancel left the buckets ahead of the schema, or "" when this build cannot
-// name one. Same rendering rules as [ReindexCancelCall].
+// ReindexRepairCall renders the request that repairs the property after the
+// migration terminalized with the buckets ahead of the schema, or "" when
+// this build cannot name one. Same rendering rules as [ReindexCancelCall].
 //
-// The body rebuilds every index the migration could have torn: the gate
-// cannot tell which shards got how far, and rebuild is idempotent on a
-// healthy index.
-func ReindexRebuildCall(p ReindexTaskPayload, askedProperty string) string {
-	if p.Collection == "" || len(p.Properties) == 0 ||
-		len(ReindexTargetIndexes(p.MigrationType)) == 0 {
+// The repair is re-submitting the same migration, never a bare rebuild. A
+// terminal task skipped its schema flip, and every rebuild verb validates
+// against exactly the bit the flip would have set: `filterable.rebuild` 400s
+// while IndexFilterable is false, `searchable.rebuild` 400s while the
+// algorithm is still WAND, `searchable.enabled`/`filterable.enabled` are
+// what the skipped flip was going to set. Re-running the original request is
+// accepted in that state and ends with buckets and schema consistent.
+func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
+	body := reindexRepairBody(p)
+	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
 		return ""
 	}
 	return fmt.Sprintf("PUT /v1/schema/%s/indexes/%s %s",
-		p.Collection, reindexNamedProperty(p, askedProperty),
-		reindexRepairBody(p.MigrationType))
+		p.Collection, reindexNamedProperty(p, askedProperty), body)
+}
+
+// reindexRepairBody renders the submit body that produced p's migration
+// type. Exactly one index group per body, which is what
+// validateBodyExclusivity in the REST handlers accepts — a body naming two
+// groups is refused with 400.
+//
+// Not derivable from [ReindexTargetIndexes]: which indexes a type writes
+// does not say which verb submits it. The two are cross-checked in
+// TestEveryDeclaredTypeRendersAnAcceptedRepairCall.
+//
+// "" for a type this build does not know, and for a tokenization change
+// whose payload does not carry the target (written by an older binary) — a
+// guessed tokenization would retokenize the property to the wrong value.
+func reindexRepairBody(p ReindexTaskPayload) string {
+	switch p.MigrationType {
+	case ReindexTypeEnableSearchable:
+		return `{"searchable":{"enabled":true}}`
+	case ReindexTypeRebuildSearchable:
+		return `{"searchable":{"rebuild":true}}`
+	case ReindexTypeChangeAlgorithm:
+		return `{"searchable":{"algorithm":"blockmax"}}`
+	case ReindexTypeChangeTokenization:
+		if p.TargetTokenization == "" {
+			return ""
+		}
+		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, p.TargetTokenization)
+	case ReindexTypeChangeTokenizationFilterable:
+		if p.TargetTokenization == "" {
+			return ""
+		}
+		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, p.TargetTokenization)
+	case ReindexTypeEnableFilterable:
+		return `{"filterable":{"enabled":true}}`
+	case ReindexTypeRepairFilterable:
+		return `{"filterable":{"rebuild":true}}`
+	case ReindexTypeEnableRangeable:
+		return `{"rangeable":{"enabled":true}}`
+	case ReindexTypeRepairRangeable:
+		return `{"rangeable":{"rebuild":true}}`
+	}
+	return ""
 }
 
 // reindexNamedProperty picks the property a rendered call should name:
@@ -282,8 +329,9 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //     ([distributedtask.Task.NeedsPreparationBarrier] == [IsSemanticMigration]),
 //     so per-shard swaps can already have committed while status still
 //     reads STARTED — cancelling leaves some shards rebuilt, others not.
-//   - PREPARING/SWAPPING: steer toward waiting and name the rebuild cancel
-//     makes necessary. The window opens at the MERGE, not the swap:
+//   - PREPARING/SWAPPING: steer toward waiting and name the repair cancel
+//     makes necessary ([ReindexRepairCall], not a rebuild — see there).
+//     The window opens at the MERGE, not the swap:
 //     [FinalizeCompletedMigrations] promotes on merged.mig alone, which
 //     runtimePrepare writes during PREPARING before any shard swaps — so a
 //     PREPARING-time cancel already leaves promotion-eligible data (and,
@@ -309,7 +357,6 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 	if started && IsSemanticMigration(p.MigrationType) {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	rebuildCall := ReindexRebuildCall(p, askedProperty)
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish; " +
 			"this migration has no cluster-wide cutover, so its shards commit " +
@@ -317,11 +364,17 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"ones that already finished rebuilt and the rest untouched — " +
 			"re-submit the same request to finish the remainder"
 	}
-	return "wait for it to finish: its per-shard work is already merged on " +
-		"disk, so cancelling now skips the schema change but does not drop " +
+	inversion := "wait for it to finish: its per-shard work is already merged " +
+		"on disk, so cancelling now skips the schema change but does not drop " +
 		"that data, and the next restart promotes it — which leaves those " +
-		"buckets holding the new format under the old schema, repairable " +
-		"only by rebuilding the property via " + rebuildCall +
+		"buckets holding the new format under the old schema, repairable "
+	repairCall := ReindexRepairCall(p, askedProperty)
+	if repairCall == "" {
+		return inversion + "only by re-running the migration, which this build " +
+			"cannot name from the task's payload — if you accept that, " +
+			"cancel it via " + cancelCall
+	}
+	return inversion + "only by re-running the migration via " + repairCall +
 		" — if you accept that, cancel it via " + cancelCall
 }
 
@@ -427,19 +480,22 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 
 		var existP ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			// Task ID withheld: an unreadable payload also hides which
+			// namespace the task belongs to.
 			return fmt.Errorf(
-				"in-flight reindex task %q has an unparseable payload; "+
+				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether DeleteClass on %s would "+
-					"conflict: %w",
-				task.ID, className, err)
+					"conflict (see GET /v1/tasks): %w",
+				className, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
+			// Task ID withheld for the same reason as above.
 			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
+				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether DeleteClass on "+
-					"%s would conflict",
-				task.ID, className)
+					"%s would conflict (see GET /v1/tasks)",
+				className)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -481,19 +537,22 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 
 		var existP ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			// Task ID withheld: an unreadable payload also hides which
+			// namespace the task belongs to.
 			return fmt.Errorf(
-				"in-flight reindex task %q has an unparseable payload; "+
+				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether tenant mutation on %s/%v "+
-					"would conflict: %w",
-				task.ID, className, tenants, err)
+					"would conflict (see GET /v1/tasks): %w",
+				className, tenants, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
+			// Task ID withheld for the same reason as above.
 			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
+				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether tenant "+
-					"mutation on %s/%v would conflict",
-				task.ID, className, tenants)
+					"mutation on %s/%v would conflict (see GET /v1/tasks)",
+				className, tenants)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue

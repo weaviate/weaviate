@@ -41,9 +41,15 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 		name string
 		// sentinels the tracker dir carries when the task terminalizes;
 		// nil means the task never got past STARTED on this node.
-		sentinels    []string
-		status       distributedtask.TaskStatus
+		sentinels []string
+		status    distributedtask.TaskStatus
+		// migrationType defaults to change-tokenization when empty.
+		migrationType ReindexMigrationType
+		// properties defaults to the single propName when nil.
+		properties   []string
 		wantGuidance bool
+		// notInLog must appear in no entry the terminal path emits.
+		notInLog []string
 	}{
 		{
 			name:         "cancelled at STARTED, nothing on disk",
@@ -77,6 +83,22 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			status:       distributedtask.TaskStatusFailed,
 			wantGuidance: true,
 		},
+		{
+			// A format-only migration flips no schema, so a cancel cannot
+			// leave buckets inverted against one — neither branch applies.
+			name:          "cancelled format-only migration",
+			status:        distributedtask.TaskStatusCancelled,
+			migrationType: ReindexTypeRepairFilterable,
+			notInLog:      []string{"nothing to repair", "still pre-migration"},
+		},
+		{
+			// Reserved whole-collection shape: nothing on disk to look at
+			// per property, so the check cannot clear the cancel.
+			name:       "cancelled whole-collection migration",
+			status:     distributedtask.TaskStatusCancelled,
+			properties: []string{},
+			notInLog:   []string{"nothing to repair"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -102,10 +124,18 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 				reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 			}
 
+			migrationType := tc.migrationType
+			if migrationType == "" {
+				migrationType = ReindexTypeChangeTokenization
+			}
+			properties := tc.properties
+			if properties == nil {
+				properties = []string{propName}
+			}
 			payload, err := json.Marshal(ReindexTaskPayload{
 				Collection:         className,
-				MigrationType:      ReindexTypeChangeTokenization,
-				Properties:         []string{propName},
+				MigrationType:      migrationType,
+				Properties:         properties,
 				TargetTokenization: "field",
 			})
 			require.NoError(t, err)
@@ -122,6 +152,9 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 				if _, ok := entry.Data["repair_command"]; ok {
 					repairCommands++
 				}
+				for _, unwanted := range tc.notInLog {
+					require.NotContains(t, entry.Message, unwanted)
+				}
 			}
 			if tc.wantGuidance {
 				require.Equal(t, 1, repairCommands,
@@ -134,13 +167,105 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 	}
 }
 
-// A provider with no local store cannot look, and silence about data that
-// may be inverted is the worse error of the two.
-func TestPromotableReindexStateOnThisNode_NoLocalStoreAnswersYes(t *testing.T) {
-	p := &ReindexProvider{}
-	require.True(t, p.promotableReindexStateOnThisNode(&ReindexTaskPayload{
-		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
-		Properties:    []string{"name"},
+// Every condition under which the check cannot look answers yes: silence
+// about data that may be inverted is the worse error of the two.
+func TestPromotableReindexStateOnThisNode_AnswersYesWhenItCannotLook(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider *ReindexProvider
+		payload  ReindexTaskPayload
+	}{
+		{
+			name:     "no local store to read",
+			provider: &ReindexProvider{},
+			payload: ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: ReindexTypeChangeTokenization,
+				Properties:    []string{"name"},
+			},
+		},
+		{
+			name:     "a migration type this build does not know",
+			provider: &ReindexProvider{db: &DB{}},
+			payload: ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: "a-type-from-a-newer-node",
+				Properties:    []string{"name"},
+			},
+		},
+		{
+			name:     "no property to look under",
+			provider: &ReindexProvider{db: &DB{}},
+			payload: ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: ReindexTypeChangeTokenization,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.True(t, tc.provider.promotableReindexStateOnThisNode(&tc.payload))
+		})
+	}
+}
+
+// The CANCELLED evidence gate reads tracker dirs that the local worker is
+// still writing unless cleanup drained it first. When the drain times out
+// the gate's answer is unusable, so the guidance is emitted anyway — a
+// missed warning about inverted buckets costs more than a false one.
+func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
+	const propName = "descr"
+
+	ctx := testCtx()
+	className := "CancelDrain_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	desc := distributedtask.TaskDescriptor{ID: "T_drain", Version: 1}
+
+	// A cancelled server context makes the drain's deadline expire on entry,
+	// standing in for a worker that outlives the timeout.
+	serverCtx, cancelServer := context.WithCancel(context.Background())
+	cancelServer()
+
+	logger, hook := logrustest.NewNullLogger()
+	p := &ReindexProvider{
+		logger:       logger,
+		serverCtx:    serverCtx,
+		db:           &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
+		payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
+			desc: {cancel: func() {}, doneCh: make(chan struct{})},
+		},
+	}
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:         className,
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{propName},
+		TargetTokenization: "field",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: desc,
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        payload,
 	}))
+
+	var repairCommands int
+	for _, entry := range hook.AllEntries() {
+		if _, ok := entry.Data["repair_command"]; ok {
+			repairCommands++
+		}
+	}
+	require.Equal(t, 1, repairCommands,
+		"a drain that did not finish leaves the on-disk check unusable, "+
+			"so the warning must not be suppressed: %v", hook.AllEntries())
 }
