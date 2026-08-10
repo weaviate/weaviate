@@ -276,11 +276,8 @@ func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
 
 // Pins resetIfCancelled's check-and-clear as a single lock acquisition: two
 // separate ones would let a concurrent renew's claim get dropped. Racers spin
-// on a shared flag rather than a channel to line up tightly enough for that
-// bug to reproduce. It needs the whole run: with the check and the clear split
-// apart, a dropped claim turned up roughly once in a few thousand iterations
-// here, so a shorter run passes on a broken implementation. 20000 iterations
-// cost 0.3s under -race.
+// on a shared flag rather than a channel to line up tightly enough for the
+// bug to reproduce reliably across all 20000 iterations.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
