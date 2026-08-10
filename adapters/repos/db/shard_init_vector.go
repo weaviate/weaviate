@@ -40,13 +40,19 @@ import (
 )
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
-	if s.index.vectorIndexUserConfig != nil {
-		if err := s.initLegacyVector(ctx, s.lazySegmentLoadingEnabled); err != nil {
+	// Snapshot under the index config lock: updateVectorIndexConfig(s) mutate
+	// these concurrently, and ranging the live map is a fatal
+	// "concurrent map read and map write", not a recoverable race.
+	legacy := s.index.GetVectorIndexConfig("")
+	targets := s.index.getTargetVectorIndexConfigs()
+
+	if legacy != nil {
+		if err := s.initLegacyVector(ctx, legacy, s.lazySegmentLoadingEnabled); err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx, s.lazySegmentLoadingEnabled); err != nil {
+	if err := s.initTargetVectors(ctx, legacy, targets, s.lazySegmentLoadingEnabled); err != nil {
 		return err
 	}
 
@@ -321,21 +327,26 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	return s.dynamicVectorIndexDB, nil
 }
 
-func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) error {
+// initTargetVectors builds the named target-vector indexes. legacy and configs
+// are caller-held snapshots; the migrator needs legacy to tell a
+// single-named-vector layout from a legacy-plus-named one.
+func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
+	configs map[string]schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
+) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
+	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":   "init_target_vectors",
 			"shard_id": s.ID(),
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
-	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
-	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
+	s.vectorIndexes = make(map[string]VectorIndex, len(configs))
+	s.queues = make(map[string]*VectorIndexQueue, len(configs))
 
-	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+	for targetVector, vectorIndexConfig := range configs {
 		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
 			return err
 		}
@@ -375,11 +386,11 @@ func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector strin
 	return nil
 }
 
-func (s *Shard) initLegacyVector(ctx context.Context, lazyLoadSegments bool) error {
+func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig, lazyLoadSegments)
+	vectorIndex, err := s.initVectorIndex(ctx, "", cfg, lazyLoadSegments)
 	if err != nil {
 		return err
 	}

@@ -3957,6 +3957,20 @@ func (i *Index) GetVectorIndexConfigs() map[string]schemaConfig.VectorIndexConfi
 	return configs
 }
 
+// getTargetVectorIndexConfigs snapshots the named target-vector configs, without
+// the legacy one GetVectorIndexConfigs folds in under "".
+func (i *Index) getTargetVectorIndexConfigs() map[string]schemaConfig.VectorIndexConfig {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	configs := make(map[string]schemaConfig.VectorIndexConfig, len(i.vectorIndexUserConfigs))
+	for k, v := range i.vectorIndexUserConfigs {
+		configs[k] = v
+	}
+
+	return configs
+}
+
 func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConfig {
 	if config == nil {
 		return nil
