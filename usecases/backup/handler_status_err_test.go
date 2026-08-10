@@ -143,7 +143,7 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 		slot.setFailed(reason)
 		slot.release()
 
-		prevID, slot = s.renew("1", "bucket/backups/1", "", "")
+		prevID, _ = s.renew("1", "bucket/backups/1", "", "")
 		require.Empty(t, prevID)
 
 		_, ok := s.rememberedFailure("1")

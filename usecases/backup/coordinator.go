@@ -281,12 +281,13 @@ func (c *coordinator) Restore(
 			// clear share one lock acquisition so a restore that claims the slot
 			// in between does not lose it.
 			released := c.lastOp.resetIfCancelled(desc.ID)
+			held := c.lastOp.get()
 			c.log.WithFields(logrus.Fields{
 				"action":      OpRestore,
 				"backup_id":   desc.ID,
 				"slot_freed":  released,
-				"slot_holder": c.lastOp.get().ID,
-				"slot_status": c.lastOp.get().Status,
+				"slot_holder": held.ID,
+				"slot_status": held.Status,
 			}).Info("restore cancellation already in progress, nothing started")
 			return nil
 		}
