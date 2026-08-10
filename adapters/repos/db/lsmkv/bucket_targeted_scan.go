@@ -52,7 +52,7 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 		return nil, fmt.Errorf("read range [%d,%d) out of value bounds %d", from, to, e.ValueSize)
 	}
 	if e.seg == nil {
-		return e.value[from:to], nil
+		return e.value[from:to:to], nil
 	}
 	return e.seg.readRange(nodeOffset{start: e.valueStart + from, end: e.valueStart + to},
 		"TargetedScanRange", &e.buf)
@@ -231,7 +231,8 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 		if serve {
 			entry.Key = k
 			entry.ValueSize = uint64(len(v))
-			entry.Peek = v[:min(peekSize, len(v))]
+			peek := min(peekSize, len(v))
+			entry.Peek = v[:peek:peek]
 			entry.seg = nil
 			entry.value = v
 			if err := fn(&entry); err != nil {
@@ -308,7 +309,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 
 		entry.Key = n.Key
 		entry.ValueSize = valueLen
-		entry.Peek = node[9 : 9+peekLen]
+		entry.Peek = node[9 : 9+peekLen : 9+peekLen]
 		entry.seg = task.seg
 		entry.valueStart = n.Start + 9
 		entry.value = nil
@@ -363,15 +364,18 @@ func (s *segment) indexNodeSplits(parts int) [][2]int {
 // the result is a zero-copy slice of the segment contents; otherwise *buf is
 // grown as needed, filled via a single pread, and the result aliases it.
 func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
+	// capacity is clamped to the requested range everywhere below: these slices
+	// are windows into the segment or into a reused buffer, and spare capacity
+	// would let a caller reslice into a neighbouring row's bytes
 	if s.readFromMemory {
-		return s.contents[offset.start:offset.end], nil
+		return s.contents[offset.start:offset.end:offset.end], nil
 	}
 
 	need := offset.end - offset.start
 	if uint64(cap(*buf)) < need {
 		*buf = make([]byte, need)
 	}
-	b := (*buf)[:need]
+	b := (*buf)[:need:need]
 	r, err := s.newNodeReader(offset, operation)
 	if err != nil {
 		return nil, err

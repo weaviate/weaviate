@@ -533,3 +533,52 @@ func TestEstimatedEntrySize(t *testing.T) {
 		require.Zero(t, b.EstimatedEntrySize())
 	})
 }
+
+// TestScanTargetedReplaceSlicesAreCapped: every slice the scan hands out is a
+// window into a segment or a reused buffer, so spare capacity would let a caller
+// reslice into a neighbouring row. A caller decoding a length field out of a
+// corrupt row does exactly that.
+func TestScanTargetedReplaceSlicesAreCapped(t *testing.T) {
+	ctx := context.Background()
+
+	modes := []struct {
+		name string
+		opts []BucketOption
+	}{
+		{"mmap", nil},
+		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			b := newReusableTestBucket(t, ctx, mode.opts...)
+			defer b.Shutdown(ctx)
+
+			for i := uint64(0); i < 30; i++ {
+				targetedPut(t, b, i, 200)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			// memtable rows too: they hand out the memtable's own value slices
+			for i := uint64(30); i < 40; i++ {
+				targetedPut(t, b, i, 200)
+			}
+
+			var served atomic.Int64
+			require.NoError(t, b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+				assert.Equal(t, len(e.Peek), cap(e.Peek), "Peek carries spare capacity")
+
+				part, err := e.ReadRange(0, 32)
+				if assert.NoError(t, err) {
+					assert.Equal(t, len(part), cap(part), "ReadRange carries spare capacity")
+				}
+				whole, err := e.ReadRange(0, 0)
+				if assert.NoError(t, err) {
+					assert.Equal(t, len(whole), cap(whole), "ReadRange carries spare capacity")
+				}
+				served.Add(1)
+				return nil
+			}, nullLogger()))
+			require.Equal(t, int64(40), served.Load())
+		})
+	}
+}
