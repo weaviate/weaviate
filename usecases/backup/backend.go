@@ -214,12 +214,22 @@ type uploader struct {
 	backend  nodeStore
 	backupID string
 	zipConfig
-	setStatus func(st backup.Status)
-	log       logrus.FieldLogger
+	// slot is the node's own operation slot, which is what a status poll reads
+	// until the descriptor is written to the backend.
+	slot statusPublisher
+	log  logrus.FieldLogger
+}
+
+// statusPublisher is the observable half of a node's operation slot. Failing
+// goes through its own method so a failure can never be published without the
+// reason that belongs to it; see [backupStat.setFailed].
+type statusPublisher interface {
+	set(st backup.Status)
+	setFailed(reason string)
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
+	backupID string, slot statusPublisher, l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
@@ -234,8 +244,8 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		slot: slot,
+		log:  l,
 	}
 }
 
@@ -246,7 +256,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
-	u.setStatus(backup.Transferring)
+	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
@@ -257,35 +267,52 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
 
-		//  make sure context is not cancelled when uploading metadata
-		ctx := context.Background()
+		//  make sure context is not cancelled when uploading metadata. Its own
+		//  name, so the cancellation check below still reads the operation's
+		//  context rather than this one, which can never be cancelled.
+		metaCtx := context.Background()
 
 		// Handle success case first
 		if err == nil {
 			u.log.Info("start uploading metadata")
-			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
+			if err = u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); err != nil {
+				// Nothing to restore from without the descriptor, so this ends
+				// as a failure. Publishing SUCCESS here would have the
+				// coordinator count the node done and report a backup that
+				// cannot be restored as good.
 				desc.Status = backup.Transferred
+				u.slot.setFailed(err.Error())
+			} else {
+				u.slot.set(backup.Success)
 			}
-			u.setStatus(backup.Success)
 			u.log.Info("finish uploading metadata")
 			return
 		}
 
-		desc.Error = err.Error()
+		desc.Error = nonEmptyErrMsg(err)
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			u.setStatus(backup.Cancelled)
+		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		if cancelled {
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 		} else {
+			desc.Status = backup.Failed
 			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
+		}
+		// After the meta write, which has to carry the reason by the time a
+		// poll can see FAILED. err is published rather than desc.Error, which
+		// was fixed before the write and so says nothing when the write is
+		// what failed.
+		if !cancelled {
+			u.slot.setFailed(err.Error())
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -293,7 +320,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	contextChecker := func(ctx context.Context) error {
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
-			u.setStatus(backup.Cancelled)
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
@@ -352,11 +379,20 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
-	u.setStatus(backup.Transferred)
+	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
+// text is served verbatim from the status API, backend messages and all.
+func nonEmptyErrMsg(err error) string {
+	if msg := err.Error(); msg != "" {
+		return msg
+	}
+	return failureWithoutReason
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
