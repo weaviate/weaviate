@@ -85,13 +85,35 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 
 func (s *backupStat) reset() {
 	s.Lock()
+	s.clear()
+	s.Unlock()
+}
+
+// clear must be called with the lock held.
+func (s *backupStat) clear() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
 	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
-	s.Unlock()
+}
+
+// resetIfCancelled gives back the slot only when id owns it and that operation
+// was cancelled. An operation still running under the same id is writing files,
+// so its slot must survive. Checks and clears under one lock so a renew cannot
+// slip in between and lose its claim. Reports whether the slot was cleared.
+func (s *backupStat) resetIfCancelled(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	if s.reqState.Status != backup.Cancelling && s.reqState.Status != backup.Cancelled {
+		return false
+	}
+	s.clear()
+	return true
 }
 
 // setFailed ends the operation as failed together with the reason. Failed with
@@ -126,6 +148,21 @@ func (s *backupStat) rememberedFailure(id string) (string, bool) {
 	return s.rememberedFailureReason, true
 }
 
+// resetIfOwned clears the slot only if id still holds it. An operation whose
+// slot was already handed to a newer one must not free the newcomer's claim:
+// the slot is the node's busy signal, so a false idle lets a runtime-reindex
+// start on top of a live backup or restore. Check-and-clear happens under one
+// lock so a concurrent renew can't be lost. Reports whether it cleared.
+func (s *backupStat) resetIfOwned(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	s.clear()
+	return true
+}
+
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	defer s.Unlock()
@@ -134,6 +171,26 @@ func (s *backupStat) set(st backup.Status) {
 		return
 	}
 	s.reqState.Status = st
+}
+
+// setIfOwned writes the status only if id still holds the slot, the write half
+// of the same ownership rule as [backupStat.resetIfOwned]. A caller that does
+// not derive id from the slot itself — a cancel, which takes it from object
+// storage — would otherwise stamp whichever operation happens to hold it, and a
+// slot reading Cancelled makes coordinator.commit abort the operation as
+// "cancelled externally". Reports whether it wrote.
+func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.reqState.ID != id {
+		return false
+	}
+	// Cancelled is terminal - don't allow overwriting
+	if s.reqState.Status == backup.Cancelled {
+		return false
+	}
+	s.reqState.Status = st
+	return true
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.
