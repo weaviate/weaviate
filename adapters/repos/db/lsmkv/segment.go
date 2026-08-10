@@ -105,7 +105,11 @@ type Segment interface {
 
 	// replace specific
 	getCountNetAdditions() int
-	existsKey(key []byte) (bool, error)
+	// indexContainsKey reports whether this segment holds an entry for the key,
+	// live or tombstoned — not whether the key is live. Callers deciding what a
+	// newer segment supersedes want exactly that: a tombstone hides a lower
+	// segment's row just as a value does.
+	indexContainsKey(key []byte) (bool, error)
 }
 
 type segment struct {

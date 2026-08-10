@@ -467,7 +467,7 @@ func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable
 	panic("not implemented")
 }
 
-func (s *fakeSegment) existsKey(key []byte) (bool, error) {
+func (s *fakeSegment) indexContainsKey(key []byte) (bool, error) {
 	panic("not implemented")
 }
 

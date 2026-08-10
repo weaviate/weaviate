@@ -435,11 +435,11 @@ func (s *lazySegment) getCountNetAdditions() int {
 	return s.segment.getCountNetAdditions()
 }
 
-func (s *lazySegment) existsKey(key []byte) (bool, error) {
+func (s *lazySegment) indexContainsKey(key []byte) (bool, error) {
 	if err := s.load(); err != nil {
-		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
+		return false, fmt.Errorf("lazySegment::indexContainsKey: %w", err)
 	}
-	return s.segment.existsKey(key)
+	return s.segment.indexContainsKey(key)
 }
 
 func (s *lazySegment) exists(key []byte) error {

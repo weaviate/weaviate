@@ -137,12 +137,16 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
 }
 
-func (s *segment) existsKey(key []byte) (bool, error) {
+// indexContainsKey answers from the bloom filter and index alone, so a
+// tombstoned entry counts as present: the index carries every key the segment
+// holds, whether its node is a value or a tombstone. That is what supersession
+// callers need — a tombstone in a newer segment must hide the older row.
+func (s *segment) indexContainsKey(key []byte) (bool, error) {
 	// compared directly rather than through the variadic CheckExpectedStrategy,
 	// whose argument slice escapes and so allocates on every call: a targeted scan
 	// probes this once per row per newer segment
 	if s.strategy != segmentindex.StrategyReplace {
-		return false, fmt.Errorf("segment::existsKey: %w",
+		return false, fmt.Errorf("segment::indexContainsKey: %w",
 			segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace))
 	}
 

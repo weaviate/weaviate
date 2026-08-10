@@ -108,7 +108,7 @@ type probeErrSegment struct {
 	err error
 }
 
-func (s *probeErrSegment) existsKey(key []byte) (bool, error) { return false, s.err }
+func (s *probeErrSegment) indexContainsKey(key []byte) (bool, error) { return false, s.err }
 
 type oneNodeSegment struct {
 	*fakeSegment

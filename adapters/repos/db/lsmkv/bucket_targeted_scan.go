@@ -276,7 +276,7 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 			}
 		}
 		for _, newer := range task.newer {
-			has, err := newer.existsKey(n.Key)
+			has, err := newer.indexContainsKey(n.Key)
 			if err != nil {
 				return err
 			}
