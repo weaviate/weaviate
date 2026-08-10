@@ -281,9 +281,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // Per-node and best-effort: two nodes can both see "no conflict" and race to
 // RAFT, which the apply-time [MutationGuard] closes for real. A missing
 // lister or a TaskLister error returns "" so the request falls through to
-// RAFT rather than spuriously rejecting. An unreadable payload is a refusal
-// instead, mirroring the apply side: we cannot prove non-conflict, so the
-// caller must not be told there is none.
+// RAFT rather than spuriously rejecting. An unreadable or incomplete payload
+// is a refusal instead, mirroring the apply side: we cannot prove
+// non-conflict, so the caller must not be told there is none.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
