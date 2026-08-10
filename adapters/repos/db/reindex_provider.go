@@ -1809,13 +1809,26 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 			}
 		}
 	}
+	msg, warn := terminalCleanupOutcome(swept, dropped)
+	if warn {
+		logger.Warn(msg)
+	} else {
+		logger.Info(msg)
+	}
+}
+
+// terminalCleanupOutcome is what the operator is told after the post-terminal
+// sweep. State left on disk is the only outcome worth a warning: a collection
+// being deleted takes its partial state with it, so there is nothing to act on
+// even though no shard was swept.
+func terminalCleanupOutcome(swept, dropped bool) (msg string, warn bool) {
 	switch {
 	case !swept:
-		logger.Warn("auto-cleanup after terminal status: some partial sidecar state is still on this node")
+		return "auto-cleanup after terminal status: some partial sidecar state is still on this node", true
 	case dropped:
-		logger.Info("auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it")
+		return "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it", false
 	default:
-		logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
 	}
 }
 

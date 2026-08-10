@@ -13,6 +13,9 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,12 +25,14 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Both call sites of this sweep hold the collection's backup and restore gate
-// closed for its whole duration. Loading every cold tenant of a multi-tenant
-// collection to look for state that is not there therefore refuses that
-// collection's backups for as long as the hydration takes, and an expired
-// context did not stop the walk — it only turned the remaining shards into
-// failed loads that were still attempted.
+// Every caller of this sweep blocks something for its whole duration: the
+// auto-cleanup after a terminal task registers the task's shards as
+// cleanup-in-progress, which the backup gate refuses backups on, and the REST
+// submit and cancel handlers hold the (collection, property) submit mutex.
+// Loading every cold tenant of a multi-tenant collection to look for state that
+// is not there stretches that hold across thousands of hydrations, and an
+// expired context did not stop the walk — it only turned the remaining shards
+// into failed loads that were still attempted.
 func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 	const (
 		propName  = "category"
@@ -86,8 +91,8 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 			err := idx.CleanStalePartialReindexState(context.Background(), propName, indexType)
 
 			assert.Equalf(t, tc.wantColdLoaded, cold.isLoaded(),
-				"cold shard loaded=%v, want %v: the sweep holds this collection's backup gate "+
-					"closed, so it may only pay for a shard that has something to clean",
+				"cold shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
+					"duration, so it may only pay for a shard that has something to clean",
 				cold.isLoaded(), tc.wantColdLoaded)
 			assert.Equal(t, tc.wantColdTracker, dirExistsAt(t, coldLSM, ".migrations/"+tracker),
 				"cold shard tracker dir")
@@ -95,6 +100,139 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 				"loaded shard tracker dir")
 
 			assert.NoError(t, err)
+		})
+	}
+}
+
+// lsmDirNames lists the directories the sweep can remove: the sidecar dirs at
+// the LSM root and the migration tracker dirs under .migrations.
+func lsmDirNames(t *testing.T, lsmPath string) []string {
+	t.Helper()
+	var out []string
+	collect := func(dir, prefix string) {
+		entries, err := os.ReadDir(dir)
+		if os.IsNotExist(err) {
+			return
+		}
+		require.NoError(t, err)
+		for _, entry := range entries {
+			if entry.IsDir() {
+				out = append(out, prefix+entry.Name())
+			}
+		}
+	}
+	collect(lsmPath, "")
+	collect(filepath.Join(lsmPath, ".migrations"), ".migrations/")
+	sort.Strings(out)
+	return out
+}
+
+// hasStalePartialReindexState is a second implementation of the rules
+// Shard.CleanStalePartialReindexState removes by, living in another file: it
+// re-derives the preserve sets rather than sharing them. A shard it answers
+// false for is never loaded, so anything the hydrated sweep would still have
+// removed there stays on disk until someone else finds it. This runs both over
+// the same fixtures and pins them together.
+func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
+	const propName = "category"
+
+	// A completed-but-deferred migration: the tracker carries tidied.mig and
+	// its ingest sidecar is the live bucket, which the sweep preserves.
+	deferredFinalize := map[string][]string{
+		"enable_filterable_category_1": {"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
+	}
+
+	tests := []struct {
+		name      string
+		indexType string
+		// trackers are .migrations dirs, mapped to the sentinels inside them.
+		trackers map[string][]string
+		// sidecars are dirs at the LSM root.
+		sidecars  []string
+		wantStale bool
+	}{
+		{
+			name:      "a shard with no reindex state at all",
+			indexType: "filterable",
+		},
+		{
+			name:      "the main bucket dir is not a sidecar of itself",
+			indexType: "filterable",
+			sidecars:  []string{"property_category"},
+		},
+		{
+			name:      "a sidecar a cancelled run left behind",
+			indexType: "filterable",
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			wantStale: true,
+		},
+		{
+			name:      "a tracker a cancelled run left behind",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_category_1": {"started.mig"}},
+			wantStale: true,
+		},
+		{
+			name:      "deferred-finalize state the sweep preserves",
+			indexType: "filterable",
+			trackers:  deferredFinalize,
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+		},
+		{
+			name:      "deferred-finalize state plus one stale sidecar",
+			indexType: "filterable",
+			trackers:  deferredFinalize,
+			sidecars: []string{
+				"property_category__enable_filterable_ingest_1",
+				"property_category__enable_filterable_ingest_2",
+			},
+			wantStale: true,
+		},
+		{
+			name:      "another property's stale state is not this property's",
+			indexType: "filterable",
+			trackers:  map[string][]string{"enable_filterable_other_1": {"started.mig"}},
+			sidecars:  []string{"property_other__enable_filterable_ingest_1"},
+		},
+		{
+			name:      "an index type this build cannot map to a bucket",
+			indexType: "an-index-type-this-build-does-not-know",
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			wantStale: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "ColdSweepEquiv_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			lsm := shard.pathLSM()
+
+			for name, sentinels := range tc.trackers {
+				mkTrackerDir(t, lsm, name, sentinels...)
+			}
+			for _, name := range tc.sidecars {
+				mkSidecarDir(t, lsm, name)
+			}
+
+			require.Equal(t, tc.wantStale, hasStalePartialReindexState(lsm, propName, tc.indexType))
+			if tc.wantStale {
+				// The shard is hydrated, and whatever the sweep then makes of
+				// it is the sweep's own business — the other tests here cover
+				// what it removes.
+				return
+			}
+
+			before := lsmDirNames(t, lsm)
+			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+			require.Equal(t, before, lsmDirNames(t, lsm),
+				"the predicate said this shard has nothing to clean, so the sweep it gates "+
+					"must not find anything either — a shard it skips is never looked at again")
 		})
 	}
 }
