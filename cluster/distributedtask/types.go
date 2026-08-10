@@ -421,13 +421,15 @@ func (t TaskStatus) IsTerminal() bool {
 
 // IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
 // SWAPPING) — used by conflict detection and the schema MutationGuard.
+//
+// It is the exact negation of [TaskStatus.IsTerminal] so a status this
+// build does not recognize — one a newer node introduced during a rolling
+// upgrade — counts as in-flight. Guessing "not active" would admit a
+// second migration onto a property the newer node is still migrating, and
+// would let the TTL sweep evict a live task (its FinishedAt is zero, so
+// the age check is trivially satisfied).
 func (t TaskStatus) IsActive() bool {
-	switch t {
-	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
-		return true
-	default:
-		return false
-	}
+	return !t.IsTerminal()
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
