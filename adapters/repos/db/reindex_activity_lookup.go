@@ -27,17 +27,23 @@ import (
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+// ShardReindexActivityLookupBuilder returns a fresh snapshot, or an error
+// if cluster-wide reindex state could not be read (RAFT leader
+// unreachable). That case means "unknown for every shard," not "no
+// reindex running," so the gate refuses the whole pass with one message.
+type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot.
+// gate ([reindexGate]), invoked once per backup pass for a
+// fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex" and WARN,
-// rate-limited to one line per hour so a shard-by-shard pass cannot flood
-// the log. Refusing instead would block every module-test fixture that
-// bypasses the bootstrap path. See [DB.AnyLiveReindexForShard].
+// Before installation, calls default to "no live reindex" with a
+// rate-limited WARN. The builder is wired by configure_api.go's
+// post-bootstrap goroutine, which runs after the node reports ready, so
+// an external backup request can land in the gap and be allowed without a
+// gate check — the WARN is the only signal. Refusing instead would block
+// every module-test fixture that bypasses the bootstrap path.
+// See [reindexGate].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -106,7 +112,7 @@ func (e redactedErr) Unwrap() []error {
 // which the task list can answer without any index (see
 // [AnyReindexActivityLookup]). Fails closed on a live task or a lookup error;
 // an unwired lookup allows the restore with a rate-limited WARN, matching
-// [DB.AnyLiveReindexForShard].
+// [reindexGate].
 func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error {
 	if db.config.RuntimeReindexDisabled {
 		// Same contract as the backup half: off means no reindex check at all.

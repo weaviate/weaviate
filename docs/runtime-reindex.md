@@ -1313,7 +1313,7 @@ each refuses to start while another is running:
 
 | Submitted | Refused when | Where |
 | --- | --- | --- |
-| Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
+| Backup | A live DTM reindex task targets the shard, a cancelled task is still removing its sidecars, or cluster-wide reindex state cannot be read at all | `Index.refuseIfReindexInFlightWithGate` (admission, via `DB.Backupable`) and `Index.refuseIfReindexInFlightInPass` (capture, via `DB.BackupDescriptors`). `Index.refuseIfReindexInFlight` is the single-shard fallback for callers outside a pass, today only `Shard.HaltForTransfer` |
 | Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
 | Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
 
@@ -1444,6 +1444,8 @@ Refusals are retryable, never terminal:
 
 - A reindex refused because of a backup gets 409; if a node cannot be
   reached it gets 503, since an unanswered node cannot be assumed idle.
+- A backup refused because of a reindex gets 422, both when the gate saw
+  a live task and when it could not read cluster state at all.
 - A restore refused because of a reindex gets 422.
 - Nothing needs operator action to clear. A backup or restore slot is
   held in process memory only, so it dies with the process. Participant

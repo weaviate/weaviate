@@ -917,17 +917,17 @@ func TestResolveBaseBackupChain(t *testing.T) {
 func runParticipantBackup(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
 	classes []string, sourcePath string, descs ...backup.ClassDescriptor,
 ) (*Handler, backup.Status, string) {
-	t.Helper()
-	return runParticipantBackupWithMetaWriteErr(t, sourcer, backend, classes, sourcePath, nil, descs...)
+	h, status, reason, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, classes, sourcePath, nil, descs...)
+	return h, status, reason
 }
 
 // runParticipantBackupWithMetaWriteErr wires the participant mocks, drives a
-// backup to completion, and returns the handler alongside the stored meta.
-// metaWriteErr fails the descriptor write. Duration is an hour so the
-// pre-commit window can't expire under CI load.
+// backup to completion, and returns the handler alongside the stored meta and
+// what the handler logged. metaWriteErr fails the descriptor write. Duration is
+// an hour so the pre-commit window can't expire under CI load.
 func runParticipantBackupWithMetaWriteErr(t *testing.T, sourcer *fakeSourcer, backend *fakeBackend,
 	classes []string, sourcePath string, metaWriteErr error, descs ...backup.ClassDescriptor,
-) (*Handler, backup.Status, string) {
+) (*Handler, backup.Status, string, *test.Hook) {
 	t.Helper()
 	var (
 		ctx         = context.Background()
@@ -952,16 +952,24 @@ func runParticipantBackupWithMetaWriteErr(t *testing.T, sourcer *fakeSourcer, ba
 	backend.On("Write", any, nodeHome, any, any).Return(any, nil)
 
 	m := createManager(sourcer, nil, backend, nil)
+	logger, hook := test.NewNullLogger()
+	m.backupper.logger = logger
 	require.Equal(t, &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: _TimeoutShardCommit},
 		m.OnCanCommit(ctx, &Request{
 			Method: OpCreate, ID: backupID, Classes: classes,
 			Backend: backendName, Duration: time.Hour,
 		}))
 	require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, backupID, backendName, "", "", ""}))
-	m.backupper.waitForCompletion(50, 100)
+	// The slot release is the last thing the backup goroutine does, so waiting
+	// for it is what puts the descriptor write and the log line behind us. A
+	// terminal status is not: the failure paths this helper drives leave the
+	// status at Transferring, so waiting for one is just a sleep, and on a
+	// loaded runner the sleep ends first.
+	require.True(t, m.backupper.waitForSlotRelease(300, 100),
+		"the backup goroutine never finished, so nothing it wrote can be asserted on")
 
 	status, reason := backend.getMetaStatus()
-	return m, status, reason
+	return m, status, reason, hook
 }
 
 // waitForSlotRelease waits for backupper.backup's deferred reset, which is what
@@ -995,7 +1003,7 @@ func TestRememberedFailureSurvivesTheProductionSlotRelease(t *testing.T) {
 	backend.On("GetObject", context.Background(), "1", BackupFile).Return(nil, errNotFound)
 
 	sourcePath := t.TempDir()
-	m, _, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, []string{cls}, sourcePath,
+	m, _, _, _ := runParticipantBackupWithMetaWriteErr(t, sourcer, backend, []string{cls}, sourcePath,
 		errors.New("object storage unreachable"), genClassDescriptions(t, sourcePath, cls)...)
 
 	require.True(t, m.backupper.waitForSlotRelease(50, 100),

@@ -175,7 +175,9 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		b.logger.WithFields(logFields).Info("starting backup")
 		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
-			b.logger.WithFields(logFields).Error(err)
+			// Bounded: the caller reads the full error from the backup
+			// status endpoint; the log keeps a summary.
+			b.logger.WithFields(logFields).Error(backup.ErrorForLog(err))
 			b.lastAsyncError = err
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -907,4 +908,59 @@ func applyReq[T any](t *testing.T, subCommand T) *api.ApplyRequest {
 	raw, err := json.Marshal(subCommand)
 	require.NoError(t, err)
 	return &api.ApplyRequest{SubCommand: raw}
+}
+
+// TestMidPassSubmissionIsCaughtByTheCommitBackstop builds the interleaving a
+// once-per-pass snapshot cannot see, and pins that the commit-time overlap
+// check refuses it anyway:
+//
+//  1. the pass starts (since stamped) and resolves an empty snapshot
+//  2. a reindex task is submitted mid-pass, and may even finish mid-pass
+//  3. shards checked later still read "free" from that stale snapshot
+//  4. the overlap check, given the same since, refuses at commit
+func TestMidPassSubmissionIsCaughtByTheCommitBackstop(t *testing.T) {
+	var live atomic.Bool // flips when the mid-pass task is submitted
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		snapshotSeesTask := live.Load()
+		return func(string, string) bool { return snapshotSeesTask }, nil
+	})
+
+	since := time.Now().UTC() // desc.StartedAt, stamped before the gate resolves
+	gate := newReindexGate(db)
+	require.False(t, gateRefuses(gate, "Movies", "shard-early"),
+		"the pass starts clean")
+
+	// Mid-pass: a task is submitted, runs, and finishes.
+	live.Store(true)
+	finished := time.Now().UTC().Add(time.Millisecond)
+
+	require.False(t, gateRefuses(gate, "Movies", "shard-late"),
+		"the pass snapshot is expected to be stale here; the backstop covers it")
+
+	tests := []struct {
+		name   string
+		status distributedtask.TaskStatus
+		// finishedAt is zero while the task is still running.
+		finishedAt time.Time
+	}{
+		{name: "still live at commit", status: distributedtask.TaskStatusStarted},
+		{
+			name: "started and finished mid-pass", status: distributedtask.TaskStatusFinished,
+			finishedAt: finished,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := overlapTask("Movies", tt.status, tt.finishedAt)
+			lookup := NewReindexOverlapLookup(func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{ReindexNamespace: {task}}, nil
+			}, 24*time.Hour)
+
+			err := lookup(context.Background(), []string{"Movies"}, since)
+			require.Error(t, err, "the backstop must catch what the stale snapshot missed")
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex)
+		})
+	}
 }

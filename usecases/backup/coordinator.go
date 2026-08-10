@@ -261,7 +261,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
-			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			c.log.WithFields(logFields).Errorf("coordinator: %s", backup.TextForLog(c.descriptor.Error))
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -530,6 +530,9 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 // survive the RPC boundary:
 //
 //   - [CanCommitErrInFlightReindex] carries [backup.ErrBackupBlockedByInFlightReindex].
+//   - [CanCommitErrReindexStateUnknown] carries the same sentinel, but the
+//     participant's message is republished verbatim: it denies that a reindex
+//     was seen, so a sentinel prefix would contradict it.
 //   - [CanCommitErrRestoreBlockedByReindex] carries [backup.ErrReindexInFlight],
 //     not [errCannotCommit] — mapping it to that would answer 500 for what the
 //     scheduler answers 422.
@@ -546,7 +549,13 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 			// would print the whole condition twice.
 			return backup.ReindexBlockedError{Msg: resp.Err}
 		}
+		// An older participant sends a message that names no condition, so
+		// the coordinator names it.
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrReindexStateUnknown:
+		// This message already says what happened, and what happened is not
+		// a reindex. Prefixing the sentinel would contradict its own text.
+		return backup.ReindexBlockedError{Msg: resp.Err}
 	case CanCommitErrRestoreBlockedByReindex:
 		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
@@ -555,13 +564,16 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
-// node and no shard, and so can be served to a backup caller as-is. Only the
-// two reindex refusals are; everything else is an operator-facing failure
-// whose first question is "which node?", so [coordinator.canCommit] keeps
-// the node prefix on those.
+// node and no shard, and so can be served to a backup caller as-is. Every
+// reindex refusal is written that way on purpose, because a backup or
+// restore caller is granted nothing on cluster internals. Everything else is
+// an operator-facing failure whose first question is "which node?", so
+// [coordinator.canCommit] keeps the node prefix on those.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
 	switch kind {
-	case CanCommitErrInFlightReindex, CanCommitErrRestoreBlockedByReindex:
+	case CanCommitErrInFlightReindex,
+		CanCommitErrReindexStateUnknown,
+		CanCommitErrRestoreBlockedByReindex:
 		return true
 	default:
 		return false
@@ -634,10 +646,13 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
+				// Bounded: this is the participant's own refusal verbatim, one
+				// line per blocked collection, and the caller still gets all of
+				// it in the response.
 				c.log.WithField("action", req.Method).
 					WithField("backup_id", req.ID).
 					WithField("node", req.NodeName).
-					Errorf("canCommit refused by participant: %v", err)
+					Errorf("canCommit refused by participant: %v", backup.ErrorForLog(err))
 				if redactNode {
 					return err
 				}
@@ -905,9 +920,11 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 			st.Status = backup.Failed
 		}
 		c.Participants[x.node] = st
+		// Bounded: this is the participant's own refusal verbatim, and the
+		// caller still gets all of it through the status endpoint.
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).
-			WithField("node", x.node).Error(x.err)
+			WithField("node", x.node).Error(backup.ErrorForLog(x.err))
 		delete(nodes, x.node)
 		nFailures++
 		continue

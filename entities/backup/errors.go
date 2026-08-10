@@ -64,6 +64,14 @@ func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightR
 // so callers can frame it themselves (e.g. "restore blocked: ...").
 var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
 
+// ErrReindexStateUnknown marks the refusal a node returns when it could
+// not read cluster-wide reindex state at all: not "a reindex is running",
+// but "no shard's state is known". It is never printed — the refusal's own
+// message says what happened — and exists so the canCommit boundary can
+// tell that message apart from a genuine per-shard refusal, and from an
+// older node's message that carries no sentinel at all.
+var ErrReindexStateUnknown = errors.New("runtime-reindex state unknown")
+
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,
 // so the writer sees the actual error instead of a generic "closed pipe" error.

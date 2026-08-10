@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,35 +36,79 @@ import (
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
-	return func() ShardReindexActivityLookup {
+	return func() (ShardReindexActivityLookup, error) {
 		return func(collection, shardName string) bool {
 			return live[[2]string{collection, shardName}]
-		}
+		}, nil
 	}
 }
 
-// TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
+// gateRefuses asks the gate about one shard through the same call the
+// admission and capture passes make, so a gate verdict cannot be asserted
+// against a route production never takes.
+func gateRefuses(gate *reindexGate, collection, shardName string) bool {
+	idx := &Index{db: gate.db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+	return idx.refuseIfReindexInFlightWithGate(gate, shardName) != nil
+}
+
+// countingActivityBuilder counts snapshot builds and probed shards.
+// Production meters the same count as
+// schema_reads_leader_seconds_count{type="TYPE_DISTRIBUTED_TASK_LIST"}.
+// Mutex-guarded: the descriptor pass runs one goroutine per shard.
+type countingActivityBuilder struct {
+	snapshots ShardReindexActivityLookupBuilder
+
+	mu     sync.Mutex
+	builds int
+	probed [][2]string
+}
+
+func (c *countingActivityBuilder) install(db *DB) {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		c.mu.Lock()
+		c.builds++
+		c.mu.Unlock()
+		lookup, err := c.snapshots()
+		if err != nil {
+			return nil, err
+		}
+		return func(collection, shardName string) bool {
+			c.mu.Lock()
+			c.probed = append(c.probed, [2]string{collection, shardName})
+			c.mu.Unlock()
+			return lookup(collection, shardName)
+		}, nil
+	})
+}
+
+func (c *countingActivityBuilder) stats() (builds int, probed [][2]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.builds, slices.Clone(c.probed)
+}
+
+// TestReindexGate_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.
-func TestAnyLiveReindexForShard_LiveTask(t *testing.T) {
+func TestReindexGate_LiveTask(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard1"}: true,
 	}))
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"gate must refuse when DTM reports a live task on the tuple")
 }
 
-// TestAnyLiveReindexForShard_TerminalTask pins that a lookup whose
+// TestReindexGate_TerminalTask pins that a lookup whose
 // snapshot contains only terminal-status tasks (none reported as live)
 // lets the gate allow the backup.
-func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
+func TestReindexGate_TerminalTask(t *testing.T) {
 	db := &DB{}
 	// Builder reports no live tasks at all — equivalent to a snapshot
 	// containing only Finished/Cancelled/Failed tasks after the
 	// configure_api filter.
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"gate must allow when no live task targets the tuple")
 }
 
@@ -73,28 +119,26 @@ func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
 // TestShardReindexActivityBuilderScopesByCollectionAndShard in
 // adapters/handlers/rest.
 
-// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
-// lookup defaults to "no live reindex" — production gates HTTP serving
-// on bootstrap completion so the unwired window is unreachable by
-// external traffic, and the prior refuse-by-default broke every
-// module-test fixture that spins up Weaviate without going through
-// the post-bootstrap install path. A rate-limited WARN fires to surface
-// the unwired path if it ever shows up in production logs.
-func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
+// TestReindexGate_BuilderUnwired pins that an unwired lookup defaults to
+// allow, with a rate-limited WARN. Refusing instead broke every
+// module-test fixture that spins up Weaviate outside the post-bootstrap
+// install path — and the window is reachable from outside, so the WARN is
+// the only signal a backup took it (see [DB.SetShardReindexActivityLookup]).
+func TestReindexGate_BuilderUnwired(t *testing.T) {
 	db := &DB{}
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
 }
 
-// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same fail-open
+// TestReindexGate_BuilderReturnsNil pins the same fail-open
 // when the installed builder returns a nil closure (defensive against
 // a misconfigured wiring).
-func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
+func TestReindexGate_BuilderReturnsNil(t *testing.T) {
 	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return nil
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, nil
 	})
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
 }
 
@@ -269,7 +313,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, "refused a backup") {
+		if strings.Contains(entry.Message, "refused a replica movement") {
 			logged = entry
 		}
 	}
@@ -298,9 +342,9 @@ func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
 	db := backupableFixture(t, collection, node, "s1", "s2", "s3", "s4", "s5")
 
 	var activityBuilds, cleanupBuilds int
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		activityBuilds++
-		return func(string, string) bool { return false }
+		return func(string, string) bool { return false }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds++
@@ -367,6 +411,161 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	assert.Contains(t, live, "cancel it via")
 }
 
+// TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause pins that
+// the single-shard caller (replica movement, and each shard of a backup
+// execution pass) reports the leader failure as itself, rather than
+// borrowing the live-reindex wording.
+func TestRefuseIfReindexInFlight_UnreachableLeaderStatesTheCause(t *testing.T) {
+	leaderErr := errors.New("list DTM tasks: leader not found")
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, leaderErr
+	})
+	idx := &Index{
+		db:     db,
+		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
+	}
+
+	err := idx.refuseIfReindexInFlight("ABC123")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+		"unknown state stays fail-closed")
+	assert.Contains(t, err.Error(), "cluster leader could not be reached")
+	assert.NotContains(t, err.Error(), leaderErr.Error(),
+		"the RAFT-transport cause is log-only; the body grants nothing on cluster internals")
+	assert.True(t, errors.Is(err, leaderErr), "but it stays matchable")
+	assert.NotContains(t, err.Error(), "active runtime-reindex task in DTM")
+	assert.NotContains(t, err.Error(), "cancel")
+}
+
+// TestRefuseIfReindexInFlight_LogsOnlyWhatTheGateSaw pins the WARN the
+// single-shard caller writes next to its refusal. A live task names the shard;
+// an unreadable cluster state must not, since the gate learned nothing about
+// that shard. The fixture above cannot see this: its DB has no logger, so the
+// line returns at its first guard.
+func TestRefuseIfReindexInFlight_LogsOnlyWhatTheGateSaw(t *testing.T) {
+	tests := []struct {
+		name           string
+		lookup         ShardReindexActivityLookupBuilder
+		wantShardNamed bool
+	}{
+		{
+			name: "live task names the shard",
+			lookup: func() (ShardReindexActivityLookup, error) {
+				return func(string, string) bool { return true }, nil
+			},
+			wantShardNamed: true,
+		},
+		{
+			name: "unreachable leader names no shard",
+			lookup: func() (ShardReindexActivityLookup, error) {
+				return nil, errors.New("list DTM tasks: leader not found")
+			},
+			wantShardNamed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			db := &DB{logger: logger, localNodeName: "weaviate-0"}
+			db.SetShardReindexActivityLookup(tt.lookup)
+			idx := &Index{
+				db:     db,
+				Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
+			}
+
+			require.Error(t, idx.refuseIfReindexInFlight("ABC123"))
+
+			var claims int
+			for _, e := range hook.AllEntries() {
+				if !strings.Contains(e.Message, "a runtime-reindex is live on this shard") {
+					continue
+				}
+				claims++
+				require.Equal(t, "ABC123", e.Data["shard"],
+					"the log is the only place the shard reaches the operator")
+			}
+			if tt.wantShardNamed {
+				require.Equal(t, 1, claims, "a real refusal must still name the shard it held")
+				return
+			}
+			require.Zero(t, claims,
+				"the gate could not read cluster state, so it must not report a live reindex on a named shard")
+		})
+	}
+}
+
+// TestReindexGate_UnreachableLeaderIsBlocked pins that the gate stays
+// fail-closed when cluster state cannot be read.
+func TestReindexGate_UnreachableLeaderIsBlocked(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return nil, errors.New("leader not found")
+	})
+	assert.True(t, gateRefuses(newReindexGate(db), "MyClass", "shard1"),
+		"unknown reindex state must block, not allow")
+}
+
+// causeFirstRefusal is the shape of a refusal whose message states what
+// actually happened, keeping the sentinel reachable through Unwrap so
+// errors.Is still matches across the canCommit RPC. This pins
+// reindexStateUnknown only; usecases/backup pins its own stand-in against its
+// own copy of this interface, and nothing compares the two.
+type causeFirstRefusal interface {
+	error
+	Unwrap() []error
+}
+
+var _ causeFirstRefusal = reindexStateUnknown{}
+
+// TestReindexStateUnknownError_ReadsAsItsOwnCause pins that the refusal
+// for an unreachable leader states the leader failure from its first
+// word. Wrapping the sentinel with %w rendered "backup blocked:
+// runtime-reindex in flight on this shard" first, so the opening of the
+// response asserted the one thing this refusal exists to deny.
+func TestReindexStateUnknownError_ReadsAsItsOwnCause(t *testing.T) {
+	cause := errors.New("list DTM tasks: leader not found")
+	err := reindexStateUnknownError(cause)
+
+	sentinelText := entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()
+	require.False(t, strings.HasPrefix(err.Error(), sentinelText),
+		"the refusal must not open with a claim that a reindex is in flight")
+	require.NotContains(t, err.Error(), sentinelText,
+		"and must not make that claim anywhere else either")
+	require.True(t, strings.HasPrefix(err.Error(),
+		"backup blocked: the cluster leader could not be reached"),
+		"the real cause comes first")
+
+	// Redacted, so the stored failure meta can publish it verbatim.
+	var publishable entitiesbackup.ReindexBlockedError
+	require.True(t, errors.As(err, &publishable),
+		"the refusal must be publishable in the stored failure meta")
+	require.Equal(t, err.Error(), publishable.Error())
+
+	// Matching still works, including across the canCommit RPC, where
+	// classifyCanCommitErr decides the response kind with errors.Is.
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+		"the sentinel must still match")
+	require.True(t, errors.Is(err, cause), "the cause must still match")
+}
+
+// TestReindexInFlightError_GenuineRefusalIsPinned holds the genuine
+// refusal byte for byte: it is parsed downstream, and the unknown-state
+// rewording must not touch it.
+//
+// The text names the collection and nothing else. Both the shard id and
+// the "on this shard" tail of the sentinel are redacted, so this is not
+// the string a 12471-only build produced — the redaction is deliberate
+// and the shard reaches the operator through the log instead.
+func TestReindexInFlightError_GenuineRefusalIsPinned(t *testing.T) {
+	want := `backup blocked: runtime-reindex in flight: collection "MyClass" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status="ready"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {"<indexType>":{"cancel":true}}; once it has started committing its result it can only be waited out, and if a node that owned part of it left the cluster it never finishes at all — a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal. If every index already reports "ready", the task holding this gate is one this server cannot attribute to a collection — the same cancel call, on any collection, clears it`
+	require.Equal(t, want, reindexInFlightError("MyClass", reindexBlockedByLiveTask).Error())
+
+	wantPreWire := `backup blocked: runtime-reindex in flight: collection "MyClass": backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping`
+	require.Equal(t, wantPreWire, reindexInFlightError("MyClass", reindexBlockedPreWire).Error())
+}
+
 // unknownReindexHold stands in for a hold kind added to the enum after this
 // build shipped. Derived from the last named constant so it stays out of range
 // as the enum grows.
@@ -375,7 +574,7 @@ const unknownReindexHold = ReindexHoldSubmit + 1
 // The node-local hold lookup decides admission, so its unknown arm must fail
 // closed: a hold this build cannot classify still means something is holding
 // the shard.
-func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
+func TestReindexGate_HoldKinds(t *testing.T) {
 	tests := []struct {
 		name       string
 		hold       ReindexHold
@@ -397,7 +596,7 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 				return func(string, string) ReindexHold { return test.hold }
 			})
 
-			assert.Equal(t, test.wantReason, db.reindexBlockReason("MyClass", "shard1"))
+			assert.Equal(t, test.wantReason, newReindexGate(db).blockReason("MyClass", "shard1"))
 
 			idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName("MyClass")}}
 			err := idx.refuseIfReindexInFlight("shard1")
@@ -425,8 +624,8 @@ func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	}
 
 	db := backupableFixture(t, collection, node, shards...)
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true } // every shard refuses
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return true }, nil // every shard refuses
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -462,15 +661,15 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 
 	logger, hook := logrustest.NewNullLogger()
 	// Debug on, so nothing hides behind the level. The per-shard Debug lines in
-	// reindexBlockReasonIn are O(shards) and stay that way on purpose: they are the
+	// reindexGate.blockReason are O(shards) and stay that way on purpose: they are the
 	// only per-shard visibility into which side of the gate fired, Debug is off in
 	// production, and the bound that matters is on what an operator actually sees.
 	// That is what the warn-and-above count below pins.
 	logger.SetLevel(logrus.DebugLevel)
 	db := backupableFixture(t, collection, node, shards...)
 	db.logger = logger
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return true }, nil
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -479,7 +678,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	require.Error(t, db.Backupable(context.Background(), []string{collection}))
 
 	// Counted by LEVEL, not by message. The per-shard risk is that some future
-	// edit promotes one of the per-shard Debug lines in refuseIfReindexInFlightIn
+	// edit promotes one of the per-shard Debug lines in reindexGate.blockReason
 	// to Warn — a 60-shard refusal is then 61 operator-facing entries for a
 	// 1-line body. Matching a message string cannot catch that: the only string
 	// naming a single shard at Warn comes from logReindexRefusal, which this
@@ -487,12 +686,14 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	var warnAndAbove, aggregate int
 	var sample []string
 	var reportedCount int
+	var aggregateMsg string
 	for _, e := range hook.AllEntries() {
 		if e.Level <= logrus.WarnLevel {
 			warnAndAbove++
 		}
-		if strings.Contains(e.Message, "are held by the reindex gate") {
+		if strings.Contains(e.Message, "are held;") {
 			aggregate++
+			aggregateMsg = e.Message
 			if v, ok := e.Data["blocked_shards"].([]string); ok {
 				sample = v
 			}
@@ -507,6 +708,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 			"%d shards produced %d warn-or-above entries, so the per-shard growth is back",
 		shardCount, warnAndAbove)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
+	require.Contains(t, aggregateMsg, "backup precheck refused",
+		"the phase label is how an operator tells this line apart from the capture pass")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
 	// A literal, not the constant the code caps with: asserting the bound
 	// against itself cannot fail, so raising the constant to 100000 would keep

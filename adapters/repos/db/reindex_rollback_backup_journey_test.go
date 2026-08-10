@@ -85,7 +85,7 @@ func newRollbackJourney(t *testing.T, status distributedtask.TaskStatus,
 
 	// The per-shard gate: a live task on this shard refuses, mirroring
 	// newShardReindexActivityBuilder.
-	database.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	database.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		live := map[string]bool{}
 		for _, tsk := range []*distributedtask.Task{task} {
 			if !IsLiveReindexTaskStatus(tsk.Status) {
@@ -95,7 +95,7 @@ func newRollbackJourney(t *testing.T, status distributedtask.TaskStatus,
 				live[shardName] = true
 			}
 		}
-		return func(_, shardName string) bool { return live[shardName] }
+		return func(_, shardName string) bool { return live[shardName] }, nil
 	})
 	database.SetReindexCleanupInProgressLookup(provider.CleanupInProgressLookupBuilder())
 	database.SetReindexOverlapLookup(NewReindexOverlapLookup(list, time.Hour))
