@@ -281,7 +281,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = err.Error()
+		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
@@ -297,12 +297,14 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		u.log.Info("finish uploading metadata for cancelled or failed backup")
-		// After the meta write, since the reason has to be readable from the
-		// descriptor by the time a poll can see FAILED.
+		// After the meta write either way, since it's the operation that may
+		// have just failed and the reason must survive it. err is published
+		// rather than desc.Error, which was fixed before the write and so says
+		// nothing when the write is what failed.
 		if desc.Status != backup.Cancelled {
-			u.slot.setFailed(desc.Error)
+			u.slot.setFailed(publishableErrMsg(err))
 		}
+		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
 	contextChecker := func(ctx context.Context) error {
@@ -372,6 +374,17 @@ Loop:
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
+}
+
+// publishableErrMsg is the failure text safe to serve from the status API.
+func publishableErrMsg(err error) string {
+	msg := err.Error()
+	if msg == "" {
+		// A failure published with no text at all reads as no failure; say at
+		// least that there was one.
+		return "backup failed without a reported reason"
+	}
+	return msg
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
