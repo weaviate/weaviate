@@ -222,7 +222,10 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // refused.
 //
 // Only called for a task the caller has already read as in flight, so the
-// recognized arm is PREPARING or SWAPPING.
+// recognized arm is PREPARING or SWAPPING. A terminal status lands in
+// that same arm and reads as "past the point where a cancel is accepted"
+// — true, but not an answer any caller should be asking for: nothing
+// refuses a mutation for a task that has already finished.
 //
 // Only the wording branches on the local vocabulary. The reject itself
 // does not, so the apply stays deterministic.

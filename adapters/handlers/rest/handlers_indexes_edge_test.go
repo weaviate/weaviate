@@ -873,6 +873,9 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
 			http.StatusConflict, "wait for it to reach a terminal state",
 		},
+		// The three terminal rows never reach the refusal logic: they
+		// are filtered out as cancel targets, so what they pin is that a
+		// finished task is a NO_OP rather than a 409.
 		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
 		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
 		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
