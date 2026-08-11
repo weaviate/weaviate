@@ -181,8 +181,8 @@ func logReindexRefusalPass(logger logrus.FieldLogger, stage, node, collection st
 	if len(shardNames) == 0 || logger == nil {
 		return
 	}
-	// Sorted so repeated refusals diff cleanly; on a copy so the
-	// caller's slice keeps its order.
+	// Sorted on a copy so repeated refusals diff cleanly without
+	// mutating the caller's slice.
 	sorted := slices.Sorted(slices.Values(shardNames))
 	sample := sorted
 	if len(sample) > reindexRefusalShardSample {

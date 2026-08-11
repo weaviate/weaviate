@@ -289,9 +289,8 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, collection, logged.Data["collection"])
 }
 
-// A gate refusal on the replica-snapshot RPC answers a remote caller, so the
-// refused shard's identity only survives through the local WARN. Both snapshot
-// modes must emit it.
+// Pins: a replica-snapshot RPC refusal must still name the shard via the
+// local WARN, in both snapshot modes, since the RPC response can't carry it.
 func TestIncomingCreateReplicaSnapshot_LogsGateRefusal(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -337,8 +336,8 @@ func TestIncomingCreateReplicaSnapshot_LogsGateRefusal(t *testing.T) {
 	}
 }
 
-// The pass log sorts its shard sample for diffability; it must do so on a
-// copy, since callers still own their slice.
+// Pins: the pass log sorts its shard sample on a copy, leaving the
+// caller's slice order untouched.
 func TestLogReindexRefusalPass_SortsACopy(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	shards := []string{"s-c", "s-a", "s-b"}
