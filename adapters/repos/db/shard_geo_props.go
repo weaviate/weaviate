@@ -22,12 +22,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
+	// replacing a live index would leave its commit logger and queue registered,
+	// putting two writers on the same files
+	if s.hasGeoIndexForProp(prop.Name) {
+		return nil
+	}
+
 	// starts geo props cycles if actual geo property is present
 	// (safe to start multiple times)
 	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
@@ -58,6 +65,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 
 	s.propertyIndicesLock.Lock()
+	if _, ok := s.propertyIndices[prop.Name]; ok {
+		s.propertyIndicesLock.Unlock()
+		// another caller claimed the prop while this index was built; unregister
+		// the cycle callbacks its constructor added
+		return idx.Shutdown(s.shutCtx)
+	}
 	s.propertyIndices[prop.Name] = propertyspecific.Index{
 		Type:     schema.DataTypeGeoCoordinates,
 		GeoIndex: idx,
@@ -71,7 +84,16 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	if underlyingVI, ok := idx.UnderlyingVectorIndex().(VectorIndex); ok {
 		geoQueue, err := NewGeoIndexQueue(s, prop.Name, underlyingVI)
 		if err != nil {
-			return errors.Wrapf(err, "create geo index queue for prop %q", prop.Name)
+			// the guard at the top would skip the retry, leaving the prop with an
+			// index but no queue until the shard is reloaded
+			s.propertyIndicesLock.Lock()
+			delete(s.propertyIndices, prop.Name)
+			s.propertyIndicesLock.Unlock()
+
+			ec := errorcompounder.New()
+			ec.AddWrapf(err, "create geo index queue for prop %q", prop.Name)
+			ec.AddWrapf(idx.Shutdown(s.shutCtx), "shutdown geo index for prop %q", prop.Name)
+			return ec.ToError()
 		}
 		s.propertyIndicesLock.Lock()
 		s.geoQueues[prop.Name] = geoQueue

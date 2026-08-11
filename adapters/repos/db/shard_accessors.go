@@ -195,3 +195,10 @@ func (s *Shard) hasGeoIndex() bool {
 	}
 	return false
 }
+
+func (s *Shard) hasGeoIndexForProp(propName string) bool {
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	return s.propertyIndices[propName].Type == schema.DataTypeGeoCoordinates
+}
