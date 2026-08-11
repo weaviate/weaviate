@@ -144,7 +144,7 @@ func TestPrefillTargetedSkipsTruncatedRows(t *testing.T) {
 			c.Grow(healthy + 1)
 			h := newTargetedTestIndex(store, c, id, live, healthy+1)
 
-			require.NoError(t, h.prefillFromScan(context.Background(),
+			require.NoError(t, h.prefillFromScan(context.Background(), prefillScanObjects,
 				func(ctx context.Context, onVector prefillOnVector) error {
 					return h.scanObjectVectorsTargeted(ctx, bucket, tc.target, onVector)
 				}))
@@ -191,7 +191,7 @@ func TestPrefillTargetedSkipsRowUnderForeignKey(t *testing.T) {
 	c.Grow(healthy + 1)
 	h := newTargetedTestIndex(store, c, "main", live, healthy+1)
 
-	require.NoError(t, h.prefillFromScan(context.Background(),
+	require.NoError(t, h.prefillFromScan(context.Background(), prefillScanObjects,
 		func(ctx context.Context, onVector prefillOnVector) error {
 			return h.scanObjectVectorsTargeted(ctx, bucket, "", onVector)
 		}))

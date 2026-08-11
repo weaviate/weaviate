@@ -106,7 +106,7 @@ func TestStopPrefillWaitsForInFlightScan(t *testing.T) {
 	h.store = store
 	h.waitForCachePrefill = false
 
-	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
+	require.Equal(t, prefillScanObjects, h.parallelPrefillSource(), "test must exercise the scan path")
 	h.prefillCache(context.Background())
 
 	waitFor(t, blocking.entered, 10*time.Second, "no scan worker reached the cache")
@@ -171,7 +171,7 @@ func TestStopPrefillCancelsBlockedPrefill(t *testing.T) {
 	// no store: routing falls through to the serial by-id prefiller
 	h := newLifecycleTestIndex(t, c, n)
 	h.waitForCachePrefill = false
-	require.False(t, h.useParallelPrefill())
+	require.Equal(t, prefillScanNone, h.parallelPrefillSource())
 
 	h.prefillCache(context.Background())
 	waitFor(t, started, 10*time.Second, "prefill never started")
@@ -248,7 +248,7 @@ func TestPrefillRefusedAfterStop(t *testing.T) {
 	h := newLifecycleTestIndex(t, c, n)
 	h.store = store
 	h.waitForCachePrefill = true // a started prefill would run to completion inline
-	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
+	require.Equal(t, prefillScanObjects, h.parallelPrefillSource(), "test must exercise the scan path")
 
 	h.stopPrefill() // stands in for Drop, which does not cancel shutdownCtx
 	h.prefillCache(context.Background())

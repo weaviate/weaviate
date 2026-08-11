@@ -952,7 +952,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		if h.muvera.Load() {
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
-			if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+			if err := h.store.Bucket(helpers.GetMuveraBucketName(h.id)).Delete(idBytes); err != nil {
 				h.logger.WithFields(logrus.Fields{
 					"action": "muvera_delete",
 					"id":     id,

@@ -293,14 +293,15 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.Unlock()
 		})
 		// Process all vectors
+		muveraBucket := helpers.GetMuveraBucketName(h.id)
 		processedVectors := make([][]float32, len(vectors))
 		for i, v := range vectors {
 			processedVectors[i] = h.muveraEncoder.EncodeDoc(v)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])
-			if err := h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes); err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to put %s_muvera_vectors into the bucket", h.id))
+			if err := h.store.Bucket(muveraBucket).Put(docIDBytes, muveraBytes); err != nil {
+				return errors.Wrapf(err, "failed to put into the %s bucket", muveraBucket)
 			}
 		}
 		// Replace original vectors with processed ones
