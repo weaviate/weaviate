@@ -26,7 +26,7 @@ import (
 )
 
 // resetIfCancelled must clear the slot only for an operation that has fully
-// cancelled, not one still Cancelling or running under the same id.
+// cancelled, not one still Cancelling.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -55,9 +55,11 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			wantSlotID: "op-1",
 		},
 		{
-			name:       "live op sharing the id being released",
+			// This release has no claim to key on, so the status is what keeps
+			// it off a retry: a fresh claim reads Started, never Cancelled.
+			name:       "retry of the same id holding the slot",
 			claimedID:  "op-1",
-			status:     backup.Transferring,
+			status:     backup.Started,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-1",
@@ -120,18 +122,6 @@ func TestSlotOwnerRelease(t *testing.T) {
 			wantSlotID: "",
 		},
 		{
-			name: "slot taken over by a different operation",
-			arrange: func(t *testing.T, s *backupStat) slotOwner {
-				_, slot := s.renew("op-1", "path", "", "")
-				slot.release()
-				prevID, _ := s.renew("op-2", "path", "", "")
-				require.Empty(t, prevID)
-				return slot
-			},
-			wantOK:     false,
-			wantSlotID: "op-2",
-		},
-		{
 			// Cancel a restore, then retry it under the same id: a normal
 			// flow, and the one an id-keyed check cannot tell apart from the
 			// first attempt still holding the slot.
@@ -171,66 +161,93 @@ func TestSlotOwnerRelease(t *testing.T) {
 	}
 }
 
-// setIfOwned must stamp only the matching id, and must never walk a finished
-// cancel back to Cancelling.
-func TestBackupStatSetIfOwned(t *testing.T) {
+// stamp is how a cancel writes to a slot it did not claim itself. It must
+// reach only the operation the cancel took its claim on, and must never walk a
+// finished cancel back to Cancelling.
+func TestSlotOwnerStamp(t *testing.T) {
 	t.Parallel()
 
+	// held claims the slot for op-1 and leaves it reading st.
+	held := func(t *testing.T, s *backupStat, st backup.Status) slotOwner {
+		t.Helper()
+		prevID, slot := s.renew("op-1", "path", "bucket", "override")
+		require.Empty(t, prevID)
+		require.True(t, slot.set(st))
+		return s.claimOf("op-1")
+	}
+
 	tests := []struct {
-		name       string
-		claimedID  string
-		status     backup.Status
-		setID      string
-		set        backup.Status
+		name string
+		// arrange sets the slot up and returns the claim the cancel took.
+		arrange    func(t *testing.T, s *backupStat) slotOwner
+		stamp      backup.Status
 		wantOK     bool
 		wantStatus backup.Status
 	}{
 		{
-			name:       "holder gets the status",
-			claimedID:  "op-1",
-			status:     backup.Transferring,
-			setID:      "op-1",
-			set:        backup.Cancelling,
+			name: "the operation the claim was taken on gets the status",
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				return held(t, s, backup.Transferring)
+			},
+			stamp:      backup.Cancelling,
 			wantOK:     true,
 			wantStatus: backup.Cancelling,
 		},
 		{
-			name:       "slot held by a different operation",
-			claimedID:  "op-2",
-			status:     backup.Transferring,
-			setID:      "op-1",
-			set:        backup.Cancelled,
+			name: "slot held by a different operation",
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				prevID, slot := s.renew("op-2", "path", "", "")
+				require.Empty(t, prevID)
+				require.True(t, slot.set(backup.Transferring))
+				return s.claimOf("op-1")
+			},
+			stamp:      backup.Cancelled,
 			wantOK:     false,
 			wantStatus: backup.Transferring,
+		},
+		{
+			// Cancel a restore, then retry it under the same id: a normal
+			// flow, and the one an id-keyed stamp cannot tell apart from the
+			// restore the cancel read.
+			name: "slot taken over by a retry of the same id",
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				claim := held(t, s, backup.Cancelled)
+				freeSlot(t, s, "op-1")
+				prevID, _ := s.renew("op-1", "path", "", "")
+				require.Empty(t, prevID, "the retry could not claim the freed slot")
+				return claim
+			},
+			stamp:      backup.Cancelled,
+			wantOK:     false,
+			wantStatus: backup.Started,
 		},
 		{
 			// A cancel reading the older CANCELLING out of storage after
 			// commit already stamped the slot CANCELLED. Letting it through
 			// reports a finished cancel as still in progress.
-			name:       "cancelled is terminal",
-			claimedID:  "op-1",
-			status:     backup.Cancelled,
-			setID:      "op-1",
-			set:        backup.Cancelling,
+			name: "cancelled is terminal",
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				return held(t, s, backup.Cancelled)
+			},
+			stamp:      backup.Cancelling,
 			wantOK:     false,
 			wantStatus: backup.Cancelled,
 		},
 		{
 			// The cancel endpoint's own write, aimed at a restore that has
 			// started applying its schema and can no longer be stopped.
-			name:       "a schema apply refuses the cancel stamp",
-			claimedID:  "op-1",
-			status:     backup.Finalizing,
-			setID:      "op-1",
-			set:        backup.Cancelling,
+			name: "a schema apply refuses the cancel stamp",
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				return held(t, s, backup.Finalizing)
+			},
+			stamp:      backup.Cancelling,
 			wantOK:     false,
 			wantStatus: backup.Finalizing,
 		},
 		{
 			name:       "slot is free",
-			claimedID:  "",
-			setID:      "op-1",
-			set:        backup.Cancelled,
+			arrange:    func(_ *testing.T, s *backupStat) slotOwner { return s.claimOf("op-1") },
+			stamp:      backup.Cancelled,
 			wantOK:     false,
 			wantStatus: "",
 		},
@@ -240,13 +257,9 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var s backupStat
-			if tc.claimedID != "" {
-				prevID, slot := s.renew(tc.claimedID, "path", "bucket", "override")
-				require.Empty(t, prevID)
-				require.True(t, slot.set(tc.status))
-			}
+			claim := tc.arrange(t, &s)
 
-			stamped, _ := s.setIfOwned(tc.setID, tc.set)
+			stamped, _ := claim.stamp(tc.stamp)
 			require.Equal(t, tc.wantOK, stamped)
 			require.Equal(t, tc.wantStatus, s.get().Status)
 		})
@@ -506,6 +519,19 @@ func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 			},
 			write:   backup.Success,
 			wantMsg: "which is its last word",
+		},
+		{
+			// A cancel in flight is not the last word: CANCELLED still follows
+			// it, so saying so here would send the reader looking for a
+			// terminal state the slot is not in.
+			name: "a cancellation is in flight",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Cancelling)
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "only its completion may follow",
 		},
 	}
 

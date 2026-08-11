@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -211,6 +212,48 @@ func awaitLog(t *testing.T, hook *test.Hook, msg string) {
 // belongs to somebody else.
 const staleRestoreStopped = "restore no longer holds the slot, stopping without publishing"
 
+// restoreCancelledInStorage is logged when a restore reads its own
+// cancellation back from the descriptor and stops.
+const restoreCancelledInStorage = "restore cancelled (detected from storage after commit)"
+
+// slotAtLog captures what the slot held the moment a message was logged. It is
+// how a test reaches inside the window between a goroutine's decision and the
+// release that follows it, which is over before the test could poll for it.
+type slotAtLog struct {
+	msg  string
+	stat *backupStat
+	once sync.Once
+	seen chan reqState
+}
+
+// watchSlotAt arms the capture. Safe to read the slot from a log hook: nothing
+// in this package logs while holding the slot's lock.
+func watchSlotAt(logger *logrus.Logger, stat *backupStat, msg string) *slotAtLog {
+	w := &slotAtLog{msg: msg, stat: stat, seen: make(chan reqState, 1)}
+	logger.AddHook(w)
+	return w
+}
+
+func (w *slotAtLog) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (w *slotAtLog) Fire(e *logrus.Entry) error {
+	if e.Message == w.msg {
+		w.once.Do(func() { w.seen <- w.stat.get() })
+	}
+	return nil
+}
+
+func (w *slotAtLog) await(t *testing.T) reqState {
+	t.Helper()
+	select {
+	case st := <-w.seen:
+		return st
+	case <-time.After(20 * time.Second):
+		t.Fatalf("nothing logged %q", w.msg)
+		return reqState{}
+	}
+}
+
 // restore starts one restore and returns once its synchronous part is done.
 func (o *overlappingRestores) restore(t *testing.T, backendName, backupID, node string) {
 	t.Helper()
@@ -229,8 +272,12 @@ func (o *overlappingRestores) finish(t *testing.T) {
 		20*time.Second, 10*time.Millisecond, "a restore goroutine never released its slot")
 }
 
-// Pins that a cancelled restore's goroutine and the retry that took its slot
-// share no operation state; only `go test -race` catches a violation (CI runs with it).
+// Runs a cancelled restore's goroutine and the retry that took its slot at the
+// same time, so the detectors can prove they share no operation state. There is
+// no assertion for that by design: a violation surfaces as a data race under
+// `go test -race` (CI runs with it), or as the runtime's "concurrent map
+// writes" fatal without it. What the assertions below pin is that the two
+// really did overlap, without which the run proves nothing.
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()
 	const (
