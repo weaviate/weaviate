@@ -376,10 +376,6 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"one by one rather than at a single point and cancelling leaves the " +
 			"ones that already finished rebuilt and the rest untouched — "
 		if p.MigrationType == ReindexTypeEnableRangeable {
-			// The only format-only type whose submit precondition partial
-			// progress invalidates: the strategy sets indexRangeFilters on the
-			// property (cluster-wide) as its first shard completes, and the
-			// enable validator refuses a property that already carries it.
 			return partial + "re-submit the same request to finish the remainder " +
 				"while no shard has finished yet, or " +
 				`{"rangeable":{"rebuild":true}} once one has: enable-rangeable ` +

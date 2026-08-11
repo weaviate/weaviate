@@ -456,13 +456,10 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// advance to SWAPPING and run the schema flip on a half-failed
 			// migration.
 			task.Status = TaskStatusFailed
-			// Name a reason, like the per-unit failure path above does:
-			// an operator seeing FAILED with an empty Error has nothing
-			// to act on, and the repair-guidance logging has nothing to
-			// quote. Error is FSM state, so during a rolling upgrade an
-			// older node applying the same entry leaves it empty. That is
-			// operator-facing text only — no code reads it back — so the
-			// divergence costs a less helpful message, not a decision.
+			// Name a reason: FAILED with an empty Error leaves the operator
+			// nothing to act on. Error is version-dependent FSM state — an
+			// older node may leave it empty during a rolling upgrade, but
+			// nothing reads it back, so it costs a message, not a decision.
 			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
 			if unitID, unitErr, ok := task.FirstFailedUnit(); ok {
 				if unitErr == "" {

@@ -60,19 +60,17 @@ func (db *DB) CleanStalePartialReindexState(
 
 // HasPromotableReindexState reports whether any local shard carries a
 // migration generation for (property, indexType) that
-// [FinalizeCompletedMigrations] would promote on the next restart. Reads only
-// the shard's directory, so it answers for a registered-but-unloaded shard
-// without hydrating it — it must still visit those shards, not skip them.
+// [FinalizeCompletedMigrations] would promote on the next restart. Read-only;
+// answers for registered-but-unloaded shards without hydrating them.
 //
 // "Promotable" = a tracker dir with tidied.mig or merged.mig, the same set
 // cancel cleanup preserves. merged.mig alone triggers promotion and is
 // written during PREPARING, so this goes true at the merge, not the swap.
 // Unreadable directories answer true, same as [hasStalePartialReindexState].
 //
-// Over-approximates on purpose: it counts any generation under the (property,
-// indexType) prefixes, so a settled earlier migration whose end-of-swap trim
-// has not run yet also answers true even though it is not this task's. The
-// error direction is an extra warning rather than a missing one.
+// Over-approximates on purpose: matches any generation under the (property,
+// indexType) prefix, so it may answer true past this task's own generation.
+// Errs toward an extra warning, not a missed one.
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
@@ -86,10 +84,10 @@ func (db *DB) HasPromotableReindexState(collection, propName, indexType string) 
 // generation.
 func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 	var found bool
-	// ForEachShard rather than ForEachLoadedShard: a cold tenant's leftovers
-	// are on disk whether or not the shard is loaded, and the predicate reads
-	// only the path, so skipping unloaded shards would silently suppress the
-	// CANCELLED warning on exactly the collections that have the most of them.
+	// ForEachShard rather than ForEachLoadedShard: a cold tenant's promotable
+	// state is on disk whether or not the shard is loaded, so skipping
+	// unloaded shards would suppress the warning on collections with the
+	// most cold tenants.
 	//
 	// ForEachShard rather than forEachShardStrict: a closing index walks no
 	// shards and answers false, the one non-fail-closed answer in this

@@ -260,11 +260,8 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 	}
 }
 
-// The CANCELLED repair warning is driven off this predicate, and a cold tenant
-// carries its promotable generation on disk exactly like a loaded one. Walking
-// only the loaded shards would suppress the warning on the multi-tenant
-// collections that have the most cold shards, so the walk covers the
-// registered ones too — without hydrating any of them.
+// Pins that cold (unloaded) shards are still walked, so the CANCELLED
+// warning isn't silently suppressed on multi-tenant collections.
 func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 	const (
 		propName  = "category"
