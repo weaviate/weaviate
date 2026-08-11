@@ -313,10 +313,16 @@ func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 		"cluster/raft_distributed_tasks_apply_endpoints.go",
 		"cluster/store_apply.go",
 	}
+	// Compared as a multiset. The walk hands sites back in lexical path
+	// order, so an index-by-index comparison would break on a rename for
+	// a reason that has nothing to do with the invariant.
+	gotFiles := make([]string, 0, len(callSites))
+	for _, site := range callSites {
+		file := site[:strings.LastIndex(site, ":")]
+		gotFiles = append(gotFiles, strings.TrimPrefix(file, filepath.ToSlash(root)+"/"))
+	}
 	require.Len(t, callSites, len(wantFiles),
 		"CLEAN_UP must have exactly one proposer, found: %v", callSites)
-	for i, want := range wantFiles {
-		require.Contains(t, callSites[i], want,
-			"unexpected CLEAN_UP site; only the TTL sweep may propose one (found: %v)", callSites)
-	}
+	require.ElementsMatch(t, wantFiles, gotFiles,
+		"unexpected CLEAN_UP site; only the TTL sweep may propose one (found: %v)", callSites)
 }
