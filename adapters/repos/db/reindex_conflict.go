@@ -423,11 +423,9 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 		"accept that, cancel it via " + cancelCall
 }
 
-// abortedMigrationConsequence names what killing an in-flight migration's
-// shards costs, for the class- and tenant-level gate messages. Only a
-// semantic migration flips the schema, so only it can leave buckets
-// inverted against one; a format-only migration commits shard by shard and
-// loses nothing but its own progress.
+// abortedMigrationConsequence names what killing an in-flight migration
+// costs: a schema inversion for semantic types, a half-applied rebuild
+// for format-only ones.
 func abortedMigrationConsequence(mt ReindexMigrationType) string {
 	if IsSemanticMigration(mt) {
 		return "produce a bucket↔schema inversion"

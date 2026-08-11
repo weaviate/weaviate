@@ -122,8 +122,7 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 			"rejected task MUST NOT appear in the FSM-stored task list")
 	})
 
-	// CheckConflict names a specific task in its refusal, and the task
-	// list is stored in a map — so an unsorted walk lets two nodes
+	// Tasks are stored in a map; an unsorted walk would let two nodes
 	// applying the same RAFT entry quote a different task ID.
 	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
 		h := newTestHarness(t).init(t)

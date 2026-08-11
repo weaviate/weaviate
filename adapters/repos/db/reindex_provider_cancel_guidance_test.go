@@ -58,9 +58,8 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			sentinels:         nil,
 			status:            distributedtask.TaskStatusCancelled,
 			wantRepairCommand: false,
-			// The quiet arm claims only that nothing here awaits promotion:
-			// a node that promoted before the cancel landed also has no
-			// tracker dir, so it must not claim the buckets are clean.
+			// Must not claim the buckets are clean; a promoted node also
+			// has no tracker dir left.
 			wantInLog: []string{"no promotable generation on this node"},
 			notInLog:  []string{"still pre-migration", "nothing to repair"},
 		},

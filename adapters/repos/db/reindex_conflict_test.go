@@ -593,9 +593,8 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 	}
 }
 
-// A format-only migration flips no schema, so nothing it leaves behind
-// can be inverted against one. The class and tenant gates must name the
-// consequence that actually applies to the type in flight.
+// Gate messages must name the consequence for the migration type in
+// flight, not always claim a schema inversion.
 func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType

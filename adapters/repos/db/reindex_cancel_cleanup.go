@@ -72,11 +72,9 @@ func (db *DB) CleanStalePartialReindexState(
 // Over-approximates on purpose: matches any generation under the (property,
 // indexType) prefix, so it may answer true past this task's own generation.
 //
-// One state answers false while the node is in fact post-promotion:
-// [FinalizeCompletedMigrations] removes the tracker dir once it promotes the
-// sidecar, so a node that restarted between its own merge and the cancel has
-// promoted buckets and no evidence of them. Read the answer as "nothing here
-// is still awaiting promotion", not as "the buckets are pre-migration".
+// Also answers false once [FinalizeCompletedMigrations] has already
+// promoted and removed the tracker dir. Read false as "nothing awaits
+// promotion", not as "still pre-migration".
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
