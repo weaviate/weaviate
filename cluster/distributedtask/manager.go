@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 )
@@ -258,7 +260,10 @@ func NewManager(params ManagerParameters) *Manager {
 		params.Clock = clockwork.NewRealClock()
 	}
 	if params.Logger == nil {
-		// Only tests leave this nil; production always passes a logger.
+		// Discards rather than writing to stderr, so a partially-wired test
+		// harness stays quiet. The cost is that a caller who forgets the
+		// logger also loses the drop and panic reports below, which is why
+		// every production path passes one.
 		discarding := logrus.New()
 		discarding.Out = io.Discard
 		params.Logger = discarding
@@ -363,7 +368,16 @@ func (m *Manager) startTerminalDrainerWithLock() {
 // runTerminalObserverSafely keeps one namespace's panicking observer from
 // killing the drainer for all of them: GoWrapper's recover sits outside the
 // loop, so an unrecovered panic ends the drainer for good with no restart.
+//
+// Honors DISABLE_RECOVERY_ON_PANIC exactly like GoWrapper does. The
+// acceptance and integration images set it so a panic kills the process and
+// fails the run; recovering here regardless would make a panicking observer
+// the one bug those runs can never catch.
 func (m *Manager) runTerminalObserverSafely(task *Task) {
+	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+		m.runTerminalObserver(task)
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			m.logger.

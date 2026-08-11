@@ -22,6 +22,7 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -135,11 +136,13 @@ func TestManagerTerminalObserver(t *testing.T) {
 		h, rec := newObserverHarness(t)
 
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
-		require.Zero(t, rec.count(), "adding a task must not fire the cancel observer")
-
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
 		rec.waitForCount(t, 1, "the observer must fire for the cancel")
+		// Barrier: the cancel has landed, so a second event now could only
+		// have come from AddTask, which must announce nothing.
+		rec.requireNeverExceeds(t, 1, 300*time.Millisecond,
+			"only the cancel may be announced; adding a task must stay silent")
 
 		observed := rec.first()
 		require.Equal(t, observerTaskID, observed.ID)
@@ -402,9 +405,16 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 		"a queued event must not reach an observer after Close; the drainer has been told to exit")
 
 	// The drainer is gone by now, so the queue below reads the apply path alone
-	// rather than racing a consumer.
-	for len(h.manager.terminalDispatch) > 0 {
-		<-h.manager.terminalDispatch
+	// rather than racing a consumer. Non-blocking anyway: a live drainer could
+	// take the last element between the length check and the receive, and a
+	// bare receive would then hang until the test timeout.
+drain:
+	for {
+		select {
+		case <-h.manager.terminalDispatch:
+		default:
+			break drain
+		}
 	}
 	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 	require.Empty(t, h.manager.terminalDispatch,
@@ -476,6 +486,123 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		return m.terminalOverflowInFlight.Load() == 0
 	}, 5*time.Second, 10*time.Millisecond,
 		"every overflow goroutine must have released its slot")
+}
+
+// errorEntriesMatching returns the error-level log entries whose message
+// contains substr.
+func errorEntriesMatching(hook *logrustest.Hook, substr string) []*logrus.Entry {
+	var matched []*logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.ErrorLevel && strings.Contains(e.Message, substr) {
+			matched = append(matched, e)
+		}
+	}
+	return matched
+}
+
+// Pins the only trace a degraded or lost terminal ending leaves. Without it an
+// observer that has silently stopped receiving looks exactly like a namespace
+// with nothing to report, and the delivery contract's answer to that is "watch
+// the logs".
+func TestTerminalDispatchReportsDegradedAndLostEndings(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	defer h.Close()
+
+	release := make(chan struct{})
+	defer close(release)
+	h.manager.RegisterTerminalObserver(observerNamespace, func(*Task) { <-release })
+
+	// One event parks in the wedged observer, terminalDispatchQueueDepth fill
+	// the queue, the next terminalDispatchOverflowLimit take the overflow arm,
+	// and everything past that is dropped.
+	const pastTheBound = 16
+	maxDelivered := terminalDispatchQueueDepth + 1 + terminalDispatchOverflowLimit
+	fillDispatchQueue(h.manager, terminalDispatchTask(h.manager), maxDelivered+pastTheBound)
+
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{
+			name:    "the overflow arm reports the observer falling behind",
+			message: "the observer is not keeping up",
+		},
+		{
+			name:    "the drop arm reports the ending it threw away",
+			message: "dropping this terminal event",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			entries := errorEntriesMatching(h.loggerHook, test.message)
+			require.NotEmpty(t, entries,
+				"this arm must report at error level; an operator has no other signal that an ending was degraded or lost")
+
+			// Fields, not just the message: they are what lets an operator
+			// name the ending that went missing.
+			reported := entries[0]
+			require.Equal(t, observerNamespace, reported.Data["namespace"])
+			require.Equal(t, observerTaskID, reported.Data["task_id"])
+			require.Equal(t, observerVersion, reported.Data["version"])
+		})
+	}
+}
+
+// Pins that the observer's own recover honors the same switch GoWrapper does.
+// docker-compose-test.yml and test/integration/run.sh set it so a panic kills
+// the process; recovering regardless would make a panicking observer the one
+// bug an acceptance run can never fail on.
+func TestTerminalObserverRecoveryHonorsDisableRecoveryOnPanic(t *testing.T) {
+	tests := []struct {
+		name      string
+		envValue  string
+		wantPanic bool
+	}{
+		{name: "unset keeps the drainer alive", envValue: "", wantPanic: false},
+		{name: "false keeps the drainer alive", envValue: "false", wantPanic: false},
+		{name: "true lets the panic escape", envValue: "true", wantPanic: true},
+		{name: "on lets the panic escape", envValue: "on", wantPanic: true},
+		{name: "1 lets the panic escape", envValue: "1", wantPanic: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", test.envValue)
+
+			m := newTerminalDispatchManager()
+			defer m.Close()
+			m.RegisterTerminalObserver(observerNamespace, panickingTerminalObserver)
+
+			// Called directly rather than through the drainer: an escaping
+			// panic there would take this test process down, which is the
+			// whole point of the switch.
+			deliver := func() { m.runTerminalObserverSafely(terminalDispatchTask(m)) }
+
+			if test.wantPanic {
+				require.PanicsWithValue(t, "named observer blew up", deliver,
+					"with recovery disabled the panic must reach GoWrapper, which also declines to recover, and fail the run")
+				return
+			}
+			require.NotPanics(t, deliver,
+				"with recovery enabled one namespace's panic must not end the drainer for all of them")
+		})
+	}
+}
+
+// Pins that a Manager built without a logger still has one. The drop and panic
+// reports are the only trace a lost ending leaves, and a nil logger would turn
+// the first of them into a nil dereference on the RAFT-apply path.
+func TestNewManagerSubstitutesAMissingLogger(t *testing.T) {
+	m := NewManager(ManagerParameters{})
+	defer m.Close()
+
+	require.NotNil(t, m.logger)
+	require.NotPanics(t, func() {
+		m.logger.WithField("namespace", observerNamespace).Error("dropping this terminal event")
+	})
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
