@@ -120,8 +120,7 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
-	// prefill lifecycle: prefillMu serializes registering a prefill against tearing
-	// one down, so a prefill can never start after stopPrefill has already waited.
+	// prefillMu serializes registration against teardown; see stopPrefill
 	prefillMu      sync.Mutex
 	prefillStopped bool
 	prefillCancel  context.CancelFunc
@@ -768,21 +767,13 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-// stopPrefill cancels an in-flight cache prefill, waits for it to exit, and closes
-// registration for good. Must run before the cache is dropped or the store shut down
-// — a scan reading a closed lsmkv segment reads unmapped memory.
+// stopPrefill ends any cache prefill and blocks further ones. Must run before the
+// cache is dropped or the store shut down: a scan reading a closed lsmkv segment
+// reads unmapped memory.
 //
-// The wait is the load-bearing half: a scan only polls its context between rows and
-// can be blocked in a read, so cancellation alone still leaves a cursor touching
-// segment memory. Cancellation is not guaranteed to arrive from the caller's context
-// either — the hfresh centroid index runs PostStartup on context.Background().
-//
-// Holding prefillMu across the wait is what makes this a barrier rather than a
-// snapshot: a registerPrefill racing teardown either lands first and is cancelled
-// and waited for here, or blocks until this returns and then refuses to start.
-// Without it, a PostStartup arriving between a caller's last check and its
-// registration would run against a torn-down store. Drop reaches that case directly,
-// since it never cancels shutdownCtx.
+// Cancelling is not enough on its own — a scan polls its context only between rows,
+// so it can be blocked inside a read — hence the wait. Holding prefillMu across that
+// wait is what stops a concurrent registerPrefill from slipping in behind it.
 func (h *hnsw) stopPrefill() {
 	h.prefillMu.Lock()
 	defer h.prefillMu.Unlock()
@@ -794,8 +785,7 @@ func (h *hnsw) stopPrefill() {
 	h.prefillWG.Wait()
 }
 
-// registerPrefill publishes a prefill's cancel and joins the WaitGroup, reporting
-// false once stopPrefill has run — the index is torn down and nothing may start.
+// registerPrefill reports false once stopPrefill has run: the index is torn down.
 func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
 	h.prefillMu.Lock()
 	defer h.prefillMu.Unlock()

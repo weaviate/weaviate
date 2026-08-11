@@ -29,8 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// prefillAllocCheckEvery is how many stored vectors pass between allocChecker probes
-// during a scan prefill.
 const prefillAllocCheckEvery = 4096
 
 var (
@@ -41,11 +39,10 @@ var (
 	errPrefillCompressionActive = errors.New("vector cache prefill aborted: compression activated")
 )
 
-// useParallelPrefill reports whether the uncompressed cache can be prefilled by a
-// parallel cursor scan of the objects bucket rather than the serial by-id
-// vectorCachePrefiller. Multivector caches (per-passage) and muvera caches are
-// sourced from their own buckets rather than from objects, and
-// neither is the hfresh centroid cache despite its store holding an objects bucket.
+// useParallelPrefill reports whether the cache can be filled by scanning the objects
+// bucket instead of the serial by-id prefiller. Multivector, muvera and hfresh
+// centroid caches are sourced from their own buckets, not from objects — the last
+// of those despite sharing the shard's store.
 func (h *hnsw) useParallelPrefill() bool {
 	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil || h.hfreshMode {
 		return false
@@ -78,16 +75,14 @@ type parallelPrefillInputs struct {
 	nodeCount    int64
 }
 
-// parallelPrefillEligible is the pure decision core of useParallelPrefill, split out
-// for direct testing. A full scan ignores the size limit the serial path honors, so
-// the cache must be unbounded relative to the node count.
+// parallelPrefillEligible is useParallelPrefill's decision core, split out so the
+// combinations can be tested directly.
 func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if in.multivector || in.muvera {
 		return false
 	}
-	// the scan runs concurrently with live writes, so it may only fill empty slots:
-	// an overwriting Preload could clobber a newer inserted vector with the snapshot
-	// value the cursor is holding
+	// running alongside live writes is only safe if the scan can fill empty slots
+	// without overwriting: its cursor holds a snapshot that may already be stale
 	if !in.ifAbsent {
 		return false
 	}
@@ -101,11 +96,9 @@ func cacheFitsNodes(in parallelPrefillInputs) bool {
 	return in.cacheMaxSize > in.nodeCount
 }
 
-// prefillCacheParallel populates the uncompressed vector cache via a parallel cursor
-// scan of the objects bucket. The by-id vectorCachePrefiller issues one random seek
-// per vector (the bucket is UUID-keyed), which is latency-bound and can take hours on
-// network storage with the CPU idle; a cursor reads in storage order and decodes
-// across cores.
+// prefillCacheParallel fills the cache by scanning the objects bucket. The by-id
+// prefiller issues one random seek per vector (the bucket is UUID-keyed), which is
+// latency-bound and can take hours on network storage with the CPU idle.
 func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -123,18 +116,16 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	})
 }
 
-// prefillFromScan drives a parallel bucket scan into the cache. PreloadIfAbsent makes
-// it safe to run concurrently with live writes; a delete racing the snapshot cursor
-// can repopulate its slot with the pre-delete value — bounded waste, the node itself
-// stays tombstoned. Memory pressure and a full cache abort gracefully (nil error);
-// the remaining vectors load on demand through cache.Get.
+// prefillFromScan drives a parallel bucket scan into the cache. A delete racing the
+// snapshot cursor can repopulate its slot with the pre-delete value — bounded waste,
+// the node itself stays tombstoned. Memory pressure and a full cache abort with a nil
+// error; the vectors left behind load on demand through cache.Get.
 func (h *hnsw) prefillFromScan(ctx context.Context,
 	scan func(context.Context, prefillOnVector) error,
 ) error {
 	before := time.Now()
 
-	// PreloadIfAbsent is not on Cache[T] — only the single-vector caches offer it, and
-	// it is the whole reason this scan may run alongside live writes
+	// not on Cache[T]: only the single-vector caches can fill a slot by id alone
 	preloader, ok := h.cache.(cache.IfAbsentPreloader[float32])
 	if !ok {
 		return fmt.Errorf("prefill cache: %T cannot preload if-absent", h.cache)
@@ -145,11 +136,10 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 		if h.compressed.Load() {
 			return errPrefillCompressionActive
 		}
-		// stop one short of maxSize: landing on it is what replaceIfFull reads as a
-		// full cache and wipes on, discarding the scan. Racing workers can still
-		// overshoot by their in-flight rows, but only once concurrent inserts have
-		// consumed the headroom the scan was admitted with — a state whose wipe the
-		// cache would reach through those inserts anyway.
+		// stop one short of maxSize: replaceIfFull reads count == maxSize as a full
+		// cache and wipes it, discarding the scan. Racing workers can still overshoot
+		// by their in-flight rows, but only once inserts have eaten the headroom the
+		// scan was admitted with — a wipe those inserts would reach anyway.
 		if h.cache.CountVectors()+1 >= h.cache.CopyMaxSize() {
 			return errPrefillCacheFull
 		}
@@ -198,12 +188,10 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 	return nil
 }
 
-// prefillEligible is the single definition of which nodes are worth caching, shared
-// by both scan paths so the read strategy cannot change what ends up resident. Doc
-// ids are never reused, so a superseded or deleted row's id has no live node, and a
-// corrupt id past the node range is rejected rather than sizing an allocation.
-// Tombstoned nodes keep their h.nodes entry until cleanup while their bucket row can
-// still be live.
+// prefillEligible is shared by both scan paths, so the read strategy cannot change
+// what ends up resident. Doc ids are never reused, so a superseded row's id has no
+// live node; tombstoned nodes keep their entry until cleanup while their row stays
+// live; an id past the node range is corrupt and must not size an allocation.
 func (h *hnsw) prefillEligible(id uint64) bool {
 	return h.nodeAlive(id) && !h.hasTombstone(id)
 }

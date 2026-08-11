@@ -123,14 +123,10 @@ func TestStopPrefillWaitsForInFlightScan(t *testing.T) {
 	require.True(t, h.cachePrefilled.Load(), "a stopped prefill must still mark the cache prefilled")
 }
 
-// TestStopPrefillWaitsForPrefillRegisteredBeforeReturn pins the registration ordering:
-// prefillCache must have joined the WaitGroup by the time it returns, so a stopPrefill
-// that arrives before the prefill goroutine is scheduled still waits for it. Moving the
-// WaitGroup join into the goroutine passes every other test here but lets stopPrefill
-// return while the prefill is about to touch lsmkv segments.
-//
-// prefillCacheFunc defers cachePrefilled ahead of the deferred Done, so LIFO runs it
-// first and "cachePrefilled is set once stopPrefill returns" is exactly the guarantee.
+// TestStopPrefillWaitsForPrefillRegisteredBeforeReturn: prefillCache must have joined
+// the WaitGroup before it returns, so a stopPrefill arriving before the goroutine is
+// scheduled still waits. Moving the join into the goroutine passes every other test
+// here. cachePrefilled is deferred ahead of Done, so it is set once the wait returns.
 func TestStopPrefillWaitsForPrefillRegisteredBeforeReturn(t *testing.T) {
 	const n = 200
 	store := newTestObjectsStore(t)
@@ -233,12 +229,9 @@ func TestPrefillCancelPropagatesFromCallerContext(t *testing.T) {
 		"canceling the caller context did not stop the prefill")
 }
 
-// TestPrefillRefusedAfterStop is the teardown-ordering contract: once stopPrefill has
-// run, no later prefill may start. Drop reaches this case directly — it calls
-// stopPrefill but never cancels shutdownCtx, so a PostStartup arriving afterwards
-// (dynamic's flat->hnsw upgrade drives one on its own context) has nothing in the
-// caller's context telling it the index is gone. A prefill that started here would
-// scan an lsmkv store whose segments Drop has already closed.
+// TestPrefillRefusedAfterStop: once stopPrefill has run, no later prefill may start.
+// Drop reaches this directly — it never cancels shutdownCtx, so a PostStartup arriving
+// after it has nothing in its own context saying the index is gone.
 func TestPrefillRefusedAfterStop(t *testing.T) {
 	const n = 200
 	store := newTestObjectsStore(t)

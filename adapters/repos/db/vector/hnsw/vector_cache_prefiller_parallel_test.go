@@ -379,11 +379,9 @@ func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
 	}, collectScan(t, bucket, ""))
 }
 
-// TestScanObjectVectorsParallelNamedVectorIsolation puts objects carrying several
-// named vectors (plus a legacy vector) in one bucket and scans each target
-// separately. Each named index shares the objects bucket with its siblings, so a
-// scan for one target must yield only that target's vectors and skip objects that
-// lack it — never bleed a sibling's vector or a legacy vector into the wrong cache.
+// TestScanObjectVectorsParallelNamedVectorIsolation: named indexes share one objects
+// bucket, so a scan must yield only its own target and skip objects lacking it —
+// never bleed a sibling's or the legacy vector into the wrong cache.
 func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
 	bucket := newTestObjectsBucket(t)
 
@@ -413,11 +411,9 @@ func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
 	}, collectScan(t, bucket, "body"))
 }
 
-// TestPrefillCacheParallelNormalizesForCosine guards the normalization invariant:
-// for a cosine-dot index the cache must hold normalized vectors (so the dot product
-// equals cosine similarity). The objects bucket stores raw vectors, and the serial
-// prefiller normalizes them via the cache's normalizeOnRead wrapper — the parallel
-// path must match, or cosine search silently returns wrong distances.
+// TestPrefillCacheParallelNormalizesForCosine: a cosine-dot cache must hold normalized
+// vectors. The bucket stores them raw and the serial path normalizes via the cache's
+// normalizeOnRead wrapper, which preloading bypasses — mismatch means wrong distances.
 func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 	const n = 50
 	store := newTestObjectsStore(t)
@@ -582,11 +578,10 @@ func TestPrefillCacheParallelStopsWhenCompressionActivatesMidScan(t *testing.T) 
 	require.Equal(t, int64(flipAfter), inner.CountVectors())
 }
 
-// TestPrefillCacheParallelStopsBelowCacheFull: the scan must stop *short* of maxSize,
-// not on it. replaceIfFull wipes the whole cache at count == maxSize, so a scan that
-// fills the last slot is discarded within one deletion interval — the failure
-// cacheFitsNodes' strict headroom requirement exists to avoid. Memtable-only data
-// forces a single scan range, making the stop point deterministic.
+// TestPrefillCacheParallelStopsBelowCacheFull: the scan must stop short of maxSize,
+// not on it — replaceIfFull wipes at count == maxSize, discarding the whole scan
+// within one deletion interval. Memtable-only data forces a single scan range, so the
+// stop point is deterministic.
 func TestPrefillCacheParallelStopsBelowCacheFull(t *testing.T) {
 	const n = 50
 	const maxSize = 10

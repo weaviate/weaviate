@@ -183,16 +183,12 @@ func TestVectorFromTailOffsetOutOfBounds(t *testing.T) {
 }
 
 // TestVectorDecodersOnTruncatedValues sweeps every prefix of a real object through the
-// vector decoders. Each walks the value's sections by reading their lengths out of the
-// value itself, so a truncated row must produce an error rather than a panic: these
-// serve the HNSW cache-miss path and the prefill scan, both of which read untrusted
-// rows, and the prefill runs synchronously inside shard startup where a panic takes
-// the process down.
-//
-// The backing array is longer than the value and filled with a sentinel, mirroring the
-// mmapped segment a real truncated row is a subslice of: an unbounded read finds
-// plausible lengths there and decodes the neighbouring row instead of failing, so a
-// prefix that returns no error must still not return a vector built from those bytes.
+// decoders. Each walks the value by lengths read out of the value itself, so a
+// truncated row must error rather than panic: the prefill reads untrusted rows and
+// runs inside shard startup, where a panic takes the process down. The sentinel-filled
+// backing array stands in for the mmapped segment a real row is a subslice of — an
+// over-read finds plausible lengths there, so a prefix that returns no error must
+// still not return a vector built from those bytes.
 func TestVectorDecodersOnTruncatedValues(t *testing.T) {
 	named := map[string][]float32{"custom": {1, 2, 3}}
 	multi := map[string][][]float32{"multi": {{1, 2}, {3, 4}}}

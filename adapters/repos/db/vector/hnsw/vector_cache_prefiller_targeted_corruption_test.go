@@ -49,12 +49,10 @@ func putTruncatedObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, keepBy
 	require.NoError(t, bucket.Put(keyForDocID(docID), data[:keepBytes]))
 }
 
-// TestPrefillTargetedSkipsTruncatedRows: a row whose declared vector or schema runs past
-// the stored value is corrupt. The scan must skip it and keep going — never cache a
-// vector decoded from whatever bytes follow, and never abort the prefill for the healthy
-// rows around it. Values are handed to the decoder as subslices of an mmapped segment
-// whose capacity extends past the row, so an unbounded decode of these rows reads the
-// neighbouring row rather than failing.
+// TestPrefillTargetedSkipsTruncatedRows: a row declaring a vector or schema past the
+// stored value is corrupt. The scan must skip it and carry on, never caching bytes
+// decoded from whatever follows. Values reach the decoder as subslices of an mmapped
+// segment, so an unbounded decode reads the neighbouring row instead of failing.
 func TestPrefillTargetedSkipsTruncatedRows(t *testing.T) {
 	const payload = 16 << 10
 

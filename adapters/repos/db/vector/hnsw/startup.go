@@ -537,12 +537,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	// Registered before the goroutine starts, and under the lifecycle lock: a prefill
-	// that Shutdown or Drop cannot see is one that outlives the cache and the lsmkv
-	// store it reads. PostStartup can arrive after teardown — dynamic's flat->hnsw
-	// upgrade calls it on its own context, which a shard shutdown does not cancel,
-	// and Drop never cancels shutdownCtx at all — so refusing to start is the only
-	// safe answer once stopPrefill has run.
+	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
+	// PostStartup can also arrive after teardown — dynamic's flat->hnsw upgrade
+	// drives one on its own context, and Drop never cancels shutdownCtx — so a
+	// refusal here is the only thing keeping a scan off a closed store.
 	prefillCtx, cancel := context.WithCancel(ctx)
 	if !h.registerPrefill(cancel) {
 		cancel()
@@ -556,10 +554,9 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	prefillCacheFunc := func() {
 		defer h.prefillWG.Done()
 		defer cancel()
-		// deferred, not a trailing statement: GoWrapper recovers a panic in here, and
-		// leaving cachePrefilled false permanently disables tombstone cleanup and
-		// every compression path for this index. LIFO puts it before Done, so
-		// stopPrefill still guarantees it is set once the wait returns.
+		// deferred, not trailing: GoWrapper recovers panics, and a false cachePrefilled
+		// permanently disables tombstone cleanup and every compression path. LIFO runs
+		// it before Done, so stopPrefill still guarantees it is set on return.
 		defer h.cachePrefilled.Store(true)
 
 		var err error

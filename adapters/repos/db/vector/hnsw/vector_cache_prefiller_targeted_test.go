@@ -238,13 +238,11 @@ func putMismatchedRow(t *testing.T, bucket *lsmkv.Bucket, keyID, uuidID, docID u
 	require.NoError(t, bucket.Put(keyForDocID(keyID), data))
 }
 
-// TestPrefillCacheParallelRoutesToTargetedScan exercises the routing glue itself:
-// every other targeted test calls the scan directly, so nothing covers the branch in
-// prefillCacheParallel, the gate's polarity, or the target vector it forwards.
-//
-// The discriminator is the one divergence the read strategy legitimately owns — the
-// key/uuid cross-check. The liveness filter is deliberately not usable here: it is
-// index policy and both scans share it, which is what the excluded ids below assert.
+// TestPrefillCacheParallelRoutesToTargetedScan covers the routing glue: every other
+// targeted test calls the scan directly, leaving the branch, the gate's polarity and
+// the forwarded target vector untested. The discriminator is the key/uuid check, the
+// one divergence a read strategy owns — the liveness filter is shared, as the
+// excluded ids below assert.
 func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 	const (
 		indexedCount = 10 // docs 0..9

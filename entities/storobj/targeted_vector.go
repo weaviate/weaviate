@@ -40,12 +40,10 @@ func VectorTailOffsetFromPeek(peek []byte) (tailStart uint64, schemaLen uint32, 
 	return uint64(pos) + 4 + uint64(schemaLen), schemaLen, true, nil
 }
 
-// legacyVectorEnd is the value offset just past the legacy-vector section;
-// ok=false when peek cannot reach the length field. This is legacyVectorBounds'
-// end offset, computed from a prefix: the section routinely reaches past the peek,
-// which is not an error here. dims is widened before scaling for the same reason
-// legacyVectorBounds widens it — the on-disk field is a uint16 and 65535 dimensions
-// overflow a uint16 multiplication.
+// legacyVectorEnd is legacyVectorBounds' end offset computed from a prefix, so a
+// section reaching past the peek is expected rather than an error. ok=false when the
+// peek cannot even reach the length field. dims is widened before scaling: the field
+// is a uint16 and 65535 dimensions overflow a uint16 multiplication.
 func legacyVectorEnd(peek []byte) (pos int, ok bool, err error) {
 	if len(peek) == 0 {
 		return 0, false, fmt.Errorf("empty value")

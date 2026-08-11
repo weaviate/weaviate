@@ -54,9 +54,8 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
-	// A row skipped for a key mismatch is either corruption or a bucket that does
-	// not key by uuid — the latter would skip every row, so report the count once
-	// rather than leaving an empty cache explained only by per-row debug lines.
+	// a bucket that is not uuid-keyed would skip every row, so report the count once
+	// rather than leaving an empty cache explained only by per-row debug lines
 	var foreign atomic.Int64
 	err := bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
 		h.targetedRowCallback(targetVector, onVector, &foreign), h.logger)
@@ -83,8 +82,7 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 			h.prefillSkipDebug("undecodable doc id", err)
 			return nil
 		}
-		// the same predicate onVector enforces, applied before the tail read so an
-		// ineligible row costs no second I/O
+		// onVector enforces this too; here it saves the tail read
 		if !h.prefillEligible(id) {
 			return nil
 		}
@@ -112,9 +110,8 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 		return nil, false
 	}
 	if ok && tailStart >= e.ValueSize {
-		// the front sections decoded cleanly but place the tail past the value end,
-		// so the row is corrupt: a whole-value decode here would read a neighbouring
-		// row's bytes rather than fail
+		// corrupt: the front sections decoded, but a tail past the value end means a
+		// whole-value decode would read the neighbouring row rather than fail
 		h.prefillSkipDebug("vector tail beyond value end",
 			fmt.Errorf("tail offset %d, value size %d", tailStart, e.ValueSize))
 		return nil, false
@@ -148,8 +145,7 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, boo
 		return nil, false
 	}
 	if ok && need > e.ValueSize {
-		// declared vector crosses the value end: the row is corrupt, and a
-		// whole-value decode would read a neighbouring row's bytes rather than fail
+		// corrupt, and as above a whole-value decode would read the neighbouring row
 		h.prefillSkipDebug("legacy vector beyond value end",
 			fmt.Errorf("needs %d bytes, value size %d", need, e.ValueSize))
 		return nil, false
@@ -209,10 +205,9 @@ func objectRowMatchesKey(key, peek []byte) error {
 	return nil
 }
 
-// prefillStoppedByShutdown separates a prefill that was told to stop from one
-// that failed. A parallel scan surfaces context.Canceled for both: on a worker
-// failure the group cancels its siblings, and their cancellation error is the
-// one it latches. Only the prefill's own context distinguishes them.
+// prefillStoppedByShutdown tells a prefill that was stopped from one that failed. A
+// parallel scan reports context.Canceled for both — a failing worker cancels its
+// siblings and their error is the one latched — so only its own context separates them.
 func prefillStoppedByShutdown(err error, prefillCtx context.Context) bool {
 	return errors.Is(err, context.Canceled) && prefillCtx.Err() != nil
 }
