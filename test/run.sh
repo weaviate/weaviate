@@ -1098,10 +1098,9 @@ function run_acceptance_reindex_backup_suite() {
 function run_acceptance_reindex_backup_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-a (single-node restore guards)"
-  # Carries the three CI guards, which cost a package build and a nested
-  # `go test -list` (a second full compile of the package) rather than a
-  # container. 4m over the 26m floor, since that compile sits outside every
-  # per-test deadline and the group would otherwise be the tightest of the four.
+  # Carries the CI guards: a package build plus a nested `go test -list`
+  # (a second full compile) rather than a container. 30m = 26m floor + 4m
+  # for that extra compile, which sits outside every per-test deadline.
   AOF_GROUP_TIMEOUT=30m \
     AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow|TestCIPackagePathMatchesWholeSegments)$' \
     run_aof_group "reindex-backup-a" test/acceptance/reindex_backup

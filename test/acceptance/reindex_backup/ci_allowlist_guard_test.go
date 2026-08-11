@@ -28,13 +28,10 @@ import (
 // -run allowlist. A test added here but to no list never runs, and the job
 // still reports green — the failure mode this guard exists to make loud.
 //
-// Two ways a test still escapes both guards, left open deliberately. A test
-// behind a build tag is invisible to the `go test -list` below, which runs
-// without -tags; and a test in a SUBpackage of this one is invisible to
-// run.sh's `go list "./$path"`, which does not recurse. Adding /... there
-// would change every acceptance group's package set and the budgets derived
-// from it, which is a bigger change than the escape is worth. Neither hatch is
-// in use today; if one is ever needed, close it here first.
+// Two escape hatches remain open deliberately: a build-tagged test is
+// invisible to `go test -list` (no -tags), and a subpackage test is
+// invisible to run.sh's non-recursive package list. Neither is in use
+// today; close here first if one ever is.
 const runShPackagePath = "test/acceptance/reindex_backup"
 
 var (
@@ -63,10 +60,9 @@ var (
 // the job first — which means the budget and the build have to share the
 // window.
 //
-// An observed average, not an enforced cap: nothing measures the build, so a
-// build that slowly grows past 5 minutes eats into the budget this guard
-// believes is available. It fails as a runner-killed job, which reads as a
-// hang without stacks.
+// An observed average, not an enforced cap: an undetected slow build eats
+// into this budget and fails as a runner-killed job, which reads as a hang
+// without stacks.
 const imageBuildAllowanceMinutes = 5
 
 // repoRoot walks up from the working directory to the checkout root.
@@ -726,9 +722,8 @@ func flagArming(t *testing.T, runSh, group string) string {
 	return ""
 }
 
-// TestCIPackagePathMatchesWholeSegments pins that the guards above find their
-// own package and only their own. A substring match would read a future
-// sibling package as this one and claim to cover tests it never sees.
+// Pins: the package-path regex matches whole path segments only, not
+// substrings of sibling packages.
 func TestCIPackagePathMatchesWholeSegments(t *testing.T) {
 	tests := []struct {
 		scope string

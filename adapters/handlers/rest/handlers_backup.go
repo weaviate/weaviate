@@ -192,9 +192,8 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		ID:      params.ID,
 		Path:    status.Path,
 		Backend: params.Backend,
-		// The sync refusal path strips the caller's own namespace prefix from
-		// error text; this async one has to do it too, or a namespaced
-		// principal is handed remediation URLs its own API rejects.
+		// Strip the caller's namespace prefix, same as the sync refusal path,
+		// so a namespaced principal isn't handed remediation URLs its own API rejects.
 		Error:       namespacing.StripErrorMessage(principal, status.Err),
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),

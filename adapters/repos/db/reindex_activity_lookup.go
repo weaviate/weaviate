@@ -56,13 +56,11 @@ type ReindexActivityHold struct {
 	TaskID     string
 }
 
-// AnyReindexActivityLookup reports the runtime-reindex task on any of the
-// given collections that is live in the cluster, or nil when there is none. An
-// empty list asks about every collection (the restore path's case when it
-// doesn't yet know its class list). Scoped by collection: a migration can run
-// for days, and a blind answer would refuse restores of every OTHER collection
-// for that whole time. A live task whose payload names no collection still
-// answers yes for every collection, since nothing says what it holds.
+// AnyReindexActivityLookup reports the live runtime-reindex task on any of
+// the given collections, or nil when there is none. An empty list asks about
+// every collection (the restore path's case before it knows its class list).
+// Scoped by collection so a long-running migration doesn't block restores of
+// every OTHER collection; a task whose payload names none blocks all of them.
 type AnyReindexActivityLookup func(ctx context.Context, collections []string) (*ReindexActivityHold, error)
 
 // AnyCleanupInProgressLookup reports whether this node is still tearing reindex
@@ -194,13 +192,10 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	)
 }
 
-// remediationClass picks the collection the restore refusal points at.
-//
-// The blocking task's own collection wins when the caller's request listed it:
-// the restore was authorized against that list, so naming it back discloses
-// nothing new. Otherwise a single-collection restore can only be about that
-// one. With neither, the class stays a placeholder the operator fills in —
-// naming a collection the caller never asked about would leak it.
+// remediationClass picks the collection the refusal names: the blocking
+// task's own collection when the caller's request listed it (already
+// authorized, so no new disclosure), else the caller's sole collection,
+// else a placeholder — never a collection the caller never asked about.
 func remediationClass(collections []string, blocking string) string {
 	if blocking != "" && slices.ContainsFunc(collections, func(c string) bool {
 		return strings.EqualFold(c, blocking)

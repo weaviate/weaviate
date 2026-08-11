@@ -37,10 +37,8 @@ type fixedLocalActivity struct {
 
 func (f fixedLocalActivity) Activity() backup.NodeActivity { return f.activity }
 
-// The refusal body names neither the node nor the backup id, so the node's own
-// log is the only place the two halves of an incident can be joined. Pins:
-// both backup-gate refusals carry the collection and property the rest of the
-// file logs.
+// Pins: both backup-gate refusals log the collection and property, since the
+// response body omits them.
 func TestBackupGateRefusalsLogCollectionAndProperty(t *testing.T) {
 	running := backup.NodeActivity{Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1"}
 
@@ -90,9 +88,8 @@ func TestBackupGateRefusalsLogCollectionAndProperty(t *testing.T) {
 	}
 }
 
-// Every node answers "unsupported" for the whole of a rolling upgrade, and
-// every submission probes every node. Pins: the WARN is budgeted like the
-// other gate WARNs rather than emitted once per node per request.
+// Pins: the unsupported-probe WARN is budgeted like the other gate WARNs,
+// not emitted per node per request.
 func TestUnsupportedProbeWarnIsBudgeted(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	nodes := []string{"node1", "node2"}
@@ -128,9 +125,8 @@ func (s stubClientResponse) GetHeader(string) string    { return "" }
 func (s stubClientResponse) GetHeaders(string) []string { return nil }
 func (s stubClientResponse) Body() io.ReadCloser        { return io.NopCloser(s.body) }
 
-// The cap's 429 carries the only text that tells a caller what to do about it.
-// Pins: the generated client reads it as a 429 with that body, rather than
-// dropping it into the default arm the way an undeclared status would.
+// Pins: the generated client parses the cap's 429 as 429, not the
+// undeclared-status default arm.
 func TestGeneratedClientParsesTheCapRefusal(t *testing.T) {
 	rec := httptest.NewRecorder()
 	reindexCapExceededResponder(&models.Principal{Username: "u1"}, "Movies", 32, 32).

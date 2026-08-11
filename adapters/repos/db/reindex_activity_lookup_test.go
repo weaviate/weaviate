@@ -616,10 +616,8 @@ func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
 		"the unwired WARN is budgeted once per hour per node, not once per backup")
 }
 
-// Both restore refusals point the operator at a cancel, so both have to render
-// a route they can actually call. The blocking task's own collection is used
-// whenever the caller's request listed it; only when it cannot be named does
-// the class fall back to a placeholder.
+// The remediation URL names the blocking task's own collection when the
+// caller's request listed it, else falls back to a placeholder.
 func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
 	tests := []struct {
 		name        string
