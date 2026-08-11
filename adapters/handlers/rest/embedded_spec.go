@@ -5843,7 +5843,13 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
+            "description": "Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish; the message names the poll route that lists them.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5855,7 +5861,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, a node could not be checked for running backups, or the migration was committed while the post-commit backup check could not be confirmed. In the last case the message names the running task to cancel.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17399,7 +17405,13 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running, or a backup or restore is in progress on some node.",
+            "description": "Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish; the message names the poll route that lists them.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17411,7 +17423,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.",
+            "description": "Distributed tasks not enabled, an in-flight task could not be inspected, a node could not be checked for running backups, or the migration was committed while the post-commit backup check could not be confirmed. In the last case the message names the running task to cancel.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
