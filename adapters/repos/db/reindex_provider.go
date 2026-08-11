@@ -121,14 +121,15 @@ type ReindexProvider struct {
 	// two terminal-state transitions on different (property,
 	// indexType) tuples sharing the same shard — don't lose each
 	// other's registration.
-	cleanupInProgress map[reindexCleanupKey]int
+	cleanupInProgress map[string]int
 
 	// cancelAppliedMu guards both maps below.
 	cancelAppliedMu sync.RWMutex
-	// cancelSeen is the per-collection refcount of recently applied cancels.
-	// It answers the cluster probe only and blocks nothing; see
-	// [ReindexProvider.OnTerminalApplied] for why confirmation and blocking
-	// cannot be the same signal.
+	// cancelSeen is the per-collection refcount of recently applied terminal
+	// transitions — CANCELLED and FAILED alike, since
+	// [ReindexProvider.OnTerminalApplied] observes both. It answers the cluster
+	// probe only and blocks nothing; see OnTerminalApplied for why confirmation
+	// and blocking cannot be the same signal.
 	cancelSeen map[string]int
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
 	// time, until the teardown for that task takes over.
@@ -145,25 +146,17 @@ type ReindexProvider struct {
 	// submission runs over stale sidecars before its task is committed. It is a
 	// separate registry only so the refusal can say which of the two is holding
 	// the shard; see [ReindexProvider.MarkSubmitInProgress].
-	submitInProgress map[reindexCleanupKey]int
+	submitInProgress map[string]int
 }
 
-// reindexCleanupKey identifies a per-(collection, shard) slot in the
-// [ReindexProvider.cleanupInProgress] registry. Used as the map key so
-// the backup gate's "is cleanup mid-flight on this shard?" lookup is
-// a single map probe.
-type reindexCleanupKey struct {
-	collection string
-	shard      string
-}
-
-// cleanupWholeCollection marks a collection-wide registration; no real shard is named "".
-const cleanupWholeCollection = ""
-
-// newReindexCleanupKey lowercases the collection so a registration and a probe
-// that spell the class differently still match; shard names stay exact.
-func newReindexCleanupKey(collection, shard string) reindexCleanupKey {
-	return reindexCleanupKey{collection: strings.ToLower(collection), shard: shard}
+// reindexHoldKey keys both hold registries. Folded so a registration and a
+// probe that spell the class differently still match.
+//
+// Collection-wide, with no shard dimension: the sweeps these registries guard
+// ([Index.CleanStalePartialReindexState]) take no shard list and walk every
+// local shard, so a hold can never cover less than the whole collection.
+func reindexHoldKey(collection string) string {
+	return strings.ToLower(collection)
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -265,12 +258,12 @@ func NewReindexProvider(
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
-		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cleanupInProgress: make(map[string]int),
 		cancelSeen:        make(map[string]int),
 		cancelApplyGates:  make(map[distributedtask.TaskDescriptor]func()),
 
 		cancelTeardownSettled: make(map[distributedtask.TaskDescriptor]time.Time),
-		submitInProgress:      make(map[reindexCleanupKey]int),
+		submitInProgress:      make(map[string]int),
 	}
 }
 
@@ -1791,8 +1784,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		defer applyGate()
 	}
 
-	if cancelledWithoutClaimedUnits(task) {
-		return true // see [cancelledWithoutClaimedUnits]
+	if p.cancelCleanupWaiverApplies(task) {
+		return true // see [ReindexProvider.cancelCleanupWaiverApplies]
 	}
 
 	indexTypes := ReindexTargetIndexes(payload.MigrationType)
@@ -1864,23 +1857,26 @@ func terminalCleanupOutcome(swept, dropped bool) (msg string, warn bool) {
 // sweep removes every tenant's sidecars. Same reasoning, and the same single
 // key, as [ReindexProvider.MarkSubmitInProgress].
 func (p *ReindexProvider) MarkCleanupInProgress(payload *ReindexTaskPayload) func() {
-	p.registerCleanup(payload.Collection, cleanupWholeCollection)
+	p.registerCleanup(payload.Collection)
 	return func() {
-		p.unregisterCleanup(payload.Collection, cleanupWholeCollection)
+		p.unregisterCleanup(payload.Collection)
 	}
 }
 
-// AnyCleanupInProgress is the collection-blind form of [ReindexProvider.IsCleanupInProgress]
-// for the restore gate: a class being restored has no (collection, shard) tuple to ask about.
+// AnyCleanupInProgress is the collection-blind form of
+// [ReindexProvider.HoldForShard] for the restore gate: a class being restored
+// has no (collection, shard) tuple to ask about. Like HoldForShard, it reads
+// both hold registries, not just the teardown one.
 func (p *ReindexProvider) AnyCleanupInProgress() bool {
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
 	return len(p.cleanupInProgress) > 0 || len(p.submitInProgress) > 0
 }
 
-// AnyCleanupInProgressForCollection reports whether this node has seen a cancel
-// for the collection or is tearing down its sidecars. Asked over the cluster by
-// a node handling a cancel (see awaitOwnerCleanupGates in the REST handlers).
+// AnyCleanupInProgressForCollection reports whether this node has seen the
+// collection's task go terminal (CANCELLED or FAILED) or is tearing down its
+// sidecars. Asked over the cluster by a node handling a cancel (see
+// awaitOwnerCleanupGates in the REST handlers).
 // This is the confirmation signal, so it stays true for a fixed window after
 // an apply even once teardown has finished — see [ReindexProvider.OnTerminalApplied].
 // It gates nothing itself.
@@ -1901,82 +1897,65 @@ func (p *ReindexProvider) AnyCleanupInProgressForCollection(collection string) b
 // it does. Distinct from [ReindexProvider.AnyCleanupInProgressForCollection],
 // which stays true through the fixed confirmation window after teardown ends.
 func (p *ReindexProvider) BlockingHoldForCollection(collection string) bool {
-	folded := strings.ToLower(collection)
+	key := reindexHoldKey(collection)
 
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
-	for _, registry := range []map[reindexCleanupKey]int{p.cleanupInProgress, p.submitInProgress} {
-		for key, count := range registry {
-			if count > 0 && key.collection == folded {
-				return true
-			}
+	for _, registry := range []map[string]int{p.cleanupInProgress, p.submitInProgress} {
+		if registry[key] > 0 {
+			return true
 		}
 	}
 	return false
 }
 
-// registerCleanup marks (collection, shard) as having an in-flight
-// terminal-task cleanup. Refcounted: paired calls to
-// [unregisterCleanup] release the slot, with the entry dropping out of
-// the map once the count returns to zero. Safe to call concurrently
-// from multiple terminal-state transitions (different tasks, different
-// (property, indexType) tuples) that share a shard.
-func (p *ReindexProvider) registerCleanup(collection, shard string) {
+// registerCleanup marks the collection as having an in-flight terminal-task
+// cleanup. Refcounted: paired calls to [unregisterCleanup] release the slot,
+// with the entry dropping out of the map once the count returns to zero. Safe
+// to call concurrently from multiple terminal-state transitions (different
+// tasks, different (property, indexType) tuples) on one collection.
+func (p *ReindexProvider) registerCleanup(collection string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
 	if p.cleanupInProgress == nil {
 		// Fixtures build a bare &ReindexProvider{}; production goes through
 		// NewReindexProvider, which allocates the map up front.
-		p.cleanupInProgress = make(map[reindexCleanupKey]int, 1)
+		p.cleanupInProgress = make(map[string]int, 1)
 	}
-	p.cleanupInProgress[newReindexCleanupKey(collection, shard)]++
+	p.cleanupInProgress[reindexHoldKey(collection)]++
 }
 
 // unregisterCleanup releases one outstanding "cleanup-in-progress"
-// registration on (collection, shard). When the refcount returns to
-// zero the map entry is removed so [IsCleanupInProgress] reports false
-// for that tuple and the registry doesn't grow unbounded across
-// task lifetimes.
+// registration on the collection. When the refcount returns to zero the map
+// entry is removed so [ReindexProvider.HoldForShard] reports no hold and the
+// registry doesn't grow unbounded across task lifetimes.
 //
 // Calling unregisterCleanup without a matching registerCleanup is a
 // programming error and would underflow the count; every register goes
 // through [ReindexProvider.MarkCleanupInProgress], whose release pairs
 // it with exactly one unregister on the same key.
-func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
+func (p *ReindexProvider) unregisterCleanup(collection string) {
 	p.cleanupInProgressMu.Lock()
 	defer p.cleanupInProgressMu.Unlock()
-	k := newReindexCleanupKey(collection, shard)
+	k := reindexHoldKey(collection)
 	p.cleanupInProgress[k]--
 	if p.cleanupInProgress[k] <= 0 {
 		delete(p.cleanupInProgress, k)
 	}
 }
 
-// IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
-// currently tearing partial sidecar state on (collection, shard).
+// cleanupHeldLocked reports whether [autoCleanupAfterTerminal] is currently
+// tearing partial sidecar state on the collection. Callers must hold
+// cleanupInProgressMu; the public form is [ReindexProvider.HoldForShard].
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
-// answer must include this signal — the DTM activity lookup it wraps
-// flips a task to terminal as soon as the FSM lands, but the
-// node-local sidecar buckets are still being shut down for tens of
-// seconds after that. A backup that snapshots the shard in that gap
-// would capture half-removed __reindex / __ingest dirs.
-//
-// Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
-// over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
-// if the registry is nil (test fixtures that construct the provider
-// without going through [NewReindexProvider]).
-func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
-	p.cleanupInProgressMu.RLock()
-	defer p.cleanupInProgressMu.RUnlock()
-	if p.cleanupInProgress == nil {
-		return false
-	}
-	if p.cleanupInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
-		return true
-	}
-	return p.cleanupInProgress[newReindexCleanupKey(collection, shard)] > 0
+// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard] answer
+// must include this signal — the DTM activity lookup it wraps flips a task to
+// terminal as soon as the FSM lands, but the node-local sidecar buckets are
+// still being shut down for tens of seconds after that. A backup that
+// snapshots the shard in that gap would capture half-removed __reindex /
+// __ingest dirs.
+func (p *ReindexProvider) cleanupHeldLocked(collection string) bool {
+	return p.cleanupInProgress[reindexHoldKey(collection)] > 0
 }
 
 // ReindexHold says which node-local operation is holding a shard, so the
@@ -2000,13 +1979,13 @@ const (
 // window captures shards whose files the sweep is removing, and the
 // post-commit rollback cannot put them back.
 func (p *ReindexProvider) MarkSubmitInProgress(collection string) func() {
-	key := newReindexCleanupKey(collection, cleanupWholeCollection)
+	key := reindexHoldKey(collection)
 
 	p.cleanupInProgressMu.Lock()
 	if p.submitInProgress == nil {
 		// Fixture tolerance, for the reason given on [ReindexProvider.ensureCancelMaps];
 		// this registry lives under a different mutex, so it is built here.
-		p.submitInProgress = make(map[reindexCleanupKey]int, 1)
+		p.submitInProgress = make(map[string]int, 1)
 	}
 	p.submitInProgress[key]++
 	p.cleanupInProgressMu.Unlock()
@@ -2024,15 +2003,20 @@ func (p *ReindexProvider) MarkSubmitInProgress(collection string) func() {
 // HoldForShard reports which hold, if any, covers (collection, shard). A
 // teardown outranks a submission: it is the more urgent thing to tell an
 // operator about.
-func (p *ReindexProvider) HoldForShard(collection, shard string) ReindexHold {
-	if p.IsCleanupInProgress(collection, shard) {
-		return ReindexHoldCleanup
-	}
+//
+// shard completes the [CleanupInProgressLookup] shape the backup gate probes
+// with; the answer itself is collection-wide, because the sweeps behind both
+// holds are (see [reindexHoldKey]).
+func (p *ReindexProvider) HoldForShard(collection, _ string) ReindexHold {
+	// Both registries under one RLock: read separately, a submission handing
+	// over to a teardown reports no hold at all for a shard that was held
+	// continuously.
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
-	// The sweep is collection-wide by construction, so this is the only key
-	// [ReindexProvider.MarkSubmitInProgress] ever writes; shard is unused here.
-	if p.submitInProgress[newReindexCleanupKey(collection, cleanupWholeCollection)] > 0 {
+	if p.cleanupHeldLocked(collection) {
+		return ReindexHoldCleanup
+	}
+	if p.submitInProgress[reindexHoldKey(collection)] > 0 {
 		return ReindexHoldSubmit
 	}
 	return ReindexHoldNone
@@ -2051,14 +2035,14 @@ type CleanupInProgressLookup func(collection, shard string) ReindexHold
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures
-// re-read the live [cleanupInProgress] registry on every invocation.
-// Use to wire the backup gate into the provider without coupling the
-// DB struct to the concrete *ReindexProvider type.
+// re-read the live hold registries on every invocation. Use to wire the backup
+// gate into the provider without coupling the DB struct to the concrete
+// *ReindexProvider type.
 //
-// Returning the closure (rather than a direct method handle) keeps
-// the contract symmetric with [ShardReindexActivityLookupBuilder] and
-// lets the gate take a snapshot per probe rather than caching the
-// underlying state.
+// Deliberately not a snapshot, unlike the activity half of
+// [reindexGateSnapshot]: this is a local map read, so there is no leader round
+// trip to amortize, and reading it live keeps a hold taken mid-pass visible to
+// the shards still to come.
 func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
 	return func() CleanupInProgressLookup {
 		return p.HoldForShard
@@ -2605,12 +2589,30 @@ func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 		// same unparseable payload; do not duplicate it on the apply path.
 		return
 	}
-	if cancelledWithoutClaimedUnits(task) {
-		// See [cancelledWithoutClaimedUnits]: the confirmation latch above
-		// still fires, only the blocking gate is skipped.
+	if p.cancelCleanupWaiverApplies(task) {
+		// See [ReindexProvider.cancelCleanupWaiverApplies]: the confirmation
+		// latch above still fires, only the blocking gate is skipped.
 		return
 	}
 	p.holdCleanupGateUntilTeardown(task.TaskDescriptor, payload)
+}
+
+// cancelCleanupWaiverApplies decides whether this node may skip the cleanup
+// gate and the drain for a cancelled task, and is the only place the two
+// node-local sites ([ReindexProvider.autoCleanupAfterTerminal] and
+// [ReindexProvider.OnTerminalApplied]) make that call.
+//
+// A live local worker vetoes the waiver. A worker registers its handle before
+// its first progress report flips a unit out of PENDING, so a cancel landing in
+// that window sees an all-PENDING unit list next to a worker that is about to
+// write __reindex / __ingest sidecars. Waiving there would report the shards
+// free to the backup gate while that worker keeps writing.
+func (p *ReindexProvider) cancelCleanupWaiverApplies(task *distributedtask.Task) bool {
+	if !cancelledWithoutClaimedUnits(task) {
+		return false
+	}
+	_, running := p.runningHandle(task.TaskDescriptor)
+	return !running
 }
 
 // cancelledWithoutClaimedUnits reports whether the task is a cancelled one no
@@ -2618,6 +2620,10 @@ func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 // backstop applies in reindexTaskOverlaps — the two must agree, since the
 // submit path manufactures exactly this task when a backup wins the race and
 // it rolls itself back. Cancelled only; a FAILED task keeps the gate.
+//
+// Handle-blind on purpose: reindexTaskOverlaps runs cluster-wide and cannot see
+// another node's workers, so only the node-local
+// [ReindexProvider.cancelCleanupWaiverApplies] adds that condition.
 func cancelledWithoutClaimedUnits(task *distributedtask.Task) bool {
 	return task != nil &&
 		task.Status == distributedtask.TaskStatusCancelled &&

@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -36,21 +37,25 @@ import (
 // tens of seconds after that. A backup landing in that gap sees the
 // gate as open and would snapshot half-removed dirs.
 //
-// The fix is a per-(collection, shard) cleanup-in-progress registry
-// inside ReindexProvider. The tests below pin:
+// The fix is a per-collection cleanup-in-progress registry inside
+// ReindexProvider. The tests below pin:
 //
-//   1. Register flips IsCleanupInProgress to true; unregister flips
-//      it back to false.
+//   1. Register flips the hold on; unregister flips it back off.
 //   2. Refcount survives interleaved register/unregister on the same
-//      tuple from multiple goroutines / property loops.
+//      collection from multiple goroutines / property loops.
 //   3. The registry never observes a negative refcount (defensive
 //      pin against an unregister-without-register typo).
-//   4. The collection / shard scoping is precise — a registration on
-//      one tuple never bleeds into a sibling tuple.
+//   4. The collection scoping is precise — a registration on one
+//      collection never bleeds into another.
 //   5. The builder closure exposes a fresh probe each time so the
 //      backup gate sees the live state, not a stale snapshot.
 //   6. MarkCleanupInProgress gates the whole collection, because the
 //      sweep it guards walks every local shard.
+
+// holdIsCleanup asks the gate's own probe whether a teardown holds the shard.
+func holdIsCleanup(p *ReindexProvider, collection, shard string) bool {
+	return p.HoldForShard(collection, shard) == ReindexHoldCleanup
+}
 
 // newCleanupRegistryProvider builds a minimal *ReindexProvider with
 // only the cleanup registry initialized. Mirrors the literal-
@@ -60,7 +65,7 @@ import (
 // the cleanup-registry contract doesn't depend on.
 func newCleanupRegistryProvider() *ReindexProvider {
 	return &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cleanupInProgress: make(map[string]int),
 	}
 }
 
@@ -72,15 +77,15 @@ func newCleanupRegistryProvider() *ReindexProvider {
 func TestCleanupInProgress_RegisterThenUnregister(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
-	require.False(t, p.IsCleanupInProgress("C", "shard1"),
+	require.False(t, holdIsCleanup(p, "C", "shard1"),
 		"fresh provider must not report cleanup-in-progress")
 
-	p.registerCleanup("C", "shard1")
-	require.True(t, p.IsCleanupInProgress("C", "shard1"),
+	p.registerCleanup("C")
+	require.True(t, holdIsCleanup(p, "C", "shard1"),
 		"after registerCleanup, IsCleanupInProgress must return true")
 
-	p.unregisterCleanup("C", "shard1")
-	require.False(t, p.IsCleanupInProgress("C", "shard1"),
+	p.unregisterCleanup("C")
+	require.False(t, holdIsCleanup(p, "C", "shard1"),
 		"after unregisterCleanup, IsCleanupInProgress must return false")
 }
 
@@ -92,17 +97,17 @@ func TestCleanupInProgress_RegisterThenUnregister(t *testing.T) {
 func TestCleanupInProgress_RefCountIsReentrant(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
-	p.registerCleanup("C", "shard1")
-	p.registerCleanup("C", "shard1")
-	require.True(t, p.IsCleanupInProgress("C", "shard1"),
+	p.registerCleanup("C")
+	p.registerCleanup("C")
+	require.True(t, holdIsCleanup(p, "C", "shard1"),
 		"after two registerCleanup calls, slot must report busy")
 
-	p.unregisterCleanup("C", "shard1")
-	require.True(t, p.IsCleanupInProgress("C", "shard1"),
+	p.unregisterCleanup("C")
+	require.True(t, holdIsCleanup(p, "C", "shard1"),
 		"first unregister with outstanding refcount must keep slot busy")
 
-	p.unregisterCleanup("C", "shard1")
-	require.False(t, p.IsCleanupInProgress("C", "shard1"),
+	p.unregisterCleanup("C")
+	require.False(t, holdIsCleanup(p, "C", "shard1"),
 		"final unregister must release the slot")
 }
 
@@ -115,56 +120,41 @@ func TestCleanupInProgress_RefCountIsReentrant(t *testing.T) {
 func TestCleanupInProgress_ScopingByCollection(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
-	p.registerCleanup("CollectionA", "shard1")
-	require.True(t, p.IsCleanupInProgress("CollectionA", "shard1"))
-	require.False(t, p.IsCleanupInProgress("CollectionB", "shard1"),
+	p.registerCleanup("CollectionA")
+	require.True(t, holdIsCleanup(p, "CollectionA", "shard1"))
+	require.False(t, holdIsCleanup(p, "CollectionB", "shard1"),
 		"cleanup registration must be scoped by collection")
 
-	p.unregisterCleanup("CollectionA", "shard1")
-	require.False(t, p.IsCleanupInProgress("CollectionA", "shard1"))
-}
-
-// TestCleanupInProgress_ScopingByShard pins that a registration on
-// (C, shard1) does not block (C, shard2). The DTM activity lookup
-// has the same shard-scope contract; the cleanup registry must
-// match it so the gate's combined answer stays per-shard.
-func TestCleanupInProgress_ScopingByShard(t *testing.T) {
-	p := newCleanupRegistryProvider()
-
-	p.registerCleanup("C", "shard1")
-	require.True(t, p.IsCleanupInProgress("C", "shard1"))
-	require.False(t, p.IsCleanupInProgress("C", "shard2"),
-		"cleanup registration must be scoped by shard")
-
-	p.unregisterCleanup("C", "shard1")
+	p.unregisterCleanup("CollectionA")
+	require.False(t, holdIsCleanup(p, "CollectionA", "shard1"))
 }
 
 // TestCleanupInProgress_NilRegistryIsConservativeFalse pins the
 // defensive nil-check: a provider built without the cleanup map
 // (test fixtures using zero-value literal construction) must NOT
-// panic on IsCleanupInProgress and must report false (no entries =
+// panic on the hold probe and must report false (no entries =
 // nothing in flight). Register / unregister still require a
 // constructed map; that contract belongs to [NewReindexProvider].
 func TestCleanupInProgress_NilRegistryIsConservativeFalse(t *testing.T) {
 	p := &ReindexProvider{}
-	require.False(t, p.IsCleanupInProgress("C", "shard1"),
+	require.False(t, holdIsCleanup(p, "C", "shard1"),
 		"nil registry must not panic and must report false")
 }
 
 // TestCleanupInProgress_ZeroRefcountDeletesEntry pins the map-key
 // hygiene: once the refcount hits zero the key must drop out of the
 // map. Without this the registry grows unbounded across the lifetime
-// of a long-running provider (one entry per (collection, shard) that
-// has ever had a cleanup).
+// of a long-running provider (one entry per collection that has ever
+// had a cleanup).
 func TestCleanupInProgress_ZeroRefcountDeletesEntry(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
-	p.registerCleanup("C", "shard1")
-	p.unregisterCleanup("C", "shard1")
+	p.registerCleanup("C")
+	p.unregisterCleanup("C")
 
 	p.cleanupInProgressMu.RLock()
 	defer p.cleanupInProgressMu.RUnlock()
-	_, present := p.cleanupInProgress[newReindexCleanupKey("C", "shard1")]
+	_, present := p.cleanupInProgress[reindexHoldKey("C")]
 	require.False(t, present, "zero refcount must remove the map entry")
 	require.Equal(t, 0, len(p.cleanupInProgress),
 		"registry must be empty once every register has been paired")
@@ -178,19 +168,15 @@ func TestCleanupInProgress_ZeroRefcountDeletesEntry(t *testing.T) {
 func TestCleanupInProgress_LookupBuilder(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
-	builder := p.CleanupInProgressLookupBuilder()
-	require.NotNil(t, builder, "builder must not return nil")
-
-	lookup := builder()
-	require.NotNil(t, lookup, "builder() must return a non-nil lookup")
+	lookup := p.CleanupInProgressLookupBuilder()()
 	require.Equal(t, ReindexHoldNone, lookup("C", "shard1"),
 		"lookup on a fresh registry must report no hold")
 
-	p.registerCleanup("C", "shard1")
+	p.registerCleanup("C")
 	require.Equal(t, ReindexHoldCleanup, lookup("C", "shard1"),
 		"lookup must observe a registration that happened AFTER the closure was built")
 
-	p.unregisterCleanup("C", "shard1")
+	p.unregisterCleanup("C")
 	require.Equal(t, ReindexHoldNone, lookup("C", "shard1"),
 		"lookup must observe an unregistration that happened AFTER the closure was built")
 }
@@ -214,14 +200,14 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < opsPerGoroutine; j++ {
-				p.registerCleanup("C", "shard1")
-				p.unregisterCleanup("C", "shard1")
+				p.registerCleanup("C")
+				p.unregisterCleanup("C")
 			}
 		}()
 	}
 	wg.Wait()
 
-	require.False(t, p.IsCleanupInProgress("C", "shard1"),
+	require.False(t, holdIsCleanup(p, "C", "shard1"),
 		"after paired register/unregister waves, refcount must be zero")
 
 	p.cleanupInProgressMu.RLock()
@@ -242,15 +228,15 @@ func TestMarkCleanupInProgress(t *testing.T) {
 	require.False(t, p.AnyCleanupInProgress())
 
 	release := p.MarkCleanupInProgress(payload)
-	assert.True(t, p.IsCleanupInProgress("C", "shard1"))
-	assert.True(t, p.IsCleanupInProgress("C", "shard2"))
+	assert.True(t, holdIsCleanup(p, "C", "shard1"))
+	assert.True(t, holdIsCleanup(p, "C", "shard2"))
 	assert.True(t, p.AnyCleanupInProgress(),
 		"the restore gate asks the collection-blind question")
 
 	release()
-	assert.False(t, p.IsCleanupInProgress("C", "shard1"),
+	assert.False(t, holdIsCleanup(p, "C", "shard1"),
 		"a shard named by two units must not need two releases")
-	assert.False(t, p.IsCleanupInProgress("C", "shard2"))
+	assert.False(t, holdIsCleanup(p, "C", "shard2"))
 	assert.False(t, p.AnyCleanupInProgress())
 }
 
@@ -267,13 +253,13 @@ func TestMarkCleanupInProgressGatesShardsThePayloadDoesNotName(t *testing.T) {
 		UnitToShard: map[string]string{"u1": "t1"},
 	})
 
-	assert.True(t, p.IsCleanupInProgress("Movies", "t2"),
+	assert.True(t, holdIsCleanup(p, "Movies", "t2"),
 		"the sweep deletes t2's sidecars too, so a backup of t2 must be refused")
 	assert.Equal(t, ReindexHoldCleanup, p.HoldForShard("Movies", "t2"),
 		"the refusal must name the teardown, not fall through to no hold")
 
 	release()
-	assert.False(t, p.IsCleanupInProgress("Movies", "t2"))
+	assert.False(t, holdIsCleanup(p, "Movies", "t2"))
 }
 
 // TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
@@ -322,10 +308,10 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 				UnitToShard: tc.shards,
 			})
 
-			assert.Equal(t, tc.wantInProgress, p.IsCleanupInProgress(tc.probeAs, tc.probeShard))
+			assert.Equal(t, tc.wantInProgress, holdIsCleanup(p, tc.probeAs, tc.probeShard))
 
 			release()
-			assert.False(t, p.IsCleanupInProgress(tc.probeAs, tc.probeShard),
+			assert.False(t, holdIsCleanup(p, tc.probeAs, tc.probeShard),
 				"the release must find the same key the registration wrote")
 			assert.False(t, p.AnyCleanupInProgress(),
 				"a release under a different spelling would leak the entry forever")
@@ -337,7 +323,7 @@ func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
 // drain gate consults.
 func drainGateProvider(handles map[distributedtask.TaskDescriptor]*reindexTaskHandle) *ReindexProvider {
 	return &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cleanupInProgress: make(map[string]int),
 		runningHandles:    handles,
 		timings:           defaultReindexTimings(),
 	}
@@ -363,7 +349,7 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 	require.Error(t, err, "the drain must report that it gave up")
 	require.NotNil(t, release, "the release must be usable even on timeout")
 
-	assert.True(t, p.IsCleanupInProgress("Movies", "shard1"),
+	assert.True(t, holdIsCleanup(p, "Movies", "shard1"),
 		"the worker is still writing; a backup must not capture this shard")
 	assert.True(t, p.AnyCleanupInProgress(),
 		"the restore gate must be shut for the same reason")
@@ -480,7 +466,7 @@ func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
 	serverCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	p := &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cleanupInProgress: make(map[string]int),
 		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
 			desc: {doneCh: doneCh},
 		},
@@ -513,7 +499,7 @@ func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
 func TestReleaseCleanupGateOnWorkerExitGivesUpAtTheCap(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-wedged", Version: 1}
 	p := &ReindexProvider{
-		cleanupInProgress: make(map[reindexCleanupKey]int),
+		cleanupInProgress: make(map[string]int),
 		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
 			// Never closed: this is the worker that does not come back.
 			desc: {doneCh: make(chan struct{})},
@@ -568,7 +554,7 @@ func TestCancelApplyGateCap(t *testing.T) {
 			desc := distributedtask.TaskDescriptor{ID: "task-parked", Version: 1}
 			logger, hook := logrustest.NewNullLogger()
 			p := &ReindexProvider{
-				cleanupInProgress: make(map[reindexCleanupKey]int),
+				cleanupInProgress: make(map[string]int),
 				// Never cancelled, so the cap is the only way out.
 				serverCtx: context.Background(),
 				timings:   defaultReindexTimings(),
@@ -615,10 +601,11 @@ func TestCancelApplyGateCap(t *testing.T) {
 	}
 }
 
-// Pins the two things that decide whether the gate is held: what the payload
-// says there is to tear down, and whether the task's units show a worker ever
-// ran. FAILED with nothing claimed still holds the gate, since a failed task
-// means a worker reported something, unlike CANCELLED with nothing claimed.
+// Pins the three things that decide whether the gate is held: what the payload
+// says there is to tear down, whether the task's units show a worker ever ran,
+// and whether a worker for the task is running on this node right now. FAILED
+// with nothing claimed still holds the gate, since a failed task means a worker
+// reported something, unlike CANCELLED with nothing claimed.
 func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
 	const shard = "shard1"
@@ -629,11 +616,15 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 	}
 
 	tests := []struct {
-		name     string
-		payload  *ReindexTaskPayload
-		status   distributedtask.TaskStatus
-		unit     distributedtask.UnitStatus
-		wantHold bool
+		name    string
+		payload *ReindexTaskPayload
+		status  distributedtask.TaskStatus
+		unit    distributedtask.UnitStatus
+		// localWorker installs a running handle for the task on this node.
+		// It is a semantic condition, not a fixture detail: the waiver below
+		// turns on it.
+		localWorker bool
+		wantHold    bool
 	}{
 		{
 			name: "migration type tears nothing down",
@@ -646,24 +637,38 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 			unit:   distributedtask.UnitStatusInProgress,
 		},
 		{
-			name:    "cancelled, no unit ever claimed — the submit rollback",
+			name:    "cancelled, no unit ever claimed, no worker here — the submit rollback",
 			payload: teardownPayload,
 			status:  distributedtask.TaskStatusCancelled,
 			unit:    distributedtask.UnitStatusPending,
 		},
 		{
-			name:     "cancelled after a worker claimed a unit",
-			payload:  teardownPayload,
-			status:   distributedtask.TaskStatusCancelled,
-			unit:     distributedtask.UnitStatusInProgress,
-			wantHold: true,
+			// Identical to the row above except for the worker. A worker
+			// registers its handle before its first progress report flips a
+			// unit out of PENDING, so all-PENDING units next to a live worker
+			// means one is about to write sidecars here.
+			name:        "cancelled, no unit ever claimed, but a worker is running here",
+			payload:     teardownPayload,
+			status:      distributedtask.TaskStatusCancelled,
+			unit:        distributedtask.UnitStatusPending,
+			localWorker: true,
+			wantHold:    true,
 		},
 		{
-			name:     "failed with nothing claimed",
-			payload:  teardownPayload,
-			status:   distributedtask.TaskStatusFailed,
-			unit:     distributedtask.UnitStatusPending,
-			wantHold: true,
+			name:        "cancelled after a worker claimed a unit",
+			payload:     teardownPayload,
+			status:      distributedtask.TaskStatusCancelled,
+			unit:        distributedtask.UnitStatusInProgress,
+			localWorker: true,
+			wantHold:    true,
+		},
+		{
+			name:        "failed with nothing claimed",
+			payload:     teardownPayload,
+			status:      distributedtask.TaskStatusFailed,
+			unit:        distributedtask.UnitStatusPending,
+			localWorker: true,
+			wantHold:    true,
 		},
 	}
 
@@ -675,9 +680,11 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 			// drain, so it is set far above the deadline the skip rows assert;
 			// a hold has to be observable and then end, so it is set low enough
 			// that the drain times out and the call returns on its own.
-			p := drainGateProvider(map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-				desc: {doneCh: make(chan struct{})},
-			})
+			handles := map[distributedtask.TaskDescriptor]*reindexTaskHandle{}
+			if tc.localWorker {
+				handles[desc] = &reindexTaskHandle{doneCh: make(chan struct{})}
+			}
+			p := drainGateProvider(handles)
 			p.serverCtx = context.Background()
 			if tc.wantHold {
 				p.timings.terminalCleanupDrainTimeout = time.Second
@@ -716,6 +723,63 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 				time.Second, 5*time.Millisecond,
 				"the sidecars are still coming down, so the backup must be refused")
 			<-done
+		})
+	}
+}
+
+// The cancel-apply gate covers the gap between the task going terminal in DTM
+// and the teardown starting. A cancelled task no worker ever claimed a unit of
+// is waived from it — unless a worker for that task is running on this node,
+// which is exactly the window between the handle being registered and the
+// first progress report leaving PENDING.
+func TestOnTerminalAppliedHoldsTheGateWhenAWorkerIsRunningHere(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "task-apply", Version: 1}
+	payload := ReindexTaskPayload{
+		Collection: "Movies", Properties: []string{"body"},
+		MigrationType: ReindexTypeChangeTokenization,
+		UnitToShard:   map[string]string{"u1": "shard1"},
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		localWorker bool
+		wantHold    bool
+	}{
+		{
+			name:        "no worker here — the submit rollback's own cancel",
+			localWorker: false,
+		},
+		{
+			name:        "a worker is running here",
+			localWorker: true,
+			wantHold:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			handles := map[distributedtask.TaskDescriptor]*reindexTaskHandle{}
+			if tc.localWorker {
+				handles[desc] = &reindexTaskHandle{doneCh: make(chan struct{})}
+			}
+			p := drainGateProvider(handles)
+			p.serverCtx = context.Background()
+			logger, _ := logrustest.NewNullLogger()
+			p.logger = logger
+
+			p.OnTerminalApplied(&distributedtask.Task{
+				TaskDescriptor: desc,
+				Payload:        raw,
+				Status:         distributedtask.TaskStatusCancelled,
+				Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: distributedtask.UnitStatusPending}},
+			})
+
+			require.Equal(t, tc.wantHold, p.AnyCleanupInProgress(),
+				"the blocking gate must follow the running worker, not the unit list alone")
+			require.True(t, p.AnyCleanupInProgressForCollection("Movies"),
+				"the confirmation latch is a separate signal and fires either way")
 		})
 	}
 }
