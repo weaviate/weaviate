@@ -221,6 +221,8 @@ func submissionHandlers(t *testing.T, tasks reindexTaskService, prober nodeActiv
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", collection).Return(class).Maybe()
+	// The GET status route resolves aliases before authz; nothing here is one.
+	reader.On("ResolveAlias", mock.Anything).Return("").Maybe()
 	reader.On("Read", collection, true, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
 		fn := args.Get(2).(func(*models.Class, *sharding.State) error)
 		require.NoError(t, fn(class, shardState))
@@ -254,6 +256,13 @@ func cancelHandlers(t *testing.T, tasks reindexTaskService) *indexesHandlers {
 	h.appState.ReindexProvider.Store(db.NewReindexProvider(nil, nil, h.appState.Logger, fixtureNode,
 		func() int { return 1 }, context.Background()))
 	return h
+}
+
+func getIndexesStatus(h *indexesHandlers) middleware.Responder {
+	return h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: httptest.NewRequest("GET", "/", nil),
+		ClassName:   "Movies",
+	}, &models.Principal{Username: "u1"})
 }
 
 func submitReindex(h *indexesHandlers) middleware.Responder {
