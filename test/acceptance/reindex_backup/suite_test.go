@@ -632,8 +632,34 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	require.NoError(t, err)
 	cancelBody, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel must return 202; got %d: %s", resp.StatusCode, string(cancelBody))
+
+	// awaitIndexingState is best-effort, so the cancel lands at an
+	// unsynchronized moment and the task's phase decides the code: 202
+	// CANCELLED (still STARTED), 409 (every unit finished, cluster-wide swap
+	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
+	// is completion-driven, not cancel-driven, so log which one we got.
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result models.IndexUpdateResponse
+		require.NoErrorf(t, json.Unmarshal(cancelBody, &result),
+			"cancel response should decode as IndexUpdateResponse: %s", string(cancelBody))
+		switch result.Status {
+		case "CANCELLED":
+			require.Equalf(t, taskID, result.TaskID,
+				"cancel CANCELLED must name the cancelled task; body: %s", string(cancelBody))
+		case "NO_OP":
+			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
+		default:
+			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
+				result.Status, string(cancelBody))
+		}
+	case http.StatusConflict:
+		require.Containsf(t, string(cancelBody), taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", string(cancelBody))
+		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
+	default:
+		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(cancelBody))
+	}
 
 	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
 	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
@@ -667,7 +693,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	}
 
 	// MutationGuard's IsActive() gate (STARTED/PREPARING/SWAPPING only)
-	// means CANCELLED does not block DELETE.
+	// means a terminal task does not block DELETE.
 	deleteURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
 	delReq, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
 	require.NoError(t, err)
