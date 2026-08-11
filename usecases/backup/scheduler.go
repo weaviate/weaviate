@@ -569,12 +569,18 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// the only way to clear a descriptor stuck on CANCELLING.
 		default:
 			// Transferring, Started - attempt to claim cancellation
-			won, err := s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath)
+			won, held, err := s.claimCancellation(ctx, store, meta, backupID, overrideBucket, overridePath)
 			if err != nil {
 				return fmt.Errorf("claim the cancellation of restore %q: %w", backupID, err)
 			}
 			if !won {
 				return nil
+			}
+			// The restore began finalizing between the pre-check above and the
+			// claim. Aborting every node for a cancel that can no longer land
+			// is work whose only outcome is the same 422.
+			if held.ID == backupID && held.Status == backup.Finalizing {
+				return errRestoreFinalizing(backupID)
 			}
 		}
 	}
@@ -625,26 +631,28 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 }
 
 // claimCancellation writes CANCELLING to the descriptor, the lock coordinators
-// race for. Returns (false, nil) if another coordinator won, and (false, err)
-// if the write itself failed, since a failed write must not be reported to
-// the caller as a completed cancellation.
+// race for. Returns (false, _, nil) if another coordinator won, and
+// (false, _, err) if the write itself failed, since a failed write must not be
+// reported to the caller as a completed cancellation. The reqState is what the
+// node-local slot read when the claim tried to stamp it, so a caller can tell
+// a claim the slot refused from one it took.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
-) (bool, error) {
+) (bool, reqState, error) {
 	meta.Status = backup.Cancelling
 	if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
-		return false, err
+		return false, reqState{}, err
 	}
 
 	// Re-read to verify we won the race (another coordinator may have written simultaneously)
 	verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
 	if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
 		// Another coordinator already completed cancellation
-		return false, nil
+		return false, reqState{}, nil
 	}
 	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelling)
 	logCancelStamp(s.logger, backupID, backup.Cancelling, stamped, held)
-	return true, nil
+	return true, held, nil
 }
 
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {

@@ -1353,7 +1353,8 @@ func storedRestoreMeta(fs *fakeScheduler, backupID string, statuses ...backup.St
 
 // recordRestoreMetaWrites captures the status of every restore descriptor
 // write, in order. onWrite, if set, runs before each write is recorded.
-func recordRestoreMetaWrites(fs *fakeScheduler, backupID string, onWrite func()) *[]backup.Status {
+func recordRestoreMetaWrites(t *testing.T, fs *fakeScheduler, backupID string, onWrite func()) *[]backup.Status {
+	t.Helper()
 	statuses := &[]backup.Status{}
 	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).
 		Run(func(args mock.Arguments) {
@@ -1361,7 +1362,9 @@ func recordRestoreMetaWrites(fs *fakeScheduler, backupID string, onWrite func())
 				onWrite()
 			}
 			var desc backup.DistributedBackupDescriptor
-			json.Unmarshal(args.Get(3).([]byte), &desc)
+			// assert, not require: this runs on the goroutine making the write,
+			// where Goexit surfaces as a hang instead of the failure.
+			assert.NoError(t, json.Unmarshal(args.Get(3).([]byte), &desc))
 			*statuses = append(*statuses, desc.Status)
 		}).Return(nil)
 	return statuses
@@ -1576,7 +1579,7 @@ func TestCancellingRestore(t *testing.T) {
 		// A cancel repeated on a stuck CANCELLING descriptor must finish it.
 		fs := newCancelRestoreFixture(t, ctx)
 		storedRestoreMeta(fs, backupID, backup.Cancelling)
-		writes := recordRestoreMetaWrites(fs, backupID, nil)
+		writes := recordRestoreMetaWrites(t, fs, backupID, nil)
 
 		err := fs.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
 		assert.Nil(t, err)
@@ -1617,7 +1620,7 @@ func TestCancellingRestore(t *testing.T) {
 	t.Run("CancellingWritesCANCELLINGFirst", func(t *testing.T) {
 		fs := newCancelRestoreFixture(t, ctx)
 		storedRestoreMeta(fs, backupID, backup.Transferring)
-		writes := recordRestoreMetaWrites(fs, backupID, nil)
+		writes := recordRestoreMetaWrites(t, fs, backupID, nil)
 
 		err := fs.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
 		assert.Nil(t, err)
@@ -1628,7 +1631,9 @@ func TestCancellingRestore(t *testing.T) {
 	t.Run("CancellingStandsDownWhenAnotherCoordinatorAlreadyFinishedIt", func(t *testing.T) {
 		// The re-read shows another coordinator already finished the cancel;
 		// this one must stand down instead of rewriting CANCELLED.
-		fs := newCancelRestoreFixture(t, ctx)
+		// No fixture: this stands down before reaching a single node, so none
+		// of the participant stubs would be used.
+		fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 		backend := &restoreMetaBackend{}
 		backend.setStored(t, backup.DistributedBackupDescriptor{
 			ID: backupID, Status: backup.Transferring,
@@ -1651,8 +1656,9 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingRefusedAtFinalizingIsNotReportedAsDone", func(t *testing.T) {
-		// The restore begins finalizing between the pre-check and the final
-		// stamp; the caller must not get a false 204.
+		// The restore begins finalizing between the pre-check and the claim's
+		// stamp; the caller must not get a false 204, and must not have every
+		// node aborted for a cancel that can no longer land.
 		fs := newCancelRestoreFixture(t, ctx)
 		storedRestoreMeta(fs, backupID, backup.Transferring)
 
@@ -1662,7 +1668,7 @@ func TestCancellingRestore(t *testing.T) {
 		// The claim write is the last step before the stamp, so a restore that
 		// starts finalizing there lands in exactly that gap.
 		var once sync.Once
-		writes := recordRestoreMetaWrites(fs, backupID, func() {
+		writes := recordRestoreMetaWrites(t, fs, backupID, func() {
 			once.Do(func() { require.True(t, slot.set(backup.Finalizing)) })
 		})
 
@@ -1673,6 +1679,7 @@ func TestCancellingRestore(t *testing.T) {
 		assert.Equal(t, []backup.Status{backup.Cancelling}, *writes,
 			"a cancel that could not land must not stamp CANCELLED on the descriptor")
 		assert.Equal(t, backup.Finalizing, s.restorer.lastOp.get().Status)
+		fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("PartialMetaRetriesAndScopesAuthz", func(t *testing.T) {

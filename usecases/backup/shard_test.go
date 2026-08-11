@@ -138,7 +138,7 @@ func TestSlotOwnerRelease(t *testing.T) {
 			arrange: func(t *testing.T, s *backupStat) slotOwner {
 				_, slot := s.renew("op-1", "path", "", "")
 				slot.set(backup.Cancelled)
-				requireSlotFreed(t, s, "op-1")
+				freeSlot(t, s, "op-1")
 				prevID, _ := s.renew("op-1", "path", "", "")
 				require.Empty(t, prevID, "the retry could not claim the freed slot")
 				return slot
@@ -348,7 +348,7 @@ func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
 			prevID, stale := s.renew("op-1", "path", "", "")
 			require.Empty(t, prevID)
 			require.True(t, stale.set(backup.Cancelled))
-			requireSlotFreed(t, &s, "op-1")
+			freeSlot(t, &s, "op-1")
 
 			// The retry carries the same id, which is what makes an id-keyed
 			// check unable to tell the two claims apart.
@@ -389,7 +389,7 @@ func TestSlotOwnerStatus(t *testing.T) {
 		var s backupStat
 		_, stale := s.renew("op-1", "path", "", "")
 		require.True(t, stale.set(backup.Cancelled))
-		requireSlotFreed(t, &s, "op-1")
+		freeSlot(t, &s, "op-1")
 		_, live := s.renew("op-1", "path", "", "")
 		require.True(t, live.set(backup.Cancelled))
 

@@ -601,8 +601,10 @@ func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescr
 	return nil
 }
 
-// Pins that a refused FINALIZING write stops the restore instead of applying
-// the schema.
+// Pins that a restore whose slot was handed to a retry stops instead of
+// applying the schema over that retry. The other way the FINALIZING write is
+// refused, a cancel landing in the same gap, is pinned by
+// TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging.
 func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	t.Parallel()
 	const (
@@ -612,71 +614,36 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 		node        = "N1"
 	)
 
-	tests := []struct {
-		name string
-		// interfere runs on the restore goroutine, from the storage read that
-		// sits immediately before the FINALIZING write.
-		interfere  func(t *testing.T, stat *backupStat)
-		wantStored backup.Status
-		wantSlotID string
-	}{
-		{
-			name: "a cancel is stamped just before the finalizing write",
-			interfere: func(t *testing.T, stat *backupStat) {
-				stamped, _ := stat.setIfOwned(backupID, backup.Cancelling)
-				assert.True(t, stamped)
-			},
-			wantStored: backup.Cancelled,
-			wantSlotID: "",
-		},
-		{
-			name: "the slot is handed to a retry just before the finalizing write",
-			interfere: func(t *testing.T, stat *backupStat) {
-				takeOverSlot(t, stat, backupID, retryID)
-			},
-			// The retry owns the stored descriptor now, so the restore that
-			// lost the slot leaves it as it found it.
-			wantStored: backup.Transferring,
-			wantSlotID: retryID,
-		},
-	}
+	schemaManager := &countingSchemaManager{}
+	c, fc := newStagingRestore(node, backupID, schemaManager)
+	fc.client.On("Status", mock.Anything, node, mock.Anything).
+		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			schemaManager := &countingSchemaManager{}
-			c, fc := newStagingRestore(node, backupID, schemaManager)
-			fc.client.On("Status", mock.Anything, node, mock.Anything).
-				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
+	// Read one answers Restore itself, read two is the one the goroutine does
+	// right before deciding to finalize, so the takeover lands in exactly that
+	// gap.
+	interfered := make(chan struct{})
+	backend := &restoreMetaBackend{onRead: func(n int) {
+		if n != 2 {
+			return
+		}
+		takeOverSlot(t, &c.lastOp, backupID, retryID)
+		close(interfered)
+	}}
 
-			// Read one answers Restore itself, read two is the one the
-			// goroutine does right before deciding to finalize, so what the
-			// interference does lands in exactly that gap.
-			interfered := make(chan struct{})
-			backend := &restoreMetaBackend{onRead: func(n int) {
-				if n != 2 {
-					return
-				}
-				// assert, not require: this runs on the restore goroutine,
-				// where Goexit surfaces as a hang instead of this failure.
-				tc.interfere(t, &c.lastOp)
-				close(interfered)
-			}}
+	startRestore(t, c, backend, backendName, backupID, node)
 
-			startRestore(t, c, backend, backendName, backupID, node)
+	awaitInterference(t, interfered, "the restore never reached the finalizing decision")
+	require.Eventually(t, func() bool { return c.lastOp.get().ID == retryID },
+		10*time.Second, 10*time.Millisecond, "the restore goroutine never stopped")
 
-			awaitInterference(t, interfered, "the restore never reached the finalizing decision")
-			require.Eventually(t, func() bool { return c.lastOp.get().ID == tc.wantSlotID },
-				10*time.Second, 10*time.Millisecond, "the restore goroutine never stopped")
-
-			// The goroutine may still be unwinding, so give it the chance to
-			// apply the schema or to report an outcome of its own.
-			require.Never(t, func() bool {
-				return backend.storedStatus(t) != tc.wantStored || schemaManager.applies.Load() != 0
-			}, 500*time.Millisecond, 10*time.Millisecond,
-				"the cancelled restore applied the schema or reported an outcome the cancellation had taken from it")
-		})
-	}
+	// The goroutine may still be unwinding, so give it the chance to apply the
+	// schema or to report an outcome of its own. The retry owns the stored
+	// descriptor now, so the restore that lost the slot leaves it as it found it.
+	require.Never(t, func() bool {
+		return backend.storedStatus(t) != backup.Transferring || schemaManager.applies.Load() != 0
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"the restore that lost its slot applied the schema or reported an outcome over the retry")
 }
 
 // Pins that a restore recognises CANCELLING (not just CANCELLED) and stops

@@ -165,7 +165,9 @@ func newOperation(desc *backup.DistributedBackupDescriptor) *operation {
 
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a
 // poll reads until the descriptor is written to object storage. Reports
-// whether the slot took it; false means it was cancelled or reclaimed.
+// whether the slot took it; false means the slot has moved on to another
+// operation, or it holds a status this outcome may not overwrite (see
+// [backupStat.canAdvanceTo]).
 func (op *operation) publishStatus(slot slotOwner) bool {
 	if op.descriptor.Status == backup.Failed {
 		return slot.setFailed(op.descriptor.Error)
@@ -214,7 +216,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 	// From here the slot is ours until the goroutine below takes it over, so
 	// every error return has to give it back. A leaked slot blocks every later
-	// backup and restore this node coordinates, until restart.
+	// backup this node coordinates, until restart. Restores are unaffected:
+	// the scheduler gives the restorer its own coordinator, with its own slot.
 	defer func() {
 		if err != nil {
 			slot.release()
@@ -317,8 +320,9 @@ func (c *coordinator) Restore(
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 	// The slot is ours until the goroutine below takes over; give it back on
-	// every error return or it blocks all later ops until restart. release(),
-	// not reset(), since a cancel may have already taken it.
+	// every error return or it blocks every later restore this node
+	// coordinates, until restart. release(), not reset(), since a cancel may
+	// have already taken it.
 	defer func() {
 		if err != nil {
 			slot.release()
@@ -372,10 +376,9 @@ func (c *coordinator) Restore(
 				if op.descriptor.Error == "" {
 					op.descriptor.Error = errCancelled.Error()
 				}
-				// Mirrors the cancellation storage already carries. Refused
-				// means the slot says the same thing or has moved on, and the
-				// caller stops either way.
-				slot.set(backup.Cancelled)
+				// No slot write: the caller returns on true and the deferred
+				// release clears the slot on the next statement, so nothing
+				// could read it.
 				return true
 			}
 			return false
@@ -438,10 +441,12 @@ func (c *coordinator) Restore(
 				op.descriptor.Status = backup.Success
 			}
 		}
-		// A refused publish means either a cancel landed during schema apply (its
-		// CANCELLED stands over this SUCCESS) or the slot has since moved on. A
-		// cancellation this restore is reporting itself is neither, so let it
-		// through regardless of what the slot says.
+		// A refused publish means the slot has since moved on to another
+		// operation, or it already reads the cancellation this restore is
+		// reporting. Only the first is a reason to stop, so a cancellation on a
+		// slot this restore still holds goes through regardless. A cancel
+		// cannot land during schema apply: the slot reads Finalizing there,
+		// which refuses cancellations, so that path always publishes.
 		published := op.publishStatus(slot)
 		restoreIsItselfCancelled := op.descriptor.Status.IsCancellation() && slot.holds()
 		if !published && !restoreIsItselfCancelled {

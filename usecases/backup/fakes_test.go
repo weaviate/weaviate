@@ -261,9 +261,9 @@ func takeOverSlot(t *testing.T, stat *backupStat, id, newID string) {
 	assert.Empty(t, prevID)
 }
 
-// requireSlotFreed asserts the cancelled operation with this id gave the slot
-// back.
-func requireSlotFreed(t *testing.T, stat *backupStat, id string) {
+// freeSlot gives the slot back the way a cancelled operation does, and fails
+// if the slot refuses.
+func freeSlot(t *testing.T, stat *backupStat, id string) {
 	t.Helper()
 	freed, _ := stat.resetIfCancelled(id)
 	require.True(t, freed)
