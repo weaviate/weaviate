@@ -24,6 +24,7 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/jonboulle/clockwork"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -573,6 +574,7 @@ type testHarness struct {
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 	testProviders         []*testTaskProvider
+	localTaskInspector    LocalTaskInspector
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -629,6 +631,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		LocalTaskInspector: h.localTaskInspector,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -1848,4 +1851,60 @@ func TestSchedulerTick_UnrecognizedStatusWarnDoesNotStarveErrorLogging(t *testin
 	require.Positive(t, warns, "the stuck task must still be reported")
 	require.Equal(t, 5, cleanupErrors,
 		"the persistent cleanup failure must get the shared sampler's whole budget")
+}
+
+// localTaskInspectorStub stands in for this node's own FSM copies of
+// tasks the leader-routed list no longer carries.
+type localTaskInspectorStub map[string][]*Task
+
+func (s localTaskInspectorStub) LocalUnrecognizedDistributedTasks() map[string][]*Task {
+	return s
+}
+
+// Pins the two halves of the unrecognized-status report that only exist
+// together: a task the peers already deleted is still named off this
+// node's own copy, and the metric is a state — it falls back to zero when
+// nothing is stuck, rather than accumulating.
+func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
+	const namespace = "tasks-namespace"
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{
+		namespace: {{
+			Namespace:      namespace,
+			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
+			Status:         unknownFutureStatus,
+		}},
+	}
+	h.init(t)
+
+	clusterWide := map[string]map[TaskDescriptor]*Task{
+		namespace: {
+			TaskDescriptor{ID: "healthy", Version: 1}: {
+				Namespace:      namespace,
+				TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
+				Status:         TaskStatusStarted,
+			},
+		},
+	}
+	h.scheduler.warnOnUnrecognizedStatuses(clusterWide)
+
+	var warned string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warned = e.Message
+		}
+	}
+	require.Contains(t, warned, "left-behind",
+		"a task only this node still holds must still be named")
+	require.Contains(t, warned, "this node only")
+	require.NotContains(t, warned, "healthy")
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
+
+	// The operator cleared it. A counter would stay at 1 (or climb); the
+	// gauge has to report that nothing is stuck now.
+	h.scheduler.localTaskInspector = localTaskInspectorStub{}
+	h.scheduler.warnOnUnrecognizedStatuses(clusterWide)
+	require.Equal(t, 0.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 }

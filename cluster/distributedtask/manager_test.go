@@ -2079,22 +2079,23 @@ func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	return ns, id, version
 }
 
-// nonTerminalStatuses are every status this build treats as in-flight,
-// including the one it cannot recognize.
-var nonTerminalStatuses = []TaskStatus{
-	TaskStatusStarted,
-	TaskStatusPreparing,
-	TaskStatusSwapping,
-	unknownFutureStatus,
-}
-
-// Pins: CleanUpTask refuses every non-terminal status, past the TTL, when
-// only the liveness check still stands between the task and deletion.
-func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
-	for _, status := range nonTerminalStatuses {
-		t.Run(string(status), func(t *testing.T) {
+// Pins: CleanUpTask refuses every status this build declared and calls
+// live, past the TTL, when only the liveness check still stands between
+// the task and deletion — and lets a status it cannot classify through,
+// which is the only exit such a task has.
+func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T) {
+	for _, tc := range []struct {
+		status  TaskStatus
+		refused bool
+	}{
+		{TaskStatusStarted, true},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{unknownFutureStatus, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, status)
+			ns, id, version := nonTerminalFixture(t, h, tc.status)
 
 			// Past the TTL: the age check no longer protects the task.
 			h.clock.Advance(2 * h.completedTaskTTL)
@@ -2104,22 +2105,29 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 				Id:        id,
 				Version:   version,
 			}))
-			require.ErrorContains(t, err, "still running")
-			require.Contains(t, h.manager.tasks[ns], id,
-				"a task in %q must survive cleanup", status)
+			if tc.refused {
+				require.ErrorContains(t, err, "still running")
+				require.Contains(t, h.manager.tasks[ns], id,
+					"a task in %q must survive cleanup", tc.status)
+				return
+			}
+			require.NoError(t, err)
+			require.NotContains(t, h.manager.tasks[ns], id,
+				"a task in %q has no other way out of this node's FSM", tc.status)
 		})
 	}
 }
 
-// Pins: cancel stays open for STARTED and an unrecognized status, and
-// closed for the coordination phases.
+// Pins: the apply accepts a cancel for STARTED and nothing else. A status
+// this build cannot name is refused here, so a node that has never heard
+// of it cannot cancel a migration a newer node is still coordinating.
 func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus
 		accepted bool
 	}{
 		{TaskStatusStarted, true},
-		{unknownFutureStatus, true},
+		{unknownFutureStatus, false},
 		{TaskStatusPreparing, false},
 		{TaskStatusSwapping, false},
 	} {

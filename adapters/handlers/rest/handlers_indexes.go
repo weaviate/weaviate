@@ -701,12 +701,18 @@ const (
 	// cancelTargetCoordinating: a task is in a coordination phase, where
 	// [distributedtask.Manager.CancelTask] refuses cancel.
 	cancelTargetCoordinating
+	// cancelTargetUnknownStatus: a task is in flight in a status this
+	// build never declared, so it can say neither which phase the task is
+	// in nor that cancelling it is safe. Reachable only in a mixed-version
+	// cluster where a newer release introduced the status.
+	cancelTargetUnknownStatus
 )
 
 // findCancelTarget returns the in-flight reindex task for (collection,
 // propertyName, indexType) and whether DTM would accept a cancel per
-// [distributedtask.Manager.CancelTask]: coordination-phase tasks report
-// cancelTargetCoordinating instead of a cancel DTM would reject.
+// [distributedtask.Manager.CancelTask]. The three refusal states are kept
+// apart because they need different operator messages, but none of them
+// proposes a cancel the FSM would reject.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload, cancelTargetState) {
 	for _, task := range tasks {
 		if task.Status.IsTerminal() {
@@ -727,10 +733,13 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
 			continue
 		}
+		if task.Status.IsCancellable() {
+			return task, payload, cancelTargetCancellable
+		}
 		if task.Status.IsCoordinationPhase() {
 			return task, payload, cancelTargetCoordinating
 		}
-		return task, payload, cancelTargetCancellable
+		return task, payload, cancelTargetUnknownStatus
 	}
 	return nil, db.ReindexTaskPayload{}, cancelTargetNone
 }
@@ -770,10 +779,22 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 
 	target, targetPayload, state := findCancelTarget(tasks[db.ReindexNamespace], collection, propertyName, indexType)
 
-	if state == cancelTargetCoordinating {
-		// Some nodes may already have swapped buckets; stopping the rest
-		// would leave the cluster serving migrated buckets under the
-		// pre-migration schema, so DTM refuses the cancel.
+	if state == cancelTargetCoordinating || state == cancelTargetUnknownStatus {
+		// Both arms are cancels DTM would refuse, so refusing here saves a
+		// round trip and lets the operator read why in plain words.
+		body := fmt.Sprintf("reindex task %q on %s.%s is in status %s: every unit has finished "+
+			"and the cluster-wide swap is in progress, so it can no longer be cancelled — wait "+
+			"for it to reach a terminal state",
+			target.ID, collection, propertyName, target.Status)
+		if state == cancelTargetUnknownStatus {
+			// A newer release introduced this status. Only a node that can
+			// name it knows whether stopping is safe, so every node refuses.
+			body = fmt.Sprintf("reindex task %q on %s.%s is in status %s, which this build does "+
+				"not recognize: it cannot tell whether stopping the migration is safe, so every "+
+				"node refuses the cancel — wait for the task to reach a terminal state, or "+
+				"upgrade this node to a build that declares the status",
+				target.ID, collection, propertyName, target.Status)
+		}
 		h.appState.Logger.WithFields(logrus.Fields{
 			"audit_event": "reindex_task_cancel_refused",
 			"collection":  collection,
@@ -783,10 +804,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			"status":      target.Status.String(),
 			"principal":   principalUsername(principal),
 		}).Info("cancel: task is past the point where cancelling is safe; refusing")
-		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-			fmt.Sprintf("reindex task %q on %s.%s is in status %s: every unit has finished and the "+
-				"cluster-wide swap is in progress, so it can no longer be cancelled — wait for it to "+
-				"reach a terminal state", target.ID, collection, propertyName, target.Status)))
+		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, body))
 	}
 
 	if state == cancelTargetNone {

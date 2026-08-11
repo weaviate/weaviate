@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +131,15 @@ type Scheduler struct {
 
 	tasksRunning *prometheus.GaugeVec
 
+	// tasksUnrecognizedStatus is a gauge, not a counter: a task this
+	// build cannot classify stays stuck until an operator acts, so what
+	// matters is how many are stuck right now, not how often we noticed.
+	tasksUnrecognizedStatus *prometheus.GaugeVec
+
+	// localTaskInspector reads this node's own FSM copies. nil in unit
+	// tests that don't exercise the unrecognized-status warn.
+	localTaskInspector LocalTaskInspector
+
 	// perTaskState holds all per-scheduler-instance per-task state for
 	// the two-phase callback firing and ack emission. Entries are
 	// per-task by TaskDescriptor; preparation* fields are populated
@@ -182,11 +192,15 @@ type SchedulerParams struct {
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
-	AckRecorder       PostCompletionAckRecorder
-	Providers         map[string]Provider
-	Clock             clockwork.Clock
-	Logger            logrus.FieldLogger
-	MetricsRegisterer prometheus.Registerer
+	AckRecorder PostCompletionAckRecorder
+	// LocalTaskInspector reads this node's own FSM copies, which the
+	// leader-routed TaskLister cannot report once the peers have deleted
+	// theirs. nil in unit tests that don't exercise the warn.
+	LocalTaskInspector LocalTaskInspector
+	Providers          map[string]Provider
+	Clock              clockwork.Clock
+	Logger             logrus.FieldLogger
+	MetricsRegisterer  prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
@@ -212,6 +226,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
+		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
 		localNode:        params.LocalNode,
@@ -226,6 +241,11 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
 			Help: "Number of active distributed tasks running per namespace",
+		}, []string{"namespace"}),
+
+		tasksUnrecognizedStatus: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_distributed_tasks_unrecognized_status",
+			Help: "Number of distributed tasks currently in a status this build does not recognize, per namespace",
 		}, []string{"namespace"}),
 
 		stopCh: make(chan struct{}),
@@ -481,26 +501,62 @@ func (s *Scheduler) loop() {
 // progress update.
 const unrecognizedStatusWarnWindow = time.Hour
 
-// warnOnUnrecognizedStatuses tells the operator a task is in a status this
-// build never declared — the only explanation for schema mutations and
-// backups being refused on its collection. Runs over every listed
-// namespace, not just ones this node hosts a provider for, and uses its
-// own long-window sampler so a steady-state warning doesn't crowd out the
-// scheduler's error logging.
+// warnOnUnrecognizedStatuses tells the operator which tasks are in a
+// status this build never declared — the state that makes this node
+// refuse schema mutations and backups the rest of the cluster accepted.
+//
+// One line naming every such task, not one line per task: the condition
+// holds across ticks, so per-task lines would be sampled away in an
+// arbitrary subset and the operator would never see the full set. The
+// gauge is what an alert should watch; the line is what explains it.
+//
+// Reads this node's own FSM copies in addition to the leader-routed
+// list, because a task the peers have already cleaned up is invisible to
+// the latter and is precisely the one that is stuck here.
 func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+	counts := make(map[string]int, len(tasksByNamespace))
+	var named []string
 	for namespace, tasks := range tasksByNamespace {
+		counts[namespace] = 0
 		for _, task := range tasks {
 			if task.Status.IsRecognized() {
 				continue
 			}
-			s.unrecognizedStatusLogger.WithSampling(func(l logrus.FieldLogger) {
-				s.loggerWithTask(namespace, task.TaskDescriptor).
-					Warnf("distributed task is in unrecognized status %q; treating it as in flight. "+
-						"It blocks schema mutations and backups on its collection until it reaches a "+
-						"terminal state or is cancelled", task.Status)
-			})
+			counts[namespace]++
+			named = append(named, fmt.Sprintf("%s/%s (status=%q)", namespace, task.ID, task.Status))
 		}
 	}
+	if s.localTaskInspector != nil {
+		for namespace, tasks := range s.localTaskInspector.LocalUnrecognizedDistributedTasks() {
+			if _, ok := counts[namespace]; !ok {
+				counts[namespace] = 0
+			}
+			for _, task := range tasks {
+				if _, alreadyNamed := tasksByNamespace[namespace][task.TaskDescriptor]; alreadyNamed {
+					continue
+				}
+				counts[namespace]++
+				named = append(named, fmt.Sprintf("%s/%s (status=%q, this node only)",
+					namespace, task.ID, task.Status))
+			}
+		}
+	}
+
+	// Reset first so a namespace that stopped reporting drops its series
+	// instead of freezing at the value it last had.
+	s.tasksUnrecognizedStatus.Reset()
+	for namespace, count := range counts {
+		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
+	}
+	if len(named) == 0 {
+		return
+	}
+	sort.Strings(named)
+	s.unrecognizedStatusLogger.WithSampling(func(l logrus.FieldLogger) {
+		l.Warnf("%d distributed task(s) are in an unrecognized status (one this build never "+
+			"declared), so it treats them as in flight: they block schema mutations and backups "+
+			"until they reach a terminal state. Tasks: %s", len(named), strings.Join(named, ", "))
+	})
 }
 
 func (s *Scheduler) tick() {

@@ -270,14 +270,21 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
 			continue
 		}
+		// Only the wording branches on the local vocabulary; the reject
+		// itself does not, so the apply stays deterministic.
+		remedy := "wait for the task to reach a terminal state, or cancel it via the " +
+			"reindex REST API before retrying"
+		if !task.Status.IsRecognized() {
+			remedy = "this build cannot classify that status, so a cancel via the reindex " +
+				"REST API is refused on every node — the task has to reach a terminal state " +
+				"on the nodes that do recognize it"
+		}
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
-				"reindex completes or is cancelled — wait for the task "+
-				"to reach a terminal state, or cancel it via the reindex "+
-				"REST API before retrying",
+				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status)
+			existP.Collection, propertyName, task.Status, remedy)
 	}
 	return nil
 }

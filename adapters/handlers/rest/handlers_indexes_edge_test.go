@@ -826,7 +826,8 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // Pins cancel eligibility per [distributedtask.Manager.CancelTask]: open
-// for STARTED and unrecognized statuses, closed for the coordination phases.
+// for STARTED only, so REST never proposes a cancel the FSM refuses. The
+// two refusal states differ only in the message the operator gets.
 func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -839,7 +840,7 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 		want   cancelTargetState
 	}{
 		{distributedtask.TaskStatusStarted, cancelTargetCancellable},
-		{unknownFutureStatus, cancelTargetCancellable},
+		{unknownFutureStatus, cancelTargetUnknownStatus},
 		{distributedtask.TaskStatusPreparing, cancelTargetCoordinating},
 		{distributedtask.TaskStatusSwapping, cancelTargetCoordinating},
 		{distributedtask.TaskStatusFinished, cancelTargetNone},

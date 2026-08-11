@@ -1818,6 +1818,30 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
+// IsLiveReindexTaskStatus reports whether a task in the given DTM status
+// still owns the on-disk tracker dirs and sidecar buckets of its
+// migration. The rule lives here rather than at the call sites because
+// the thing it protects is this package's on-disk state.
+//
+// A status this build never declared answers true: the other answer
+// deletes those dirs while a newer node is still migrating, and that is
+// the one outcome nothing downstream can undo.
+func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
+	switch status {
+	case distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping:
+		return true
+	case distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusCancelled,
+		distributedtask.TaskStatusFailed:
+		return false
+	}
+	// No default arm, so the exhaustive linter makes a newly declared
+	// status state which side of the ownership rule it falls on.
+	return true
+}
+
 // logOperatorRepairGuidanceOnTornSemanticMigration logs the exact REST
 // command an operator should issue to recover from a semantic migration
 // that stopped after some shards had already swapped. The failure mode it
