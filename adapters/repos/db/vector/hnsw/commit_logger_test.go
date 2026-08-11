@@ -141,29 +141,34 @@ func TestNextCommitLogFileName(t *testing.T) {
 	now := time.Now().Unix()
 
 	tests := []struct {
-		name    string
-		current string
-		wantErr bool
+		name        string
+		current     string
+		wantDerived bool
 	}{
-		{name: "log from an earlier second", current: fmt.Sprintf("%d", now-3600)},
-		{name: "log from the current second", current: fmt.Sprintf("%d", now)},
-		{name: "log timestamped ahead of the clock", current: fmt.Sprintf("%d", now+3600)},
-		{name: "condensed log", current: fmt.Sprintf("%d.condensed", now)},
-		{name: "combined log covering a range", current: fmt.Sprintf("%d_%d.sorted", now-3600, now)},
-		{name: "malformed name", current: "not-a-number", wantErr: true},
+		{name: "log from an earlier second", current: fmt.Sprintf("%d", now-3600), wantDerived: true},
+		{name: "log from the current second", current: fmt.Sprintf("%d", now), wantDerived: true},
+		{name: "log timestamped ahead of the clock", current: fmt.Sprintf("%d", now+3600), wantDerived: true},
+		{name: "condensed log", current: fmt.Sprintf("%d.condensed", now), wantDerived: true},
+		{name: "combined log covering a range", current: fmt.Sprintf("%d_%d.sorted", now-3600, now), wantDerived: true},
+		{name: "malformed name", current: "not-a-number"},
+		{name: "empty name", current: ""},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			next, err := nextCommitLogFileName(tc.current)
-			if tc.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			next, derived := nextCommitLogFileName(tc.current)
+			require.Equal(t, tc.wantDerived, derived)
 
 			nextTS, err := asTimeStamp(next)
 			require.NoError(t, err)
+
+			if !derived {
+				// nothing to advance past, but the name still has to be usable and
+				// must not reopen the file that was just closed
+				assert.NotEqual(t, tc.current, next)
+				return
+			}
+
 			currentTS, err := endTimeStamp(tc.current)
 			require.NoError(t, err)
 			// a name that does not sort after the previous one reopens the log that
@@ -213,6 +218,9 @@ func TestSwitchCommitLogsBurst(t *testing.T) {
 
 // Switching closes the open log first, so a name we cannot read has to be
 // rejected before that happens, or the index is left with nothing to write to.
+// A file the naming scheme cannot read still has to leave the index able to
+// switch. Refusing the switch would block backup, replica movement and tenant
+// offload on that shard for good, since nothing ever renames the file back.
 func TestSwitchCommitLogsUnparseableName(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()
@@ -226,11 +234,22 @@ func TestSwitchCommitLogsUnparseableName(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cl.Shutdown(ctx)) })
 
-	_, err = cl.switchCommitLogs(true)
-	require.ErrorContains(t, err, `parse commit log file name "not-a-timestamp"`)
+	switched, err := cl.switchCommitLogs(true)
+	require.NoError(t, err)
+	require.True(t, switched)
 
 	require.NoError(t, cl.AddNode(&vertex{id: 1, level: 0}))
 	require.NoError(t, cl.Flush())
+
+	// the switch moved off the unreadable file, so a backup can copy it
+	name, err := cl.commitLogger.FileName()
+	require.NoError(t, err)
+	require.NotEqual(t, "not-a-timestamp", name)
+
+	// and the shard is not stuck: a backup succeeds, now and on every later try
+	for range 3 {
+		require.NoError(t, cl.PrepareForBackup(true))
+	}
 }
 
 func TestFilterNewerCommitLogFiles(t *testing.T) {

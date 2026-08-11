@@ -666,11 +666,12 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 		return false, err
 	}
 
-	// naming the next log before closing the old one means that on a name we
-	// cannot derive, the index is left with a log it can still write to
-	fileName, err := nextCommitLogFileName(oldFileName)
-	if err != nil {
-		return false, err
+	fileName, derived := nextCommitLogFileName(oldFileName)
+	if !derived {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			Warn("commit log file name carries no timestamp, naming the next log after the current second instead")
 	}
 
 	if err := l.commitLogger.Close(); err != nil {
@@ -709,16 +710,22 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 // second would land on the name of the file just closed and carry on writing to
 // it. A backup only copies logs that are closed, so everything written to that
 // file from then on would be left out.
-func nextCommitLogFileName(current string) (string, error) {
+//
+// derived reports whether the name was advanced past current. A name without a
+// timestamp offers nothing to advance past, so the current second is used; it
+// cannot collide with current, which is not a timestamp to begin with.
+func nextCommitLogFileName(current string) (name string, derived bool) {
+	now := time.Now().Unix()
+
 	ts, err := endTimeStamp(current)
 	if err != nil {
-		return "", fmt.Errorf("parse commit log file name %q: %w", current, err)
+		return fmt.Sprintf("%d", now), false
 	}
 
-	if now := time.Now().Unix(); now > ts {
-		return fmt.Sprintf("%d", now), nil
+	if now > ts {
+		return fmt.Sprintf("%d", now), true
 	}
-	return fmt.Sprintf("%d", ts+1), nil
+	return fmt.Sprintf("%d", ts+1), true
 }
 
 func (l *hnswCommitLogger) condenseLogs() (bool, error) {
