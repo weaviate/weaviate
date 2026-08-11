@@ -347,10 +347,13 @@ func (o slotOwner) release() bool {
 // no claim of its own — a cancel reads the id out of object storage — so that
 // its later writes still go through [slotOwner] and can tell the operation it
 // read from a retry that claimed the slot under the same id in between.
+//
+// An empty id needs no special case, even though a free slot carries one too:
+// [slotOwner.owns] refuses a slot with no holder.
 func (s *backupStat) claimOf(id string) slotOwner {
 	s.Lock()
 	defer s.Unlock()
-	if id == "" || s.reqState.ID != id {
+	if s.reqState.ID != id {
 		return slotOwner{stat: s}
 	}
 	return slotOwner{stat: s, generation: s.generation}
