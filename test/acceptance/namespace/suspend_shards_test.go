@@ -15,6 +15,8 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
@@ -57,6 +60,50 @@ func shardsForClass(t *testing.T, qualifiedClass string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// shardOwnerAndOther returns the node that holds shardName and one that does
+// not, so the same request can be aimed at a node that serves it locally and
+// at one that would forward it. Run it before a suspend: a suspended namespace
+// lists no shard to read the owner off.
+func shardOwnerAndOther(t *testing.T, qualifiedClass, shardName string) (owner, other string) {
+	t.Helper()
+
+	verbose := "verbose"
+	params := nodes.NewNodesGetClassParams().WithClassName(qualifiedClass).WithOutput(&verbose)
+	resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+
+	for _, node := range resp.Payload.Nodes {
+		holds := slices.ContainsFunc(node.Shards, func(s *models.NodeShardStatus) bool {
+			return s != nil && s.Name == shardName
+		})
+		if holds {
+			owner = node.Name
+			continue
+		}
+		other = node.Name
+	}
+	require.NotEmpty(t, owner, "no node holds shard %q", shardName)
+	require.NotEmpty(t, other, "every node holds shard %q, so none can stand in for a remote one", shardName)
+	return owner, other
+}
+
+// nodeIndexFromName maps a cluster node name to its GetWeaviateNode index. The
+// hostnames count from 0 while GetWeaviateNode counts from 1.
+func nodeIndexFromName(t *testing.T, nodeName string) int {
+	t.Helper()
+
+	index, err := strconv.Atoi(strings.TrimPrefix(nodeName, "weaviate-"))
+	require.NoError(t, err, "unexpected node name %q", nodeName)
+	return index + 1
+}
+
+// uriForNode maps a cluster node name to the address its container answers on.
+func uriForNode(t *testing.T, nodeName string) string {
+	t.Helper()
+
+	return sharedCompose.GetWeaviateNode(nodeIndexFromName(t, nodeName)).URI()
 }
 
 // requireShardsEventually waits for the cluster-wide shard set to settle on
@@ -301,6 +348,10 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	dropSTShards := requireShardCountEventually(t, dropSTQualified, 1)
 	requireShardsEventually(t, dropMTQualified, tenant)
 
+	// Read before the suspend, while the shard is still listed: a suspended
+	// namespace reports no shard to read the owner off.
+	shardOwner, shardNonOwner := shardOwnerAndOther(t, dropSTQualified, dropSTShards[0])
+
 	helper.SuspendNamespace(t, dropNS, adminKey)
 	// Resuming an already-active namespace is accepted, so this needs no guard
 	// against the resume the test does itself.
@@ -348,18 +399,70 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	// path's namespace check on a shard the boot skipped. As the global
 	// operator, since the namespace's own key stops authenticating while it is
 	// suspended and would be turned away before ever reaching a shard.
-	t.Run("a write into the suspended namespace is refused", func(t *testing.T) {
+	//
+	// The client is process-wide, so each write below puts it back before the
+	// next subtest reads it.
+	originalURI := sharedCompose.GetWeaviate().URI()
+	writeWhileSuspended := func(t *testing.T, nodeName string) error {
+		t.Helper()
+		helper.SetupClient(uriForNode(t, nodeName))
+		t.Cleanup(func() { helper.SetupClient(originalURI) })
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			Class: dropSTQualified, Properties: map[string]any{"title": "written while suspended"},
 		}, adminKey)
+		return err
+	}
+
+	// Someone suspended this on purpose, so the write is turned away with a 422
+	// rather than a 500. These run as the operator, who sees the full message;
+	// the shorter one a namespaced user gets is out of reach here, because
+	// their key stops working while the namespace is suspended.
+	//
+	// Both nodes are asked because the answer must not depend on which one the
+	// client reached. A write checks its local shard before forwarding, so each
+	// node turns it away itself instead of relaying the other's answer.
+	for _, target := range []struct{ name, node string }{
+		{"the node holding the shard", shardOwner},
+		{"a node that does not hold the shard", shardNonOwner},
+	} {
+		t.Run("a write into the suspended namespace is refused by "+target.name, func(t *testing.T) {
+			err := writeWhileSuspended(t, target.node)
+			require.Error(t, err)
+
+			// The responder renders its payload as a pointer, so the message has
+			// to be read off the typed error rather than its Error() string.
+			var refused *objects.ObjectsCreateUnprocessableEntity
+			require.ErrorAs(t, err, &refused)
+			require.NotEmpty(t, refused.Payload.Error)
+			assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
+		})
+	}
+
+	// A batch delete answers with one status for the whole request, on a ladder
+	// of its own, so the 422 the single-object endpoints give does not cover it.
+	// (A batch create cannot stand in here: it reports per-object failures
+	// inside a 200 and never reaches that ladder.)
+	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
+		helper.SetupClient(uriForNode(t, shardOwner))
+		t.Cleanup(func() { helper.SetupClient(originalURI) })
+
+		dryRun, output, title := false, "verbose", "written while suspended"
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				Match: &models.BatchDeleteMatch{
+					Class: dropSTQualified,
+					Where: &models.WhereFilter{
+						Operator: "Equal", Path: []string{"title"}, ValueText: &title,
+					},
+				},
+				DryRun: &dryRun, Output: &output,
+			}), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 
-		// The responder renders its payload as a pointer, so the message has to
-		// be read off the typed error rather than its Error() string.
-		var serverErr *objects.ObjectsCreateInternalServerError
-		require.ErrorAs(t, err, &serverErr)
-		require.NotEmpty(t, serverErr.Payload.Error)
-		assert.Contains(t, serverErr.Payload.Error[0].Message, "namespace is suspended")
+		var refused *batch.BatchObjectsDeleteUnprocessableEntity
+		require.ErrorAs(t, err, &refused)
+		require.NotEmpty(t, refused.Payload.Error)
+		assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
 	})
 
 	t.Run("the suspended namespace keeps its schema", func(t *testing.T) {
