@@ -494,12 +494,9 @@ func TestBackupable_PassesTheCallerContextToTheGate(t *testing.T) {
 	}
 }
 
-// The per-shard capture paths each build their own gate snapshot, so each must
-// hand its caller's context to the leader query behind it. Bound to anything
-// else, a leader that accepts the connection and stops answering parks the
-// capture until process shutdown, long after the coordinator gave up. Covers
-// every call site of [Index.refuseIfReindexInFlight], including the shared
-// function itself.
+// Each per-shard capture path must thread the caller's context to its own
+// gate snapshot, or a leader that stops answering parks it until shutdown.
+// Covers every call site of [Index.refuseIfReindexInFlight].
 func TestPerShardCapturePathsPassTheCallerContextToTheGate(t *testing.T) {
 	shd, idx := testShard(t, testCtx(), "GateCtxPerShardClass")
 	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
@@ -601,9 +598,8 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	assert.Contains(t, live, "cancelling it via")
 }
 
-// The submit window's advice must stay its own: nothing was cancelled and no
-// task exists yet, so either sibling arm's text would send the operator after
-// something that is not there.
+// Submit-window advice must not borrow text from the cleanup or cancel arms —
+// nothing exists yet to cancel or clean up.
 func TestReindexInFlightError_SubmitAdviceNamesTheSubmission(t *testing.T) {
 	body := reindexInFlightError("MyClass", reindexBlockedBySubmit).Error()
 	assert.Contains(t, body, "MyClass")

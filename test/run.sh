@@ -1117,12 +1117,11 @@ function run_acceptance_reindex_backup_b() {
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m this budget
-  # carries over its floor buys padding for the multi-node cluster, which takes
-  # the longest of the four groups to come up. The floor is the healthy-path
-  # worst case; the test's placement-retry loop can theoretically push past it
-  # (~41m), which exceeds this budget and the job window alike. Accepted: such a
-  # run fails as a go-test panic with stacks, not silently.
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m over its
+  # floor buys padding for the multi-node cluster, the slowest of the four
+  # groups to come up. The floor is a healthy-path ceiling; a placement-retry
+  # loop could theoretically exceed it, and this budget — but that fails loudly
+  # as a go-test panic, not silently.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup

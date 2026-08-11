@@ -9,16 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package ciguard holds guards that must run in the plain unit-test job, not
-// in any acceptance shard. The CI guard tests in test/acceptance/reindex_backup
-// all ride inside acceptance matrix entries — the very entries they exist to
-// police — so deleting or disarming one entry could remove the whole guard
-// system from CI without anything going red. This package sits outside every
-// acceptance shard (the unit job runs go list ./... minus test/acceptance and
-// test/modules), so no matrix edit can take it out short of removing the unit
-// job itself. The overlap with the acceptance guards is deliberate: two
-// independent implementations at two layers, so one parsing bug cannot blind
-// both.
+// Package ciguard holds guards for the reindex_backup CI shard chain that run
+// in the plain unit-test job, outside every acceptance shard — so disabling a
+// matrix entry can't silently take out the guard system with it.
 package ciguard
 
 import (
@@ -41,13 +34,10 @@ var (
 	guardTestNameRe = regexp.MustCompile(`^func (TestCI[A-Za-z0-9_]*)\(`)
 )
 
-// TestReindexBackupCIGuardsSurviveAnyShardEdit fails when the chain that puts
-// the reindex_backup CI guards in front of a pull request breaks at any hop:
-// the guard tests disappear from the package, drop out of every run.sh
-// allowlist, lose their run.sh dispatcher, or lose the workflow matrix entry
-// that invokes their group. It checks every group of the package, not only the
-// guard-carrying one, so deleting any single shard's matrix entry goes red in
-// the default unit-test path.
+// TestReindexBackupCIGuardsSurviveAnyShardEdit fails if any hop in the chain
+// that runs the reindex_backup CI guards on a pull request breaks: a guard
+// test disappears, drops out of a run.sh allowlist, loses its dispatcher, or
+// loses its workflow matrix entry.
 func TestReindexBackupCIGuardsSurviveAnyShardEdit(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
@@ -85,7 +75,6 @@ func TestReindexBackupCIGuardsSurviveAnyShardEdit(t *testing.T) {
 	}
 }
 
-// repoRoot walks up from the working directory to the checkout root.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()

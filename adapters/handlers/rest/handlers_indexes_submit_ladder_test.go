@@ -11,11 +11,8 @@
 
 package rest
 
-// The submit ladder's refusal arms, driven through updateIndex itself. The
-// helpers behind each arm (checkReindexConflict, countStartedTasksForCollection,
-// reindexCapExceededResponder) have their own tests; these pin that the
-// handler actually consults them and answers with the right status, so an arm
-// cannot be deleted from the handler while the suite stays green.
+// Pins that updateIndex actually consults each refusal-arm helper and answers
+// with its status, not just that the helpers work standalone.
 
 import (
 	"fmt"
@@ -51,8 +48,8 @@ func ladderHandlers(t *testing.T, svc *raceTaskService) *indexesHandlers {
 	return submissionHandlers(t, svc, togglingProber{busy: &busy})
 }
 
-// An in-flight task whose payload will not parse could conflict with the new
-// submit; racing the destructive pre-submit sweep against it is not an option.
+// An unparseable in-flight payload could conflict — racing the destructive
+// pre-submit sweep against it isn't an option.
 func TestUpdateIndexRefusesOnAnUnparseableInFlightPayload(t *testing.T) {
 	svc := &raceTaskService{tasks: []*distributedtask.Task{{
 		Namespace:      db.ReindexNamespace,

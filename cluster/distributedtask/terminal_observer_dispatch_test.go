@@ -202,9 +202,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, observerTaskID, rec.first().ID)
 	})
 
-	// A namespace that never registers must not grow the pre-registration
-	// buffer without limit; past the bound the oldest ending is dropped so
-	// the newest ones survive to registration.
+	// The pre-registration buffer is bounded per namespace; past the bound
+	// the oldest ending is dropped so newer ones survive to registration.
 	t.Run("the pre-registration buffer is bounded and drops the oldest", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		t.Cleanup(leaktest.Check(t))
