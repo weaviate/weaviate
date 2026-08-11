@@ -150,6 +150,9 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, observerVersion, observed.Version)
 		require.Equal(t, TaskStatusCancelled, observed.Status,
 			"the observer must see the task already in its cancelled state")
+		require.Equal(t, h.clock.Now().UnixMilli(), observed.FinishedAt.UnixMilli(),
+			"FinishedAt is the only thing on the clone that says when the cancel happened, "+
+				"so the dispatch has to come after the stamp")
 		require.JSONEq(t, `{"collection":"Movies"}`, string(observed.Payload),
 			"the payload is what tells an observer which collection the task was bound to")
 	})
@@ -172,7 +175,10 @@ func TestManagerTerminalObserver(t *testing.T) {
 			observerUnitCompletionCmd(t, h, "node-1", "su-1", "synthetic unit failure"), false))
 
 		rec.waitForCount(t, 1, "the observer must fire for the failure")
-		require.Equal(t, TaskStatusFailed, rec.first().Status)
+		observed := rec.first()
+		require.Equal(t, TaskStatusFailed, observed.Status)
+		require.Equal(t, h.clock.Now().UnixMilli(), observed.FinishedAt.UnixMilli(),
+			"the observer's copy must carry the stamp written by the same apply")
 	})
 
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
@@ -565,6 +571,9 @@ func TestTerminalObserverRecoveryHonorsDisableRecoveryOnPanic(t *testing.T) {
 		{name: "true lets the panic escape", envValue: "true", wantPanic: true},
 		{name: "on lets the panic escape", envValue: "on", wantPanic: true},
 		{name: "1 lets the panic escape", envValue: "1", wantPanic: true},
+		{name: "enabled lets the panic escape", envValue: "enabled", wantPanic: true},
+		{name: "mixed case lets the panic escape", envValue: "TrUe", wantPanic: true},
+		{name: "an unrelated value keeps the drainer alive", envValue: "yes", wantPanic: false},
 	}
 
 	for _, test := range tests {
@@ -596,13 +605,18 @@ func TestTerminalObserverRecoveryHonorsDisableRecoveryOnPanic(t *testing.T) {
 // reports are the only trace a lost ending leaves, and a nil logger would turn
 // the first of them into a nil dereference on the RAFT-apply path.
 func TestNewManagerSubstitutesAMissingLogger(t *testing.T) {
+	defer leaktest.Check(t)()
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "")
+
 	m := NewManager(ManagerParameters{})
 	defer m.Close()
-
 	require.NotNil(t, m.logger)
-	require.NotPanics(t, func() {
-		m.logger.WithField("namespace", observerNamespace).Error("dropping this terminal event")
-	})
+
+	// Reach the logger the way the apply path does rather than calling it
+	// directly: the panic report is the first thing a missing logger would
+	// dereference.
+	m.RegisterTerminalObserver(observerNamespace, panickingTerminalObserver)
+	require.NotPanics(t, func() { m.runTerminalObserverSafely(terminalDispatchTask(m)) })
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
@@ -790,7 +804,8 @@ func restoreTask(t *testing.T, m *Manager, status TaskStatus, units map[string]*
 	require.NoError(t, m.Restore(snap))
 }
 
-// Pins the three FAILED routes that must still reach the terminal observer.
+// Pins three of the five routes to FAILED. The other two — a failing unit and
+// the fail-closed restore — are covered by TestManagerTerminalObserver.
 func TestTerminalObserverFiresOnEveryFailedRoute(t *testing.T) {
 	defer leaktest.Check(t)()
 
