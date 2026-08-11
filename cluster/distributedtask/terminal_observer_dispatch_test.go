@@ -409,8 +409,12 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		"every event the queue and the bounded overflow accepted must still reach the observer")
 	rec.requireNeverExceeds(t, maxDelivered, 300*time.Millisecond,
 		"events past the overflow bound must be dropped, not fanned out")
-	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
+	require.Eventually(t, func() bool {
+		return m.terminalOverflowInFlight.Load() == 0
+	}, 5*time.Second, 10*time.Millisecond,
 		"every overflow goroutine must have released its slot")
+	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
+		"the in-flight count must settle at exactly zero, never negative")
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
