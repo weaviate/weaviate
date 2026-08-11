@@ -1608,9 +1608,8 @@ func TestCancellingRestore(t *testing.T) {
 	})
 
 	t.Run("CancellingRefusedWhenTheRestoreFinalizesWhileTheNodesAreAborted", func(t *testing.T) {
-		// The repeat of a stuck CANCELLING skips the claim, so nothing stops
-		// the restore from reaching schema apply while its nodes are being
-		// aborted. The caller must learn the cancel did not land.
+		// Pins that a repeated cancel can race schema apply during abort; the
+		// caller must see the cancel as refused, not landed.
 		fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 		fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})

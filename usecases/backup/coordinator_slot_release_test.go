@@ -89,18 +89,15 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				once   sync.Once
 				stolen = make(chan struct{})
 			)
-			// The write of the outcome is the restore's last step before its
-			// deferred release, so a takeover staged from it lands in exactly
-			// the window that release has to refuse.
+			// Staging the takeover from the outcome write puts it in the exact
+			// window release has to refuse.
 			fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil).
 				Run(func(args mock.Arguments) {
 					if !tc.steal || restoreMetaStatus(t, args) != backup.Success {
 						return
 					}
-					// Runs on the restore goroutine. assert, not require:
-					// require's Goexit would kill that goroutine mid-flight,
-					// surfacing as a hang or an unrelated downstream failure
-					// instead of this one.
+					// assert, not require: this runs on the restore goroutine,
+					// where Goexit surfaces as a hang instead of the failure.
 					once.Do(func() {
 						takeOverSlot(t, &c.lastOp, backupID, tc.newID)
 						close(stolen)
@@ -605,9 +602,8 @@ func awaitInterference(t *testing.T, done <-chan struct{}, missed string) {
 }
 
 // awaitOutcome waits for the operation to store its outcome, the step right
-// before its deferred release. Without it a window asserting that release did
-// not fire can close before the goroutine ever reached it, which would make
-// its absence prove nothing.
+// before its deferred release, so a "release did not fire" window can't close
+// before the goroutine ever reached it.
 func awaitOutcome(t *testing.T, stored <-chan bool, missed string) {
 	t.Helper()
 	select {
