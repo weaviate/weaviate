@@ -221,8 +221,8 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 		wantCancelledID string
 		// wantTaskID is the id the response hands back — the operator's only
 		// handle on a task they now have to watch finish.
-		wantTaskID   string
-		wantStatus   string
+		wantTaskID string
+		wantStatus string
 	}{
 		{
 			name: "the only live task names no collection",
@@ -329,7 +329,6 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				principal = &models.Principal{Username: "u1"}
 			}
 			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable", principal)
-
 
 			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
 			require.Truef(t, ok, "cancel must be accepted, got %T", responder)
