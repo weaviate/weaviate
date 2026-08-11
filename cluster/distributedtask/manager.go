@@ -419,6 +419,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		m.logger.WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
+			"version":   task.Version,
 		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
 		return
 	}
