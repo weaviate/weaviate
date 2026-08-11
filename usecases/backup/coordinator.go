@@ -612,9 +612,14 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 
 // redactedRefusalClassSample caps the class names quoted into a rebuilt
 // refusal: it lists them in one sentence, and the text becomes the body of an
-// API error. The verbatim path carries no such cap because the participant
-// already emits one sentence per blocked collection, and cutting it would drop
-// the co-occurring failures joined alongside the refusal.
+// API error.
+//
+// The verbatim path carries no cap. The coordinator cannot add one: it has an
+// opaque string there, so trimming it would cut co-occurring failures joined
+// alongside the refusal. A cap belongs at the producer instead, in the storage
+// layer's Backupable, where the errors are still structured. It is not there
+// yet because that path now grows one sentence per blocked collection where it
+// used to grow one per shard, which is the size class this change was for.
 const redactedRefusalClassSample = 10
 
 // redactedReindexRefusal rebuilds a refusal from the caller's own request,

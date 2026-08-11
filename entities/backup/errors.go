@@ -22,9 +22,14 @@ import (
 // dir cannot be safely restored.
 //
 // Lives here so the storage layer (adapters/repos/db) and the coordinator
-// layer (usecases/backup) share one value without an import cycle. Match
-// with errors.Is, not substring comparison. Names no shard: the text
-// reaches API response bodies.
+// layer (usecases/backup) share one value without an import cycle. Names no
+// shard: the text reaches API response bodies.
+//
+// Classify with errors.Is. The message text is a second, narrower contract:
+// across the RPC seam only a string arrives, and the coordinator decides
+// whether a participant's refusal is publishable by testing it against this
+// text plus ": " (usecases/backup, canCommitErrFromResponse). Changing the
+// wording therefore makes every current participant look like an old one.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
 
 // ReindexBlockedError is the API-safe form of a backup refused by the reindex

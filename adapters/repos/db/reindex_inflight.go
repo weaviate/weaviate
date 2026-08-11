@@ -130,9 +130,11 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 //
-// It never logs — every caller above is reached once per shard of a
-// whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
-// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal].
+// It never logs — the whole-collection callers reach it once per shard, so a
+// line here would repeat. The caller logs instead: one line per pass via
+// [DB.logReindexRefusals] or [Index.logReindexRefusalSummary], and one line per
+// shard via [Index.logReindexRefusal] for the single-shard callers
+// ([Shard.HaltForTransfer] reached from IncomingCreateReplicaSnapshot).
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {

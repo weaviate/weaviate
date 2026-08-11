@@ -315,9 +315,11 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
 
-	// A gate refusal cancels the group's context but does not unqueue the
-	// goroutines already scheduled, so a whole-collection refusal lands once per
-	// shard. Collect the names and log one line for the pass.
+	// Every shard reaches the gate: eg.Go blocks for a slot and then always
+	// runs its func, and the shard backup does not consult ctx before the gate
+	// check, so a sibling's refusal cancelling the group cancels nothing here.
+	// A whole-collection refusal therefore lands once per shard. Collect the
+	// names and log one line for the pass.
 	var blocked []string
 	defer func() { i.logReindexRefusalSummary(blocked) }()
 
