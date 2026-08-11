@@ -41,15 +41,16 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TerminalObserver is called on the Manager's drainer goroutine (not the
-// RAFT-apply path) shortly after a task goes CANCELLED or FAILED on this
-// node, so a namespace can make that visible to peers without waiting on the
-// scheduler tick. Register via [Manager.RegisterTerminalObserver].
+// TerminalObserver is called off the RAFT-apply path (normally on the
+// Manager's single drainer goroutine) shortly after a task goes CANCELLED or
+// FAILED on this node, so a namespace can make that visible to peers without
+// waiting on the scheduler tick. Register via
+// [Manager.RegisterTerminalObserver].
 //
 // Receives a [Task.Clone]; Payload still shares the original's backing array
-// and must not be mutated. No ordering vs. the scheduler is guaranteed,
-// events may run concurrently under queue overflow, and past
-// [terminalDispatchOverflowLimit] an event is dropped instead of delivered.
+// and must not be mutated. No ordering vs. the scheduler is guaranteed, and
+// when the queue overflows events run on extra goroutines instead — up to 32
+// of them, past which an event is dropped rather than delivered.
 //
 // Endings already in the local RAFT log at startup are skipped, but ones
 // missed while the node was down arrive later and DO fire despite being old.
@@ -542,12 +543,14 @@ type Task struct {
 	StartedAt time.Time `json:"startedAt"`
 
 	// FinishedAt is the time the task's units stopped, not always when the task
-	// reached a terminal status. It matches for CANCELLED/FAILED, but on the
-	// PREPARING/SWAPPING route it is stamped when AllUnitsTerminal lands, well
-	// before the task is done, so it can be minutes stale during SWAPPING.
+	// reached a terminal status. It matches only on the two routes that end the
+	// task at that same moment: CANCELLED, and FAILED caused by a unit failure.
+	// Every route through PREPARING/SWAPPING (FINISHED, and FAILED from a prep,
+	// ack, or cutover failure) deliberately keeps the earlier AllUnitsTerminal
+	// stamp, so it can be minutes stale by the time the task is terminal.
 	//
-	// TTL cleanup and terminal-observer dispatch already work around this;
-	// new code needing "when did this end" must do the same, not trust this field.
+	// TTL cleanup works around this by excluding SWAPPING; new code needing
+	// "when did this end" must not trust this field either.
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 

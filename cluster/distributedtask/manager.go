@@ -259,6 +259,9 @@ func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
 	}
+	if params.Logger == nil {
+		params.Logger = logrus.New()
+	}
 
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
@@ -348,7 +351,7 @@ func (m *Manager) startTerminalDrainerWithLock() {
 				m.runTerminalObserverSafely(task)
 			}
 		}
-	}, m.dispatchLogger())
+	}, m.logger)
 }
 
 // runTerminalObserverSafely keeps one namespace's panicking observer from
@@ -357,22 +360,13 @@ func (m *Manager) startTerminalDrainerWithLock() {
 func (m *Manager) runTerminalObserverSafely(task *Task) {
 	defer func() {
 		if r := recover(); r != nil {
-			m.dispatchLogger().
+			m.logger.
 				WithField("namespace", task.Namespace).
 				WithField("task_id", task.ID).
 				Errorf("distributedtask: terminal observer panicked; dropping this event and keeping the drainer alive: %v", r)
 		}
 	}()
 	m.runTerminalObserver(task)
-}
-
-// dispatchLogger keeps the drainer usable from fixtures that build a Manager
-// without one.
-func (m *Manager) dispatchLogger() logrus.FieldLogger {
-	if m.logger == nil {
-		return logrus.New()
-	}
-	return m.logger
 }
 
 // runTerminalObserver looks the observer up under its own lock instead of
@@ -391,9 +385,10 @@ func (m *Manager) runTerminalObserver(task *Task) {
 // dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
 //
 // catchingUp comes from the FSM's RAFT-replay flag: on startup a node replays
-// entries already in its local log, and signalling those stale endings would
-// raise a gate nothing but a timeout could release. Endings missed while the
-// node was down replicate later at a higher index and fire normally.
+// entries already in its local log, and signalling those endings would announce
+// something that happened long ago to an observer treating it as live. Endings
+// missed while the node was down replicate later at a higher index and fire
+// normally.
 //
 // Observers run off the apply path because they take locks also held by
 // HTTP/admission code; running inline could stall the whole FSM behind a
@@ -409,7 +404,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		return
 	}
 	if catchingUp {
-		m.dispatchLogger().WithFields(logrus.Fields{
+		m.logger.WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
 		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
@@ -420,7 +415,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	select {
 	case m.terminalDispatch <- clone:
 	default:
-		logger := m.dispatchLogger()
+		logger := m.logger
 		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
 		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
 			// Past the bound the observer is wedged, not just behind.

@@ -513,3 +513,114 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
 			"whose recover the acceptance image disables", contained(), total)
 }
+
+// restoreTaskInStatus puts a single task into the FSM at the given status,
+// which is the only way to reach the mid-flight PREPARING/SWAPPING states
+// without driving a full multi-node scheduler run.
+func restoreTaskInStatus(t *testing.T, m *Manager, status TaskStatus) {
+	t.Helper()
+	snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+		observerNamespace: {{
+			Namespace:      observerNamespace,
+			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
+			Status:         status,
+			Units: map[string]*Unit{
+				"su-1": {ID: "su-1", NodeID: "node-1", Status: UnitStatusCompleted},
+			},
+		}},
+	}})
+	require.NoError(t, err)
+	require.NoError(t, m.Restore(snap))
+}
+
+// Pins the three FAILED routes that end a task after its units are already
+// terminal. A namespace that never hears one of these waits forever, because
+// no later transition follows to correct it.
+func TestTerminalObserverFiresOnEveryFailedRoute(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	tests := []struct {
+		name   string
+		status TaskStatus
+		apply  func(t *testing.T, h *testHarness) error
+	}{
+		{
+			name:   "swap failure reported by a node",
+			status: TaskStatusSwapping,
+			apply: func(t *testing.T, h *testHarness) error {
+				return h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
+					Namespace:          observerNamespace,
+					Id:                 observerTaskID,
+					Version:            observerVersion,
+					Error:              "cutover failed on node-1",
+					FailedAtUnixMillis: h.clock.Now().UnixMilli(),
+				}), false)
+			},
+		},
+		{
+			name:   "post-completion ack reports failure",
+			status: TaskStatusSwapping,
+			apply: func(t *testing.T, h *testHarness) error {
+				return h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+					Namespace:         observerNamespace,
+					Id:                observerTaskID,
+					Version:           observerVersion,
+					NodeId:            "node-1",
+					Success:           false,
+					Error:             "swap failed",
+					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+				}), false)
+			},
+		},
+		{
+			name:   "preparation ack reports failure",
+			status: TaskStatusPreparing,
+			apply: func(t *testing.T, h *testHarness) error {
+				return h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+					Namespace:         observerNamespace,
+					Id:                observerTaskID,
+					Version:           observerVersion,
+					NodeId:            "node-1",
+					Success:           false,
+					Error:             "prep failed",
+					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+				}), false)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			defer leaktest.Check(t)()
+			defer h.Close()
+
+			var rec observerRecorder
+			h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+			restoreTaskInStatus(t, h.manager, test.status)
+
+			require.NoError(t, test.apply(t, h))
+
+			require.Eventually(t, func() bool { return rec.count() == 1 },
+				5*time.Second, 5*time.Millisecond,
+				"this route ends the task for good, so it must reach the observer")
+			require.Equal(t, TaskStatusFailed, rec.first().Status)
+		})
+	}
+}
+
+// Pins the claim that a cluster with no registered observer pays nothing:
+// without the lookup guard every terminal transition would clone the task and
+// fill a queue no drainer is running to empty.
+func TestTerminalDispatchSkipsUnregisteredNamespaces(t *testing.T) {
+	defer leaktest.Check(t)()
+	m := newTerminalDispatchManager()
+	defer m.Close()
+
+	m.mu.Lock()
+	m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
+	m.mu.Unlock()
+
+	require.Empty(t, m.terminalDispatch,
+		"a namespace nobody registered for must not queue anything")
+}
