@@ -27,8 +27,11 @@ import (
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+// ShardReindexActivityLookupBuilder returns a fresh snapshot. It takes the
+// caller's context because building one queries the RAFT leader: bound to the
+// wiring context instead, an unanswering leader parks the caller until the
+// process shuts down.
+type ShardReindexActivityLookupBuilder func(ctx context.Context) ShardReindexActivityLookup
 
 // SetShardReindexActivityLookup installs the builder used by the backup
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
@@ -126,12 +129,13 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 			db.logger.WithField("action", "restore_reindex_gate").
 				Debug("restore-reindex gate: refusing — a teardown or a submission sweep is holding reindex sidecars on this node")
 		}
+		poll, cancel := reindexRemediationURLs(collections)
 		return fmt.Errorf(
 			"%w: a migration is holding temporary index files on this node: either a cancelled one still removing them, "+
 				"or a newly submitted one preparing to run. Retry in a few seconds; if a new migration has started, "+
-				"wait for it to finish (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") "+
-				"or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-			entitiesbackup.ErrReindexInFlight,
+				"wait for it to finish (poll %s until all indexes report status=\"ready\") "+
+				"or cancel it via %s {\"<indexType>\":{\"cancel\":true}}",
+			entitiesbackup.ErrReindexInFlight, poll, cancel,
 		)
 	}
 
@@ -164,14 +168,27 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 		db.logger.WithField("action", "restore_reindex_gate").
 			Debug("restore-reindex gate: refusing — DTM lists a live runtime-reindex task in the cluster")
 	}
-	// Conditional on purpose, matching the backup gate's text in
-	// [reindexInFlightError]: PREPARING and SWAPPING count as live, and the
-	// wait is not guaranteed to end — a node owning part of the task leaving
-	// the cluster wedges it past STARTED for good.
+	// Unconditional cancel advice, matching the backup gate's text in
+	// [reindexInFlightError]: DTM refuses a cancel only for a task that already
+	// reached a terminal status, and such a task is not live here.
+	poll, cancel := reindexRemediationURLs(collections)
 	return fmt.Errorf(
-		"%w: retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}; once it has started committing its result it can only be waited out, and if a node that owned part of it left the cluster it never finishes at all — a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal",
-		entitiesbackup.ErrReindexInFlight,
+		"%w: retry after the migration finishes (poll %s until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via %s {\"<indexType>\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result",
+		entitiesbackup.ErrReindexInFlight, poll, cancel,
 	)
+}
+
+// reindexRemediationURLs renders the poll and cancel routes the restore
+// refusals point at. Only a single-collection restore can name the class: with
+// none, or with several, the refusal cannot say which one holds the gate, so
+// the class stays a placeholder the operator fills in.
+func reindexRemediationURLs(collections []string) (poll, cancel string) {
+	class := "<class>"
+	if len(collections) == 1 {
+		class = collections[0]
+	}
+	return fmt.Sprintf("GET /v1/schema/%s/indexes", class),
+		fmt.Sprintf("PUT /v1/schema/%s/indexes/<prop>", class)
 }
 
 // ReindexOverlapLookup answers the backup's commit-time question: did any

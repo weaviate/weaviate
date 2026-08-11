@@ -222,6 +222,16 @@ func TestReindexOverlapLookup(t *testing.T) {
 			wantMsg:          "longer than the",
 			wantUndetermined: true,
 		},
+		{
+			// An empty list from an unreachable task manager looks exactly like
+			// an empty list from a quiet cluster, so it must not read as one.
+			name:             "the task manager could not be listed",
+			listErr:          errors.New("no leader: node weaviate-2 unreachable"),
+			since:            backupStart,
+			wantRefuse:       true,
+			wantMsg:          "the cluster task manager could not be queried",
+			wantUndetermined: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -293,9 +303,9 @@ func TestReindexOverlapLookupCountsTheRightTerminalTasks(t *testing.T) {
 			why:        "a failed migration may have written before it failed",
 		},
 		{
-			// Units that left PENDING on purpose: with nil units the
-			// cancelled-and-untouched rule would exempt this row too, and
-			// either rule alone would keep it green.
+			// Units that left PENDING on purpose: it is the finish time that
+			// waives this row, and a populated unit list is what stops the
+			// cancelled-and-untouched rule from waiving it for the wrong reason.
 			name: "cancelled after writing, but before this backup started",
 			task: overlapTaskWithUnits("Movies", distributedtask.TaskStatusCancelled,
 				backupStart.Add(-time.Minute),
@@ -345,12 +355,13 @@ func TestReindexOverlapLookupCountsCancelledTasksThatRan(t *testing.T) {
 			why:        "a partly-run cancelled migration spans the backup and must fail it",
 		},
 		{
-			name: "a unit finished before the cancel landed",
+			name: "one unit of several left PENDING",
 			units: map[string]*distributedtask.Unit{
-				"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted, Progress: 1},
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+				"u2": {ID: "u2", Status: distributedtask.UnitStatusCompleted, Progress: 1},
 			},
 			wantRefuse: true,
-			why:        "a completed unit is the strongest evidence the buckets moved",
+			why:        "the question is whether ANY worker ran, so one claimed unit decides it for the whole task",
 		},
 		{
 			name: "no unit ever left PENDING",
@@ -359,6 +370,21 @@ func TestReindexOverlapLookupCountsCancelledTasksThatRan(t *testing.T) {
 			},
 			wantRefuse: false,
 			why:        "the post-commit rollback cancels before any worker claims a unit; failing backups on that would make the rollback worse than the race it repairs",
+		},
+		{
+			name:       "no unit list at all",
+			units:      nil,
+			wantRefuse: true,
+			why:        "every real task carries its units from submission, so an empty list is unknown rather than untouched",
+		},
+		{
+			name: "a nil entry beside a pending one",
+			units: map[string]*distributedtask.Unit{
+				"u1": nil,
+				"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+			},
+			wantRefuse: false,
+			why:        "a nil entry says nothing about a worker, and reading it must not take the gate down with a panic",
 		},
 	}
 
@@ -588,6 +614,61 @@ func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
 		"the unwired WARN is budgeted once per hour per node, not once per backup")
 }
 
+// Both restore refusals point the operator at a cancel, so both have to render
+// a route they can actually call. Only a single-collection restore knows which
+// class that is.
+func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		collections []string
+		cleanupHold bool
+		wantURL     string
+	}{
+		{
+			name:        "live task, one collection",
+			collections: []string{"Movies"},
+			wantURL:     "PUT /v1/schema/Movies/indexes/<prop>",
+		},
+		{
+			name:        "teardown hold, one collection",
+			collections: []string{"Movies"},
+			cleanupHold: true,
+			wantURL:     "PUT /v1/schema/Movies/indexes/<prop>",
+		},
+		{
+			name:        "live task, no class list yet",
+			collections: nil,
+			wantURL:     "PUT /v1/schema/<class>/indexes/<prop>",
+		},
+		{
+			name:        "live task, several collections",
+			collections: []string{"Movies", "Actors"},
+			wantURL:     "PUT /v1/schema/<class>/indexes/<prop>",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			db := &DB{logger: logger}
+			db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) {
+				return !tc.cleanupHold, nil
+			})
+			db.SetAnyCleanupInProgressLookup(func([]string) bool { return tc.cleanupHold })
+
+			err := db.RefuseIfAnyReindexInFlight(context.Background(), tc.collections)
+			require.Error(t, err)
+			require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
+			assert.Contains(t, err.Error(), tc.wantURL)
+			// DTM refuses a cancel only for a task that already reached a
+			// terminal status, and such a task holds neither gate. Sending the
+			// operator to a cluster restart instead costs them the cluster.
+			assert.NotContains(t, err.Error(), "RUNTIME_REINDEX_ENABLED")
+			assert.NotContains(t, err.Error(), "can only be waited out")
+		})
+	}
+}
+
 // The commit-time question is asked per backup, and a backup covers anywhere
 // from zero to every collection in the cluster. A task outside that set must not
 // fail the backup, and one anywhere inside it must.
@@ -608,6 +689,23 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 		{
 			name:        "one collection, untouched",
 			collections: []string{"Movies"},
+			wantRefuse:  false,
+		},
+		{
+			name:        "several collections, one of them migrated",
+			collections: []string{"Movies", "Actors", "Reviews"},
+			wantRefuse:  true,
+		},
+		{
+			name:        "several collections, none of them migrated",
+			collections: []string{"Movies", "Reviews"},
+			wantRefuse:  false,
+		},
+		{
+			// A backup naming no class covers nothing, so no migration can
+			// span it.
+			name:        "no collections at all",
+			collections: nil,
 			wantRefuse:  false,
 		},
 	}

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -100,7 +101,15 @@ const (
 	reindexBlockedByLiveTask
 	reindexBlockedByCleanup
 	reindexBlockedBySubmit
-	reindexBlockedPreWire
+	// reindexBlockedNoDBBackref is the fail-closed answer for an [Index]
+	// carrying no [DB] back-reference, so the gate has nothing to ask. Produced
+	// by [Index.refuseIfReindexInFlight] and [Index.refuseIfReindexInFlightIn].
+	//
+	// Not the same state as an unwired lookup builder: that one fails OPEN,
+	// admitting the backup with a sampled WARN
+	// ([DB.warnUnwiredReindexGate]), because refusing there would block every
+	// fixture that starts a DB without the post-bootstrap install path.
+	reindexBlockedNoDBBackref
 	// reindexBlockedByUnknownHold is the fail-closed answer for a
 	// [ReindexHold] the gate cannot classify; see [reindexBlockReasonIn].
 	reindexBlockedByUnknownHold
@@ -119,16 +128,29 @@ const (
 // spins up Weaviate without the post-bootstrap install path. HTTP can answer
 // before that install runs, so the WARN reports a backup admitted without a
 // check, not necessarily broken wiring.
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
-	return db.reindexBlockReason(collection, shardName) != reindexNotBlocked
+func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName string) bool {
+	return db.reindexBlockReason(ctx, collection, shardName) != reindexNotBlocked
 }
 
 // reindexGateSnapshot is one admission pass's view of both backup-gate
-// lookups, built once per pass because the activity builder issues a
-// leader-forwarded RAFT query: per-shard rebuilds cost one round trip per
-// shard. Shards checked late may miss a task that appeared mid-pass; the
-// commit-time overlap check catches those. A nil activity lookup admits the
-// backup, per [DB.AnyLiveReindexForShard].
+// lookups. Only the activity half is a snapshot: it is materialized once per
+// pass because building it issues a leader-forwarded RAFT query, which would
+// otherwise cost one round trip per shard. The cleanup half is the live
+// [ReindexProvider.HoldForShard] handle, re-read on every probe, since it is a
+// local map read with no round trip to save.
+//
+// The two halves therefore answer as of different moments: a hold released
+// mid-pass can refuse an early shard and admit a later one. Both misses are
+// caught by the commit-time overlap check, which is why the pass does not try
+// to be atomic.
+//
+// A nil activity lookup admits the backup, per [DB.AnyLiveReindexForShard].
+//
+// One snapshot per pass holds for [DB.Backupable] only. The capture path
+// ([Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithoutHardlinks], [Shard.HaltForTransfer]) still
+// builds one per shard, so a collection with N local shards issues N
+// leader-forwarded DTM list calls there.
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
@@ -136,8 +158,8 @@ type reindexGateSnapshot struct {
 
 // newReindexGateSnapshot builds the per-admission-pass snapshot. Callers
 // that check more than one shard must build it once and reuse it; see
-// [reindexGateSnapshot].
-func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
+// [reindexGateSnapshot]. ctx bounds the leader query the activity builder runs.
+func (db *DB) newReindexGateSnapshot(ctx context.Context) reindexGateSnapshot {
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
 		// Return before the builders run so the kill switch costs nothing (no
@@ -154,7 +176,7 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 	if activityBuilder == nil {
 		db.warnUnwiredReindexGate()
 	} else {
-		snap.activity = activityBuilder()
+		snap.activity = activityBuilder(ctx)
 	}
 	// Read even when the activity builder is missing: the cleanup hold is a
 	// local map read installed synchronously, before the goroutine that waits
@@ -169,8 +191,8 @@ func (db *DB) newReindexGateSnapshot() reindexGateSnapshot {
 // reindexBlockReason is AnyLiveReindexForShard's answer with the branch kept,
 // so the refusal can match its advice to what actually blocked. Single-shard
 // callers only: it builds its own snapshot.
-func (db *DB) reindexBlockReason(collection, shardName string) reindexBlockReason {
-	return db.reindexBlockReasonIn(db.newReindexGateSnapshot(), collection, shardName)
+func (db *DB) reindexBlockReason(ctx context.Context, collection, shardName string) reindexBlockReason {
+	return db.reindexBlockReasonIn(db.newReindexGateSnapshot(ctx), collection, shardName)
 }
 
 // reindexBlockReasonIn answers for one shard against an already-built
@@ -250,13 +272,14 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // It never logs — every caller above is reached once per shard of a
 // whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
 // [Index.logReindexRefusalSummary], or [Index.logReindexRefusal]. It builds a
-// fresh gate snapshot per call; multi-shard passes must use
-// [Index.refuseIfReindexInFlightIn], see [reindexGateSnapshot].
-func (i *Index) refuseIfReindexInFlight(shardName string) error {
+// fresh gate snapshot per call, so ctx bounds a leader query; multi-shard
+// passes must use [Index.refuseIfReindexInFlightIn], see
+// [reindexGateSnapshot].
+func (i *Index) refuseIfReindexInFlight(ctx context.Context, shardName string) error {
 	if i.db == nil {
-		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedPreWire)
+		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedNoDBBackref)
 	}
-	return i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(), shardName)
+	return i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(ctx), shardName)
 }
 
 // refuseIfReindexInFlightIn is [Index.refuseIfReindexInFlight] against an
@@ -266,7 +289,7 @@ func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName st
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
-		return reindexInFlightError(collection, reindexBlockedPreWire)
+		return reindexInFlightError(collection, reindexBlockedNoDBBackref)
 	}
 	reason := i.db.reindexBlockReasonIn(snap, collection, shardName)
 	if reason == reindexNotBlocked {
@@ -350,34 +373,33 @@ func (i *Index) localNodeName() string {
 func reindexInFlightError(collection string, reason reindexBlockReason) error {
 	var advice string
 	switch reason {
-	case reindexBlockedPreWire:
-		advice = ": backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping"
+	case reindexBlockedNoDBBackref:
+		advice = ": this collection's index is not fully initialized on this node yet (startup window); retry once the node has finished bootstrapping"
 	case reindexBlockedBySubmit:
 		// Nothing was cancelled here, so the cleanup text below would send the
 		// operator looking for a migration that does not exist.
 		advice = ": a reindex submission is preparing this collection; retry in a moment"
-	case reindexBlockedByUnknownHold:
-		// The gate knows the shard is held but not by what, so this promises
-		// nothing it cannot back: no cancelled migration, no submission, no
-		// duration estimate. The diagnosis is a server-side defect, which is
-		// what the log line in [reindexBlockReasonIn] carries.
-		advice = " is held by a reindex operation this server build does not recognize; retry, and report this to Weaviate if it persists"
 	case reindexBlockedByCleanup:
 		// No cancel advice: the task this is cleaning up after is already
 		// cancelled, and telling the operator to cancel it sends them looking
 		// for something that is gone.
 		advice = ": a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)"
-	default:
-		// Cancel is conditional: DTM only accepts it pre-commit (PREPARING and
-		// SWAPPING refuse it too), so promising it outright loops operators
-		// between a refused backup and a no-op cancel. Waiting is not
-		// guaranteed to end either — a node owning part of the task leaving
-		// the cluster wedges it past STARTED for good; only a restart with the
-		// flag off lifts that.
+	case reindexBlockedByLiveTask:
+		// Cancel always works here: DTM refuses it only for a task that has
+		// already reached a terminal status, and such a task does not hold this
+		// gate. So the advice can promise it for every state that gets here.
 		// Concrete requests the API accepts, with the collection rendered in;
 		// the property and index type are unknown here, so those stay named
 		// placeholders rather than guesses that could 202 NO_OP.
-		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"). While it is still building indexes you can cancel it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}; once it has started committing its result it can only be waited out, and if a node that owned part of it left the cluster it never finishes at all — a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal. If every index already reports \"ready\", the task holding this gate is one this server cannot attribute to a collection — the same cancel call, on any collection, clears it", collection, collection)
+		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result. If every index already reports \"ready\", the task holding this gate is one this server cannot attribute to a collection — the same cancel call, on any collection, clears it", collection, collection)
+	default:
+		// reindexBlockedByUnknownHold, and a zero-value reason, which only a
+		// caller bug produces. The gate knows the shard is held but not by
+		// what, so this promises nothing it cannot back: no cancelled
+		// migration, no submission, no duration estimate. The diagnosis is a
+		// server-side defect, which is what the log line in
+		// [reindexBlockReasonIn] carries.
+		advice = " is held by a reindex operation this server build does not recognize; retry, and report this to Weaviate if it persists"
 	}
 	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf("%s: collection %q%s",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, advice)}

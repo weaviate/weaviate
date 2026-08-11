@@ -40,12 +40,12 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 				lookups.Add(1)
 				return func(string, string) bool { return true }
 			})
 
-			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"))
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})
@@ -161,7 +161,7 @@ func TestRefuseIfReindexOverlapped_RuntimeReindexDisabled(t *testing.T) {
 func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 	var activityBuilds, cleanupBuilds atomic.Int64
 	db := &DB{config: Config{RuntimeReindexDisabled: true}}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		activityBuilds.Add(1)
 		return func(string, string) bool { return false }
 	})
@@ -171,7 +171,7 @@ func TestAnyLiveReindexForShard_DisabledIgnoresACleanupHold(t *testing.T) {
 		return func(string, string) ReindexHold { return ReindexHoldCleanup }
 	})
 
-	require.False(t, db.AnyLiveReindexForShard("Movies", "shard1"),
+	require.False(t, db.AnyLiveReindexForShard(context.Background(), "Movies", "shard1"),
 		"with the feature off a cancel's cleanup hold must not refuse this node's backup")
 	require.Zero(t, cleanupBuilds.Load(),
 		"the flag check must precede the cleanup lookup, or the gate is only half disabled")
@@ -195,7 +195,7 @@ func TestReindexGateReadsTheSubmitHoldBeforeTheActivityLookupIsWired(t *testing.
 		return provider.HoldForShard
 	})
 
-	snap := db.newReindexGateSnapshot()
+	snap := db.newReindexGateSnapshot(context.Background())
 	require.NotNil(t, snap.cleanup,
 		"the cleanup lookup must install even when the activity builder is not yet wired; "+
 			"it is a local map read and needs nothing from DTM")

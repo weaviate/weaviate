@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,7 +35,7 @@ import (
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
-	return func() ShardReindexActivityLookup {
+	return func(context.Context) ShardReindexActivityLookup {
 		return func(collection, shardName string) bool {
 			return live[[2]string{collection, shardName}]
 		}
@@ -49,21 +50,41 @@ func TestAnyLiveReindexForShard_LiveTask(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard1"}: true,
 	}))
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.True(t, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"),
 		"gate must refuse when DTM reports a live task on the tuple")
 }
 
-// TestAnyLiveReindexForShard_TerminalTask pins that a lookup whose
-// snapshot contains only terminal-status tasks (none reported as live)
-// lets the gate allow the backup.
-func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
-	db := &DB{}
-	// Builder reports no live tasks at all — equivalent to a snapshot
-	// containing only Finished/Cancelled/Failed tasks after the
-	// configure_api filter.
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must allow when no live task targets the tuple")
+// A task on the shard only holds the gate while its DTM status is live. The
+// builder here filters a real task list through [IsLiveReindexTaskStatus], the
+// same predicate production's builder applies, so the terminal statuses are
+// exercised rather than asserted away by a hand-written empty map.
+func TestAnyLiveReindexForShard_TaskStatusDecides(t *testing.T) {
+	tests := []struct {
+		status    distributedtask.TaskStatus
+		wantBlock bool
+	}{
+		{status: distributedtask.TaskStatusStarted, wantBlock: true},
+		{status: distributedtask.TaskStatusFinished},
+		{status: distributedtask.TaskStatusCancelled},
+		{status: distributedtask.TaskStatusFailed},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := &distributedtask.Task{Status: tc.status}
+			db := &DB{}
+			db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+				live := map[[2]string]bool{}
+				if IsLiveReindexTaskStatus(task.Status) {
+					live[[2]string{"MyClass", "shard1"}] = true
+				}
+				return func(collection, shardName string) bool {
+					return live[[2]string{collection, shardName}]
+				}
+			})
+			assert.Equal(t, tc.wantBlock, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"))
+		})
+	}
 }
 
 // Collection and shard scoping is not pinned here: the compare lives entirely
@@ -82,7 +103,7 @@ func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
 // the unwired path if it ever shows up in production logs.
 func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 	db := &DB{}
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"),
 		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
 }
 
@@ -91,10 +112,10 @@ func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 // a misconfigured wiring).
 func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 	db := &DB{}
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return nil
 	})
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
 }
 
@@ -129,7 +150,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
 
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight(context.Background(), "ABC123")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
@@ -148,7 +169,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 		db:     db,
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
-	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
+	require.NoError(t, idx.refuseIfReindexInFlight(context.Background(), "ABC123"))
 }
 
 // TestRefuseIfReindexInFlight_DbNilIsConservative pins that an Index
@@ -156,16 +177,34 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 // proceed unchecked.
 func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight(context.Background(), "ABC123")
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.True(t, strings.Contains(err.Error(), "startup window"))
 }
 
-// TestReindexInFlightError_PreWire pins the wording variant used
-// during the pre-wire startup window.
-func TestReindexInFlightError_PreWire(t *testing.T) {
-	err := reindexInFlightError("MyClass", reindexBlockedPreWire)
+// The multi-shard variant is the one [DB.Backupable] reaches, i.e. the
+// coordinator's canCommit gate. It carries its own nil-db check, and an Index
+// without its back-reference there would otherwise admit an unchecked backup.
+func TestRefuseIfReindexInFlightIn_DbNilIsConservative(t *testing.T) {
+	// A snapshot that reports every shard free: the refusal must come from the
+	// missing back-reference, not from anything the snapshot says.
+	snap := reindexGateSnapshot{
+		activity: func(string, string) bool { return false },
+		cleanup:  func(string, string) ReindexHold { return ReindexHoldNone },
+	}
+	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
+
+	err := idx.refuseIfReindexInFlightIn(snap, "ABC123")
+	require.Error(t, err, "canCommit must not admit a backup it could not check")
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.Contains(t, err.Error(), "startup window")
+}
+
+// TestReindexInFlightError_NoDBBackref pins the wording variant used
+// for an Index that has no DB back-reference yet.
+func TestReindexInFlightError_NoDBBackref(t *testing.T) {
+	err := reindexInFlightError("MyClass", reindexBlockedNoDBBackref)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "MyClass")
@@ -181,16 +220,16 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
-	// This reason covers PREPARING and SWAPPING too, and DTM refuses to cancel
-	// a task in either. Promising cancel outright loops the operator between a
-	// backup this text refuses and a cancel that refuses back.
-	require.Contains(t, err.Error(), "While it is still building indexes you can cancel it")
-	require.Contains(t, err.Error(), "once it has started committing its result it can only be waited out")
-	// Nor is the wait promised to end; only a restart with the flag off lifts it.
-	require.Contains(t, err.Error(),
-		"if a node that owned part of it left the cluster it never finishes at all")
-	require.Contains(t, err.Error(),
-		"a restart with RUNTIME_REINDEX_ENABLED=false is then the only way to lift this refusal")
+	// This reason covers PREPARING and SWAPPING too, and DTM accepts a cancel in
+	// both: it refuses one only for a task that already reached a terminal
+	// status, and such a task does not hold this gate. So the advice offers
+	// cancel without conditions, and must not send the operator to a restart.
+	require.Contains(t, err.Error(), "or lift this refusal now by cancelling it via")
+	require.Contains(t, err.Error(), `{"cancel":true}`)
+	require.Contains(t, err.Error(), "Cancel is accepted at every stage of a migration")
+	require.NotContains(t, err.Error(), "RUNTIME_REINDEX_ENABLED",
+		"a wedged gate clears with a cancel; a cluster restart is not the escape hatch")
+	require.NotContains(t, err.Error(), "can only be waited out")
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
@@ -256,7 +295,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	}))
 	idx := &Index{db: db, logger: logger, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
 
-	err := idx.refuseIfReindexInFlight(shard)
+	err := idx.refuseIfReindexInFlight(context.Background(), shard)
 	require.Error(t, err)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 		"the sentinel must survive so the coordinator still answers 422")
@@ -308,7 +347,7 @@ func TestReindexRefusal_SurvivesWrappingAsAPublishableMessage(t *testing.T) {
 	}))
 	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
 
-	refusal := idx.refuseIfReindexInFlight(shard)
+	refusal := idx.refuseIfReindexInFlight(context.Background(), shard)
 	require.Error(t, refusal)
 	wrapped := fmt.Errorf("snapshot shard %s: halt for snapshot: %w", shard, refusal)
 
@@ -344,7 +383,7 @@ func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
 	db := backupableFixture(t, collection, node, "s1", "s2", "s3", "s4", "s5")
 
 	var activityBuilds, cleanupBuilds int
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		activityBuilds++
 		return func(string, string) bool { return false }
 	})
@@ -357,6 +396,36 @@ func TestBackupable_BuildsGateSnapshotOncePerCall(t *testing.T) {
 
 	assert.Equal(t, 1, activityBuilds, "activity snapshot must be built once per admission pass, not once per shard")
 	assert.Equal(t, 1, cleanupBuilds, "cleanup snapshot must be built once per admission pass, not once per shard")
+}
+
+// The gate's activity snapshot is a leader-forwarded RAFT query. Bound to the
+// process-lifetime wiring context instead of the caller's, a leader that
+// accepts the connection and stops answering parks the participant's canCommit
+// goroutine until shutdown, long after the coordinator gave up.
+func TestBackupable_PassesTheCallerContextToTheGate(t *testing.T) {
+	const (
+		collection = "GateContextClass"
+		node       = "weaviate-0"
+	)
+
+	db := backupableFixture(t, collection, node, "s1")
+	db.SetShardReindexActivityLookup(func(ctx context.Context) ShardReindexActivityLookup {
+		// A leader that never answers: the only way out is the caller's ctx.
+		<-ctx.Done()
+		return func(string, string) bool { return true }
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- db.Backupable(ctx, []string{collection}) }()
+	select {
+	case err := <-done:
+		require.Error(t, err, "a gate that could not be consulted must refuse")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "Backupable ignored the caller's context and waited on the leader instead")
+	}
 }
 
 // The real wrappers between the shard that refused and the stored failure meta
@@ -404,13 +473,13 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	assert.Contains(t, body, "MyClass")
 	assert.Contains(t, body, "still removing its temporary index files")
 	assert.Contains(t, body, "retry once the cleanup finishes")
-	assert.NotContains(t, body, "cancel it via",
+	assert.NotContains(t, body, "cancelling it via",
 		"the task is already cancelled; this advice sends the operator after a task that is gone")
 	assert.NotContains(t, body, `"cancel":true`)
 
 	// The live-task branch keeps its cancel advice: there the task is real.
 	live := reindexInFlightError("MyClass", reindexBlockedByLiveTask).Error()
-	assert.Contains(t, live, "cancel it via")
+	assert.Contains(t, live, "cancelling it via")
 }
 
 // unknownReindexHold stands in for a hold kind added to the enum after this
@@ -443,10 +512,10 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 				return func(string, string) ReindexHold { return test.hold }
 			})
 
-			assert.Equal(t, test.wantReason, db.reindexBlockReason("MyClass", "shard1"))
+			assert.Equal(t, test.wantReason, db.reindexBlockReason(context.Background(), "MyClass", "shard1"))
 
 			idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName("MyClass")}}
-			err := idx.refuseIfReindexInFlight("shard1")
+			err := idx.refuseIfReindexInFlight(context.Background(), "shard1")
 			if !test.wantRefuse {
 				require.NoError(t, err, "backup must be admitted")
 				return
@@ -470,7 +539,7 @@ func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	}
 
 	db := backupableFixture(t, collection, node, shards...)
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return func(string, string) bool { return true } // every shard refuses
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
@@ -514,7 +583,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	db := backupableFixture(t, collection, node, shards...)
 	db.logger = logger
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
@@ -598,7 +667,7 @@ func TestAnyLiveReindexForShard_DifferentCollection(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"OtherClass", "shard1"}: true,
 	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"),
 		"gate must scope by collection")
 }
 
@@ -610,7 +679,7 @@ func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"MyClass", "shard2"}: true,
 	}))
-	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+	assert.False(t, db.AnyLiveReindexForShard(context.Background(), "MyClass", "shard1"),
 		"gate must scope by shard, not just by collection")
 }
 
@@ -638,7 +707,7 @@ func TestBackupableReportsNonGateErrorsAlongsideARefusal(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := backupableFixture(t, blocked, node, "s1")
 	db.logger = logger
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 
