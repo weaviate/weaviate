@@ -30,13 +30,9 @@ type oneNodeResolver struct{ host string }
 
 func (r oneNodeResolver) NodeHostname(string) (string, bool) { return r.host, true }
 
-// A probe route mounted on one path and requested on another answers 404, and a
-// 404 from a node is what every probe client reads as "this node runs an older
-// build" and lets through. A typo would therefore disable the reindex gate
-// rather than break it, which no other test would notice.
-//
-// So the real mux registration and the real clients meet here: the paths are
-// never written down in this file.
+// Exercises the real mux registration against the real clients, with no path
+// written down here, so a path typo (which 404s and reads as "older build")
+// shows up as a failure instead of silently disabling the reindex gate.
 func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 	const (
 		node       = "node1"

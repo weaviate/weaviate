@@ -44,12 +44,9 @@ func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger lo
 
 // Activity handles GET /reindex/cleanup-activity?collection=<name>.
 //
-// Deliberately its own route rather than a mode on /backups/node-activity: a
-// node running an older build has to be distinguishable from one that answers
-// "no cleanup". A new query parameter on an existing route would be ignored by
-// the old build, which would then return a perfectly valid backup-activity
-// answer that the caller would misread. A separate path 404s instead, and the
-// caller can treat that as "cannot ask" rather than as "nothing running".
+// Its own route rather than a query param on /backups/node-activity: an older
+// build would ignore an unknown param and answer a misleading "not busy"
+// instead of 404ing.
 func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
@@ -92,11 +89,8 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			prober = rc.resolve()
 		}
 		if prober == nil {
-			// A build that serves this route without the cleanup side behind it
-			// answers 503 forever, which every node on the older minor does for
-			// the length of a rolling upgrade. The sentinel body lets the caller
-			// tell that apart from a transient 503 and stop asking; see
-			// [clusterprobe.ProbeNotWiredMarker].
+			// The sentinel body lets the caller tell this permanent 503 apart
+			// from a transient one; see [clusterprobe.ProbeNotWiredMarker].
 			http.Error(w, clusterprobe.ProbeNotWiredMarker, http.StatusServiceUnavailable)
 			return
 		}

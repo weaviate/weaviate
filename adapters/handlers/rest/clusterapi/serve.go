@@ -36,9 +36,8 @@ const (
 )
 
 // RegisterProbeRoutes mounts the read-only cluster-internal probe routes on
-// mux. Separate from the rest of the wiring so a test can drive the real
-// registration with the real clients; see [clusterprobe.BackupNodeActivityPath]
-// for why a mismatch here would fail open rather than loudly.
+// mux, kept separate so a test can drive the real registration with the real
+// clients.
 func RegisterProbeRoutes(mux *http.ServeMux, nodeActivity, reindexCleanupActivity http.Handler) {
 	mux.Handle(clusterprobe.BackupNodeActivityPath, nodeActivity)
 	mux.Handle(clusterprobe.ReindexCleanupActivityPath, reindexCleanupActivity)
@@ -93,9 +92,8 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
-	// The resolve func is the seam the reindex teardown side plugs into once it
-	// exists; until then it is nil and the route reports "not wired" rather than
-	// "nothing running", which is the only answer a caller may not misread.
+	// nil until the reindex teardown side exists; the route reports "not
+	// wired" rather than "nothing running" until then.
 	// TODO(#12474): pass the resolver that reads the reindex provider.
 	RegisterProbeRoutes(mux, backups.NodeActivity(),
 		NewReindexCleanup(nil, auth, appState.Logger).Activity())

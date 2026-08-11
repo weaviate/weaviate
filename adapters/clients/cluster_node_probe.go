@@ -28,10 +28,8 @@ import (
 // probe answer is a handful of JSON fields, so anything near this is not one.
 const maxProbeResponseBytes = 64 << 10
 
-// A node that does not serve a route falls through to the cluster API's
-// catch-all handler, which calls http.NotFound. That gives a body and a
-// nosniff header fixed by the standard library, and those two together are
-// what a 404 has to carry before it counts as "this build is older".
+// nodeNotFoundBody is the body http.NotFound sends, i.e. what a node's own
+// catch-all handler answers for an unserved route.
 const nodeNotFoundBody = "404 page not found"
 
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
@@ -44,13 +42,10 @@ type nodeProbe struct {
 // getJSON GETs path on nodeName and decodes the body into out; what names the
 // route in errors, e.g. "node activity".
 //
-// Two answers mean "this node will never serve me" and return unanswerable
-// unwrapped, so a caller can stop asking rather than retry forever: a 404
-// shaped like a node's own catch-all answer (an older build without the
-// route), and a 503 carrying the not-wired sentinel (the route exists but the
-// subsystem behind it does not). Any other 404 is an error, since an
-// intermediary answering in a node's stead (proxy, misrouted ingress) would
-// otherwise 404 everything and report every node as clear.
+// Returns unanswerable, unwrapped, for a 404 shaped like a node's own
+// catch-all (older build) or a 503 carrying the not-wired sentinel. Any other
+// 404 is a plain error, since an intermediary answering in a node's stead
+// would otherwise report every node as clear.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	query url.Values, unanswerable error, what string, out any,
 ) error {

@@ -25,12 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
-// Both probe clients share one skeleton, so the answers that decide whether a
-// caller keeps asking a node are exercised once, here.
-//
-// Two answers are terminal: the node itself said it cannot serve the route.
-// Everything else has to stay a plain error, because reading it as terminal
-// lets a caller proceed as if the node had answered "nothing running".
+// Both probe clients share one skeleton, so the terminal-vs-retryable answers
+// are exercised once, here, rather than per client.
 func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -153,12 +149,8 @@ func TestProbeRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-// snippet() puts an untrusted body into an error message, so it must not cut a
-// multi-byte character in half and leave invalid UTF-8 in a log line.
-//
-// The ascii prefixes shift where the cap lands inside the following character,
-// so between them every byte of a two- and a three-byte rune is the one the cut
-// would fall on.
+// snippet() must not cut a multi-byte rune in half. The ascii prefixes shift
+// where the cap lands, covering every byte offset a cut could fall on.
 func TestSnippetCutsOnRuneBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

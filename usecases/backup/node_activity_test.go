@@ -106,10 +106,8 @@ func TestNodeActivityProbe(t *testing.T) {
 	}
 }
 
-// TestNodeActivityResponseRoundTrip pins the wire form against its own reader:
-// what [NewNodeActivityResponse] emits is exactly what [NodeActivityResponse.Activity]
-// reads back. Emission is otherwise only pinned in clusterapi and the marker check
-// only in adapters/clients, so a change to either side alone goes unnoticed here.
+// TestNodeActivityResponseRoundTrip pins that [NewNodeActivityResponse] and
+// [NodeActivityResponse.Activity] agree on the wire form.
 func TestNodeActivityResponseRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -140,9 +138,8 @@ func TestNodeActivityResponseRoundTrip(t *testing.T) {
 	}
 }
 
-// TestNodeActivityResponseRejects covers the answers that must not be read as a
-// verdict at all, so a probe that cannot be trusted refuses rather than reporting
-// the node free.
+// TestNodeActivityResponseRejects covers answers that must error rather than
+// be read as "node free".
 func TestNodeActivityResponseRejects(t *testing.T) {
 	t.Parallel()
 

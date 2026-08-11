@@ -17,14 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// These strings are frozen wire values: two nodes on different releases only
-// understand each other while they agree on them. Changing one makes each read
-// the other as an older build, which silently disables the reindex gate across
-// the whole cluster instead of failing loudly.
-//
-// Nothing else can catch that. Both the mux and the client read these
-// constants, so a typo moves both ends together and every round-trip test
-// stays green. Only a literal written down a second time pins them.
+// Pins these as frozen wire values: changing one silently disables the
+// reindex gate across the cluster instead of failing loudly.
 func TestWireValuesAreFrozen(t *testing.T) {
 	tests := []struct {
 		name string

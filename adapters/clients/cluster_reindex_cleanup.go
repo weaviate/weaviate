@@ -23,12 +23,10 @@ import (
 
 const pathReindexCleanupActivity = clusterprobe.ReindexCleanupActivityPath
 
-// ErrReindexCleanupUnsupported means the node can never answer the question:
-// either it runs a build without the route at all, or it serves the route with
-// no cleanup side behind it (a build that has this transport but not yet its
-// consumer, which is every node on the older minor during a rolling upgrade).
-// Waiting on either would never succeed, so callers stop asking rather than
-// burn their whole budget on a node that can never answer.
+// ErrReindexCleanupUnsupported means the node can never answer: either it
+// runs a build without the route, or it serves the route with no cleanup
+// side wired up yet (every node on an older minor during a rolling upgrade).
+// Callers stop asking rather than retry forever.
 var ErrReindexCleanupUnsupported = errors.New("node does not serve the reindex cleanup-activity route")
 
 type ClusterReindexCleanup struct {
