@@ -250,13 +250,9 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // against exactly the bit that flip would have set (e.g. `searchable.rebuild`
 // 400s while the algorithm is still WAND).
 //
-// The re-submit is verified to be accepted in the post-terminal state, and
-// every strategy backfills from the objects bucket rather than from the
-// source inverted bucket, so the rebuilt content is correct. For
-// change-algorithm on a shard whose generation was already promoted, the
-// swap itself is untested: the canonical bucket is already inverted while
-// the strategy declares a map-collection source. That corner sits inside
-// the bucket↔schema inversion tracked at weaviate/weaviate#12575.
+// change-algorithm on an already-promoted shard is an untested corner: the
+// canonical bucket is already inverted while the strategy declares a
+// map-collection source. Tracked at weaviate/weaviate#12575.
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	body := reindexRepairBody(p)
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
@@ -279,12 +275,9 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 // body whose payload carries no target tokenization (written by an older
 // binary) — guessing would retokenize the property to the wrong value.
 //
-// The mapping is total over the declared types (pinned by
-// TestReindexRepairCall), which is wider than what renders today: both
-// callers of [ReindexRepairCall] are gated on [IsSemanticMigration], so the
-// format-only arms — rebuild-searchable, repair-filterable, repair-rangeable
-// and enable-rangeable — are unreachable in production. They stay so that a
-// type promoted to semantic later does not silently render nothing.
+// The mapping stays total over all declared types, even though both callers
+// gate on [IsSemanticMigration] and never reach the format-only arms today —
+// kept so a type promoted to semantic later doesn't silently render nothing.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:

@@ -139,10 +139,7 @@ func TestHasPromotableReindexState(t *testing.T) {
 		},
 		{name: "tidied without merged", sentinels: []string{"started.mig", "tidied.mig"}, want: true},
 		{
-			// change-algorithm is the one semantic migration whose tracker is
-			// class-level rather than <prefix>_<prop>, so a predicate that only
-			// looked under the per-property prefixes would answer false here and
-			// clear a cancel whose next restart still promotes.
+			// change-algorithm's tracker is class-level, not <prefix>_<prop>.
 			name:      "merged in the class-level blockmax tracker",
 			tracker:   MigrationDirSearchableMapToBlockmax + genSuffix(1),
 			sentinels: []string{"started.mig", "merged.mig"},

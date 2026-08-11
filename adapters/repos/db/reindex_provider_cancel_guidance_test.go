@@ -76,10 +76,8 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			wantRepairCommand: true,
 		},
 		{
-			// change-algorithm keeps its generation in a class-level tracker
-			// dir, not under <prefix>_<prop>, so the evidence check has to look
-			// there too — otherwise this cancel is cleared as harmless on a node
-			// whose next restart promotes the merged generation.
+			// change-algorithm's generation lives in a class-level tracker dir,
+			// not under <prefix>_<prop>; the evidence check must look there too.
 			name:              "cancelled change-algorithm after the class-level generation merged",
 			tracker:           MigrationDirSearchableMapToBlockmax + genSuffix(1),
 			sentinels:         []string{"started.mig", "merged.mig"},
