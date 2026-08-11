@@ -20,12 +20,18 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -845,7 +851,10 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 		wantCancellable bool
 	}{
 		{distributedtask.TaskStatusStarted, true, true},
-		{unknownFutureStatus, true, true},
+		// Found, but not cancellable: IsCancellable is a literal == STARTED,
+		// so a status this build cannot name is refused exactly like the
+		// coordination phases.
+		{unknownFutureStatus, true, false},
 		{distributedtask.TaskStatusPreparing, true, false},
 		{distributedtask.TaskStatusSwapping, true, false},
 		{distributedtask.TaskStatusFinished, false, false},
@@ -1042,6 +1051,153 @@ func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
 				}, logger)
 			require.Equal(t, tc.want,
 				build(context.Background())(tc.collection, tc.shard))
+		})
+	}
+}
+
+// Pins the wire response of every cancel arm: 202 CANCELLED for the
+// cancellable statuses (STARTED and one this build cannot name), 409 for
+// the coordination phases, 202 NO_OP when nothing matches. Each arm's
+// audit line is pinned with it.
+func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		status     distributedtask.TaskStatus
+		properties []string
+		wantCode   int
+	}{
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0},
+		// Refused, not proposed: only a build that can name the status
+		// knows whether stopping is safe, so the FSM refuses it on every
+		// node and REST must not spend a RAFT apply finding that out.
+		{"unrecognized", unknownFutureStatus, payload.Properties, http.StatusConflict},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, http.StatusConflict},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict},
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted},
+		// Empty Properties is the reserved whole-collection form; it has
+		// to match the queried property or the operator gets no cancel
+		// target for a task that blocks their mutation.
+		{"empty properties", distributedtask.TaskStatusStarted, nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			tcPayload := payload
+			tcPayload.Properties = tc.properties
+			task := buildTask(t, "T1", tc.status, tcPayload, nil)
+
+			target, gotPayload, _, _ := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "foo", "filterable")
+			resp := h.cancelPreflight(target, "C", "foo", "filterable", nil)
+
+			if tc.wantCode == 0 {
+				require.Nil(t, resp, "%q must reach the cancel apply", tc.status)
+				require.Equal(t, "T1", target.ID)
+				require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
+				return
+			}
+
+			require.NotNil(t, resp, "%q must be answered before the cancel apply", tc.status)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantCode == http.StatusAccepted {
+				require.Contains(t, rec.Body.String(), reindexCancelStatusNoOp)
+				require.Equal(t, "reindex_task_cancel_noop", auditEvent(t, hook))
+				return
+			}
+
+			body := rec.Body.String()
+			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
+			// False for PREPARING: no node has swapped yet, and PREP runs
+			// for minutes at billion-scale where SWAP runs for tens of ms.
+			require.NotContains(t, body, "swap is in progress")
+			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
+		})
+	}
+}
+
+// auditEvent returns the audit_event field of the single audit line the
+// hook captured.
+func auditEvent(t *testing.T, hook *logrustest.Hook) string {
+	t.Helper()
+	var events []string
+	for _, e := range hook.AllEntries() {
+		if v, ok := e.Data["audit_event"]; ok {
+			events = append(events, v.(string))
+		}
+	}
+	require.Len(t, events, 1, "the cancel arm must emit exactly one audit line")
+	return events[0]
+}
+
+// Pins: a cancel refused at apply time answers the same way the pre-flight
+// would have. The status can flip between the list read and the apply, and
+// the 500 that used to result rendered the sentinel's internal marker into
+// the response body.
+func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
+	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}, nil)
+
+	for _, tc := range []struct {
+		name      string
+		err       error
+		wantCode  int
+		wantAudit string
+		wantBody  string
+	}{
+		{
+			name:      "task is no longer running",
+			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			wantCode:  http.StatusConflict,
+			wantAudit: "reindex_task_cancel_refused",
+			wantBody:  "T1",
+		},
+		{
+			name:      "task does not exist",
+			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskDoesNotExist),
+			wantCode:  http.StatusAccepted,
+			wantAudit: "reindex_task_cancel_noop",
+			wantBody:  reindexCancelStatusNoOp,
+		},
+		{
+			name:     "anything else",
+			err:      errors.New("raft unavailable"),
+			wantCode: http.StatusInternalServerError,
+			wantBody: "raft unavailable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			rec := httptest.NewRecorder()
+			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
+				WriteResponse(rec, runtime.JSONProducer())
+
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
+			require.NotContains(t, rec.Body.String(), "dtm-perm/",
+				"the sentinel's internal marker is not user-facing")
+			if tc.wantAudit == "" {
+				return
+			}
+			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
 		})
 	}
 }

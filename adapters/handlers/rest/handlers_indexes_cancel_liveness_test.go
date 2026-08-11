@@ -57,13 +57,16 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 		{
 			// The unknown status stands in for PREPARING and SWAPPING too: all
 			// three reach the match through the same terminal check and only
-			// ever fail together.
+			// ever fail together. It is refused for the same reason they are:
+			// [distributedtask.TaskStatus.IsCancellable] is a literal == STARTED,
+			// so a node that cannot name the status never cancels a migration a
+			// newer node is still coordinating.
 			name: "a status this build does not recognize",
 			tasks: []*distributedtask.Task{
 				decodable("t1", distributedtask.TaskStatus("REBALANCING"), collection),
 			},
 			gateBlocks:    true,
-			wantCancelled: "t1",
+			wantRefusedID: "t1",
 		},
 		{
 			// Cancel matching must case-fold collection names like the other gate lookups.

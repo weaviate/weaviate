@@ -327,11 +327,11 @@ func (f *fakeStatusSlot) last() backup.Status {
 
 // cancelAndFreeSlot does to the slot what a cancel does: stamp the restore
 // holding it and give the slot back, leaving that restore's goroutine running.
-// assert, not require: this runs on that goroutine or inside a mock callback,
-// where Goexit surfaces as a hang instead of the failure.
+// assert, not require: some callers run this from a mock callback on an
+// operation goroutine, where Goexit surfaces as a hang instead of the failure.
 func cancelAndFreeSlot(t *testing.T, stat *backupStat, id string) {
 	t.Helper()
-	stamped, _ := stat.setIfOwned(id, backup.Cancelled)
+	stamped, _ := stat.claimOf(id).stamp(backup.Cancelled)
 	assert.True(t, stamped)
 	freed, _ := stat.resetIfCancelled(id)
 	assert.True(t, freed)

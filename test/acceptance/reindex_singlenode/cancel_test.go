@@ -38,7 +38,8 @@ import (
 //     a from-scratch enable-filterable to give cancel a wide enough
 //     window — the test polls /indexes until status is "pending" or
 //     "indexing" before issuing the cancel, so the race against a too-
-//     fast task is contained.
+//     fast task is contained. A task that outran the poll answers 409
+//     (cluster-wide swap in progress) or 202 NO_OP (already terminal).
 func testCancelReindex(t *testing.T, restURI string) {
 	const className = "CancelTest"
 	trueVal := true
@@ -123,48 +124,53 @@ func testCancelReindex(t *testing.T, restURI string) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
-		// Two acceptable outcomes, both at 202 (the cancel verb is
-		// idempotent: a finished task is the same observable end-state
-		// as a cancelled one):
-		// - Status: CANCELLED + TaskID: cancel won the race.
-		// - Status: NO_OP: task already terminal (FINISHED, FAILED, or
-		//   CANCELLED) before our cancel landed; no STARTED task matched.
-		// Both prove the contract; we only fail on unexpected codes.
-		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"cancel must return 202; got %d body: %s", resp.StatusCode, string(body))
-		var result models.IndexUpdateResponse
-		require.NoError(t, json.Unmarshal(body, &result),
-			"cancel response body should decode as IndexUpdateResponse: %s", string(body))
-		switch result.Status {
-		case "CANCELLED":
-			require.Equal(t, taskID, result.TaskID,
-				"cancel CANCELLED should name the cancelled task ID; body: %s", string(body))
-			t.Logf("cancel returned 202 with status CANCELLED")
+		// The cancel lands at an unsynchronized moment, so the task's phase
+		// decides the code: 202 CANCELLED (still STARTED), 409 (every unit
+		// finished, cluster-wide swap under way), 202 NO_OP (terminal).
+		switch resp.StatusCode {
+		case http.StatusAccepted:
+			var result models.IndexUpdateResponse
+			require.NoError(t, json.Unmarshal(body, &result),
+				"cancel response body should decode as IndexUpdateResponse: %s", string(body))
+			switch result.Status {
+			case "CANCELLED":
+				require.Equal(t, taskID, result.TaskID,
+					"cancel CANCELLED should name the cancelled task ID; body: %s", string(body))
+				t.Logf("cancel returned 202 with status CANCELLED")
 
-			// The task must reach CANCELLED status in /v1/tasks.
-			require.Eventually(t, func() bool {
-				resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-				if err != nil {
-					return false
-				}
-				defer resp.Body.Close()
-				body, _ := io.ReadAll(resp.Body)
-				var tasks models.DistributedTasks
-				if err := json.Unmarshal(body, &tasks); err != nil {
-					return false
-				}
-				for _, task := range tasks["reindex"] {
-					if task.ID == taskID {
-						return task.Status == "CANCELLED"
+				// The task must reach CANCELLED status in /v1/tasks.
+				require.Eventually(t, func() bool {
+					resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+					if err != nil {
+						return false
 					}
-				}
-				return false
-			}, 30*time.Second, 50*time.Millisecond,
-				"task should reach CANCELLED status")
-		case "NO_OP":
-			t.Logf("cancel raced with task completion; no STARTED task to cancel (acceptable)")
+					defer resp.Body.Close()
+					body, _ := io.ReadAll(resp.Body)
+					var tasks models.DistributedTasks
+					if err := json.Unmarshal(body, &tasks); err != nil {
+						return false
+					}
+					for _, task := range tasks["reindex"] {
+						if task.ID == taskID {
+							return task.Status == "CANCELLED"
+						}
+					}
+					return false
+				}, 30*time.Second, 50*time.Millisecond,
+					"task should reach CANCELLED status")
+			case "NO_OP":
+				require.Empty(t, result.TaskID,
+					"cancel NO_OP should not name a TaskID; body: %s", string(body))
+				t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
+			default:
+				t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s", result.Status, string(body))
+			}
+		case http.StatusConflict:
+			require.Contains(t, string(body), taskID,
+				"cancel 409 must name the task it refuses to cancel; body: %s", string(body))
+			t.Logf("cancel raced with task completion; task %s is past its units", taskID)
 		default:
-			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s", result.Status, string(body))
+			t.Fatalf("unexpected cancel status %d (expected 202 or 409); body: %s", resp.StatusCode, string(body))
 		}
 	})
 }

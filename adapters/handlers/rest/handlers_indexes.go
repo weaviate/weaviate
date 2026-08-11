@@ -1331,7 +1331,7 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	unknownType *distributedtask.Task,
 ) {
 	for _, task := range tasks {
-		if task.Status.IsTerminal() {
+		if !task.Status.IsActive() {
 			continue
 		}
 		payload, _, err := db.DecodeReindexTaskPayload(task.Payload)
@@ -1374,29 +1374,6 @@ func reindexUnknownTypeCancelResponder(principal *models.Principal,
 		collection, propertyName, migrationType)))
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept because the
-// task is past its units. Both the pre-flight
-// ([distributedtask.TaskStatus.IsCancellable]) and the apply's
-// [distributedtask.ErrTaskNotRunning] land here, so which side of the list
-// read the status flipped on cannot change the answer.
-func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task,
-	collection, propertyName, indexType string, principal *models.Principal,
-) middleware.Responder {
-	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event": "reindex_task_cancel_refused",
-		"collection":  collection,
-		"property":    propertyName,
-		"index_type":  indexType,
-		"taskID":      target.ID,
-		"status":      target.Status.String(),
-		"principal":   principalUsername(principal),
-	}).Info("cancel: task is past the point where cancelling is safe; refusing")
-	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s is in status %s: every unit has finished and the "+
-			"cluster-wide swap is in progress, so it can no longer be cancelled — wait for it to "+
-			"reach a terminal state", target.ID, collection, propertyName, target.Status)))
-}
-
 // cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
@@ -1418,6 +1395,82 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task,
 // terminates the local handle; the task's ctx (the provider's per-task
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
+// cancelPreflight answers a cancel that owes no RAFT apply: there is
+// nothing to cancel, or DTM would refuse it. Returns nil when the cancel
+// should proceed. [distributedtask.TaskStatus.IsCancellable] is the same
+// predicate the FSM guard applies, so the two cannot drift.
+func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case target == nil:
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	case !target.Status.IsCancellable():
+		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	}
+	return nil
+}
+
+// cancelApplyFailureResponder maps an FSM rejection from the cancel apply
+// onto the answer the pre-flight would have given for the same condition.
+// The status can flip between the list read and the apply, which on a
+// small collection is an ordinary race; rendering that as a 500 also
+// leaks the sentinel's internal marker into the response body.
+func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case errors.Is(err, distributedtask.ErrTaskNotRunning):
+		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	}
+	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
+		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelNoOpResponder answers a cancel that has nothing to cancel.
+//
+// Idempotent cancel: the caller's (collection, property) is known to exist
+// ([indexesHandlers.updateIndex] verified it before dispatch), so "nothing
+// to cancel" is a no-op rather than a caller error. Surfacing it as
+// Status: NO_OP at 202 keeps 404 for the one meaning it has here.
+func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_noop",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"principal":   principalUsername(principal),
+	}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+		Status: reindexCancelStatusNoOp,
+	})
+}
+
+// cancelRefusedResponder answers a cancel DTM will not accept because the
+// task is past its units. Both the pre-flight
+// ([distributedtask.TaskStatus.IsCancellable]) and the apply's
+// [distributedtask.ErrTaskNotRunning] land here, so which side of the list
+// read the status flipped on cannot change the answer.
+//
+// The body has to hold for PREPARING as well as SWAPPING: in PREPARING no
+// node has swapped yet, so naming the swap as under way would have an
+// operator sizing the wait in seconds when PREP runs for minutes at
+// billion-scale.
+func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"status":      target.Status.String(),
+		"principal":   principalUsername(principal),
+	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: nodes may already have written merged "+
+			"state or renamed bucket directories, so stopping it now would leave the cluster serving "+
+			"migrated buckets under the pre-migration schema — wait for it to reach a terminal state",
+			target.ID, collection, propertyName, target.Status)))
+}
+
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.tasks == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
@@ -1563,34 +1616,18 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		return reindexUnknownTypeCancelResponder(principal, collection, propertyName, unknownPayload.MigrationType)
 	}
 
-	if target == nil {
-		// Idempotent cancel: caller's (collection, property) is known to
-		// exist (updateIndex verified before dispatch). No task to cancel
-		// means the request is a no-op — surface that explicitly via
-		// Status: NO_OP at 202 rather than overloading 404 with two
-		// distinct semantics (caller-error vs already-done).
-		h.appState.Logger.WithFields(logrus.Fields{
-			"audit_event": "reindex_task_cancel_noop",
-			"collection":  collection,
-			"property":    propertyName,
-			"index_type":  indexType,
-			"principal":   principalUsername(principal),
-		}).Info("cancel: no in-flight task to cancel; returning NO_OP")
-		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-			Status: reindexCancelStatusNoOp,
-		})
-	}
-
-	if !target.Status.IsCancellable() {
-		// Some nodes may already have swapped buckets; stopping the rest
-		// would leave the cluster serving migrated buckets under the
-		// pre-migration schema, so DTM refuses the cancel.
-		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	if resp := h.cancelPreflight(target, collection, propertyName, indexType, principal); resp != nil {
+		return resp
 	}
 
 	if err := h.tasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
+		// Answered off a re-listing rather than the sentinel alone, so a task
+		// that stopped on its own is told apart from one that entered a
+		// coordination phase. A re-listing that contradicts the sentinel
+		// leaves the task's state unknown, and that is reported rather than
+		// guessed at.
 		if resp := h.answerCancelThatRacedTheCommit(ctx, err, collection,
 			propertyName, indexType, target, principal); resp != nil {
 			return resp
@@ -2297,7 +2334,7 @@ func taskStatusPriority(task *distributedtask.Task) int {
 	// Every non-terminal status outranks every terminal one, including an
 	// unrecognized status, so a live migration always displays ahead of a
 	// stale FAILED attempt.
-	if !task.Status.IsTerminal() {
+	if task.Status.IsActive() {
 		return 2
 	}
 	return 1
@@ -2436,8 +2473,8 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // countInFlightTasksForCollection counts in-flight reindex tasks for a
-// collection. Counts every non-terminal status (via IsActive) because
-// PREPARING/SWAPPING still hold tracker dirs and reindex buckets.
+// collection. PREPARING and SWAPPING count: they still hold tracker dirs
+// and reindex buckets.
 func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
