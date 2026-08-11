@@ -114,10 +114,9 @@ func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(
 
 	backend := &restoreMetaBackend{}
 	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil)
-	c.timeoutNextRound = time.Millisecond
 	schemaManager := &countingSchemaManager{}
-	c.schema = schemaManager
+	c := newCoordinator(&fc.selector, &fc.client, schemaManager, fc.log, fc.nodeResolver, nil)
+	c.timeoutNextRound = time.Millisecond
 
 	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
 		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)

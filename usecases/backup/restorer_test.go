@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -359,7 +360,8 @@ func TestRestoreAllCancellation(t *testing.T) {
 			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-			restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+			logger, _ := test.NewNullLogger()
+			restorer := newRestorer("node1", logger, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
 			// restoreAll writes through the claim restore() took, so the slot
 			// has to be claimed the way restore() claims it before calling in.
 			prevID, slot := restorer.lastOp.renew(backupID, "test/path", "", "")
@@ -423,7 +425,8 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 			backend := newFakeBackend()
 			backend.On("SourceDataPath").Return(t.TempDir())
 			rec := &recordingRbacRestorer{}
-			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			logger, _ := test.NewNullLogger()
+			restorer := newRestorer("node1", logger, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
 			// restoreAll writes through the claim restore() took, so the slot
 			// has to be claimed the way restore() claims it before calling in.
 			prevID, slot := restorer.lastOp.renew("rbac-strip", "test/path", "", "")
