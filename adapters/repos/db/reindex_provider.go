@@ -1688,9 +1688,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
-	drainErr := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor)
-	if drainErr != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, drainErr)
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)

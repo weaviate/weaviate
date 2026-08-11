@@ -831,6 +831,11 @@ func cancelRefusalReason(status distributedtask.TaskStatus) string {
 // terminates the local handle; the task's ctx (the provider's per-task
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
+//
+// A cancel DTM will not accept — a coordination phase, or a status this
+// build cannot classify — answers 409 instead, whether that is decided
+// by [indexesHandlers.cancelPreflight] before the apply or by
+// [indexesHandlers.cancelApplyFailureResponder] after it.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
