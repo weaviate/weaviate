@@ -1583,17 +1583,25 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// A cancel from STARTED can't have torn anything (no node has
-				// swapped yet); a cancel from an unrecognized status can, if a
-				// newer node ran its swap phase. PostCompletionAcks is the
-				// evidence: runSwapPhase suppresses the ack while STARTED, so
-				// a non-empty map proves at least one node swapped. This
-				// under-reports rather than over-reports — acks against an
-				// already-CANCELLED task are dropped on the apply path.
-				if len(task.PostCompletionAcks) > 0 {
+				// The ack maps are the cluster's evidence that some node got
+				// past its units, and both count: PREP acks land in
+				// PreparationCompletionAcks, post-swap ones in
+				// PostCompletionAcks.
+				//
+				// They are not the whole story. The reachable tear is a
+				// cancel landing while the task is still STARTED on the FSM
+				// but this node has already written merged.mig, which arms
+				// the next restart to promote the target-tokenization ingest
+				// dir to the canonical bucket name. No ack records that —
+				// the late ack hits an already-CANCELLED task and is dropped
+				// — so the only witness is this node's disk, which the
+				// cleanup below reads on its way past.
+				tornLocally := p.autoCleanupAfterTerminal(task, payload, logger)
+				if tornLocally ||
+					len(task.PostCompletionAcks) > 0 ||
+					len(task.PreparationCompletionAcks) > 0 {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
-				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping,
@@ -1664,16 +1672,24 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // "cleanup is still happening on this shard" an explicit state the
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
-func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+//
+// Returns whether this node holds post-merge tracker state for the task.
+// The caller needs that to decide on operator repair guidance, and this
+// is the routine that already walks the same shards.
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
-	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
-		return
+	drainErr := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor)
+	// Probed before the early returns below: a drain that timed out skips
+	// the cleanup, but the operator still needs to hear about the tear.
+	tornLocally := p.hasLocalPostMergeState(payload)
+	if drainErr != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, drainErr)
+		return tornLocally
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return
+		return tornLocally
 	}
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
@@ -1699,6 +1715,62 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		}
 	}
 	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+	return tornLocally
+}
+
+// hasLocalPostMergeState reports whether any shard of the task on this
+// node carries a tracker dir the migration already merged or tidied.
+// Local by construction: lookupShardByName only resolves shards this node
+// hosts.
+func (p *ReindexProvider) hasLocalPostMergeState(payload *ReindexTaskPayload) bool {
+	if p.db == nil {
+		return false
+	}
+	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
+	if idx == nil {
+		return false
+	}
+	for _, shardName := range uniqueShardsFromPayload(payload) {
+		shard, err := lookupShardByName(idx, shardName)
+		if err != nil {
+			continue
+		}
+		concrete, err := unwrapShard(context.Background(), shard)
+		if err != nil {
+			continue
+		}
+		if hasCompletedMigrationTracker(concrete.pathLSM(), payload.MigrationType, payload.Properties) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCompletedMigrationTracker reports whether any tracker dir a semantic
+// migration on properties owns under lsmPath carries merged.mig or
+// tidied.mig.
+//
+// That is the on-disk signature of a swap this node got far enough into
+// to arm the next restart's FinalizeCompletedMigrations, which promotes
+// the target-tokenization ingest dir to the canonical bucket name. When
+// the task then ends CANCELLED or FAILED the cluster-wide schema flip is
+// correctly skipped, so the bucket and the schema disagree and only an
+// operator rebuild resolves it.
+func hasCompletedMigrationTracker(lsmPath string, migrationType ReindexMigrationType, properties []string) bool {
+	// ChangeAlgorithm keeps a class-level tracker dir, which the
+	// per-property helper deliberately omits.
+	if migrationType == ReindexTypeChangeAlgorithm &&
+		len(completedMigrationGens(lsmPath, []string{MigrationDirSearchableMapToBlockmax})) > 0 {
+		return true
+	}
+	for _, indexType := range semanticMigrationIndexTypes(migrationType) {
+		for _, propName := range properties {
+			if len(completedMigrationGens(lsmPath, migrationDirsForPropertyIndex(propName, indexType))) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // uniqueShardsFromPayload returns the distinct shard names referenced
