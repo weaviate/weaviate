@@ -139,8 +139,8 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 // buffered write reaches the disk, every concurrent put and get on the bucket
 // waits for it (weaviate/0-weaviate-issues#525). A run flushes on the order of
 // tens of times, so a handful of operations land above the threshold even when
-// the bucket is healthy: measured on stable/v1.38, at most 9 puts and 20 gets
-// across four runs.
+// the bucket is healthy: at most 8 puts and 4 gets on a CI runner, and at most
+// 9 puts and 20 gets on a developer machine with other work competing.
 //
 // A count rather than a share of all operations. A run performs millions of
 // operations, and a stall only delays the handful in flight at that moment, so
@@ -148,10 +148,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 // on every 50,000th put raised slow puts from 4 to 230 and the worst put from
 // 124ms to 202ms, which is still 0.005% of operations — a share-based limit
 // stays green through that, a count does not.
-// TEMPORARY, REVERTED IN THE NEXT COMMIT: 0 forces the assertion to fail so CI
-// prints the real counts. A passing package prints nothing without -v, so the
-// error message is the only way to read these numbers off a CI runner.
-const maxSlowOps = 0
+const maxSlowOps = 50
 
 type result struct {
 	workerID        int
