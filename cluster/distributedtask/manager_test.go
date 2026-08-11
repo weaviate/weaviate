@@ -2099,7 +2099,8 @@ func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T)
 			}
 			require.NoError(t, err)
 			require.NotContains(t, h.manager.tasks[ns], id,
-				"a task in %q has no other way out of this node's FSM", tc.status)
+				"once a clean-up is proposed for %q, this is the task's only way "+
+					"out of the local FSM", tc.status)
 		})
 	}
 }
