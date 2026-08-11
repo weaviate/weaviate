@@ -35,6 +35,9 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 		// than a retryable error.
 		terminal   bool
 		wantErrMsg string
+		// notInErrMsg must not appear in the error, e.g. a peer body the error
+		// is expected to truncate.
+		notInErrMsg string
 	}{
 		{
 			name: "node's own catch-all 404",
@@ -81,6 +84,16 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 			},
 			wantErrMsg: "unexpected status code 503",
 		},
+		{
+			// This error is headed for a log line, so the peer body it carries
+			// has to be capped the same way the 404 branch caps it.
+			name: "a long body is truncated before it reaches the error",
+			respond: func(w http.ResponseWriter) {
+				http.Error(w, strings.Repeat("a", 4096), http.StatusBadGateway)
+			},
+			wantErrMsg:  "unexpected status code 502",
+			notInErrMsg: strings.Repeat("a", 512),
+		},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +115,9 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 			require.NotErrorIs(t, err, ErrReindexCleanupUnsupported,
 				"only the node itself may end the conversation")
 			assert.Contains(t, err.Error(), tt.wantErrMsg)
+			if tt.notInErrMsg != "" {
+				assert.NotContains(t, err.Error(), tt.notInErrMsg)
+			}
 		})
 	}
 }

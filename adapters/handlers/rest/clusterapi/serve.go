@@ -94,7 +94,8 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/status", backups.Status())
 	// nil until the reindex teardown side exists; the route reports "not
 	// wired" rather than "nothing running" until then.
-	// TODO(#12474): pass the resolver that reads the reindex provider.
+	// TODO(#12474): the gate that consumes these probes lands there; pass the
+	// resolver that reads the reindex provider with it.
 	RegisterProbeRoutes(mux, backups.NodeActivity(),
 		NewReindexCleanup(nil, auth, appState.Logger).Activity())
 

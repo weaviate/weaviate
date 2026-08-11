@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -39,6 +40,11 @@ type ReindexCleanup struct {
 }
 
 func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+	if logger == nil {
+		discard := logrus.New()
+		discard.Out = io.Discard
+		logger = discard
+	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
@@ -96,14 +102,12 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 		}
 
 		cleaningUp := prober.AnyCleanupInProgressForCollection(collection)
-		if rc.logger != nil {
-			// The cancelling node waits on this answer, so an operator tracing a
-			// slow cancel needs to see that the question arrived and what it got.
-			rc.logger.WithField("action", "reindex_cleanup_probe").
-				WithField("collection", loggableCollection(collection)).
-				WithField("cleaning_up", cleaningUp).
-				Debug("reindex cleanup probe answered")
-		}
+		// The cancelling node waits on this answer, so an operator tracing a
+		// slow cancel needs to see that the question arrived and what it got.
+		rc.logger.WithField("action", "reindex_cleanup_probe").
+			WithField("collection", loggableCollection(collection)).
+			WithField("cleaning_up", cleaningUp).
+			Debug("reindex cleanup probe answered")
 		data, err := json.Marshal(clusterprobe.NewReindexCleanupActivity(cleaningUp))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)

@@ -86,7 +86,7 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 		return unanswerable
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: unexpected status code %d (%s)", what, res.StatusCode, body)
+		return fmt.Errorf("%s: unexpected status code %d (%s)", what, res.StatusCode, snippet(body))
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {

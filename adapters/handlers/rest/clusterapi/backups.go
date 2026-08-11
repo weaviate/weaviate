@@ -56,7 +56,10 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 			return
 		}
 
-		// Never silently report "not busy": reindex depends on this answer.
+		// Never silently report "not busy": reindex depends on this answer. A
+		// plain 503 rather than the not-wired marker, because every build wires
+		// this probe: a nil here is a fault worth retrying, not a build that
+		// can never answer.
 		if b.activity == nil {
 			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
 			return

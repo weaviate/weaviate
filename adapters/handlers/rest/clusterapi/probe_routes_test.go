@@ -30,9 +30,11 @@ type oneNodeResolver struct{ host string }
 
 func (r oneNodeResolver) NodeHostname(string) (string, bool) { return r.host, true }
 
-// Exercises the real mux registration against the real clients, with no path
-// written down here, so a path typo (which 404s and reads as "older build")
-// shows up as a failure instead of silently disabling the reindex gate.
+// Exercises the real mux registration against the real clients, so a route
+// mounted anywhere other than where its client asks for it fails here rather
+// than 404ing in production, where it would read as "older build" and silently
+// disable the reindex gate. A typo in the shared path constant itself is
+// caught by entities/clusterprobe/markers_test.go.
 func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 	const (
 		node       = "node1"
