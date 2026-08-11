@@ -582,8 +582,7 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	}
 
 	logger, hook := tlog.NewNullLogger()
-	// Debug on so a per-shard gate line at any level lands in the hook; the
-	// loop below counts only entries tagged with the gate's own action.
+	// Debug on so a per-shard gate line lands in the hook regardless of level.
 	logger.SetLevel(logrus.DebugLevel)
 	idx.logger = logger
 	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}

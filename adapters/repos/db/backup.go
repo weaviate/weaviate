@@ -53,10 +53,9 @@ const (
 // canCommit phase so no staging dir is created on rejection.
 //
 // Failures accumulate rather than short-circuit, so the operator sees every
-// blocked class in one round. Gate refusals lead the joined error because the
-// coordinator recognizes a refusal by the sentinel prefix of the joined text,
-// and name no node or shard — those reach the operator via
-// [DB.logReindexRefusals].
+// blocked class in one round. Gate refusals lead the joined error since the
+// coordinator matches refusals by prefix on the joined text; refusals name
+// no node or shard — those reach the operator via [DB.logReindexRefusals].
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}

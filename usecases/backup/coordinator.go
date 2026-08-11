@@ -531,12 +531,10 @@ func isFinalStatus(st backup.Status) bool {
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
 // existing callers and tests continue to match.
 //
-// A refusal of this kind is served to the backup caller with no node prefix,
-// so its text must name neither node nor shard. Participants older than the
-// redaction still word it with both, and are recognized by the missing
-// sentinel prefix: their text is dropped and rebuilt from classes, which the
-// caller named in its own request. The raw string stays operator-visible in
-// the caller's log line.
+// Served to the caller with no node prefix, so this text must name neither
+// node nor shard. Older participants word it with both; recognized by a
+// missing sentinel prefix, their text is dropped and rebuilt from classes
+// instead. The raw string still reaches the operator via the caller's log line.
 func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
@@ -554,8 +552,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 }
 
-// redactedReindexRefusal words an in-flight-reindex refusal from the request
-// alone, for participants whose own wording cannot be published.
+// redactedReindexRefusal rebuilds a refusal from the caller's own request,
+// for participants whose wording cannot be published.
 func redactedReindexRefusal(classes []string) string {
 	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
 	if len(classes) == 0 {
@@ -648,17 +646,15 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					WithField("node", req.NodeName)
 				switch {
 				case rpcErr != nil && errors.Is(rpcErr, context.Canceled):
-					// The errgroup shares one context, so the first refusal
-					// cancels every sibling still in flight. This node did
-					// not fail; blaming it at Error would page the on-call.
+					// Shared errgroup context: a sibling's refusal cancels this
+					// call. Not this node's fault, so Debug, not Error.
 					entry.Debugf("canCommit aborted after another participant failed: %v", err)
 				case rpcErr != nil:
 					// Unreachable participant: cluster-side cause, operator-only.
 					entry.Errorf("canCommit failed to reach participant: %v", err)
 				default:
-					// Deliberate refusal: usually caller-actionable, so Warn not
-					// Error. The participant's raw wording is logged rather than
-					// err, which may have been redacted for the caller.
+					// Deliberate refusal, so Warn not Error. Logs resp.Err
+					// (pre-redaction), not err, which may be redacted for the caller.
 					refusal := resp.Err
 					if refusal == "" {
 						refusal = err.Error()

@@ -1050,10 +1050,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	}
 }
 
-// TestCoordinator_ARefusalDoesNotBlameHealthySiblings pins the log levels of
-// canCommit. All participants share one errgroup context, so the first refusal
-// cancels the calls still in flight; those must not be reported as unreachable
-// nodes, which is the Error level an operator is paged on.
+// TestCoordinator_ARefusalDoesNotBlameHealthySiblings pins that a sibling's
+// context cancellation after another node's refusal must not log at Error.
 func TestCoordinator_ARefusalDoesNotBlameHealthySiblings(t *testing.T) {
 	t.Parallel()
 	var (
@@ -1072,9 +1070,8 @@ func TestCoordinator_ARefusalDoesNotBlameHealthySiblings(t *testing.T) {
 	fc.log = logger
 	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 
-	// N3 is healthy but slow: like the real client, it returns the context's
-	// error once the refusal cancels it. It reports having started so N2's
-	// refusal cannot land before N3 is in flight.
+	// N3 stays in flight until context cancellation; sequenced to start
+	// before N2's refusal lands.
 	n3Started := make(chan struct{})
 	fc.client.On("CanCommit", any, nodes[0], any).
 		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).Maybe()
@@ -1181,9 +1178,8 @@ func TestCanCommitErrFromResponse_StatesTheConditionOnce(t *testing.T) {
 		"the participant already opened with the sentinel; wrapping repeats it")
 }
 
-// A participant older than the redaction words this refusal with its own node
-// and shard names. The coordinator serves this kind without a node prefix, so
-// republishing that text would leak both into the 422 body.
+// Pins: an older participant's node/shard-bearing wording must not leak into
+// the redacted refusal.
 func TestCanCommitErrFromResponse_DropsAnOlderParticipantsWording(t *testing.T) {
 	t.Parallel()
 
