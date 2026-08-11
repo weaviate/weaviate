@@ -66,6 +66,7 @@ const IdLockPoolSize uint64 = 1024
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errDropInProgress     = errors.New("shard drop in progress")
 	errShardStillInUse    = errors.New("shard still in use")
 	errTeardownFailed     = errors.New("previous shutdown attempt failed mid-teardown")
 )
@@ -494,6 +495,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+	// dropRequested marks shard as requested for drop.
+	dropRequested atomic.Bool
 
 	HFreshEnabled bool
 
@@ -503,6 +506,9 @@ type Shard struct {
 	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
 	// or incorrect metric updates during partial initialization cleanup.
 	metricsRegistered atomic.Bool
+
+	// tornStoreReported keeps reportTornStoreAccess to one line per shard
+	tornStoreReported atomic.Bool
 }
 
 func (s *Shard) ID() string {
@@ -600,6 +606,30 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	}
 
 	return err
+}
+
+// objectsBucket returns the shard's objects bucket, or an error once the store
+// is torn down
+func (s *Shard) objectsBucket() (*lsmkv.Bucket, error) {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
+		s.reportTornStoreAccess(err)
+		return nil, err
+	}
+	return b, nil
+}
+
+// reportTornStoreAccess makes an outrun drain visible
+func (s *Shard) reportTornStoreAccess(err error) {
+	if !s.tornStoreReported.CompareAndSwap(false, true) {
+		return
+	}
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "objects_bucket_missing",
+		"class":  s.index.Config.ClassName.String(),
+		"shard":  s.name,
+	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun, %v", err)
 }
 
 // ObjectCount returns the exact count at any moment
