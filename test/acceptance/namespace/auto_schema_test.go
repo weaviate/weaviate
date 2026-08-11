@@ -44,7 +44,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 			Class:      class,
 			Properties: map[string]any{"title": "Inception"},
 		}, user1Key)
-		require.NoError(t, err)
+		require.NoError(t, err, "auto-create %s in %s: %s", class, ns1, helper.ErrorDetail(err))
 
 		// Namespaced principal sees the short class on read-back (response stripping).
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
@@ -62,7 +62,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 			Class:      class,
 			Properties: map[string]any{"title": "Memento"},
 		}, user2Key)
-		require.NoError(t, err)
+		require.NoError(t, err, "auto-create %s in %s: %s", class, ns2, helper.ErrorDetail(err))
 		t.Cleanup(func() { helper.DeleteClassAuth(t, ns2+":"+class, adminKey) })
 
 		gotClass2 := helper.GetClassAuth(t, ns2+":"+class, adminKey)

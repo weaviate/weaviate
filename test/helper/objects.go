@@ -286,6 +286,36 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
+// ErrorDetail renders the server-side message carried by a swagger client
+// error. The generated error types format models.ErrorResponse with %+v, and
+// because its Error field is a slice of pointers that renders as
+// "&{Error:[0xc000acd5a0]}" -- the address, not the reason the server rejected
+// the request. Use it in assertion messages so a failure is diagnosable from
+// the test log alone.
+func ErrorDetail(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	var carrier interface{ GetPayload() *models.ErrorResponse }
+	if !errors.As(err, &carrier) {
+		return err.Error()
+	}
+	payload := carrier.GetPayload()
+	if payload == nil {
+		return err.Error()
+	}
+	msgs := make([]string, 0, len(payload.Error))
+	for _, item := range payload.Error {
+		if item != nil {
+			msgs = append(msgs, item.Message)
+		}
+	}
+	if len(msgs) == 0 {
+		return err.Error()
+	}
+	return fmt.Sprintf("%s: %s", err.Error(), strings.Join(msgs, "; "))
+}
+
 func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)

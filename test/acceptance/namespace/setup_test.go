@@ -125,6 +125,17 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	// On failure, dump every node's logs so the leader side is visible. Without
+	// this the only record of a server-side 500 is the client's rendering of
+	// models.ErrorResponse, which prints the message slice as pointers.
+	// A fresh context, because the suite may have used up the one above and an
+	// expired context turns the dump into "logs unavailable" on every node.
+	if code != 0 {
+		dumpCtx, cancelDump := context.WithTimeout(context.Background(), time.Minute)
+		sharedCompose.DumpWeaviateLogs(dumpCtx, os.Stderr, 300)
+		cancelDump()
+	}
+
 	if err := sharedCompose.Terminate(ctx); err != nil {
 		panic(errors.Wrap(err, "failed to terminate shared compose"))
 	}
