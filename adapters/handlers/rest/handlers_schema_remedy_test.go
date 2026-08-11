@@ -321,10 +321,8 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 		{
 			migrationType: db.ReindexTypeChangeTokenization,
 			prop:          textProp("name", &enabled, nil, oldTok),
-			// The schema-decidable part of what production runs. The rest is
-			// an inline IndexSearchable guard plus a live-searchable-bucket
-			// check, neither of which a cancelled change-tokenization can
-			// fail: the property keeps both.
+			// Only checks the schema-decidable part; the rest needs a live
+			// searchable bucket, which a cancelled change-tokenization keeps.
 			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
 				return validateSearchableTokenizationChange(p, b.Searchable.Tokenization)
 			},
@@ -385,10 +383,8 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 }
 
 // TestBothLayersNameTheSameTaskWhenSeveralConflict pins that the pre-check
-// and the apply gate name the same conflicting task given the same task
-// list. Neither sorts; the Manager does, before it hands the list over
-// (pinned by TestManager_CheckPropertyUpdate_DispatchToDetectors), so this
-// table feeds both an already-sorted slice.
+// and the apply gate name the same conflicting task for the same, already
+// sorted (by the Manager) task list.
 func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType:      db.ReindexTypeChangeTokenization,

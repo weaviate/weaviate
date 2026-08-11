@@ -258,8 +258,6 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 
 // reindexSubmitCall renders a submit request against p's collection and
 // named property with the given body, or "" when any part is missing.
-// Shared so every rendered call in this file has the same shape — an
-// operator reading a refusal must be able to paste it as-is.
 func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string {
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
 		return ""
@@ -400,9 +398,8 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 				"property as soon as its first shard commits, and each of the " +
 				"two verbs is rejected in the state the other one covers"
 		}
-		// The re-submit IS the repair here: a format-only type flips no
-		// schema, so its original submit body stays accepted post-cancel.
-		// Every format-only type except enable-rangeable renders one.
+		// A format-only type flips no schema, so its original submit body
+		// stays accepted post-cancel — the re-submit IS the repair.
 		return partial + "re-submit it via " + ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
 			"re-runs every shard, the ones that already finished included"

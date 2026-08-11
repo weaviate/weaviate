@@ -1203,10 +1203,7 @@ func TestReindexTargetIndexes(t *testing.T) {
 }
 
 // TestFormatOnlyRemedyAlwaysRendersACall pins that the format-only remedy
-// never prints its re-submit sentence with an empty call in it. It reads
-// [ReindexRepairCall] unconditionally (enable-rangeable aside, which names
-// both of its verbs), so a new format-only type without a repair body would
-// otherwise render "re-submit it via  (which needs...".
+// never prints its re-submit sentence with an empty call in it.
 func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
 	for _, mt := range allDeclaredReindexMigrationTypes(t) {
 		if IsSemanticMigration(mt) {

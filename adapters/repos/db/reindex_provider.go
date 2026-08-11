@@ -1994,13 +1994,10 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
 // each semantic migration type writes per-property tracker dirs for.
-//
-// Derived from [ReindexTargetIndexes] rather than mapped again here: the
-// two answer the same question for semantic types, and a second copy of
-// the table is what let rebuild-searchable reach the apply path with no
-// arm. The nil for a format-only type short-circuits LocalCallbacksDone's
-// recovery check — those don't cross the swap barrier, so there is
-// nothing to recover at this layer.
+// Derived from [ReindexTargetIndexes] rather than mapped again here to
+// avoid a second copy of the table drifting out of sync.
+// Nil for a format-only type short-circuits LocalCallbacksDone's recovery
+// check — those don't cross the swap barrier, so nothing to recover.
 func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	if !IsSemanticMigration(mt) {
 		return nil
