@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -737,7 +738,7 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				status, _ := s.GetShardsStatus("TestClass", "")
+				status, _ := s.GetShardsStatus(context.Background(), "TestClass", "")
 				if status != nil {
 					assert.NotEmpty(t, status)
 				}
@@ -752,7 +753,7 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 // Additional mock for shard reader
 type mockShardReader struct{}
 
-func (m *mockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+func (m *mockShardReader) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	return models.ShardStatusList{
 		{Status: "HOT", Name: "shard1"},
 	}, nil

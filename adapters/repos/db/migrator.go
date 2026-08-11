@@ -553,28 +553,17 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 	return idx.updateProperty(ctx, property)
 }
 
-func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (models.ShardStatusList, error) {
 	indexID := indexID(schema.ClassName(className))
 
+	// Resolve the index under the class lock only: the per-replica fan-out
+	// below performs network I/O, and the same lock key serializes schema
+	// applies (AddClass etc.) on the RAFT FSM apply path. The Index's own
+	// read gates protect against a concurrent class drop.
 	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		// index not yet local (RAFT schema not applied on this node) or class does not exist
-		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
-	}
+	m.classLocks.Unlock(indexID)
 
-	return idx.getShardsQueueSize(ctx, tenant)
-}
-
-func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
-	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)

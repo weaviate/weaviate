@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -325,12 +326,12 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	return &shardingState, meta.version()
 }
 
-func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return s.shardReader.GetShardsStatus(class, tenant)
+func (s *schema) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	return s.shardReader.GetShardsStatus(ctx, class, tenant)
 }
 
 type shardReader interface {
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error)
 }
 
 func (s *schema) len() int {

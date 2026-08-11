@@ -159,7 +159,7 @@ func (f *fakeDB) UpdateShardStatus(cmd *command.UpdateShardStatusRequest) error 
 	return nil
 }
 
-func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+func (f *fakeDB) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), nil
 }
@@ -292,10 +292,6 @@ type fakeMigrator struct {
 	mock.Mock
 }
 
-func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	return nil, nil
-}
-
 func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {
 	args := f.Called(ctx, cls)
 	return args.Error(0)
@@ -351,9 +347,9 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(ctx, className, tenant)
-	return args.Get(0).(map[string]string), args.Error(1)
+	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 
 func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
