@@ -572,20 +572,17 @@ func wireGateRefusalIndex(idx *Index) *tlog.Hook {
 	return hook
 }
 
-func collectGateRefusalLog(hook *tlog.Hook) (gateLines int, sample []string, reportedCount int) {
+// collectGateRefusalLog returns the operator-facing (warn-or-above) gate
+// entries, so callers can assert their level and fields as well as their count.
+func collectGateRefusalLog(hook *tlog.Hook) []*logrus.Entry {
+	var entries []*logrus.Entry
 	for _, e := range hook.AllEntries() {
 		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
 			continue
 		}
-		gateLines++
-		if v, ok := e.Data["blocked_shards"].([]string); ok {
-			sample = v
-		}
-		if v, ok := e.Data["blocked_shard_count"].(int); ok {
-			reportedCount = v
-		}
+		entries = append(entries, e)
 	}
-	return gateLines, sample, reportedCount
+	return entries
 }
 
 // A whole-collection gate refusal is hit once per shard in the descriptor
@@ -617,18 +614,12 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 
-	gateLines, sample, reportedCount := collectGateRefusalLog(hook)
+	entries := collectGateRefusalLog(hook)
 
-	require.Equalf(t, 1, gateLines,
+	require.Lenf(t, entries, 1,
 		"a refusal of one collection is one operator-facing entry regardless of width; "+
-			"%d shards produced %d", shardCount, gateLines)
-	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
-	// A literal, not the constant the code caps with: asserting the bound
-	// against itself cannot fail.
-	const wantSampleCap = 10
-	require.LessOrEqualf(t, len(sample), wantSampleCap,
-		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
-		wantSampleCap, len(sample))
+			"%d shards produced %d", shardCount, len(entries))
+	assertWideRefusalEntry(t, entries[0], shardCount, "cold-00")
 }
 
 // Pins: the no-hardlinks fallback returns on the first refusal, so the
@@ -654,11 +645,13 @@ func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 
-	gateLines, sample, reportedCount := collectGateRefusalLog(hook)
+	entries := collectGateRefusalLog(hook)
 
-	require.Equal(t, 1, gateLines, "one refusal is one operator-facing line")
-	require.Equal(t, 1, reportedCount)
-	require.Equal(t, []string{"cold-tenant"}, sample,
+	require.Len(t, entries, 1, "one refusal is one operator-facing line")
+	assert.Equal(t, logrus.WarnLevel, entries[0].Level,
+		"a refusal the caller can act on must not page the on-call")
+	assert.Equal(t, 1, entries[0].Data["blocked_shard_count"])
+	assert.Equal(t, []string{"cold-tenant"}, entries[0].Data["blocked_shards"],
 		"the log must name the shard the gate blocked")
 }
 

@@ -1661,12 +1661,11 @@ func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
 //     source the precheck reads when consulting DTM state for the
 //     "any in-flight reindex on this class?" predicate.
 //
-//  2. The error produced for the in-flight rejection MUST wrap
-//     backup.ErrUnprocessable so errors.As(err, &backup.ErrUnprocessable{})
-//     succeeds upstream. We construct the expected wrapping here so
-//     a future change to the error envelope (e.g. switching to a
-//     different sentinel type) trips this test instead of silently
-//     downgrading 422 to 500 in the operator-visible response.
+//  2. The envelope itself: backup.ErrUnprocessable stays transparent to
+//     errors.As and keeps the wrapped sentinel's text, which is what lets
+//     the REST layer answer 422 instead of 500. That the backup path
+//     actually reaches for this envelope is pinned a layer up, by
+//     usecases/backup's TestSchedulerBackupRefusedByParticipantIsUnprocessable.
 //
 // The full Backupable integration lives in
 // adapters/repos/db/backup_integration_test.go (it requires a
@@ -1706,11 +1705,10 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	require.True(t, tasks[0].Status.IsActive(),
 		"in-flight reindex must report Status.IsActive() so the Backupable precheck refuses")
 
-	// Half 2: the error envelope the REST layer maps to 422.
-	// The precheck wraps a descriptive sentinel
-	// (ErrBackupBlockedByInFlightReindex) inside backup.ErrUnprocessable;
-	// upstream callers select on the ErrUnprocessable shape so the
-	// envelope itself is the load-bearing contract.
+	// Half 2: the error envelope the REST layer maps to 422. Built here the
+	// way the precheck builds it, then checked for the two properties
+	// upstream depends on: errors.As still finds the envelope, and the
+	// sentinel's text survives it.
 	inflightErr := backup.NewErrUnprocessable(
 		fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
 			backup.ErrBackupBlockedByInFlightReindex, "Articles"),

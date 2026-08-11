@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -354,6 +355,32 @@ func TestLogReindexRefusalPass_SortsACopy(t *testing.T) {
 		"the caller's slice must keep its order")
 }
 
+// Both descriptor paths reach the pass summary through an unconditional
+// defer, so every successful backup calls it with nothing blocked.
+func TestLogReindexRefusalPass_StaysSilentWithNothingToReport(t *testing.T) {
+	tests := []struct {
+		name   string
+		shards []string
+	}{
+		{name: "nil, as a successful pass leaves it"},
+		{name: "empty slice", shards: []string{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logReindexRefusalPass(logger, "test pass", "node1", "SilentClass", tc.shards)
+			assert.Empty(t, hook.AllEntries(),
+				"a pass that blocked nothing must not warn that it blocked 0 shards")
+		})
+	}
+
+	t.Run("no logger wired", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			logReindexRefusalPass(nil, "test pass", "node1", "SilentClass", []string{"s1"})
+		})
+	})
+}
+
 // logReindexRefusal sits on error paths that carry every kind of failure, so it
 // has to stay silent for the ones that are not a gate refusal.
 func TestLogReindexRefusal_IgnoresUnrelatedErrors(t *testing.T) {
@@ -404,7 +431,13 @@ func backupableFixture(t *testing.T, collection, node string, shards ...string) 
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger, localNodeName: node}
 	db.indices = map[string]*Index{}
+	addBackupableIndex(t, db, collection, node, shards...)
+	return db
+}
 
+// addBackupableIndex adds one more collection to a [backupableFixture] DB.
+func addBackupableIndex(t *testing.T, db *DB, collection, node string, shards ...string) {
+	t.Helper()
 	physical := make(map[string]sharding.Physical, len(shards))
 	for _, s := range shards {
 		physical[s] = sharding.Physical{Name: s, BelongsToNodes: []string{node}}
@@ -419,14 +452,12 @@ func backupableFixture(t *testing.T, collection, node string, shards ...string) 
 	getter := schemaUC.NewMockSchemaGetter(t)
 	getter.On("NodeName").Return(node)
 
-	idx := &Index{
+	db.indices[indexID(schema.ClassName(collection))] = &Index{
 		db:           db,
 		Config:       IndexConfig{ClassName: schema.ClassName(collection)},
 		schemaReader: reader,
 		getSchema:    getter,
 	}
-	db.indices[indexID(schema.ClassName(collection))] = idx
-	return db
 }
 
 // The refusal text names no shard, so per-shard joining must not repeat the
@@ -485,36 +516,91 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 
 	// Counted by level, not message: catches a future promotion of a per-shard
 	// Debug line to Warn, which a message-string match would miss.
-	var warnAndAbove, aggregate int
-	var sample []string
-	var reportedCount int
+	var warnAndAbove int
 	for _, e := range hook.AllEntries() {
 		if e.Level <= logrus.WarnLevel {
 			warnAndAbove++
 		}
-		if strings.Contains(e.Message, "are held by the reindex gate") {
-			aggregate++
-			if v, ok := e.Data["blocked_shards"].([]string); ok {
-				sample = v
-			}
-			if v, ok := e.Data["blocked_shard_count"].(int); ok {
-				reportedCount = v
-			}
-		}
 	}
-
 	require.Equalf(t, 1, warnAndAbove,
 		"a refusal of one collection is one operator-facing entry regardless of width; "+
 			"%d shards produced %d warn-or-above entries, so the per-shard growth is back",
 		shardCount, warnAndAbove)
-	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
-	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
+
+	entries := collectGateRefusalLog(hook)
+	require.Len(t, entries, 1, "one refusal of one collection is one operator-facing line")
+	assertWideRefusalEntry(t, entries[0], shardCount, "s00")
+}
+
+// assertWideRefusalEntry pins the shape of a pass-summary log line whose
+// collection has more shards than the sample cap: warn level, the exact count,
+// and a sample that is the first cap names in sorted order.
+func assertWideRefusalEntry(t *testing.T, entry *logrus.Entry, shardCount int, firstShard string) {
+	t.Helper()
 	// A literal, not the constant the code caps with, so raising the constant
 	// alone can't fool this assertion.
 	const wantSampleCap = 10
-	require.LessOrEqualf(t, len(sample), wantSampleCap,
-		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
-		wantSampleCap, len(sample))
+	require.Greater(t, shardCount, wantSampleCap, "this helper only pins the capped case")
+
+	assert.Equal(t, logrus.WarnLevel, entry.Level,
+		"a refusal the caller can act on must not page the on-call")
+	assert.Equal(t, shardCount, entry.Data["blocked_shard_count"],
+		"the count must be exact even though the names are sampled")
+
+	sample, ok := entry.Data["blocked_shards"].([]string)
+	require.True(t, ok, "blocked_shards must be a []string field")
+	require.Lenf(t, sample, wantSampleCap,
+		"past %d shards the sample is exactly that many: fewer hides names an operator could have had, "+
+			"more moves the per-shard growth into a log field", wantSampleCap)
+	assert.Equal(t, firstShard, sample[0], "the sample starts at the first name in sorted order")
+	assert.True(t, slices.IsSorted(sample), "the sample is sorted so repeated refusals diff cleanly")
+}
+
+// Two collections blocked at once must each produce their own refusal and
+// their own log line. Collapsing them drops one from the response body and the
+// caller retries straight back into it.
+func TestBackupableRefusesEveryBlockedCollection(t *testing.T) {
+	const (
+		first  = "AlphaClass"
+		second = "BetaClass"
+		node   = "weaviate-0"
+	)
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	db := backupableFixture(t, first, node, "a1", "a2")
+	db.logger = logger
+	addBackupableIndex(t, db, second, node, "b1")
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+
+	// Requested in reverse, so the sorted log order below is the code's doing.
+	err := db.Backupable(context.Background(), []string{second, first})
+	require.Error(t, err)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+	body := err.Error()
+	for _, collection := range []string{first, second} {
+		assert.Containsf(t, body, collection,
+			"dropping %q sends the caller straight back into it", collection)
+	}
+	assert.Equal(t, 2, strings.Count(body, "\n")+1,
+		"one refusal per blocked collection: not one per shard, and not one overall")
+
+	type line struct {
+		collection string
+		shardCount int
+	}
+	var logged []line
+	for _, e := range collectGateRefusalLog(hook) {
+		logged = append(logged, line{
+			collection: e.Data["collection"].(string),
+			shardCount: e.Data["blocked_shard_count"].(int),
+		})
+	}
+	assert.Equal(t, []line{{first, 2}, {second, 1}}, logged,
+		"the operator needs every blocked collection with its own shard count, in a stable order")
 }
 
 // A gate refusal on one collection must not swallow an unrelated failure on
