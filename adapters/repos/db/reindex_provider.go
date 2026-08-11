@@ -1791,7 +1791,11 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 
 	if cancelledWithoutClaimedUnits(task) {
-		return true // see [cancelledWithoutClaimedUnits]
+		if _, running := p.runningHandle(task.TaskDescriptor); !running {
+			return true // see [cancelledWithoutClaimedUnits]
+		}
+		// A local worker is running despite the task claiming no units, so
+		// something was written here after all; fall through and clean up.
 	}
 
 	indexTypes := ReindexTargetIndexes(payload.MigrationType)
