@@ -188,7 +188,8 @@ func TestReindexOverlapLookup(t *testing.T) {
 			tasks:      []*distributedtask.Task{overlapTask("Movies", distributedtask.TaskStatusFinished, backupStart.Add(time.Minute))},
 			since:      backupStart,
 			wantRefuse: true,
-			wantMsg:    "was migrated while this backup was being captured",
+			wantMsg: `was migrated while this backup was being captured; retry the backup once the migration finishes ` +
+				`(poll GET /v1/schema/Movies/indexes until every index reports status="ready")`,
 		},
 		{
 			name:       "task finished exactly when the backup started",

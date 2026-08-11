@@ -203,6 +203,16 @@ func TestRefuseIfReindexInFlightIn_DbNilIsConservative(t *testing.T) {
 	require.Contains(t, err.Error(), "startup window")
 }
 
+// An Index without its DB back-reference has nothing to snapshot; the
+// capture pass must still get a usable context (the per-shard gate then
+// fails closed on the same missing back-reference).
+func TestContextWithReindexGateSnapshot_DbNilPlantsNothing(t *testing.T) {
+	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
+	ctx := idx.contextWithReindexGateSnapshot(context.Background())
+	_, ok := reindexGateSnapshotFrom(ctx)
+	require.False(t, ok, "no DB means no snapshot to plant")
+}
+
 // TestReindexInFlightError_NoDBBackref pins the wording variant used
 // for an Index that has no DB back-reference yet.
 func TestReindexInFlightError_NoDBBackref(t *testing.T) {

@@ -285,8 +285,9 @@ func NewReindexOverlapLookup(list ReindexTaskLister, completedTaskTTL time.Durat
 				return err
 			}
 			if overlaps {
-				return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-					entitiesbackup.ErrBackupSpannedReindex, collection)
+				return fmt.Errorf("%w: collection %q was migrated while this backup was being captured; "+
+					"retry the backup once the migration finishes (poll GET /v1/schema/%s/indexes until every index reports status=\"ready\")",
+					entitiesbackup.ErrBackupSpannedReindex, collection, collection)
 			}
 		}
 		return nil
