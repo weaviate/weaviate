@@ -366,10 +366,8 @@ func (i *Index) localNodeName() string {
 // reach the operator via [Index.logReindexRefusal],
 // [Index.logReindexRefusalSummary] and [DB.logReindexRefusals].
 //
-// `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
-// stored; canCommit runs synchronously inside coordinator.Backup, so the REST
-// error path strips it before returning. The async backup-status field is
-// not stripped.
+// `collection` stays namespace-qualified: the sync REST error path strips
+// it, but the async backup-status field does not.
 func reindexInFlightError(collection string, reason reindexBlockReason) error {
 	var advice string
 	switch reason {

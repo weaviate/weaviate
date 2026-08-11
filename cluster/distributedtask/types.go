@@ -454,11 +454,10 @@ func (t TaskStatus) String() string {
 // closes, and combined with the leader-routing above, nothing ages the
 // task out and no exit remains.
 //
-// A new terminal status also diverges CancelTask across versions:
-// [Manager.CancelTask] gates on this method, so one CancelTask log entry
-// can leave an older node writing TaskStatusCancelled while a newer node
-// returns errTaskNotRunning — different FSM state at the same log index.
-// Inherited from the cancel design; tracked at weaviate/weaviate#12575.
+// A new terminal status also diverges [Manager.CancelTask] across versions:
+// one log entry can leave an older node writing TaskStatusCancelled while a
+// newer node returns errTaskNotRunning — different FSM state at the same
+// log index (weaviate/weaviate#12575).
 //
 // So a new terminal status is only safe once every version in the
 // supported upgrade AND rollback range recognizes it, which means it
@@ -644,11 +643,10 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 //
-// The FSM writes a unit's FAILED status and the task's FAILED status in one
-// critical section, so a live task should never be STARTED while one of its
-// units is FAILED. This predicate is the fail-closed check for the case where
-// it happens anyway: [Manager.Restore] installs a peer's snapshot verbatim,
-// with no validation that task and unit statuses agree.
+// A live task should never be STARTED with a FAILED unit — the FSM sets
+// both statuses in one critical section. This is the fail-closed check for
+// when it happens anyway: [Manager.Restore] installs a peer's snapshot
+// verbatim, with no validation that task and unit statuses agree.
 func (t *Task) AnyUnitFailed() bool {
 	for _, u := range t.Units {
 		if u.Status == UnitStatusFailed {

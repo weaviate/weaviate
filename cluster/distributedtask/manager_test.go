@@ -755,7 +755,7 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
 			// Same shape as the per-unit failure path: the unit's name and
 			// its own error, so repair-guidance logging has something to quote.
-			assert.Contains(t, tasks["ns"][0].Error, "refusing to advance past STARTED")
+			assert.Contains(t, tasks["ns"][0].Error, "failing the task rather than running the schema flip")
 			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
 		})
 	}

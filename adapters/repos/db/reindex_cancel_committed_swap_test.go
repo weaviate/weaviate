@@ -21,11 +21,9 @@ import (
 )
 
 // TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart pins
-// that cancelling once a generation has merged (PREPARING or later) leaves
-// canonical buckets NEW-tokenized under an unflipped OLD schema after
-// restart: cancel skips the schema flip but FinalizeCompletedMigrations
-// still promotes on merged.mig alone. Tracked at
-// weaviate/weaviate#12575.
+// that cancelling after a merge (PREPARING or later) leaves buckets
+// NEW-tokenized under an unflipped OLD schema after restart
+// (weaviate/weaviate#12575).
 func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *testing.T) {
 	const (
 		propName  = "descr"
@@ -42,8 +40,7 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 		name string
 		// sentinels the tracker dir carries when cancel arrives.
 		sentinels []string
-		// whether this node ever set the tokenization overlay. Only the
-		// swap sets it, so a cancel at PREPARING has no mask at all.
+		// hasOverlay: only the swap sets the tokenization overlay.
 		hasOverlay bool
 	}{
 		{
@@ -161,4 +158,14 @@ func TestHasPromotableReindexState(t *testing.T) {
 			require.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType))
 		})
 	}
+}
+
+// TestDBHasPromotableReindexStateWithoutLocalIndex pins the one place this
+// predicate does not fail closed: a node that holds no index for the
+// collection has no shard to promote, so answering true would emit repair
+// guidance for state that lives on other nodes.
+func TestDBHasPromotableReindexStateWithoutLocalIndex(t *testing.T) {
+	db := &DB{indices: map[string]*Index{}}
+
+	require.False(t, db.HasPromotableReindexState("C", "descr", "searchable"))
 }

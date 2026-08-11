@@ -213,13 +213,9 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 // sortedTasksWithLock returns the namespace's tasks ordered by task ID.
 // Caller must hold m.mu.
 //
-// m.tasks[namespace] is a map, so ranging it directly gives a different
-// order per process. Accept/reject is the same either way — a detector
-// reports a conflict if any task conflicts — but WHICH conflicting task
-// the rejection names is not, so unsorted input lets two nodes (and two
-// retries on one node) quote different task IDs for the same refusal, and
-// lets the REST pre-check quote a different one from the apply gate.
-// Sorting makes the message stable without changing the decision.
+// Map order is nondeterministic; accept/reject is unaffected, but WHICH
+// conflicting task gets named in the refusal is not — sorting keeps that
+// message stable across nodes/retries and in sync with the REST pre-check.
 func (m *Manager) sortedTasksWithLock(namespace string) []*Task {
 	tasks := make([]*Task, 0, len(m.tasks[namespace]))
 	for _, t := range m.tasks[namespace] {
@@ -675,17 +671,15 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 	if task.AllUnitsTerminal() {
 		failedClosed := false
 		if task.AnyUnitFailed() {
-			// Fail-closed: AnyUnitFailed only trips here via a restored
-			// snapshot (see its godoc), never this node's own apply path.
-			// Without this branch a STARTED task with a FAILED unit would
-			// advance to SWAPPING and run the schema flip on a half-failed
-			// migration.
+			// Fail-closed: AnyUnitFailed only trips via a restored snapshot
+			// (see its godoc). Without this branch such a task would advance
+			// to SWAPPING and run the schema flip on a half-failed migration.
 			task.Status = TaskStatusFailed
 			// Name a reason: FAILED with an empty Error leaves the operator
 			// nothing to act on. Error is version-dependent (older nodes may
 			// leave it empty), but readers only append/set this field, never
 			// branch a status on it — so divergence across nodes is safe.
-			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
+			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {
 					unitErr = "no error recorded"
