@@ -757,7 +757,14 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 			return nil
 		}
-		return lazyShard.Load(context.Background())
+
+		// The load waits for a permit from the node-wide limiter while holding
+		// closeLock, so it has to give that wait up on a close request rather
+		// than leave a teardown waiting for the lock.
+		ctx, done := i.cancelOnCloseRequested(context.Background())
+		defer done()
+
+		return lazyShard.Load(ctx)
 	}
 
 	return nil

@@ -496,7 +496,7 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 	t.Helper()
 
 	logger, _ := logrustest.NewNullLogger()
-	return &Index{
+	idx := &Index{
 		Config:                 IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
 		namespace:              namespacing.NamespaceFromQualified(className),
 		namespacesExister:      e,
@@ -506,6 +506,8 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 		backupLock:             esync.NewKeyRWLocker(),
 		closingCtx:             context.Background(),
 	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	return idx
 }
 
 // namespaceLookupRefusals returns both fail-closed arms of the chokepoint: a
@@ -1382,7 +1384,7 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	return &Index{
+	idx := &Index{
 		Config: IndexConfig{
 			ClassName:            schema.ClassName(className),
 			RootPath:             t.TempDir(),
@@ -1394,7 +1396,9 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 		schemaReader:      reader,
 		shardCreateLocks:  esync.NewKeyRWLocker(),
 		closingCtx:        ctx,
-	}, hook
+	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	return idx, hook
 }
 
 func registeredShards(t *testing.T, idx *Index) []string {
