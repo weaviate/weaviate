@@ -150,6 +150,46 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, TaskStatusFailed, rec.first().Status)
 	})
 
+	// Registration happens well after the store starts applying, so an ending
+	// that lands in that window is exactly the one the observer exists for.
+	t.Run("an ending applied before registration is delivered on registration", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer leaktest.Check(t)()
+		defer h.Close()
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+
+		var rec observerRecorder
+		require.Zero(t, rec.count(), "nothing can have fired before an observer exists")
+
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		require.Eventually(t, func() bool { return rec.count() == 1 },
+			5*time.Second, 5*time.Millisecond,
+			"the ending that applied before registration must reach the observer")
+		require.Equal(t, TaskStatusCancelled, rec.first().Status)
+		require.Equal(t, observerTaskID, rec.first().ID)
+	})
+
+	// A replayed ending is skipped whether or not an observer exists yet, so
+	// the pre-registration buffer must not resurrect it.
+	t.Run("a replayed ending applied before registration stays skipped", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer leaktest.Check(t)()
+		defer h.Close()
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), true))
+
+		var rec observerRecorder
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		require.Never(t, func() bool { return rec.count() > 0 },
+			300*time.Millisecond, 10*time.Millisecond,
+			"a replayed cancel must stay skipped even when it applied before registration")
+	})
+
 	// A nil re-registration must not silently overwrite the live observer.
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)

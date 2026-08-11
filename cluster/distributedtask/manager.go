@@ -69,6 +69,12 @@ type Manager struct {
 
 	// Per-namespace terminal-apply observers; see [TerminalObserver].
 	terminalObservers map[string]TerminalObserver
+	// terminalPending holds live terminal endings that applied before the
+	// namespace registered its observer. Registration happens well after the
+	// store starts applying, and an ending dropped in that window is exactly
+	// the one the observer exists for. Bounded by
+	// [terminalPendingPerNamespace]; guarded by mu.
+	terminalPending map[string][]*Task
 	// terminalDispatch carries terminal tasks to the single drainer goroutine
 	// that calls the observers; see [Manager.dispatchTerminalWithLock].
 	terminalDispatch chan *Task
@@ -272,6 +278,7 @@ func NewManager(params ManagerParameters) *Manager {
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
 		terminalObservers:    make(map[string]TerminalObserver),
+		terminalPending:      make(map[string][]*Task),
 		terminalDispatch:     make(chan *Task, terminalDispatchQueueDepth),
 		terminalDispatchDone: make(chan struct{}),
 
@@ -297,6 +304,10 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 // RegisterTerminalObserver installs the namespace's [TerminalObserver], which
 // fires on CANCELLED and on FAILED. Last write wins; nil/empty arguments are
 // dropped. Also starts the drainer, so registering is what opens the queue.
+//
+// Endings that applied while the namespace had no observer are delivered here,
+// oldest first, so the startup window between the store accepting applies and
+// the observer being wired does not swallow them.
 func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
 	if namespace == "" || observer == nil {
 		return
@@ -305,6 +316,12 @@ func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalOb
 	defer m.mu.Unlock()
 	m.terminalObservers[namespace] = observer
 	m.startTerminalDrainerWithLock()
+
+	pending := m.terminalPending[namespace]
+	delete(m.terminalPending, namespace)
+	for _, task := range pending {
+		m.enqueueTerminalWithLock(task)
+	}
 }
 
 // Close stops the terminal-observer drainer. Idempotent; queued events are
@@ -319,6 +336,7 @@ func (m *Manager) Close() {
 		return
 	}
 	m.terminalDispatchClosed = true
+	clear(m.terminalPending)
 	close(m.terminalDispatchDone)
 }
 
@@ -326,6 +344,12 @@ func (m *Manager) Close() {
 // the apply path falls back to a fan-out goroutine per event. Task endings
 // are rare, so a queue this deep only fills if an observer has wedged.
 const terminalDispatchQueueDepth = 256
+
+// terminalPendingPerNamespace bounds the endings held for a namespace that has
+// not registered its observer yet. Deep enough to cover the startup window
+// between the store applying and the wiring completing, shallow enough that a
+// namespace which never registers cannot retain tasks indefinitely.
+const terminalPendingPerNamespace = 64
 
 // terminalDispatchOverflowLimit bounds fan-out goroutines spawned once the
 // queue is full. A wedged observer would otherwise let these pile up forever.
@@ -402,10 +426,6 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		// way down would fill the queue with nothing left to empty it.
 		return
 	}
-	observer := m.terminalObservers[task.Namespace]
-	if observer == nil {
-		return
-	}
 	if catchingUp {
 		m.logger.WithFields(logrus.Fields{
 			"namespace": task.Namespace,
@@ -415,11 +435,36 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	}
 
 	clone := task.Clone()
+	if m.terminalObservers[task.Namespace] == nil {
+		m.holdTerminalUntilRegisteredWithLock(clone)
+		return
+	}
+	m.enqueueTerminalWithLock(clone)
+}
+
+// holdTerminalUntilRegisteredWithLock parks a live ending whose namespace has
+// no observer yet. Caller holds m.mu. Oldest entries are dropped past the
+// bound: a namespace that never registers must not grow this without limit.
+func (m *Manager) holdTerminalUntilRegisteredWithLock(clone *Task) {
+	pending := append(m.terminalPending[clone.Namespace], clone)
+	if len(pending) > terminalPendingPerNamespace {
+		m.logger.WithFields(logrus.Fields{
+			"namespace": clone.Namespace,
+			"task_id":   clone.ID,
+		}).Error("distributedtask: no terminal observer is registered yet and the pre-registration buffer is full; dropping the oldest terminal event")
+		pending = pending[len(pending)-terminalPendingPerNamespace:]
+	}
+	m.terminalPending[clone.Namespace] = pending
+}
+
+// enqueueTerminalWithLock hands one already-cloned ending to the drainer.
+// Caller holds m.mu.
+func (m *Manager) enqueueTerminalWithLock(clone *Task) {
 	select {
 	case m.terminalDispatch <- clone:
 	default:
 		logger := m.logger
-		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
+		fields := logrus.Fields{"namespace": clone.Namespace, "task_id": clone.ID}
 		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
 			// Past the bound the observer is wedged, not just behind.
 			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
