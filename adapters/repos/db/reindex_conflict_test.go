@@ -173,6 +173,8 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
+		// An unrecognized status blocks too.
+		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
@@ -378,6 +380,8 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
+		// An unrecognized status blocks too.
+		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
@@ -570,6 +574,8 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
+		// An unrecognized status blocks too.
+		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
@@ -638,6 +644,8 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
+		// An unrecognized status blocks too.
+		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
@@ -719,78 +727,3 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
-
-// Pins: all four schema-mutation guards block on every non-terminal
-// status, including an unrecognized one.
-func TestReindexGuards_BlockOnEveryInFlightStatus(t *testing.T) {
-	provider := &ReindexProvider{}
-
-	newPayload, err := json.Marshal(ReindexTaskPayload{
-		Collection:    "C",
-		MigrationType: ReindexTypeEnableRangeable,
-		Properties:    []string{"num"},
-	})
-	require.NoError(t, err)
-
-	existPayload, err := json.Marshal(ReindexTaskPayload{
-		Collection:    "C",
-		MigrationType: ReindexTypeEnableFilterable,
-		Properties:    []string{"num"},
-	})
-	require.NoError(t, err)
-
-	guards := []struct {
-		name  string
-		check func(existing []*distributedtask.Task) error
-	}{
-		{"CheckConflict", func(e []*distributedtask.Task) error {
-			return provider.CheckConflict(newPayload, e)
-		}},
-		{"CheckPropertyUpdate", func(e []*distributedtask.Task) error {
-			return provider.CheckPropertyUpdate("C", "num", e)
-		}},
-		{"CheckClassMutation", func(e []*distributedtask.Task) error {
-			return provider.CheckClassMutation("C", e)
-		}},
-		{"CheckTenantMutation", func(e []*distributedtask.Task) error {
-			return provider.CheckTenantMutation("C", []string{"t1"}, e)
-		}},
-	}
-
-	statuses := []struct {
-		status  distributedtask.TaskStatus
-		blocked bool
-	}{
-		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
-		{unknownFutureStatus, true},
-		{distributedtask.TaskStatus(""), true},
-		{distributedtask.TaskStatusFinished, false},
-		{distributedtask.TaskStatusFailed, false},
-		{distributedtask.TaskStatusCancelled, false},
-	}
-
-	for _, g := range guards {
-		for _, s := range statuses {
-			t.Run(g.name+"/"+string(s.status), func(t *testing.T) {
-				existing := []*distributedtask.Task{
-					{
-						TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
-						Status:         s.status,
-						Payload:        existPayload,
-					},
-				}
-				err := g.check(existing)
-				if !s.blocked {
-					require.NoError(t, err,
-						"%s must ignore a task this build knows is done", g.name)
-					return
-				}
-				require.Error(t, err,
-					"%s must block against a task this build cannot prove is done", g.name)
-				require.Contains(t, err.Error(), "T1")
-			})
-		}
-	}
-}

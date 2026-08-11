@@ -274,7 +274,8 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive],
+// which includes a status this build does not recognize) — same
 // epistemics as the schema FSM's MutationGuard at apply time, just
 // earlier in the request lifecycle for operator UX.
 //
@@ -298,16 +299,22 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// PREPARING and SWAPPING count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
-		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during either phase would race the in-flight per-
-		// shard bucket-pointer flip.
+		// Every non-terminal status counts as in-flight — see the godoc
+		// on [checkReindexConflict] for the full reasoning. Mutating the
+		// property mid-migration would race the per-shard bucket-pointer
+		// flip.
 		if !task.Status.IsActive() {
 			continue
 		}
 		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		decodeErr := json.Unmarshal(task.Payload, &payload)
+		// Check collection first: json.Unmarshal fills decoded fields before
+		// erroring, so a task naming a different collection is skipped even
+		// with a garbage payload, rather than blocking mutations cluster-wide.
+		if payload.Collection != "" && !strings.EqualFold(payload.Collection, className) {
+			continue
+		}
+		if decodeErr != nil {
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
@@ -319,16 +326,9 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}
-		// Empty Properties means "all properties" (whole-collection
-		// rebuild, reserved); treat as a match.
-		matches := len(payload.Properties) == 0
-		for _, p := range payload.Properties {
-			if p == propertyName {
-				matches = true
-				break
-			}
-		}
-		if !matches {
+		// An empty Properties list means "all properties" (whole-
+		// collection rebuild, reserved), same rule the FSM guards use.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
 		return fmt.Sprintf(
