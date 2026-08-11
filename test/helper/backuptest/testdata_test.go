@@ -40,6 +40,7 @@ func TestTestDataGenerator_GenerateClass(t *testing.T) {
 		assert.True(t, propNames["score"])
 		assert.True(t, propNames["active"])
 		assert.True(t, propNames["tags"])
+		assert.True(t, propNames["location"])
 	})
 
 	t.Run("custom class name", func(t *testing.T) {
@@ -359,4 +360,5 @@ func TestTestDataGenerator_ClassPropertyTypes(t *testing.T) {
 	assert.Equal(t, string(schema.DataTypeNumber), propTypes["score"])
 	assert.Equal(t, string(schema.DataTypeBoolean), propTypes["active"])
 	assert.Equal(t, string(schema.DataTypeTextArray), propTypes["tags"])
+	assert.Equal(t, string(schema.DataTypeGeoCoordinates), propTypes["location"])
 }
