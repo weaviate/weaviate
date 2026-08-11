@@ -38,7 +38,10 @@ func TestHasUntidiedTracker(t *testing.T) {
 		// corruptPayloads name trackers whose payload.mig exists but does
 		// not parse.
 		corruptPayloads []string
-		want            bool
+		// unlistable removes read permission from .migrations, so listing it
+		// fails without the dir being absent.
+		unlistable bool
+		want       bool
 	}{
 		{
 			name:     "no .migrations dir → no recovery needed",
@@ -184,6 +187,24 @@ func TestHasUntidiedTracker(t *testing.T) {
 			},
 			want: false,
 		},
+		// A .migrations dir that exists but can't be listed could hold an
+		// untidied tracker; reporting "done" would deregister the local
+		// callbacks while it remains. Fails toward recovery, like the
+		// unloaded-shard gate on the identical condition.
+		{
+			name:       "an unlistable .migrations dir → recovery NEEDED",
+			trackers:   map[string][]string{},
+			unlistable: true,
+			want:       true,
+		},
+		{
+			name: "an unlistable .migrations dir with an untidied tracker inside → recovery NEEDED",
+			trackers: map[string][]string{
+				"searchable_retokenize_text_1": {"started.mig"},
+			},
+			unlistable: true,
+			want:       true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -207,6 +228,10 @@ func TestHasUntidiedTracker(t *testing.T) {
 					require.NoError(t, os.WriteFile(
 						filepath.Join(migsDir, trackerName, reindexRecoveryPayloadFile),
 						[]byte("not a recovery record"), 0o644))
+				}
+				if tc.unlistable {
+					require.NoError(t, os.Chmod(migsDir, 0o000))
+					t.Cleanup(func() { _ = os.Chmod(migsDir, 0o755) })
 				}
 			}
 			indexType := tc.indexType
