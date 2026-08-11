@@ -494,6 +494,59 @@ func TestBackupable_PassesTheCallerContextToTheGate(t *testing.T) {
 	}
 }
 
+// The per-shard capture paths each build their own gate snapshot, so each must
+// hand its caller's context to the leader query behind it. Bound to anything
+// else, a leader that accepts the connection and stops answering parks the
+// capture until process shutdown, long after the coordinator gave up. Covers
+// every call site of [Index.refuseIfReindexInFlight], including the shared
+// function itself.
+func TestPerShardCapturePathsPassTheCallerContextToTheGate(t *testing.T) {
+	shd, idx := testShard(t, testCtx(), "GateCtxPerShardClass")
+	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+	idx.db.SetShardReindexActivityLookup(func(ctx context.Context) ShardReindexActivityLookup {
+		// A leader that never answers: the only way out is the caller's ctx.
+		<-ctx.Done()
+		return func(string, string) bool { return true }
+	})
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	stagingRoot := t.TempDir()
+
+	tests := []struct {
+		name string
+		call func(ctx context.Context) error
+	}{
+		{"refuseIfReindexInFlight", func(ctx context.Context) error {
+			return idx.refuseIfReindexInFlight(ctx, shd.Name())
+		}},
+		{"backupInactiveShardWithHardlinks", func(ctx context.Context) error {
+			var sd entitiesbackup.ShardDescriptor
+			return idx.backupInactiveShardWithHardlinks(ctx, shd.Name(), &sd, nil, stagingRoot)
+		}},
+		{"backupInactiveShardWithoutHardlinks", func(ctx context.Context) error {
+			var sd entitiesbackup.ShardDescriptor
+			return idx.backupInactiveShardWithoutHardlinks(ctx, shd.Name(), &sd, nil)
+		}},
+		{"HaltForTransfer", func(ctx context.Context) error {
+			return shd.HaltForTransfer(ctx, false, 0)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			go func() { done <- tc.call(cancelled) }()
+			select {
+			case err := <-done:
+				require.Error(t, err, "a gate that could not be consulted must refuse")
+			case <-time.After(5 * time.Second):
+				require.Failf(t, "context not threaded",
+					"%s ignored the caller's context and waited on the leader instead", tc.name)
+			}
+		})
+	}
+}
+
 // The real wrappers between the shard that refused and the stored failure meta
 // name the shard: "snapshot shard <id>: halt for snapshot: ...". That is what
 // the operator log should say. The publishable message has to survive the
@@ -546,6 +599,20 @@ func TestReindexInFlightError_CleanupAdviceDoesNotSayCancel(t *testing.T) {
 	// The live-task branch keeps its cancel advice: there the task is real.
 	live := reindexInFlightError("MyClass", reindexBlockedByLiveTask).Error()
 	assert.Contains(t, live, "cancelling it via")
+}
+
+// The submit window's advice must stay its own: nothing was cancelled and no
+// task exists yet, so either sibling arm's text would send the operator after
+// something that is not there.
+func TestReindexInFlightError_SubmitAdviceNamesTheSubmission(t *testing.T) {
+	body := reindexInFlightError("MyClass", reindexBlockedBySubmit).Error()
+	assert.Contains(t, body, "MyClass")
+	assert.Contains(t, body, "a reindex submission is preparing this collection")
+	assert.Contains(t, body, "retry in a moment")
+	assert.NotContains(t, body, "removing its temporary index files",
+		"that is the cleanup arm's text; here it would misdescribe the block")
+	assert.NotContains(t, body, "cancelling it via",
+		"there is no task to cancel during a submission")
 }
 
 // unknownReindexHold stands in for a hold kind added to the enum after this

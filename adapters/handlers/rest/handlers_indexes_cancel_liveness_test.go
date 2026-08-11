@@ -84,6 +84,23 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			wantCancelled: "t1",
 		},
 		{
+			// Collection names compare case-insensitively on every other gate
+			// lookup; the cancel target match must fold the same way or the
+			// remedy the refusals name misses the task holding them.
+			name:          "started, payload names the collection in another case",
+			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusStarted, "MOVIES")},
+			gateBlocks:    true,
+			wantCancelled: "t1",
+		},
+		{
+			name: "preparing, payload will not decode, collection in another case",
+			tasks: []*distributedtask.Task{
+				unreadableTask("t1", "MOVIES", distributedtask.TaskStatusPreparing),
+			},
+			gateBlocks:    true,
+			wantCancelled: "t1",
+		},
+		{
 			name:       "preparing on another collection",
 			tasks:      []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusPreparing, "Reviews")},
 			gateBlocks: true,

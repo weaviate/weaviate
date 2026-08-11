@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,6 +106,14 @@ func (r *observerRecorder) first() *Task {
 	return r.seen[0]
 }
 
+func (r *observerRecorder) all() []*Task {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*Task, len(r.seen))
+	copy(out, r.seen)
+	return out
+}
+
 func (r *observerRecorder) waitForCount(t *testing.T, want int, msg string) {
 	t.Helper()
 	require.Eventually(t, func() bool { return r.count() == want },
@@ -191,6 +200,33 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the ending that applied before registration must reach the observer")
 		require.Equal(t, TaskStatusCancelled, rec.first().Status)
 		require.Equal(t, observerTaskID, rec.first().ID)
+	})
+
+	// A namespace that never registers must not grow the pre-registration
+	// buffer without limit; past the bound the oldest ending is dropped so
+	// the newest ones survive to registration.
+	t.Run("the pre-registration buffer is bounded and drops the oldest", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		t.Cleanup(leaktest.Check(t))
+		t.Cleanup(h.Close)
+
+		for i := range terminalPendingPerNamespace + 1 {
+			id := fmt.Sprintf("pending-%d", i)
+			require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, id), observerVersion))
+			require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, id), false))
+		}
+
+		rec := &observerRecorder{}
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		rec.waitForCount(t, terminalPendingPerNamespace,
+			"registration must deliver exactly the bounded buffer, no more")
+		rec.requireNeverExceeds(t, terminalPendingPerNamespace, 300*time.Millisecond,
+			"an ending past the bound must have been dropped, not parked")
+		for _, task := range rec.all() {
+			require.NotEqual(t, "pending-0", task.ID,
+				"past the bound the oldest ending is the one dropped")
+		}
 	})
 
 	// A replayed ending is skipped whether or not an observer exists yet, so
