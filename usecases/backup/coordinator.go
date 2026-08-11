@@ -318,7 +318,8 @@ func (c *coordinator) Restore(
 	}
 	// The slot is ours until the goroutine below takes over, so every error
 	// return must release it or it blocks later restores until restart.
-	// release(), not reset(): a cancel may already hold it.
+	// release() refuses once a cancel has handed the slot to a retry, which is
+	// what keeps this error path from freeing that retry's slot.
 	defer func() {
 		if err != nil {
 			slot.release()

@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -97,6 +98,14 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 				case <-time.After(10 * time.Second):
 					t.Fatal("the newer restore never got to claim the slot")
 				}
+				// Storing the outcome is the step right before the deferred
+				// release, so waiting for it puts the window below around that
+				// release instead of around a goroutine that never got there.
+				require.Eventually(t, func() bool {
+					st, err := r.status("s3", backupID)
+					return err == nil && st.Status == backup.Success
+				}, 20*time.Second, time.Millisecond,
+					"the restore goroutine never stored its outcome")
 				require.Never(t, func() bool {
 					return r.lastOp.get().ID != tc.wantSlotID
 				}, 200*time.Millisecond, 10*time.Millisecond,
@@ -218,7 +227,13 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 			backend := newFakeBackend()
 			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
-			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+			// The descriptor write is the backup's last step before its
+			// deferred release, so waiting for it puts the window below around
+			// that release instead of around a goroutine that never got there.
+			var storedOnce sync.Once
+			stored := make(chan bool)
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).
+				Run(func(mock.Arguments) { storedOnce.Do(func() { close(stored) }) })
 
 			logger, _ := test.NewNullLogger()
 			var b *backupper
@@ -243,6 +258,7 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 				case <-time.After(10 * time.Second):
 					t.Fatal("the newer backup never got to claim the slot")
 				}
+				awaitOutcome(t, stored, "the backup goroutine never stored its descriptor")
 				require.Never(t, func() bool {
 					return b.lastOp.get().ID != tc.wantSlotID
 				}, 200*time.Millisecond, 10*time.Millisecond,

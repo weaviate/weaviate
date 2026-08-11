@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1351,11 +1352,26 @@ func storedRestoreMeta(fs *fakeScheduler, backupID string, statuses ...backup.St
 		Return(desc(statuses[len(statuses)-1]), nil)
 }
 
+// restoreMetaWrites is the status of every restore descriptor write, in
+// order. Guarded because the hook that fills it runs on whichever goroutine
+// makes the write, which is not always the test's.
+type restoreMetaWrites struct {
+	sync.Mutex
+	statuses []backup.Status
+}
+
+func (w *restoreMetaWrites) recorded() []backup.Status {
+	w.Lock()
+	defer w.Unlock()
+	return slices.Clone(w.statuses)
+}
+
 // recordRestoreMetaWrites captures the status of every restore descriptor
-// write, in order. onWrite, if set, runs before each write is recorded.
-func recordRestoreMetaWrites(t *testing.T, fs *fakeScheduler, backupID string, onWrite func()) *[]backup.Status {
+// write, in order. onWrite, if set, runs before each write is recorded, on
+// the goroutine making the write: use assert there, not require.
+func recordRestoreMetaWrites(t *testing.T, fs *fakeScheduler, backupID string, onWrite func()) *restoreMetaWrites {
 	t.Helper()
-	statuses := &[]backup.Status{}
+	writes := &restoreMetaWrites{}
 	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).
 		Run(func(args mock.Arguments) {
 			if onWrite != nil {
@@ -1365,9 +1381,11 @@ func recordRestoreMetaWrites(t *testing.T, fs *fakeScheduler, backupID string, o
 			// assert, not require: this runs on the goroutine making the write,
 			// where Goexit surfaces as a hang instead of the failure.
 			assert.NoError(t, json.Unmarshal(args.Get(3).([]byte), &desc))
-			*statuses = append(*statuses, desc.Status)
+			writes.Lock()
+			defer writes.Unlock()
+			writes.statuses = append(writes.statuses, desc.Status)
 		}).Return(nil)
-	return statuses
+	return writes
 }
 
 func marshalCoordinatorMeta(m backup.DistributedBackupDescriptor) []byte {
@@ -1585,7 +1603,39 @@ func TestCancellingRestore(t *testing.T) {
 		assert.Nil(t, err)
 		fs.backend.AssertExpectations(t)
 		// The claim is not written again, only the completion it was missing.
-		assert.Equal(t, []backup.Status{backup.Cancelled}, *writes)
+		assert.Equal(t, []backup.Status{backup.Cancelled}, writes.recorded())
+		fs.client.AssertCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("CancellingRefusedWhenTheRestoreFinalizesWhileTheNodesAreAborted", func(t *testing.T) {
+		// The repeat of a stuck CANCELLING skips the claim, so nothing stops
+		// the restore from reaching schema apply while its nodes are being
+		// aborted. The caller must learn the cancel did not land.
+		fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+		fs.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+		storedRestoreMeta(fs, backupID, backup.Cancelling)
+		writes := recordRestoreMetaWrites(t, fs, backupID, nil)
+
+		s := fs.scheduler()
+		prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+		require.Empty(t, prevID)
+		var once sync.Once
+		fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).
+			Run(func(mock.Arguments) {
+				// assert, not require: abortAll fans out, so this runs on a
+				// goroutine where Goexit surfaces as a hang.
+				once.Do(func() { assert.True(t, slot.set(backup.Finalizing)) })
+			})
+
+		err := s.CancelRestore(ctx, nil, backendName, backupID, "", "")
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorContains(t, err, "applying schema changes and cannot be cancelled")
+		assert.Empty(t, writes.recorded(),
+			"a cancel that could not land must not stamp CANCELLED on the descriptor")
+		assert.Equal(t, backup.Finalizing, s.restorer.lastOp.get().Status)
 	})
 
 	t.Run("CancellingReportsAStuckFinalWrite", func(t *testing.T) {
@@ -1624,7 +1674,7 @@ func TestCancellingRestore(t *testing.T) {
 
 		err := fs.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
 		assert.Nil(t, err)
-		assert.Equal(t, []backup.Status{backup.Cancelling, backup.Cancelled}, *writes,
+		assert.Equal(t, []backup.Status{backup.Cancelling, backup.Cancelled}, writes.recorded(),
 			"the claim has to be recorded before the abort, the completion after it")
 	})
 
@@ -1669,14 +1719,14 @@ func TestCancellingRestore(t *testing.T) {
 		// starts finalizing there lands in exactly that gap.
 		var once sync.Once
 		writes := recordRestoreMetaWrites(t, fs, backupID, func() {
-			once.Do(func() { require.True(t, slot.set(backup.Finalizing)) })
+			once.Do(func() { assert.True(t, slot.set(backup.Finalizing)) })
 		})
 
 		err := s.CancelRestore(ctx, nil, backendName, backupID, "", "")
 		require.Error(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.ErrorContains(t, err, "applying schema changes and cannot be cancelled")
-		assert.Equal(t, []backup.Status{backup.Cancelling}, *writes,
+		assert.Equal(t, []backup.Status{backup.Cancelling}, writes.recorded(),
 			"a cancel that could not land must not stamp CANCELLED on the descriptor")
 		assert.Equal(t, backup.Finalizing, s.restorer.lastOp.get().Status)
 		fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)

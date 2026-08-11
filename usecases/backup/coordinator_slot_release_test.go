@@ -78,7 +78,9 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			}
 			fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
 			fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
-			fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil)
+			for _, node := range nodes {
+				fc.client.On("Status", anyArg, node, anyArg).Return(sresp, nil)
+			}
 
 			c := fc.coordinator()
 			c.timeoutNextRound = time.Millisecond
@@ -87,22 +89,23 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				once   sync.Once
 				stolen = make(chan struct{})
 			)
-			for _, node := range nodes {
-				fc.client.On("Status", anyArg, node, anyArg).Return(sresp, nil).
-					Run(func(mock.Arguments) {
-						// Runs on the restore goroutine, before its deferred
-						// release. assert, not require: require's Goexit would
-						// kill that goroutine mid-flight, surfacing as a hang or
-						// an unrelated downstream failure instead of this one.
-						if !tc.steal {
-							return
-						}
-						once.Do(func() {
-							takeOverSlot(t, &c.lastOp, backupID, tc.newID)
-							close(stolen)
-						})
+			// The write of the outcome is the restore's last step before its
+			// deferred release, so a takeover staged from it lands in exactly
+			// the window that release has to refuse.
+			fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil).
+				Run(func(args mock.Arguments) {
+					if !tc.steal || restoreMetaStatus(t, args) != backup.Success {
+						return
+					}
+					// Runs on the restore goroutine. assert, not require:
+					// require's Goexit would kill that goroutine mid-flight,
+					// surfacing as a hang or an unrelated downstream failure
+					// instead of this one.
+					once.Do(func() {
+						takeOverSlot(t, &c.lastOp, backupID, tc.newID)
+						close(stolen)
 					})
-			}
+				})
 
 			req := newReq(nil, backendName, backupID)
 			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
@@ -112,6 +115,7 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 				// The takeover runs on the restore goroutine, so wait for it
 				// rather than racing the assertion against it.
 				awaitInterference(t, stolen, "the newer restore never got to claim the slot")
+				awaitOutcome(t, fc.backend.doneChan, "the restore goroutine never stored its outcome")
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
 				}, 200*time.Millisecond, 10*time.Millisecond,
@@ -158,12 +162,17 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 			fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
 			fc.backend.On("PutObject", anyArg, backupID, GlobalBackupFile, anyArg).Return(nil)
+			// The node descriptors the coordinator reads to total up the
+			// backup's size, on the way to writing its own.
+			fc.backend.On("GetObject", anyArg, anyArg, anyArg).
+				Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
 			for _, node := range nodes {
 				fc.client.On("CanCommit", anyArg, node, anyArg).Return(cresp, nil)
 				fc.client.On("Commit", anyArg, node, anyArg).Return(nil)
 			}
 
 			c := fc.coordinator()
+			c.backends = &fakeBackupBackendProvider{backend: fc.backend}
 
 			var stolen atomic.Bool
 			for _, node := range nodes {
@@ -183,14 +192,13 @@ func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 			req := newReq(classes, backendName, backupID)
 			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 			require.NoError(t, c.Backup(ctx, store, &req))
+
 			if tc.steal {
 				// The takeover runs on the backup goroutine, so wait for it
 				// rather than racing the assertion against it.
 				require.Eventually(t, stolen.Load, 10*time.Second, 10*time.Millisecond,
 					"the newer backup never got to claim the slot")
-			}
-
-			if tc.steal {
+				awaitOutcome(t, fc.backend.doneChan, "the backup goroutine never stored its outcome")
 				require.Never(t, func() bool {
 					return c.lastOp.get().ID != tc.wantSlotID
 				}, 200*time.Millisecond, 20*time.Millisecond,
@@ -594,6 +602,30 @@ func awaitInterference(t *testing.T, done <-chan struct{}, missed string) {
 	case <-time.After(20 * time.Second):
 		t.Fatal(missed)
 	}
+}
+
+// awaitOutcome waits for the operation to store its outcome, the step right
+// before its deferred release. Without it a window asserting that release did
+// not fire can close before the goroutine ever reached it, which would make
+// its absence prove nothing.
+func awaitOutcome(t *testing.T, stored <-chan bool, missed string) {
+	t.Helper()
+	select {
+	case <-stored:
+	case <-time.After(20 * time.Second):
+		t.Fatal(missed)
+	}
+}
+
+// restoreMetaStatus is the status of the descriptor a PutObject mock was
+// handed.
+func restoreMetaStatus(t *testing.T, args mock.Arguments) backup.Status {
+	t.Helper()
+	var desc backup.DistributedBackupDescriptor
+	// assert, not require: this runs on the restore goroutine, where Goexit
+	// surfaces as a hang instead of the failure.
+	assert.NoError(t, json.Unmarshal(args.Get(3).([]byte), &desc))
+	return desc.Status
 }
 
 func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool, bool) error {
