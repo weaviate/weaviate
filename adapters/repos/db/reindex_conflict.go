@@ -208,6 +208,22 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
+// mutationRemedy is the tail of a mutation refusal: what the operator can
+// actually do about it. Every one of these guards otherwise tells them to
+// cancel the reindex, which is advice that dead-ends for a status this
+// build cannot classify — the FSM refuses a cancel for it on every node.
+//
+// Only the wording branches on the local vocabulary. The reject itself
+// does not, so the apply stays deterministic.
+func mutationRemedy(status distributedtask.TaskStatus, whenRecognized string) string {
+	if status.IsRecognized() {
+		return whenRecognized
+	}
+	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+		"refused on every node — the task has to reach a terminal state on the nodes that do " +
+		"recognize it"
+}
+
 // CheckPropertyUpdate implements
 // [distributedtask.SchemaMutationDetector] for the reindex namespace.
 // Called from the schema FSM's UpdateProperty apply path under
@@ -270,21 +286,14 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
 			continue
 		}
-		// Only the wording branches on the local vocabulary; the reject
-		// itself does not, so the apply stays deterministic.
-		remedy := "wait for the task to reach a terminal state, or cancel it via the " +
-			"reindex REST API before retrying"
-		if !task.Status.IsRecognized() {
-			remedy = "this build cannot classify that status, so a cancel via the reindex " +
-				"REST API is refused on every node — the task has to reach a terminal state " +
-				"on the nodes that do recognize it"
-		}
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
 				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status, remedy)
+			existP.Collection, propertyName, task.Status,
+			mutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return nil
 }
@@ -334,9 +343,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
 				"working state and produce a bucket↔schema inversion "+
-				"on every replica — cancel the reindex via the REST "+
-				"API before deleting the class",
-			task.ID, existP.MigrationType, existP.Collection, task.Status)
+				"on every replica — %s",
+			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			mutationRemedy(task.Status,
+				"cancel the reindex via the REST API before deleting the class"))
 	}
 	return nil
 }
@@ -387,11 +397,11 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — "+
-				"cancel the reindex via the REST API before mutating "+
-				"these tenants",
+				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants)
+			task.Status, tenants,
+			mutationRemedy(task.Status,
+				"cancel the reindex via the REST API before mutating these tenants"))
 	}
 	return nil
 }

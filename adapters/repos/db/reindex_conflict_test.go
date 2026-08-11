@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -384,15 +385,6 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 			require.Contains(t, err.Error(), "C")
 			require.Contains(t, err.Error(), "name")
 			require.Contains(t, err.Error(), string(status))
-			if status.IsRecognized() {
-				require.Contains(t, err.Error(), "cancel it via the reindex REST API")
-				return
-			}
-			// The remedy the message otherwise names is not available for
-			// a status this build cannot classify: the FSM refuses a
-			// cancel for it on every node, so saying "cancel it" would
-			// send the operator down a path that cannot work.
-			require.Contains(t, err.Error(), "cannot classify that status")
 		})
 	}
 }
@@ -720,4 +712,53 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	distributedtask.TaskStatusPreparing,
 	distributedtask.TaskStatusSwapping,
 	unknownFutureStatus,
+}
+
+// Pins: every mutation refusal stops telling the operator to cancel the
+// reindex when the status is one this build cannot classify. The FSM
+// refuses a cancel for such a task on every node, so that advice would
+// send them down a road that dead-ends.
+func TestMutationRefusals_DropTheCancelAdviceForAnUnclassifiableStatus(t *testing.T) {
+	provider := &ReindexProvider{}
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+	tasksIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+			Status:         status,
+			Payload:        payload,
+		}}
+	}
+
+	for name, guard := range map[string]func(tasks []*distributedtask.Task) error{
+		"property update": func(tasks []*distributedtask.Task) error {
+			return provider.CheckPropertyUpdate("C", "name", tasks)
+		},
+		"class mutation": func(tasks []*distributedtask.Task) error {
+			return provider.CheckClassMutation("C", tasks)
+		},
+		"tenant mutation": func(tasks []*distributedtask.Task) error {
+			return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			recognized := guard(tasksIn(distributedtask.TaskStatusStarted))
+			unclassifiable := guard(tasksIn(unknownFutureStatus))
+			require.Error(t, recognized)
+			require.Error(t, unclassifiable)
+
+			require.NotContains(t, recognized.Error(), "cannot classify that status")
+			require.Contains(t, unclassifiable.Error(), "cannot classify that status")
+
+			// Every message ends on its remedy. The cancel advice has to
+			// be gone, not merely joined by a caveat the operator has to
+			// reconcile against it.
+			remedy := recognized.Error()[strings.LastIndex(recognized.Error(), "— "):]
+			require.Contains(t, remedy, "cancel")
+			require.NotContains(t, unclassifiable.Error(), remedy)
+		})
+	}
 }
