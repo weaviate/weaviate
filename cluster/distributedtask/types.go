@@ -547,14 +547,12 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the task's end stamp, but which end it means depends on
-	// the route: the cancel instant for CANCELLED (in-flight units are not
-	// waited for), the failing unit's stamp for FAILED-by-unit-failure, and
-	// the earlier AllUnitsTerminal stamp for any FINISHED/FAILED route through
-	// PREPARING/SWAPPING, which can be minutes stale by the time the task goes
-	// terminal. TTL cleanup works around this by skipping every non-terminal
-	// status; other code needing "when did this end" must not trust this
-	// field. Also drives cleanup scheduling.
+	// FinishedAt is the task's end stamp, but which end depends on the route:
+	// the cancel instant for CANCELLED, the failing unit's stamp for
+	// FAILED-by-unit-failure, or the (possibly minutes-stale) AllUnitsTerminal
+	// stamp for FINISHED/FAILED routed through PREPARING/SWAPPING. Don't trust
+	// it for "when did this end"; it only drives TTL cleanup, which skips
+	// non-terminal statuses.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.

@@ -212,9 +212,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the observer's copy must carry the stamp written by the same apply")
 	})
 
-	// The contract is CANCELLED and FAILED only. MarkTaskFinalized is the one
-	// terminal transition that must stay silent, and adding a dispatch there
-	// otherwise passes the whole suite.
+	// Only CANCELLED and FAILED fire the observer; MarkTaskFinalized (FINISHED)
+	// must stay silent.
 	t.Run("reaching FINISHED must not fire the observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer leaktest.Check(t)()
@@ -251,9 +250,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, TaskStatusFinished, tasks[observerNamespace][0].Status)
 
-		// A second task cancelled in the same namespace is the barrier: once
-		// its event lands, the drainer has demonstrably run, so a missing
-		// FINISHED event is the contract holding rather than a slow drainer.
+		// Barrier: once this second task's cancel event lands, a missing
+		// FINISHED event means the contract held, not a slow drainer.
 		const cancelledTaskID = "2"
 		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace:             observerNamespace,
