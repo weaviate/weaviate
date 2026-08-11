@@ -285,39 +285,6 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		err = h.manager.CancelTask(cancelCmd, false)
 		require.ErrorContains(t, err, "does not exist")
 	})
-
-	t.Run("task is already cancelled", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			namespace        = "test"
-			taskID           = "1"
-			version   uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Namespace:             namespace,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-				UnitIds:               []string{"su-1"},
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Namespace:             "test",
-				Id:                    "1",
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd, false)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd, false)
-		require.ErrorContains(t, err, "no longer running")
-	})
 }
 
 func TestManager_CleanUpTask_Failures(t *testing.T) {
@@ -2095,11 +2062,11 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 	}
 }
 
-// nonTerminalFixture puts a task into the given non-terminal status and
-// returns its (namespace, id, version). PREPARING and SWAPPING go through
-// RecordUnitCompletion so FinishedAt matches production; an unrecognized
-// status has no production path, so it's assigned directly.
-func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
+// fixtureInStatus drives a task into the given status through the
+// production transitions, so the fixture cannot assert a state the FSM
+// never produces. An unrecognized status has no production path, so it is
+// assigned directly.
+func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
 	t.Helper()
 
 	const (
@@ -2109,40 +2076,27 @@ func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string
 	)
 
 	switch status {
+	case TaskStatusStarted:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 	case TaskStatusPreparing:
 		addBarrierTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		drivePreparing(t, h, ns, id, version, []string{"n1"})
 	case TaskStatusSwapping:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		completeUnit(t, h, ns, id, version, "n1", "u-n1")
-	case TaskStatusStarted:
-		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
-	default:
-		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
-		h.manager.tasks[ns][id].Status = status
-	}
-
-	require.Equal(t, status, h.manager.tasks[ns][id].Status,
-		"fixture did not reach %q", status)
-	return ns, id, version
-}
-
-// terminalFixture drives a task to the given terminal status through the
-// production transitions and returns its (namespace, id, version).
-func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
-	t.Helper()
-
-	const (
-		ns      = "ns"
-		id      = "task1"
-		version = uint64(10)
-	)
-
-	addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
-	switch status {
 	case TaskStatusFailed:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		failUnit(t, h, ns, id, version, "n1", "u-n1", "boom")
+	case TaskStatusCancelled:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    id,
+			Version:               version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
 	case TaskStatusFinished:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		completeUnit(t, h, ns, id, version, "n1", "u-n1")
 		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 			Namespace:         ns,
@@ -2159,7 +2113,12 @@ func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, s
 			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
 	default:
-		require.Failf(t, "no production path to this status", "%q is not terminal", status)
+		// No production transition writes a status this build cannot
+		// name — only Manager.Restore can put one here — so this arm
+		// assigns it. The assert below is load-bearing for the five
+		// production-driven arms and self-confirming for this one.
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		h.manager.tasks[ns][id].Status = status
 	}
 
 	require.Equal(t, status, h.manager.tasks[ns][id].Status,
@@ -2167,22 +2126,23 @@ func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	return ns, id, version
 }
 
-// nonTerminalStatuses are every status this build treats as in-flight,
-// including the one it cannot recognize.
-var nonTerminalStatuses = []TaskStatus{
-	TaskStatusStarted,
-	TaskStatusPreparing,
-	TaskStatusSwapping,
-	unknownFutureStatus,
-}
-
-// Pins: CleanUpTask refuses every non-terminal status, past the TTL, when
-// only the liveness check still stands between the task and deletion.
-func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
-	for _, status := range nonTerminalStatuses {
-		t.Run(string(status), func(t *testing.T) {
+// Pins: CleanUpTask refuses the coordination phases, past the TTL, when
+// only the liveness check still stands between the task and deletion —
+// and deletes a task in a status this build cannot name, which is the
+// only exit such a task has. STARTED is pinned by
+// TestManager_CleanUpTask_Failures.
+func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T) {
+	for _, tc := range []struct {
+		status  TaskStatus
+		refused bool
+	}{
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{unknownFutureStatus, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, status)
+			ns, id, version := fixtureInStatus(t, h, tc.status)
 
 			// Past the TTL: the age check no longer protects the task.
 			h.clock.Advance(2 * h.completedTaskTTL)
@@ -2192,28 +2152,43 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 				Id:        id,
 				Version:   version,
 			}))
-			require.ErrorContains(t, err, "still running")
-			require.Contains(t, h.manager.tasks[ns], id,
-				"a task in %q must survive cleanup", status)
+			if tc.refused {
+				require.ErrorContains(t, err, "still running")
+				require.Contains(t, h.manager.tasks[ns], id,
+					"a task in %q must survive cleanup", tc.status)
+				return
+			}
+			require.NoError(t, err)
+			require.NotContains(t, h.manager.tasks[ns], id,
+				"once a clean-up is proposed for %q, this is the task's only way "+
+					"out of the local FSM", tc.status)
 		})
 	}
 }
 
-// Pins: cancel stays open for STARTED and an unrecognized status, and
-// closed for the coordination phases.
+// Pins cancel eligibility for every status: open for STARTED and nothing
+// else. Closed for the coordination phases (a node may already have
+// swapped buckets), for every terminal status including a double cancel,
+// and for a status this build cannot name — only a build that can name it
+// knows whether stopping is safe, and every binary has to answer the same
+// way or the FSM diverges.
 func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus
 		accepted bool
 	}{
 		{TaskStatusStarted, true},
-		{unknownFutureStatus, true},
+		{unknownFutureStatus, false},
 		{TaskStatusPreparing, false},
 		{TaskStatusSwapping, false},
+		{TaskStatusFinished, false},
+		{TaskStatusFailed, false},
+		{TaskStatusCancelled, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, tc.status)
+			ns, id, version := fixtureInStatus(t, h, tc.status)
+			finishedAtBefore := h.manager.tasks[ns][id].FinishedAt
 
 			cancelledAt := h.clock.Now().Add(time.Minute)
 			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
@@ -2225,9 +2200,11 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 
 			task := h.manager.tasks[ns][id]
 			if !tc.accepted {
-				require.Error(t, err)
+				require.ErrorContains(t, err, "no longer running")
 				require.Equal(t, tc.status, task.Status,
 					"a task in %q must survive the cancel attempt", tc.status)
+				require.Equal(t, finishedAtBefore, task.FinishedAt,
+					"a refused cancel must not restamp FinishedAt")
 				return
 			}
 			require.NoError(t, err)
@@ -2238,21 +2215,144 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	}
 }
 
-// Pins: cancel refuses terminal statuses.
-func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
-	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed} {
-		t.Run(string(status), func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			ns, id, version := terminalFixture(t, h, status)
+// Pins the journey that makes the CleanUpTask exit load-bearing: a task
+// in a status this build cannot name arrives by snapshot (a leader
+// running a newer release), survives the restart that replays it, and is
+// then still removable. Nothing else can remove it — every status
+// transition refuses a status it cannot name, and once the peers have
+// deleted their copies the sweep's leader-routed list no longer carries
+// it either.
+func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)
 
-			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Namespace:             ns,
-				Id:                    id,
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			}), false)
-			require.Error(t, err)
-			require.Equal(t, status, h.manager.tasks[ns][id].Status)
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	restarted := NewManager(ManagerParameters{
+		Clock:            h.clock,
+		CompletedTaskTTL: h.completedTaskTTL,
+		Logger:           h.logger,
+	})
+	require.NoError(t, restarted.Restore(snap))
+	require.Equal(t, unknownFutureStatus, restarted.tasks[ns][id].Status,
+		"the status has to survive the round trip, or this journey proves nothing")
+
+	h.clock.Advance(2 * h.completedTaskTTL)
+	require.NoError(t, restarted.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+		Namespace: ns,
+		Id:        id,
+		Version:   version,
+	})))
+	require.NotContains(t, restarted.tasks[ns], id)
+}
+
+// Pins what the scheduler's unrecognized-status warn reads off this node
+// once the peers have deleted their copies: exactly the tasks in a status
+// this build cannot name, grouped by namespace, and always as clones —
+// the caller reads them outside the Manager's lock.
+//
+// The scheduler's warn reaches this through an interface it stubs out in
+// tests, so nothing else exercises the production method.
+func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
+	const otherNamespace = "other-namespace"
+
+	type taskSpec struct {
+		namespace string
+		id        string
+		version   uint64
+		status    TaskStatus
+	}
+
+	for _, tc := range []struct {
+		name  string
+		tasks []taskSpec
+		// want lists, per namespace, the task IDs that must be reported.
+		// Empty means the whole map must come back empty.
+		want map[string][]string
+	}{
+		{
+			name: "no tasks at all",
+		},
+		{
+			name: "every status this build declared is filtered out",
+			tasks: []taskSpec{
+				{"tasks-namespace", "started", 10, TaskStatusStarted},
+				{"tasks-namespace", "preparing", 11, TaskStatusPreparing},
+				{"tasks-namespace", "swapping", 12, TaskStatusSwapping},
+				{"tasks-namespace", "finished", 13, TaskStatusFinished},
+				{"tasks-namespace", "failed", 14, TaskStatusFailed},
+				{"tasks-namespace", "cancelled", 15, TaskStatusCancelled},
+			},
+		},
+		{
+			name: "one unrecognized task next to its recognized neighbors",
+			tasks: []taskSpec{
+				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
+				{"tasks-namespace", "started", 11, TaskStatusStarted},
+				{"tasks-namespace", "finished", 12, TaskStatusFinished},
+			},
+			want: map[string][]string{"tasks-namespace": {"stuck"}},
+		},
+		{
+			name: "several namespaces, one of them clean",
+			tasks: []taskSpec{
+				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
+				{"tasks-namespace", "also-stuck", 11, unknownFutureStatus},
+				{otherNamespace, "elsewhere", 12, unknownFutureStatus},
+				{"third-namespace", "started", 13, TaskStatusStarted},
+			},
+			want: map[string][]string{
+				"tasks-namespace": {"also-stuck", "stuck"},
+				otherNamespace:    {"elsewhere"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			for _, spec := range tc.tasks {
+				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
+				h.manager.tasks[spec.namespace][spec.id].Status = spec.status
+			}
+
+			got := h.manager.LocalUnrecognizedDistributedTasks()
+
+			if len(tc.want) == 0 {
+				require.Empty(t, got, "nothing unrecognized means nothing to report")
+				return
+			}
+
+			gotIDs := map[string][]string{}
+			for namespace, tasks := range got {
+				for _, task := range tasks {
+					require.False(t, task.Status.IsRecognized(),
+						"%s/%s is in a status this build declared", namespace, task.ID)
+					gotIDs[namespace] = append(gotIDs[namespace], task.ID)
+				}
+				sort.Strings(gotIDs[namespace])
+			}
+			require.Equal(t, tc.want, gotIDs)
+
+			// Clones: a caller that writes through the returned tasks
+			// must not reach the FSM the RAFT applies own.
+			for namespace, tasks := range got {
+				for _, task := range tasks {
+					task.Status = TaskStatusCancelled
+					for _, unit := range task.Units {
+						unit.Status = UnitStatusFailed
+					}
+
+					stored := h.manager.tasks[namespace][task.ID]
+					require.Equal(t, unknownFutureStatus, stored.Status,
+						"writing to a returned task must not change %s/%s", namespace, task.ID)
+					require.NotEmpty(t, stored.Units)
+					for unitID, unit := range stored.Units {
+						require.Equal(t, UnitStatusPending, unit.Status,
+							"writing to a returned unit must not change %s/%s/%s",
+							namespace, task.ID, unitID)
+					}
+				}
+			}
 		})
 	}
 }

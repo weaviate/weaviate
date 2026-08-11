@@ -837,6 +837,13 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 // collection's live shard count. The extra Range and the transient map of
 // shared name strings are cheap next to what one missed skip would cost: a
 // sweep falsely reported as having reached every shard.
+//
+// Paid once per walk, and a terminal cleanup walks once per (property,
+// index type) tuple, so a ten-property change-tokenization on a large
+// collection builds this map twenty times. Sharing one snapshot across the
+// tuples would be cheaper and wrong: a tenant legitimately dropped between
+// the first tuple and the fifth would then read as a shard the walk skipped,
+// and the sweep would report itself truncated when it was not.
 func (i *Index) shardNameSet() map[string]struct{} {
 	names := map[string]struct{}{}
 	i.shards.Range(func(name string, _ ShardLike) error {

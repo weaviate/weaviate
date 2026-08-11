@@ -5843,7 +5843,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in every case the caller must let it reach a terminal state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8744,7 +8744,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state.",
           "type": "boolean"
         },
         "enabled": {
@@ -8763,7 +8763,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state.",
           "type": "boolean"
         },
         "enabled": {
@@ -8811,7 +8811,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -17405,7 +17405,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in every case the caller must let it reach a terminal state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20491,7 +20491,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state.",
           "type": "boolean"
         },
         "enabled": {
@@ -20510,7 +20510,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state.",
           "type": "boolean"
         },
         "enabled": {
@@ -20558,7 +20558,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {

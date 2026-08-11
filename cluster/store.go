@@ -438,6 +438,14 @@ func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]
 	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
 }
 
+// LocalUnrecognizedDistributedTasks exposes this node's own FSM copies of
+// tasks whose status this build never declared. Local on purpose: the
+// leader-routed task query cannot see a task only this node still holds,
+// which is the case the caller reports on.
+func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
+	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
+}
+
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into
 // [SchemaManager.DeleteClass]'s cascade-delete of task records.
 // weaviate/0-weaviate-issues#231.

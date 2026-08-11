@@ -173,13 +173,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
@@ -381,13 +375,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		TargetTokenization: "word",
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_change_tok", Version: 1},
@@ -578,13 +566,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties: []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
@@ -714,13 +696,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
@@ -883,11 +859,68 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// blockingStatuses are the non-terminal statuses every reindex conflict
+// guard must refuse a mutation for, the unrecognized one included.
+var blockingStatuses = []distributedtask.TaskStatus{
+	distributedtask.TaskStatusStarted,
+	distributedtask.TaskStatusPreparing,
+	distributedtask.TaskStatusSwapping,
+	unknownFutureStatus,
+}
+
+// renderedCallRE matches a `PUT <path> <body>` the reindex messages render.
+// Every rendered body is one index group wrapping one flat object, so the
+// pattern needs no brace balancing.
+var renderedCallRE = regexp.MustCompile(`PUT (/v1/schema/[^ ]+/indexes/[^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
+
+// renderedCancelCall returns the cancel call a message names, or "" when it
+// names none. Matches the rendered JSON rather than the prose around it, so
+// it sees exactly what an operator would copy out and paste into a PUT.
+func renderedCancelCall(message string) string {
+	for _, m := range renderedCallRE.FindAllStringSubmatch(message, -1) {
+		if strings.Contains(m[2], `"cancel":true`) {
+			return m[0]
+		}
+	}
+	return ""
+}
+
+// requireCancelAdviceMatchesTheGuard asserts the one property these refusals
+// exist to get right: a remedy names a cancel call exactly when the cancel
+// endpoint would accept one.
+//
+// Both sides run production predicates —
+// [distributedtask.TaskStatus.IsCancellable], the literal that
+// Manager.CancelTask and the REST pre-flight both key on, and
+// [ReindexCancelCall], which decides whether this build can name the call at
+// all. The REST half of the same property (the rendered call driven through
+// findCancelTarget and cancelPreflight) is pinned by
+// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
+func requireCancelAdviceMatchesTheGuard(t *testing.T, message string,
+	status distributedtask.TaskStatus, payload ReindexTaskPayload, askedProperty string,
+) {
+	t.Helper()
+	got := renderedCancelCall(message)
+	if status.IsCancellable() && ReindexCancelCall(payload, askedProperty) != "" {
+		require.NotEmpty(t, got,
+			"a cancel is accepted in status %s and this build can name it, "+
+				"so the remedy has to print it", status)
+		return
+	}
+	require.Empty(t, got,
+		"a cancel in status %s is refused (or unnameable), so the remedy must not print one", status)
+}
 
 // TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that each schema
 // gate's remedy sentence matches what cancel actually offers for that
-// status: nameable vs. not, and mid-run vs. past-units cost.
+// status: whether a cancel is accepted at all, whether this build can name
+// it, and the mid-run vs. past-units cost.
 func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -935,19 +968,24 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"the next restart promotes it",
 		"re-running the migration",
 	}
-	// Past STARTED the remedy leads with "wait" and names the repair (the
-	// original submit body, not a rebuild — see [ReindexRepairCall]).
-	// PREPARING is included on purpose: the merge, not the swap, opens the
-	// window where cancel no longer drops the buckets.
-	cancelPastUnits := []string{
-		cancelCall,
-		"wait for it to finish",
+	// Past STARTED no cancel is accepted, so every coordination-phase remedy
+	// leads with the wait and says why nothing ends the task sooner.
+	waitItOut := []string{
+		"wait for it to reach a terminal state",
+		"answers 409 Conflict",
+		"no way to end this task early",
+	}
+	// Past STARTED the semantic remedy also names the repair (the original
+	// submit body, not a rebuild — see [ReindexRepairCall]). PREPARING is
+	// included on purpose: the merge, not the swap, opens the window where
+	// terminalizing as FAILED leaves promotable data behind.
+	pastUnits := concat(waitItOut, []string{
 		// Hedged on purpose: PREPARING is entered before runtimePrepare
 		// writes merged.mig, so for the first part of it nothing is.
 		"may already be merged on disk",
 		"the next restart promotes it",
 		`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
-	}
+	})
 	// Same task, minus the target tokenization an older binary would not have
 	// written: no repair call is nameable, so none is printed.
 	noTargetPayload, _ := json.Marshal(ReindexTaskPayload{
@@ -955,10 +993,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
-	repairUnnameable := []string{
-		cancelCall,
+	repairUnnameable := concat(waitItOut, []string{
 		"re-running the migration, which this build cannot name",
-	}
+	})
 	// A format-only migration has no PREPARING and no cutover, so neither
 	// STARTED nor SWAPPING can promise "nothing has happened yet" — and
 	// SWAPPING, which it does reach, has no schema flip to skip either.
@@ -996,6 +1033,23 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"while no shard has finished yet",
 		"sets indexRangeFilters on the property",
 	}
+	// Past STARTED a format-only task has every unit terminal on every node,
+	// so the wait is the whole story: nothing is left half-applied.
+	formatOnlyPastUnits := concat(waitItOut, []string{
+		"Every unit of this migration has already completed on every node",
+		"nothing to re-submit afterwards",
+	})
+	// A migration type this build doesn't know: it cannot say what waiting
+	// leaves behind, so it says that rather than guessing.
+	unknownTypePayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexMigrationType("a-type-from-a-newer-node"),
+		Properties:    []string{"name"},
+	})
+	unknownTypePastUnits := concat(waitItOut, []string{
+		"does not know this migration type",
+		"read the task on that node instead",
+	})
 	cancelUnnameable := []string{
 		"the cancel endpoint is keyed on one collection, property and index type",
 		"so this build can only tell you to wait it out",
@@ -1005,19 +1059,22 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"this build does not know that status",
 		"read the task on a node that knows the status",
 	}
-	// The data-dropping gate (DeleteClass) gets told to cancel and retry,
-	// not a follow-up call that would 404 once the collection is gone.
+	// The data-dropping gate (DeleteClass) gets told to retry its own
+	// request, not a follow-up call that would 404 once the collection is
+	// gone.
 	noFollowUp := []string{
 		"re-submit it via",
 		"re-running the migration",
 	}
-	cancelPastUnitsDropping := []string{
-		cancelCall,
-		"wait for it to finish",
+	pastUnitsDropping := concat(waitItOut, []string{
 		"may already be merged on disk",
 		"goes with the data you are removing",
-		"then re-issue this request",
-	}
+		"re-issue this request once the task is terminal",
+	})
+	formatOnlyPastUnitsDropping := concat(waitItOut, []string{
+		"Every unit of this migration has already completed on every node",
+		"Re-issue this request once the task is terminal",
+	})
 	formatOnlyDropping := []string{
 		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
 		"its shards commit one by one",
@@ -1048,18 +1105,18 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		},
 		{
 			"PREPARING", distributedtask.TaskStatusPreparing, "C", payload,
-			cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
-			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
 		},
 		{
 			"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload,
-			cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
-			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
 		},
 		{
 			"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload,
 			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
-			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
 		},
 		{
 			"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload,
@@ -1067,11 +1124,11 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
 		},
 		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
-		// gates still see them.
+		// gates still see them — and where their units are already done.
 		{
 			"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload,
-			formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
-			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
 		},
 		{
 			"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload,
@@ -1080,16 +1137,30 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		},
 		{
 			"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload,
-			formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted),
-			formatOnlyRangeableDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
 		},
 		{
 			"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload,
 			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
 		},
+		// Past STARTED the cancel is refused whether or not this build could
+		// have named one, so the unnameable-cancel wording drops out and the
+		// inversion warning is what is left to say.
 		{
 			"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload,
+			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+		},
+		// A type this build does not know abstains at both ends: it can name
+		// no cancel at STARTED and no consequence past it.
+		{
+			"STARTED unknown migration type", distributedtask.TaskStatusStarted, "C", unknownTypePayload,
 			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+		},
+		{
+			"SWAPPING unknown migration type", distributedtask.TaskStatusSwapping, "C", unknownTypePayload,
+			unknownTypePastUnits, concat(cancelUnnameable, cancelUnknown, notInverted), nil, nil,
 		},
 		{
 			string(unknownFutureStatus), unknownFutureStatus, "C", payload,
@@ -1107,11 +1178,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		{
 			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
 			[]string{
-				`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`,
 				`re-running the migration via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"tokenization":"word"}}`,
 			},
 			[]string{"/v1/schema/C/"},
-			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			[]string{"re-issue this request once the task is terminal"},
 			concat([]string{"/v1/schema/C/"}, noFollowUp),
 		},
 	}
@@ -1136,6 +1206,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				for _, unwanted := range notWant {
 					require.NotContains(t, err.Error(), unwanted)
 				}
+
+				// The rows above pin the wording; this asks the guard. A row
+				// that spelled out the wrong cancel advice would still fail
+				// here, which is the point — the string table is what let the
+				// PREPARING/SWAPPING advice drift away from the API.
+				var p ReindexTaskPayload
+				require.NoError(t, json.Unmarshal(st.payload, &p))
+				requireCancelAdviceMatchesTheGuard(t, err.Error(), st.status, p, gate.askedProperty)
 			})
 		}
 	}
@@ -1147,6 +1225,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 type schemaMutationGate struct {
 	name string
 	call func(className string, tasks []*distributedtask.Task) error
+	// askedProperty is what the gate passes to [ReindexGateRemedy]; the
+	// class- and tenant-wide gates pass "" because their refusal is not
+	// property-scoped.
+	askedProperty string
 	// dropsTheData marks gates whose caller destroys ALL the shards the
 	// migration works on. Only DeleteClass qualifies — a tenant mutation
 	// leaves the migration's state behind.
@@ -1160,6 +1242,7 @@ func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
 			call: func(className string, tasks []*distributedtask.Task) error {
 				return provider.CheckPropertyUpdate(className, "name", tasks)
 			},
+			askedProperty: "name",
 		},
 		{
 			name: "delete class",

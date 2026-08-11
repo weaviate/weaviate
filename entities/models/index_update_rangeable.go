@@ -28,7 +28,7 @@ import (
 // swagger:model IndexUpdateRangeable
 type IndexUpdateRangeable struct {
 
-	// When true, cancels the in-flight reindex task targeting this property's rangeable index.
+	// When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state.
 	Cancel bool `json:"cancel,omitempty"`
 
 	// enabled

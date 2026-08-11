@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -32,18 +31,6 @@ func gateWithTasks(tasks ...*distributedtask.Task) *schemaHandlers {
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 			db.ReindexNamespace: tasks,
 		}},
-	}
-}
-
-func reindexTask(t *testing.T, id string, status distributedtask.TaskStatus, payload db.ReindexTaskPayload) *distributedtask.Task {
-	t.Helper()
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	return &distributedtask.Task{
-		Namespace:      db.ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
-		Status:         status,
-		Payload:        raw,
 	}
 }
 
@@ -69,7 +56,7 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 		{distributedtask.TaskStatusCancelled, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
-			h := gateWithTasks(reindexTask(t, "T1", tc.status, payload))
+			h := gateWithTasks(buildTask(t, "T1", tc.status, payload, nil))
 			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
 			if !tc.blocked {
 				require.Empty(t, conflict, "a task this build knows is done must not block")
@@ -81,56 +68,85 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	}
 }
 
-// Pins: an undecodable payload is a hard reject, but scoped to its own
-// collection.
-func TestCheckReindexConflictForPropertyMutation_UndecodablePayloadIsScopedToItsCollection(t *testing.T) {
+// Pins: the pre-flight and the FSM guard reach the same verdict for
+// every structural payload class. The two arms that never look at the
+// mutated collection — a payload that does not decode, and one that
+// decodes without a Collection — are the ones this side used to skip,
+// which produced exactly the ok-then-FAILED two-step the pre-flight
+// exists to prevent.
+func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		raw         string
 		wantBlocked bool
 	}{
 		{
-			name:        "names another collection before failing",
-			raw:         `{"collection":"Other","properties":[1,2]}`,
+			name:        "well-formed, another collection",
+			raw:         `{"collection":"Other","migrationType":"change-tokenization","properties":["title"]}`,
 			wantBlocked: false,
 		},
 		{
-			name:        "names this collection before failing",
-			raw:         `{"collection":"C","properties":[1,2]}`,
+			name:        "well-formed, this collection",
+			raw:         `{"collection":"C","migrationType":"change-tokenization","properties":["title"]}`,
 			wantBlocked: true,
 		},
 		{
-			name:        "names no collection at all",
-			raw:         `not json`,
+			name:        "type error, names another collection",
+			raw:         `{"collection":"Other","properties":[1,2]}`,
+			wantBlocked: true,
+		},
+		{
+			name:        "type error, names this collection",
+			raw:         `{"collection":"C","properties":[1,2]}`,
+			wantBlocked: true,
+		},
+		{name: "syntax error", raw: `{"collection":"C",`, wantBlocked: true},
+		{name: "not json", raw: `not json`, wantBlocked: true},
+		// Decodes with no error at all and leaves every field zero.
+		{name: "literal null", raw: `null`, wantBlocked: true},
+		{
+			name:        "decodes without a collection",
+			raw:         `{"migrationType":"change-tokenization","properties":["title"]}`,
+			wantBlocked: true,
+		},
+		{
+			// Decodes cleanly and names another collection, so every
+			// later arm would wave it through — but half a payload is
+			// not enough to prove the task is unrelated, so both guards
+			// refuse on every collection.
+			name:        "decodes without a migration type, names another collection",
+			raw:         `{"collection":"Other","properties":["title"]}`,
 			wantBlocked: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := gateWithTasks(&distributedtask.Task{
+			task := &distributedtask.Task{
 				Namespace:      db.ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bad", Version: 1},
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        []byte(tc.raw),
-			})
-
-			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
-			if !tc.wantBlocked {
-				require.Empty(t, conflict,
-					"an undecodable task on another collection must not block mutations on C")
-				return
 			}
-			require.Contains(t, conflict, "unparseable payload")
+
+			restReason := gateWithTasks(task).
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
+			fsmErr := (&db.ReindexProvider{}).
+				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
+
+			require.Equal(t, tc.wantBlocked, restReason != "",
+				"REST pre-flight verdict (reason=%q)", restReason)
+			require.Equal(t, tc.wantBlocked, fsmErr != nil,
+				"FSM guard verdict (err=%v)", fsmErr)
 		})
 	}
 }
 
 // Pins: an empty Properties list means "all properties".
 func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
-	h := gateWithTasks(reindexTask(t, "T_all", distributedtask.TaskStatusStarted,
+	h := gateWithTasks(buildTask(t, "T_all", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
 			Collection:    "C",
-		}))
+		}, nil))
 
 	require.Contains(t,
 		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property"),
@@ -139,12 +155,12 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 
 // Pins: a task on a different property does not block the mutation.
 func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *testing.T) {
-	h := gateWithTasks(reindexTask(t, "T1", distributedtask.TaskStatusStarted,
+	h := gateWithTasks(buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
 			Collection:    "C",
 			Properties:    []string{"other"},
-		}))
+		}, nil))
 
 	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title"))
 }

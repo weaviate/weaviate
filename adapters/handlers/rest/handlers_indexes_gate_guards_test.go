@@ -259,6 +259,10 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 		return permanentRejection(distributedtask.ErrTaskNotRunning,
 			"[dtm-perm/task-not-running] task reindex/"+taskID+"/3 is no longer running")
 	}
+	vanished := func() error {
+		return permanentRejection(distributedtask.ErrTaskDoesNotExist,
+			"[dtm-perm/task-not-exist] task reindex/"+taskID+"/3 does not exist")
+	}
 
 	tests := []struct {
 		name      string
@@ -266,7 +270,10 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 		// settledAs is the status the task holds by the time the handler
 		// re-lists, empty for a task whose status does not move.
 		settledAs distributedtask.TaskStatus
-		wantNoOp  bool
+		// dropped removes the task from the listing the handler re-reads, which
+		// is what the FSM's task GC leaves behind.
+		dropped  bool
+		wantNoOp bool
 		// wantRefused expects the 409 the pre-flight would have given for the
 		// same condition, rather than a 500 carrying DTM's internal marker.
 		wantRefused bool
@@ -312,6 +319,31 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 			cancelErr: errors.New("raft: leader election in progress"),
 			settledAs: distributedtask.TaskStatusFinished,
 		},
+		{
+			// The task ended and the FSM's GC removed it before the cancel
+			// landed, so the FSM has no version to refuse against. The listing
+			// agrees it is gone, which is the same "nothing to cancel" a task
+			// that stopped on its own gets.
+			name:      "the task was garbage-collected before the cancel landed",
+			cancelErr: vanished(),
+			dropped:   true,
+			wantNoOp:  true,
+		},
+		{
+			// Same rejection, but the ID is back in the listing under a newer
+			// version. NO_OP would tell the operator the gate is clear while a
+			// migration is holding it.
+			name:      "a newer submission took the task's ID",
+			cancelErr: vanished(),
+		},
+		{
+			// The version is gone from the FSM and the ID it left behind is
+			// terminal: still nothing to cancel.
+			name:      "the task's own ending is what removed the version",
+			cancelErr: vanished(),
+			settledAs: distributedtask.TaskStatusFinished,
+			wantNoOp:  true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -328,6 +360,7 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 				},
 				cancelErr:               tc.cancelErr,
 				statusAfterFailedCancel: tc.settledAs,
+				dropAfterFailedCancel:   tc.dropped,
 			}
 			h := cancelHandlers(t, svc)
 			logger, hook := logrustest.NewNullLogger()

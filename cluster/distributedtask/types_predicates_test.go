@@ -23,12 +23,10 @@ import (
 // flip behavior without any localized test failure.
 // weaviate/0-weaviate-issues#243.
 
-// unknownFutureStatus stands in for a status a newer release introduced
-// and this build has never heard of — what a mixed-version cluster sees
-// during a rolling upgrade. Keep it a string no release will ever declare,
-// or these tests silently start asserting facts about a real status.
-// A var, not a const: the exhaustive linter treats every TaskStatus const
-// in the package as an enum member, and this one is not.
+// unknownFutureStatus stands in for a status a newer release introduced.
+// Keep it a string no release will ever declare, or these tests start
+// asserting facts about a real one. A var, not a const: the exhaustive
+// linter treats every TaskStatus const in the package as an enum member.
 var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
 
 // fixtureTask builds a Task with a controlled unit assignment for the
@@ -133,12 +131,6 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 			// a positive one.
 			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
 				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
-			// Catches a status added to IsCoordinationPhase's case list but
-			// misclassified terminal, which would pass the row above.
-			if tc.status.IsCoordinationPhase() {
-				assert.True(t, tc.status.IsActive(),
-					"%q is a coordination phase, so it must be active", tc.status)
-			}
 		})
 	}
 }

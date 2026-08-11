@@ -20,12 +20,16 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -824,6 +828,10 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 // unknownFutureStatus simulates a status a newer node introduced that this
 // build doesn't recognize. Deliberately not a capitalised present
 // participle, so it can never collide with a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // Pins cancel eligibility per [distributedtask.Manager.CancelTask]: open
@@ -845,7 +853,10 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 		wantCancellable bool
 	}{
 		{distributedtask.TaskStatusStarted, true, true},
-		{unknownFutureStatus, true, true},
+		// Found, but not cancellable: IsCancellable is a literal == STARTED,
+		// so a status this build cannot name is refused exactly like the
+		// coordination phases.
+		{unknownFutureStatus, true, false},
 		{distributedtask.TaskStatusPreparing, true, false},
 		{distributedtask.TaskStatusSwapping, true, false},
 		{distributedtask.TaskStatusFinished, false, false},
@@ -1042,6 +1053,160 @@ func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
 				}, logger)
 			require.Equal(t, tc.want,
 				build(context.Background())(tc.collection, tc.shard))
+		})
+	}
+}
+
+// Pins the wire response of every cancel arm: 202 CANCELLED for the
+// cancellable statuses (STARTED and one this build cannot name), 409 for
+// the coordination phases, 202 NO_OP when nothing matches. Each arm's
+// audit line is pinned with it.
+func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		status     distributedtask.TaskStatus
+		properties []string
+		wantCode   int
+		wantReason string
+	}{
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0, ""},
+		// Refused, not proposed: only a build that can name the status
+		// knows whether stopping is safe, so the FSM refuses it on every
+		// node and REST must not spend a RAFT apply finding that out.
+		// "Wait for it to reach a terminal state" is the wrong advice
+		// here — nothing on this node advances a status it cannot name.
+		{
+			"unrecognized", unknownFutureStatus, payload.Properties,
+			http.StatusConflict, "cannot classify that status",
+		},
+		{
+			"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		{
+			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		// The three terminal rows never reach the refusal logic: they
+		// are filtered out as cancel targets, so what they pin is that a
+		// finished task is a NO_OP rather than a 409.
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
+		// Empty Properties is the reserved whole-collection form; it has
+		// to match the queried property or the operator gets no cancel
+		// target for a task that blocks their mutation.
+		{"empty properties", distributedtask.TaskStatusStarted, nil, 0, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			tcPayload := payload
+			tcPayload.Properties = tc.properties
+			task := buildTask(t, "T1", tc.status, tcPayload, nil)
+
+			target, gotPayload, _, _ := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "foo", "filterable")
+			resp := h.cancelPreflight(target, "C", "foo", "filterable", nil)
+
+			if tc.wantCode == 0 {
+				require.Nil(t, resp, "%q must reach the cancel apply", tc.status)
+				require.Equal(t, "T1", target.ID)
+				require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
+				return
+			}
+
+			require.NotNil(t, resp, "%q must be answered before the cancel apply", tc.status)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantCode == http.StatusAccepted {
+				require.Contains(t, rec.Body.String(), reindexCancelStatusNoOp)
+				require.Equal(t, "reindex_task_cancel_noop", auditEvent(t, hook))
+				return
+			}
+
+			body := rec.Body.String()
+			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
+			require.Contains(t, body, tc.wantReason)
+			// Nothing on this node advances a status it cannot name, so
+			// the coordination-phase advice must not leak onto that arm.
+			if !tc.status.IsRecognized() {
+				require.NotContains(t, body, "wait for it to reach a terminal state")
+			}
+			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
+		})
+	}
+}
+
+// auditEvent returns the audit_event field of the single audit line the
+// hook captured.
+func auditEvent(t *testing.T, hook *logrustest.Hook) string {
+	t.Helper()
+	var events []string
+	for _, e := range hook.AllEntries() {
+		if v, ok := e.Data["audit_event"]; ok {
+			events = append(events, v.(string))
+		}
+	}
+	require.Len(t, events, 1, "the cancel arm must emit exactly one audit line")
+	return events[0]
+}
+
+// The apply-time mapping of DTM's rejections is pinned by
+// TestCancelThatRacedTheTasksOwnEnding, which drives the real cancel handler.
+
+// Pins the selection policy when several in-flight tasks match: a
+// cancellable one wins, so the operator never gets a 409 while a task
+// the FSM would have cancelled sits further down the list. With none
+// cancellable the first match is reported, so the refusal names a task
+// they can look up.
+func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+	task := func(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+		return buildTask(t, id, status, payload, nil)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		tasks  []*distributedtask.Task
+		wantID string
+	}{
+		{
+			name: "a cancellable task behind a coordination phase",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("started", distributedtask.TaskStatusStarted),
+			},
+			wantID: "started",
+		},
+		{
+			name: "none cancellable, so the first match is refused",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("preparing", distributedtask.TaskStatusPreparing),
+			},
+			wantID: "swapping",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, _, found, _ := findCancelTarget(tc.tasks, "C", "foo", "filterable")
+			require.True(t, found)
+			require.NotNil(t, target)
+			require.Equal(t, tc.wantID, target.ID)
 		})
 	}
 }

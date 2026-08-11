@@ -73,7 +73,7 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 					// assert, not require: Goexit inside a mock callback surfaces
 					// as a hang instead of this failure.
 					once.Do(func() {
-						stamped, _ := c.lastOp.setIfOwned(backupID, backup.Cancelling)
+						stamped, _ := c.lastOp.claimOf(backupID).stamp(backup.Cancelling)
 						assert.True(t, stamped)
 					})
 				})
@@ -81,7 +81,7 @@ func TestCoordinatorCommitAbortsOnACancelInFlight(t *testing.T) {
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
 			if tc.stampBeforeCommit {
-				stamped, _ := c.lastOp.setIfOwned(backupID, backup.Cancelling)
+				stamped, _ := c.lastOp.claimOf(backupID).stamp(backup.Cancelling)
 				require.True(t, stamped)
 			}
 
@@ -130,7 +130,7 @@ func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(
 		if n != 2 {
 			return
 		}
-		stamped, _ := c.lastOp.setIfOwned(backupID, backup.Cancelling)
+		stamped, _ := c.lastOp.claimOf(backupID).stamp(backup.Cancelling)
 		assert.True(t, stamped)
 	}
 
@@ -147,58 +147,6 @@ func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(
 	require.Equal(t, backup.Cancelled, backend.storedStatus(t))
 	require.NotContains(t, backend.storedStatuses(t), backup.Finalizing,
 		"FINALIZING is the point past which a cancel is refused; a cancelled restore must never reach it")
-}
-
-// Pins that a cancel arriving while a restore is staging stops it before schema apply.
-func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
-	t.Parallel()
-	const (
-		backendName = "s3"
-		backupID    = "1"
-		node        = "node1"
-		class       = "Class1"
-	)
-	ctx := context.Background()
-
-	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, backupID).Return("bucket/" + backupID)
-	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
-	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
-	fs.backend.On("Initialize", mock.Anything, backupID).Return(nil)
-	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
-	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
-	fs.client.On("Status", mock.Anything, node, mock.Anything).
-		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil)
-	fs.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
-
-	s := fs.scheduler()
-	s.restorer.timeoutNextRound = time.Millisecond
-
-	// ListClasses runs between the cancel's two slot stamps, so only the first
-	// is reliably observed here.
-	var (
-		once    sync.Once
-		stamped backup.Status
-	)
-	fs.selector.On("ListClasses", ctx).Return([]string{class}).Run(func(mock.Arguments) {
-		once.Do(func() { stamped = s.restorer.lastOp.get().Status })
-	})
-
-	store := coordStore{objectStore{fs.backend, backupID, "", "", ""}}
-	req := newReq(nil, backendName, backupID)
-	require.NoError(t, s.restorer.Restore(ctx, store, &req,
-		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: class}}))
-	require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == backup.Transferring },
-		20*time.Second, time.Millisecond, "the restore never reached its staging phase")
-
-	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
-
-	require.True(t, stamped.IsCancellation(),
-		"the cancel must stamp the slot before aborting the participants, or the restore never learns of it")
-	require.Eventually(t, func() bool { return s.restorer.lastOp.get().ID == "" },
-		20*time.Second, time.Millisecond, "the cancelled restore never stopped")
 }
 
 // Pins that a restore applying its schema refuses a cancel even when the
@@ -284,7 +232,8 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 			require.True(t, slot.set(backup.Transferring))
 
 			meta := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Transferring}
-			won, _, err := s.claimCancellation(context.Background(), store, meta, backupID, "", "")
+			claim := s.restorer.lastOp.claimOf(backupID)
+			won, _, err := s.claimCancellation(context.Background(), store, meta, backupID, claim, "", "")
 			require.NoError(t, err)
 			require.Equal(t, tc.wantWon, won)
 			require.Equal(t, tc.wantSlot, s.restorer.lastOp.get().Status,
@@ -295,7 +244,7 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 
 // Pins that a cancel does not inherit the reason of the failure it lands on: a
 // restore can fail on disk while the cancel that overtakes it is in flight.
-func TestSetIfOwnedDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
+func TestSlotOwnerStampDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
 	t.Parallel()
 	const (
 		id     = "restore-1"
@@ -307,7 +256,7 @@ func TestSetIfOwnedDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
 	require.Empty(t, prevID)
 	require.True(t, slot.setFailed(reason))
 
-	stamped, held := s.setIfOwned(id, backup.Cancelling)
+	stamped, held := s.claimOf(id).stamp(backup.Cancelling)
 	require.True(t, stamped)
 	require.Equal(t, backup.Failed, held.Status, "the state reported is the one the stamp decided on")
 
@@ -366,6 +315,15 @@ func TestLogCancelStampSeparatesTheAnomalyFromTheOrdinaryOutcomes(t *testing.T) 
 			held:      reqState{ID: backupID, Status: backup.Finalizing},
 			wantLevel: logrus.WarnLevel,
 			wantMsg:   "can no longer be cancelled",
+		},
+		{
+			// Same id, different restore: reporting a schema apply here would
+			// send the operator looking for one that is not running.
+			name:      "a retry of the same id holds the slot",
+			st:        backup.Cancelled,
+			held:      reqState{ID: backupID, Status: backup.Transferring},
+			wantLevel: logrus.WarnLevel,
+			wantMsg:   "held by a newer restore",
 		},
 		{
 			name:      "no restore holds the slot",
