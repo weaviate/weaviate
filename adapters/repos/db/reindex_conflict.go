@@ -209,23 +209,35 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 }
 
 // MutationRemedy is the tail of a mutation refusal: what the operator can
-// actually do about it. Every one of these refusals otherwise tells them
-// to cancel the reindex, which is advice that dead-ends for a status this
-// build cannot classify — the FSM refuses a cancel for it on every node.
+// actually do about it. Every one of these guards otherwise tells them to
+// cancel the reindex, and the cancel API accepts that for one status only
+// ([distributedtask.TaskStatus.IsCancellable], i.e. STARTED). For the
+// coordination phases and for a status this build cannot classify it
+// answers 409, so naming a cancel there sends the operator down a road
+// that dead-ends.
 //
-// Exported for the REST pre-flight, which refuses a DELETE of a property
-// index before the apply ever runs. On that path its wording is the only
-// one the operator reads, so the two have to end on the same sentence.
+// whenCancellable is the caller's own phrasing for the one status where a
+// cancel is the answer. The other two arms are shared, because what they
+// describe is the cancel API's verdict rather than the mutation being
+// refused.
+//
+// Only called for a task the caller has already read as in flight, so the
+// recognized arm is PREPARING or SWAPPING.
 //
 // Only the wording branches on the local vocabulary. The reject itself
 // does not, so the apply stays deterministic.
-func MutationRemedy(status distributedtask.TaskStatus, whenRecognized string) string {
-	if status.IsRecognized() {
-		return whenRecognized
+func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
+	switch {
+	case status.IsCancellable():
+		return whenCancellable
+	case status.IsRecognized():
+		return "the task is past the point where a cancel is accepted — the reindex REST API " +
+			"answers 409 in this phase, so it has to run through to a terminal state first"
+	default:
+		return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+			"refused on every node — the task has to reach a terminal state on the nodes that do " +
+			"recognize it"
 	}
-	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
-		"refused on every node — the task has to reach a terminal state on the nodes that do " +
-		"recognize it"
 }
 
 // CheckPropertyUpdate implements

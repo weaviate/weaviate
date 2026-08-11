@@ -2025,6 +2025,10 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
 	default:
+		// No production transition writes a status this build cannot
+		// name — only Manager.Restore can put one here — so this arm
+		// assigns it. The assert below is load-bearing for the five
+		// production-driven arms and self-confirming for this one.
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		h.manager.tasks[ns][id].Status = status
 	}
@@ -2068,7 +2072,8 @@ func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T)
 			}
 			require.NoError(t, err)
 			require.NotContains(t, h.manager.tasks[ns], id,
-				"a task in %q has no other way out of this node's FSM", tc.status)
+				"once a clean-up is proposed for %q, this is the task's only way "+
+					"out of the local FSM", tc.status)
 		})
 	}
 }
@@ -2158,6 +2163,9 @@ func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T
 // once the peers have deleted their copies: exactly the tasks in a status
 // this build cannot name, grouped by namespace, and always as clones —
 // the caller reads them outside the Manager's lock.
+//
+// The scheduler's warn reaches this through an interface it stubs out in
+// tests, so nothing else exercises the production method.
 func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 	const otherNamespace = "other-namespace"
 

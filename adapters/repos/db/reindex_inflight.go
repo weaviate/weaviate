@@ -142,6 +142,14 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // reindexInFlightError formats the operator-facing rejection. The
 // `preWire` flag distinguishes "DTM lookup says live" from "lookup not
 // yet installed" so the error body can hint at the right next step.
+//
+// The gate answers from a shard-keyed snapshot and never sees the task's
+// status, so the cancel remedy is stated with the condition attached
+// rather than branched on ([MutationRemedy] does the branching where the
+// status is in hand). Stating it unconditionally is what sent an operator
+// whose task carries a status this build cannot classify at a cancel the
+// API refuses with 409 — and at a GET that reports "indexing" for as long
+// as that task lives.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(
@@ -150,7 +158,7 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"indexing\". A cancel via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}} is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 	)
 }

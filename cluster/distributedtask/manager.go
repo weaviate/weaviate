@@ -869,11 +869,17 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	// proposer is the Scheduler's TTL sweep, which reads the leader's
 	// view (pinned by TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer),
 	// so a CLEAN_UP for such a task exists only once the cluster already
-	// considers it done. Without this exit the entry is unreachable
-	// forever: no transition can advance it (MarkTaskFinalized refuses
+	// considers it done. Nothing else can move the entry: no transition
+	// advances a status this build cannot name (MarkTaskFinalized refuses
 	// every status but FINISHED and SWAPPING) and no later sweep sees it,
 	// while it keeps blocking schema mutations and backups on its
 	// collection through the local map.
+	//
+	// So the exit fires only when some node in the cluster classifies the
+	// status as terminal. For a new non-terminal status nothing ever
+	// proposes a CLEAN_UP and this node stays pinned either way — which
+	// is the cheap direction, and the one IsTerminal's godoc says a new
+	// status has to be introduced in.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}

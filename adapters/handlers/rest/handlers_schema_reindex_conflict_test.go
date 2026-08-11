@@ -13,12 +13,18 @@ package rest
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -69,11 +75,11 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	}
 }
 
-// Pins: the pre-flight ends on the same remedy as the FSM guard, and for a
-// status this build cannot classify neither of them advises a cancel — the
-// FSM refuses that cancel on every node. It has to hold on this surface in
-// particular: a DELETE of a property index is refused here, before the
-// apply runs, so this is the only wording the operator ever reads.
+// Pins: the pre-flight ends on the same remedy as the FSM guard, and
+// wherever the cancel verb would answer 409 neither of them advises a
+// cancel. It has to hold on this surface in particular: a DELETE of a
+// property index is refused here, before the apply runs, so this is the
+// only wording the operator ever reads.
 func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -88,18 +94,18 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
 
-	// The remedy for a status this build can classify. The unclassifiable
-	// one must not merely qualify it — it must be gone.
-	recognized, _ := refusals(distributedtask.TaskStatusStarted)
-	recognizedRemedy := remedyOf(t, recognized)
+	// The remedy for the one status a cancel is accepted in. Where it is
+	// not, this advice must not merely be qualified — it must be gone.
+	cancellable, _ := refusals(distributedtask.TaskStatusStarted)
+	cancellableRemedy := remedyOf(t, cancellable)
 
 	for _, tc := range []struct {
 		status     distributedtask.TaskStatus
 		wantCancel bool
 	}{
 		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
+		{distributedtask.TaskStatusPreparing, false},
+		{distributedtask.TaskStatusSwapping, false},
 		{unknownFutureStatus, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -116,8 +122,8 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				return
 			}
 			require.NotContains(t, remedy, "cancel",
-				"a cancel is refused on every node for a status this build cannot classify")
-			require.NotContains(t, restReason, recognizedRemedy,
+				"the cancel verb answers 409 for %q, so no remedy may name one", tc.status)
+			require.NotContains(t, restReason, cancellableRemedy,
 				"the cancel advice has to be gone, not joined by a caveat")
 		})
 	}
@@ -206,6 +212,73 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 	require.Contains(t,
 		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property"),
 		"T_all")
+}
+
+// Pins: the refusal an operator reads on
+// DELETE /v1/schema/{class}/properties/{prop}/index/{name} names a cancel
+// only when the cancel verb would accept one for that task.
+//
+// Driven through the handler because this is where the two meet: a
+// non-empty conflict short-circuits to 422 before the request reaches
+// RAFT, so the FSM guard's wording never reaches this journey, and the
+// cancel it recommends is the one the same operator issues next.
+func TestDeleteClassPropertyIndex_NamesACancelOnlyWhereTheCancelVerbAcceptsOne(t *testing.T) {
+	const cancelAdvice = "cancel it via the reindex REST API before retrying"
+
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+	}
+
+	for _, tc := range []struct {
+		status             distributedtask.TaskStatus
+		wantCancelAccepted bool
+	}{
+		{status: distributedtask.TaskStatusStarted, wantCancelAccepted: true},
+		{status: distributedtask.TaskStatusPreparing},
+		{status: distributedtask.TaskStatusSwapping},
+		{status: unknownFutureStatus},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := buildTask(t, "T1", tc.status, payload, nil)
+
+			rec := httptest.NewRecorder()
+			gateWithTasks(task).deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
+				HTTPRequest: httptest.NewRequest(http.MethodDelete,
+					"/v1/schema/C/properties/title/index/searchable", nil),
+				ClassName:    "C",
+				PropertyName: "title",
+				IndexName:    "searchable",
+			}, nil).WriteResponse(rec, runtime.JSONProducer())
+
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
+				"an in-flight task blocks the DELETE before it reaches RAFT")
+			body := rec.Body.String()
+			require.Contains(t, body, "T1", "the refusal must name the task that blocks it")
+
+			// What the cancel this body may or may not name would answer.
+			logger, _ := logrustest.NewNullLogger()
+			target, _ := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "title", "searchable", logger)
+			cancelResp := (&indexesHandlers{appState: &state.State{Logger: logger}}).
+				cancelPreflight(target, "C", "title", "searchable", nil)
+
+			require.Equal(t, tc.wantCancelAccepted, cancelResp == nil,
+				"cancel verb reachability for %q", tc.status)
+
+			if tc.wantCancelAccepted {
+				require.Contains(t, body, cancelAdvice)
+				return
+			}
+
+			cancelRec := httptest.NewRecorder()
+			cancelResp.WriteResponse(cancelRec, runtime.JSONProducer())
+			require.Equal(t, http.StatusConflict, cancelRec.Code)
+			require.NotContains(t, body, cancelAdvice,
+				"the cancel this refusal recommends answers 409 for %q", tc.status)
+		})
+	}
 }
 
 // Pins: a task on a different property does not block the mutation.

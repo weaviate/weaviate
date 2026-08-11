@@ -13,7 +13,6 @@ package db
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -703,6 +702,10 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // blockingStatuses are the non-terminal statuses every reindex conflict
@@ -714,11 +717,17 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: every mutation refusal stops telling the operator to cancel the
-// reindex when the status is one this build cannot classify. The FSM
-// refuses a cancel for such a task on every node, so that advice would
-// send them down a road that dead-ends.
-func TestMutationRefusals_DropTheCancelAdviceForAnUnclassifiableStatus(t *testing.T) {
+// Pins: a mutation refusal tells the operator to cancel the reindex only
+// for the status the cancel API accepts one for. STARTED is that status.
+// A coordination phase gets 409 because stopping mid-cutover is unsafe,
+// and a status this build cannot classify gets 409 on every node — so
+// naming a cancel for either sends the operator down a road that
+// dead-ends.
+//
+// The expectations are spelled out per status rather than derived from
+// IsCancellable, so re-keying the helper onto a different predicate
+// shows up here as a failure instead of moving the goalposts with it.
+func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	provider := &ReindexProvider{}
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -733,32 +742,64 @@ func TestMutationRefusals_DropTheCancelAdviceForAnUnclassifiableStatus(t *testin
 		}}
 	}
 
-	for name, guard := range map[string]func(tasks []*distributedtask.Task) error{
-		"property update": func(tasks []*distributedtask.Task) error {
-			return provider.CheckPropertyUpdate("C", "name", tasks)
+	// Each guard's own wording for "cancel it", which may appear only
+	// where a cancel is accepted.
+	guards := map[string]struct {
+		call         func(tasks []*distributedtask.Task) error
+		cancelAdvice string
+	}{
+		"property update": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate("C", "name", tasks)
+			},
+			cancelAdvice: "cancel it via the reindex REST API before retrying",
 		},
-		"class mutation": func(tasks []*distributedtask.Task) error {
-			return provider.CheckClassMutation("C", tasks)
+		"class mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation("C", tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
 		},
-		"tenant mutation": func(tasks []*distributedtask.Task) error {
-			return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+		"tenant mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
+		},
+	}
+
+	for _, tc := range []struct {
+		status           distributedtask.TaskStatus
+		wantCancelAdvice bool
+		wantReason       string
+	}{
+		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
+		{
+			status:     distributedtask.TaskStatusPreparing,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     distributedtask.TaskStatusSwapping,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     unknownFutureStatus,
+			wantReason: "cannot classify that status",
 		},
 	} {
-		t.Run(name, func(t *testing.T) {
-			recognized := guard(tasksIn(distributedtask.TaskStatusStarted))
-			unclassifiable := guard(tasksIn(unknownFutureStatus))
-			require.Error(t, recognized)
-			require.Error(t, unclassifiable)
+		for name, guard := range guards {
+			t.Run(string(tc.status)+"/"+name, func(t *testing.T) {
+				err := guard.call(tasksIn(tc.status))
+				require.Error(t, err, "every non-terminal status blocks the mutation")
 
-			require.NotContains(t, recognized.Error(), "cannot classify that status")
-			require.Contains(t, unclassifiable.Error(), "cannot classify that status")
-
-			// Every message ends on its remedy. The cancel advice has to
-			// be gone, not merely joined by a caveat the operator has to
-			// reconcile against it.
-			remedy := recognized.Error()[strings.LastIndex(recognized.Error(), "— "):]
-			require.Contains(t, remedy, "cancel")
-			require.NotContains(t, unclassifiable.Error(), remedy)
-		})
+				if tc.wantCancelAdvice {
+					require.Contains(t, err.Error(), guard.cancelAdvice)
+					return
+				}
+				require.NotContains(t, err.Error(), guard.cancelAdvice,
+					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
+				require.Contains(t, err.Error(), tc.wantReason)
+			})
+		}
 	}
 }
