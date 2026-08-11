@@ -96,9 +96,11 @@ Query parameters:
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
   Required only when the operator wants a subset. Rejected on
-  single-tenant classes. Rejected on semantic migrations
-  (`change-tokenization*`) because the cluster-wide schema flip cannot
-  be sub-scoped — all tenants must migrate together.
+  single-tenant classes. Rejected on every semantic migration
+  (`IsSemanticMigration`: `change-tokenization`,
+  `change-tokenization-filterable`, `enable-filterable`,
+  `enable-searchable`, `change-algorithm`) because the cluster-wide
+  schema flip cannot be sub-scoped — all tenants must migrate together.
 
 Response shapes:
 
@@ -119,14 +121,18 @@ Response shapes:
   status this build does not recognize, where this build cannot tell. In
   both cases the error names the task ID and its status, and the caller
   has to wait for a terminal state.
-- `429 / 503` — per-collection in-flight cap reached (default 32) or
-  cluster-service unavailable.
+- `429` — per-collection in-flight cap reached (default 32).
+- `503` — an in-flight task carries a payload this build cannot decode, so
+  the conflict check cannot prove the new submit is safe. On the cancel
+  verb, `503` instead means the cluster service is not wired.
 
 ### `DELETE /v1/schema/{class}/properties/{property}/index/{indexName}`
 
 Drop a configured inverted index. `indexName` is one of `filterable`,
 `searchable`, `rangeFilters`. Flips the corresponding schema flag to
-false and scrubs all migration sentinels + sidecar buckets so a
+false, drops the bucket dir, removes the sidecar buckets, and scrubs the
+stale migration trackers — a tracker carrying `tidied.mig` / `merged.mig`
+is live deferred-finalize state and is deliberately kept — so a
 subsequent re-enable starts from a clean slate. Subject to the same
 MutationGuard as `UpdateProperty` — rejected while a reindex on this
 property is in flight.
@@ -177,15 +183,17 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   (`NeedsPreparationBarrier`, set automatically for semantic migrations by
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
-    `enable-searchable`, `enable-filterable`):
+    `change-tokenization-filterable`, `enable-filterable`,
+    `enable-searchable`, `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
     `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
-  - **Format-only migrations** (`enable-rangeable`, `repair-*`,
-    `roaring-set refresh`): `STARTED → SWAPPING → FINISHED`.
+  - **Format-only migrations** (`enable-rangeable`, `repair-filterable`,
+    `repair-rangeable`, `rebuild-searchable`):
+    `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
     state alignment to bound — each shard's `RunOnShard`
     completes the full lifecycle locally and there is no
@@ -213,7 +221,7 @@ preceding a transition on the per-task field. Annotations
         │   • Validate body, classify migration type, dispatch          │
         │   • checkReindexConflict (read-side mirror of FSM check)      │
         │   • Pre-submit CleanStalePartialReindexState                  │
-        │   • AddDistributedTask(namespace="reindex", payload, units)   │
+        │   • AddDistributedTaskWith[Groups]Barrier("reindex", payload) │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  RAFT-replicated AddTask
         ┌──────────────────────────────────▼─────────────────────────────┐
@@ -278,7 +286,7 @@ preceding a transition on the per-task field. Annotations
         │  Provider.OnTaskCompleted (per-node, semantic only)           │
         │   flipSemanticMigrationSchema — RAFT UpdatePropertyInternal   │
         │   (idempotent: every node fires, first commit wins)           │
-        │   ClearTokenizationOverlay on every local shard               │
+        │   ClearTokenizationOverlay on every loaded local shard        │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  scheduler marks finalized
                                   ┌────────▼────────┐
@@ -295,8 +303,9 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`enable-rangeable`, `repair-*`,
-`roaring-set refresh`) skip the OnGroupCompleted barrier — each shard
+Format-only migrations (`enable-rangeable`, `repair-filterable`,
+`repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
+barrier — each shard
 runs the full lifecycle inside its own `RunOnShard` and there is no
 cluster-wide schema flip. The flow is otherwise identical.
 
@@ -428,7 +437,9 @@ Validation, dispatch, response shaping. Two structural details worth
 calling out:
 
 **Per-`(collection, property)` submit lock.** Held across class read,
-validation, conflict check, and the RAFT `AddDistributedTask` call.
+validation, conflict check, and the RAFT `AddDistributedTaskWithBarrier`
+(or `AddDistributedTaskWithGroupsBarrier` for a multi-tenant semantic
+migration) call.
 Without this, a parallel `DELETE /properties/{p}/index/{name}` could
 win the lock between the PUT's `ReadOnlyClass` snapshot and its
 RAFT task-add, leaving the PUT validating against a schema that no
@@ -675,7 +686,8 @@ own scheduled completion flip still works. Class-wide
 - `OnGroupCompleted` (semantic only) → the swap phase, per local
   shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
-  via RAFT, then `ClearTokenizationOverlay` on every local shard.
+  via RAFT, then `ClearTokenizationOverlay` on every loaded local shard
+  (an unloaded shard holds no in-memory overlay).
 - `CheckConflict` / `CheckPropertyUpdate` / `CheckClassMutation` /
   `CheckTenantMutation` — see §4.3 & §7.
 
@@ -713,12 +725,15 @@ returns a `func(ctx, collection, prop, indexType) error` that fans out to
 handler (after `WaitForLocalTaskDrain`) and from the submit handler
 (defense in depth). Per-shard failures don't stop iteration so a stuck
 shard can't permanently wedge a `(collection, prop, indexType)` tuple.
-One sweep serves a whole call so the filesystem scan is cached across the
-index types a single migration touches.
+One sweep serves a whole call so an unloaded shard's directory listing is
+read once across the index types a single migration touches; a loaded
+shard's sweep always reads the filesystem directly and never acts on the
+cached snapshot.
 
 **`inverted_reindex_finalize.go`** — startup-time deferred dir rename
 (see §9), `nextMigrationGeneration`, `maxMigrationGeneration`,
-`completedMigrationGens`, `parseMigrationDirName`. The finalize
+`completedMigrationGens` (`parseMigrationDirName` lives in
+`inverted_reindex_strategy_dir_names.go`). The finalize
 algorithm handles every shape defensively: tidied / merged-but-not-
 tidied / lower-gen sidecars / in-flight gens left alone for
 `DiscoverInFlightReindexTasks` to pick up.
@@ -780,7 +795,7 @@ correct (if slow) per-shard fallback.
 
 Two primitives carry the load:
 
-**`Store.SwapBucketPointer(targetName, sourceName)`.** Atomic in-memory
+**`Store.SwapBucketPointer(ctx, targetName, sourceName)`.** Atomic in-memory
 pointer flip — all future `Store.Bucket(targetName)` calls return the
 bucket currently registered as `sourceName`. The source name is
 removed from the map; the source bucket's on-disk path is released
@@ -795,7 +810,7 @@ canonical path after the on-disk dir has been cleaned by
 `cleanStaleSidecarDirs`. Without the release, the second cycle aborts
 at `OnAfterLsmInit` with "bucket already registered".
 
-**`Store.FinalizeBucketSwap(canonicalDir, currentDir, backupDir)`.**
+**`Store.FinalizeBucketSwap(ctx, bucketName, canonicalDir, currentDir, backupDir)`.**
 The deferred-finalize counterpart: flush memtable, remove backup dir,
 `os.Rename(currentDir → canonicalDir)`, rewrite `bucket.dir` +
 `bucket.disk.dir` + every segment's in-memory `.path`, create a fresh
@@ -808,8 +823,9 @@ for the full history.
 
 The atomic-phase contract in the orchestrator file enforces this
 rule: a unit test fails if `SwapBucketPointer` is preceded by any
-disk-I/O or compaction-wait op inside Phase 2 (`testHookPostPropSwap`
-+ wall-clock budget assertion).
+disk-I/O or compaction-wait op inside Phase 2
+(`ShardReindexTaskGeneric.processOneSwapPropFn` + wall-clock budget
+assertion).
 
 ## 5. Migration strategies — quick map
 
@@ -904,9 +920,13 @@ The post-completion barrier is split into two phases.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard.
    Returns a non-nil error iff any task's RunSwapOnShard failed. The
    scheduler emits `RecordPostCompletionAck(Success=bool)` per node.
-4. FSM transitions `SWAPPING → FINISHED` only when every expected
-   PostCompletionAck has landed with `Success=true`.
-5. `OnTaskCompleted` fires → cluster-wide schema flip commits.
+4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
+   scheduler runs this phase (`runCompletedCallbackPhase`) before it
+   proposes finalization.
+5. FSM transitions `SWAPPING → FINISHED` only when every expected
+   PostCompletionAck has landed with `Success=true` AND this node's
+   `OnTaskCompleted` has fired — `runFinalizePhase` skips any task whose
+   `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
 skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
@@ -965,7 +985,7 @@ in short:
   per property, `removeReindexBucketsDirs`, sentinel writes. Disk-I/O-
   heavy. Schema = OLD, bucket = OLD throughout — safe with live queries.
 - **Phase 2a — ATOMIC SWAP (microseconds, inside overlay window):**
-  per prop, `Store.SwapBucketPointer(mainName, ingestName)` followed
+  per prop, `Store.SwapBucketPointer(ctx, mainName, ingestName)` followed
   by `markSwappedProp`. Tight loop. Bounds the per-shard
   "mixed-state" subwindow (some props swapped, others not) to a few
   microseconds total — queries during this subwindow that hit
@@ -1059,9 +1079,10 @@ clusters.
 tenant class. The handler validates:
 
 - `tenants` on a single-tenant class → 400.
-- No `tenants` on a multi-tenant class → defaults to all tenants for
-  format-only migrations; rejected as ambiguous for semantic
-  migrations (semantic must apply cluster-wide, no sub-scoping).
+- No `tenants` on a multi-tenant class → defaults to all tenants, for
+  semantic and format-only migrations alike. A multi-tenant semantic
+  migration takes the per-tenant group barrier
+  (`AddDistributedTaskWithGroupsBarrier`); see below.
 - `tenants` with a semantic migration → 400 ("all tenants must be
   targeted").
 - Tenant in `OFFLOADED` / `FROZEN` → 400 with the named tenant.
@@ -1220,18 +1241,23 @@ schema value and search a NEW-tokenized bucket — wrong results.
 
 The overlay closes this. `Shard.SetTokenizationOverlay(prop, newTok)`
 installs a per-shard map; every query path that needs a property's
-tokenization calls `inverted.ResolveTokenization(shard.tokenizationResolver, propName, prop.Tokenization)`
-which consults the overlay before falling back to the schema value.
+tokenization calls `inverted.ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)`,
+which consults the overlay before falling back to the schema value. The
+searcher's `tokResolver` is `Shard.TokenizationFor`, attached via
+`WithTokenizationResolver` wherever the shard builds a `Searcher` or
+`BM25Searcher`.
 
 Lifecycle:
 
 1. **Set** — `maybeWirePerPropOverlaySet` runs in Phase 2 of
    `OnGroupCompleted`, between PREP and ATOMIC SWAP, installing a
-   per-prop `onPropSwapped` hook on each task. The overlay for a prop
+   per-prop `swapPropAtomic` hook on each task (plus an `onPropSwapped`
+   fallback the recovery/resume path still uses). The overlay for a prop
    is then SET inside the swap's Phase 2a tight loop, ATOMICALLY with
-   that prop's `store.SwapBucketPointer` flip, not once-for-the-whole-
-   shard up front (which opens a disk-I/O-sized `overlay=NEW`,
-   `bucket=OLD` window across `RunSwapOnShard`'s preamble). Only for
+   that prop's bucket-pointer flip — one critical section via
+   `Shard.SwapBucketAndSetOverlay` — not once-for-the-whole-shard up
+   front (which opens a disk-I/O-sized `overlay=NEW`, `bucket=OLD`
+   window across `RunSwapOnShard`'s preamble). Only for
    tokenization-changing migrations (`change-tokenization`,
    `change-tokenization-filterable`).
 2. **Cover** — the entire Phase 2 (atomic swap + post-atomic tidy +
@@ -1334,8 +1360,11 @@ catches that gap.
 2. Schema FSM applies the `UpdateProperty` flipping the flag to
    false. The MutationGuard rejects if a reindex is in flight on this
    property (`FromInFlightMigration=false` on this path).
-3. `cleanStaleMigrationDirs` wipes the canonical bucket dir + any
-   sidecar dirs for the dropped index type, plus the tracker dir.
+3. `removeBucket` drops the canonical bucket dir, `cleanStaleSidecarDirs`
+   removes the leftover `__reindex` / `__ingest` / `__backup` dirs, and
+   `cleanStaleMigrationDirs` removes the stale tracker dirs — preserving
+   any tracker carrying `tidied.mig` / `merged.mig`, which is live
+   deferred-finalize state, not stale partial state.
 4. Subsequent re-enable starts from clean state.
 
 ## 13. Out of scope (broken; tracked follow-up)
@@ -1385,7 +1414,7 @@ while running v1.38 Preview.
 **LSM primitives**
 
 - [`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go) — `SwapBucketPointer`, `FinalizeBucketSwap`, `updateBucketDir`. The two function godocs document the in-memory-vs-disk split.
-- [`adapters/repos/db/lsmkv/segment_group.go`](../adapters/repos/db/lsmkv/segment_group.go) — `PrependSegmentsFromBucket`.
+- [`adapters/repos/db/lsmkv/segment_group_prepend.go`](../adapters/repos/db/lsmkv/segment_group_prepend.go) — `SegmentGroup.PrependSegmentsFromBucket`; the wrapper the reindex path calls, `Bucket.PrependSegmentsFromBucket`, is in [`bucket.go`](../adapters/repos/db/lsmkv/bucket.go).
 
 **Inverted analyzer / overlay**
 
@@ -1512,7 +1541,7 @@ test packages.
   `scheduler_multinode_test.go`, `errors_test.go`.
 - LSM swap primitives — `lsmkv/store_bucket_swap_test.go`.
 - Atomic-phase regression guard — `inverted_reindex_task_generic_test.go`
-  (the `testHookPostPropSwap` wall-clock budget assertion).
+  (the `processOneSwapPropFn` wall-clock budget assertion).
 
 ## 16. Deferred simplifications
 
