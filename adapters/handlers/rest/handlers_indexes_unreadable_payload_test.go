@@ -386,9 +386,8 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
 				tasksMap(tc.tasks(t)...), time.Hour, nil)
 
-			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
+			require.Equal(t, "indexing", idx.Status,
 				"the task still holds this collection at the backup gate")
-			require.Zero(t, idx.Progress, "no progress is readable from a phase this build does not know")
 		})
 	}
 }

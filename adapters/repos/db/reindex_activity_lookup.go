@@ -347,6 +347,11 @@ func reindexTaskOverlaps(task *distributedtask.Task, wanted map[string]struct{},
 // which may already be rebuilding buckets. Unit state is what separates a
 // genuinely untouched cancel from one that isn't.
 func reindexTaskTouchedShards(task *distributedtask.Task) bool {
+	if len(task.Units) == 0 {
+		// No unit list at all is "unknown", not "untouched": every real task
+		// carries its units from submission, so fail closed and clean up.
+		return true
+	}
 	for _, unit := range task.Units {
 		if unit != nil && unit.Status != distributedtask.UnitStatusPending {
 			return true
