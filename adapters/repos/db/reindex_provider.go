@@ -1859,12 +1859,9 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // logOperatorRepairGuidanceOnTerminalSemanticMigration logs the REST command
 // to recover from a semantic migration that reached `outcome` (FAILED or
 // CANCELLED) with a bucket left NEW-tokenized under an unflipped schema.
-//
-// FAILED always has evidence (a unit died mid-work); CANCELLED only logs
-// this when [ReindexProvider.promotableReindexStateOnThisNode] confirms
-// something merged, since a STARTED cancel wrote nothing. See
-// [ReindexGateRemedy] for the phase reasoning; same collection-naming rule
-// as [ReindexCancelCall].
+// FAILED always has evidence; CANCELLED only logs when
+// [ReindexProvider.promotableReindexStateOnThisNode] confirms something
+// merged. See [ReindexGateRemedy] for the phase reasoning.
 func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -1909,13 +1906,10 @@ func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLog
 
 // promotableReindexStateOnThisNode reports whether this node holds reindex
 // state the next restart would promote — the evidence gate for CANCELLED
-// repair guidance, since an unconditional "buckets are inverted" would be a
-// false alarm at STARTED, which [ReindexGateRemedy] calls safe to cancel.
-//
-// Per-node: at SWAPPING one replica can have merged while another hasn't,
-// and guidance belongs on the node that needs repairing. Answers true when
-// it cannot tell (no local store) — silence about possibly-inverted data is
-// the worse error.
+// repair guidance, since an unconditional "buckets are inverted" claim would
+// be a false alarm at STARTED. Per-node, since one SWAPPING replica can have
+// merged while another hasn't. Answers true when it cannot tell (no local
+// store) — silence about possibly-inverted data is the worse error.
 func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
 	if p.db == nil {
 		return true

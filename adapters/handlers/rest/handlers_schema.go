@@ -272,18 +272,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
-// checkReindexConflictForPropertyMutation is the REST-handler pre-flight for
-// the mutation guard: returns a non-empty reason if a reindex migration on
-// (className, propertyName) is non-terminal (per
-// [distributedtask.TaskStatus.IsActive]), mirroring the schema FSM's
-// MutationGuard at apply time but earlier, for operator UX.
-//
-// Per-node and best-effort: two nodes can both see "no conflict" and race to
-// RAFT, which the apply-time [MutationGuard] closes for real. A missing
-// lister or a TaskLister error returns "" so the request falls through to
-// RAFT rather than spuriously rejecting. An unreadable or incomplete payload
-// is a refusal instead, mirroring the apply side: we cannot prove
-// non-conflict, so the caller must not be told there is none.
+// checkReindexConflictForPropertyMutation is a best-effort UX pre-check; the
+// apply-time [MutationGuard] is what actually closes the race. It fails open
+// (returns "") on a missing/erroring TaskLister, and fails closed (refuses)
+// on a payload it can't prove doesn't conflict.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
@@ -305,8 +297,6 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !task.Status.IsActive() {
 			continue
 		}
-		// Mirrors the apply gate's wording so a retry isn't told
-		// something different on the second pass.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Task ID withheld: an unreadable payload also hides which
@@ -334,10 +324,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
-		// Matches the apply gate's wording too, for the same reason.
-		//
-		// callerDropsTheData is false: this caller (DELETE) removes only the
-		// named index, so the repair the remedy names is still meaningful.
+		// callerDropsTheData is false: DELETE removes only the named index,
+		// so the remedy's repair suggestion is still meaningful.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+

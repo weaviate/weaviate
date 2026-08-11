@@ -594,12 +594,9 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 	}
 }
 
-// The tenant gate must name the consequence for the migration type in
-// flight, not always claim a schema inversion — tenants outside the
-// mutation keep whatever state the abort leaves behind.
-//
-// The class gate names no per-type consequence at all: DeleteClass takes
-// the data with it, so there is no surviving state to describe.
+// TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight pins that the
+// tenant gate names the consequence per migration type, while the class
+// gate names none (DeleteClass leaves no surviving state to describe).
 func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
@@ -1175,10 +1172,8 @@ func concat(sets ...[]string) []string {
 }
 
 // TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
-// migration type crashes the conflict check, which runs on the RAFT apply
-// path, so a panic there is a cluster-wide crash loop. The "not known to
-// this build" row is the one that generalizes to a newer node's type during
-// a rolling upgrade — exactly how rebuild-searchable once crashed this path.
+// migration type crashes the conflict check on the RAFT apply path,
+// including one this build doesn't recognize (a newer node's type).
 func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
 	migrationTypes := append(allDeclaredReindexMigrationTypes(t),
 		"a-type-from-a-newer-node")
@@ -1215,11 +1210,9 @@ func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) 
 	}
 }
 
-// TestTypesConflictReason_UnknownTypeFailsClosed pins the RAFT-safe
-// handling of a migration type this build does not recognize: conflict when
-// the properties overlap, silence when they don't, and never a panic.
-// Overlap is decided from the property sets alone, which stays correct
-// whatever the types are.
+// TestTypesConflictReason_UnknownTypeFailsClosed pins the handling of a
+// migration type this build does not recognize: conflict when properties
+// overlap, silence when they don't, never a panic.
 func TestTypesConflictReason_UnknownTypeFailsClosed(t *testing.T) {
 	const unknown = ReindexMigrationType("a-type-from-a-newer-node")
 
@@ -1283,8 +1276,7 @@ func TestTypesConflictReason_UnknownTypeFailsClosed(t *testing.T) {
 
 // allDeclaredReindexMigrationTypes reads the migration types straight out of
 // the package source, so a new type is picked up without anyone remembering
-// to extend a list here. A hand-maintained copy is what let
-// rebuild-searchable reach the apply path with no mapping arm.
+// to extend a hand-maintained list here.
 func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 	t.Helper()
 	// The whole package, not just the file that holds them today: a
