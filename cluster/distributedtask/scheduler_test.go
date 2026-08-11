@@ -2014,10 +2014,10 @@ func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
 	require.Equal(t, 1.0, testutil.ToFloat64(
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 
-	// The peers' copy is gone and so is this node's. A counter would stay
-	// at 1; the gauge has to report that nothing is stuck now.
+	// Every copy is gone, so the namespace stops reporting altogether.
+	// Without the reset its last value would stand forever and page
+	// someone about a task nobody can find.
 	h.scheduler.localTaskInspector = localTaskInspectorStub{}
-	h.scheduler.warnOnUnrecognizedStatuses(clusterWide)
-	require.Equal(t, 0.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
+	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
 }
