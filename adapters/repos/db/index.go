@@ -3008,6 +3008,9 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
+// UnloadLocalShard removes the shard from the index without touching its files.
+// It returns errAlreadyShutdown only for a closed index — a shard that was
+// already shut down is the outcome the caller asked for.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -3028,7 +3031,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shardName)
 		}
-		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+		i.logger.WithField("shard", shardName).Debug("was already shut or dropped")
 	}
 
 	return nil

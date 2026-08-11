@@ -408,34 +408,62 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
-		return err
+	// the deletes run even when a tenant failed to load or unload. Otherwise the
+	// tenants the schema no longer lists keep their local directories and their
+	// offloaded copies until a later reload finishes the loop.
+	ec := errorcompounder.New()
+	ec.Add(m.updateIndexTenantsStatus(ctx, idx, incomingSS))
+
+	// a dead context cannot finish the cloud delete, and dropping only the local
+	// copy orphans the offloaded one for good: the shard leaves the index, so no
+	// later reload lists it again
+	if err := ctx.Err(); err != nil {
+		ec.Add(err)
+		return ec.ToError()
 	}
-	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
+
+	ec.Add(m.updateIndexDeleteTenants(ctx, idx, incomingSS))
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	nodeName := m.db.schemaGetter.NodeName()
+	ec := errorcompounder.New()
+
 	for shardName, phys := range incomingSS.Physical {
 		if !phys.IsLocalShard(nodeName) {
 			continue
 		}
 
+		var err error
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
-				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
+			if err = idx.LoadLocalShard(ctx, shardName, false); err != nil {
+				err = fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
 			}
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
+			if err = idx.UnloadLocalShard(ctx, shardName); err != nil {
+				err = fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
+		if err == nil {
+			continue
+		}
+		ec.Add(err)
+
+		// one failing tenant must not stop the loop, but a closed index or a
+		// dead context would fail every tenant behind it anyway. Say so, or the
+		// single tenant named below reads like the only one left unreconciled.
+		if ctx.Err() != nil || errors.Is(err, errAlreadyShutdown) {
+			ec.Addf("stopped reconciling the remaining tenants of %s", idx.ID())
+			break
+		}
 	}
-	return nil
+
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
@@ -490,7 +518,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 		if !slices.Contains(requestedShards, shardName) {
 			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
 				// TODO: an error should be returned but keeping the old behavior for now
-				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
+				m.logger.WithField("shard", shardName).Errorf("shutdown shard during update index: %v", err)
 				continue
 			}
 		}

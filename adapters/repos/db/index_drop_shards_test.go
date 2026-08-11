@@ -22,6 +22,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -105,6 +106,86 @@ func TestIndexDropShards(t *testing.T) {
 			if !tt.loaded {
 				_, err := os.Stat(shardDir)
 				require.Equal(t, tt.blockRemoval, err == nil)
+			}
+		})
+	}
+}
+
+// TestIndexUnloadLocalShard pins which failures return errAlreadyShutdown.
+// updateIndexTenantsStatus reads that sentinel as "the whole index is gone" and
+// stops reconciling the remaining tenants, so a per-shard failure carrying it
+// would silently truncate the reconcile.
+func TestIndexUnloadLocalShard(t *testing.T) {
+	const shardName = "shard1"
+
+	tests := []struct {
+		name string
+		// loaded stores a mock shard under shardName whose Shutdown returns
+		// shardShutdownErr
+		loaded           bool
+		shardShutdownErr error
+		closed           bool
+		wantErrContains  string
+		wantErrIs        error
+		wantShardKept    bool
+	}{
+		{
+			name:   "loaded shard is unloaded",
+			loaded: true,
+		},
+		{
+			name: "absent shard is already unloaded",
+		},
+		{
+			name:             "shard that was already shut down is not a failure",
+			loaded:           true,
+			shardShutdownErr: errAlreadyShutdown,
+		},
+		{
+			// the entry is deleted before Shutdown runs, so a failed unload
+			// leaves nothing behind and the shard stays live and unreachable
+			name:             "shard shutdown failure is reported without the sentinel",
+			loaded:           true,
+			shardShutdownErr: errors.New("still in use"),
+			wantErrContains:  "still in use",
+		},
+		{
+			name:          "closed index reports the sentinel and keeps the shard",
+			loaded:        true,
+			closed:        true,
+			wantErrIs:     errAlreadyShutdown,
+			wantShardKept: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+
+			if tt.loaded {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(tt.shardShutdownErr).Maybe()
+				idx.shards.Store(shardName, shard)
+			}
+			idx.closed = tt.closed
+
+			err := idx.UnloadLocalShard(context.Background(), shardName)
+
+			if tt.wantErrContains == "" && tt.wantErrIs == nil {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				if tt.wantErrContains != "" {
+					require.Contains(t, err.Error(), tt.wantErrContains)
+				}
+			}
+			// only a closed index may report the sentinel
+			require.Equal(t, tt.wantErrIs != nil, errors.Is(err, errAlreadyShutdown))
+
+			if tt.wantShardKept {
+				require.NotNil(t, idx.shards.Load(shardName))
+			} else {
+				require.Nil(t, idx.shards.Load(shardName))
 			}
 		})
 	}
