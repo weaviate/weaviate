@@ -298,8 +298,6 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
-// The marker classifyCloseCause attaches is the contract the REST-side
-// truncation reporting reads, so each cause has to reach the right one.
 func TestClassifyCloseCause(t *testing.T) {
 	unmarked := errors.New("something no close cause covers")
 

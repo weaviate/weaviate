@@ -641,9 +641,7 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 }
 
 // strategiesByMigrationDir builds one instance of every migration strategy,
-// keyed by the tracker dir prefix it declares. Checked for completeness against
-// the prefixes the cleanup enumerates, so a strategy missing here is a test
-// failure rather than a silent gap.
+// keyed by the tracker dir prefix it declares.
 func strategiesByMigrationDir(generation int) map[string]MigrationStrategy {
 	return map[string]MigrationStrategy{
 		MigrationDirSearchableMapToBlockmax:     &MapToBlockmaxStrategy{generation: generation},

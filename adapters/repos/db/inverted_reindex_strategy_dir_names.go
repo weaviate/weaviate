@@ -242,9 +242,8 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 // matches reports whether the tracker dir called name is in this scope. See
 // [migrationDirScope] for why the payload decides and the name only fills in.
 //
-// The retokenize strategies name their dir with a bare property name instead of
-// [migrationDirWithProps]; the two agree only because generateTasks rejects a
-// change-tokenization payload naming anything but a single property.
+// Retokenize strategies name their dir with a bare property name; that's
+// safe only because generateTasks limits such payloads to one property.
 func (s migrationDirScope) matches(name string) bool {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {
