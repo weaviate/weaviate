@@ -1636,7 +1636,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	if IsTokenizationChangingMigration(payload.MigrationType) {
 		className := entschema.ClassName(payload.Collection)
 		if idx := p.db.GetIndex(className); idx != nil {
-			idx.ForEachShard(func(shardName string, sh ShardLike) error {
+			// Loaded shards only: the overlay is in memory, so a shard that
+			// is not loaded has none to clear, and loading one to clear
+			// nothing is what the terminal path cannot afford.
+			idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
 				// Unwrap so the clear reaches the concrete shard whose
 				// overlay the set hook populated. On unwrap failure,
 				// TokenizationFor self-clears on the next query.
@@ -2090,6 +2093,10 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 // the rehydrate path completes the swap; without it, a half-applied local
 // swap could leave this node at OLD tokenization after a cluster-wide
 // schema flip already committed (#10675 family).
+//
+// Runs from the scheduler bootstrap, when every tenant of the collection is
+// still unloaded, so the check reads tracker dirs at a path this node joins
+// itself rather than loading a shard to ask it for that path.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
@@ -2110,20 +2117,35 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		return true
 	}
 
+	// One walk for every unit this node owns: a per-name lookup walks the
+	// shard map again for each of them. The tracker dir sits at a path this
+	// node can join, so nothing here loads a shard.
+	hosted := map[string]bool{}
 	for unitID, nodeName := range payload.UnitToNode {
 		if nodeName != localNode {
 			continue
 		}
-		shardName := payload.UnitToShard[unitID]
-		shard, err := lookupShardByName(idx, shardName)
-		if err != nil {
+		if shardName := payload.UnitToShard[unitID]; shardName != "" {
+			hosted[shardName] = false
+		}
+	}
+	if len(hosted) == 0 {
+		return true
+	}
+	if err := idx.ForEachShard(func(name string, _ ShardLike) error {
+		if _, wanted := hosted[name]; wanted {
+			hosted[name] = true
+		}
+		return nil
+	}); err != nil {
+		return true
+	}
+
+	for shardName, isHosted := range hosted {
+		if !isHosted {
 			continue
 		}
-		concrete, err := unwrapShard(context.Background(), shard)
-		if err != nil {
-			continue
-		}
-		lsmPath := concrete.pathLSM()
+		lsmPath := shardPathLSM(idx.path(), shardName)
 		// ChangeAlgorithm uses a class-level tracker dir; the per-property
 		// scope deliberately omits it.
 		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
