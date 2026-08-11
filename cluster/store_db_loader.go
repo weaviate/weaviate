@@ -14,6 +14,10 @@ package cluster
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // dbLoader owns the background shard load. Its zero value is idle.
@@ -34,6 +38,20 @@ type dbLoader struct {
 	deletes map[string]bool
 
 	wg sync.WaitGroup
+}
+
+// start runs load in the background unless a load has already run, and reports
+// whether it did. Scheduling lives here so that load itself has one body and
+// the call site is what says how it runs.
+func (l *dbLoader) start(load func(), log logrus.FieldLogger) bool {
+	if !l.begin() {
+		return false
+	}
+	enterrors.GoWrapper(func() {
+		defer l.wg.Done()
+		load()
+	}, log)
+	return true
 }
 
 // begin reports whether this call owns the load. One-shot: inFlight clears just
