@@ -27,13 +27,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns pins the write half of
-// the slot-ownership invariant for the restore goroutine. The slot is one per
-// node and a cancel frees it, so a newer restore can be holding it by the time
-// the previous one reaches any of its status writes. Stamping it publishes the
-// finished restore's outcome as the live one's: FAILED with the previous error
-// text, or CANCELLED, which makes the live restore abort itself as cancelled
-// externally.
+// TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns pins the write half
+// of the slot-ownership invariant: a cancel frees the slot, so a newer
+// restore can be holding it by the time the finished one writes its status.
 func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 	t.Parallel()
 	var (

@@ -42,11 +42,9 @@ func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 	}
 	require.NotNil(t, makeAppState, "MakeAppState is where the gate lookups are wired")
 
-	// found holds where MakeAppState runs each install itself; deferred holds
-	// the ones that only run when some function literal is later scheduled.
-	// bootstrapWait is the last goroutine MakeAppState launches — the one that
-	// blocks on RAFT replay — so an install after it is an install that has not
-	// happened yet while HTTP already serves.
+	// found: install position by name. deferred: installs only reachable from
+	// a scheduled function literal. bootstrapWait: position of the goroutine
+	// that blocks on RAFT replay.
 	found := map[string]token.Pos{}
 	deferred := map[string]bool{}
 	var bootstrapWait token.Pos

@@ -1115,10 +1115,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // payload naming no collection refuses every backup in the cluster. The
 // commit-time backstop ([db.ReindexOverlapLookup]) must agree on this same
 // scoping, so both read the payload through the same decoder.
-// The DTM list is a leader-forwarded query, so it runs on the caller's
-// context. fallbackCtx (the process-lifetime wiring context) is used only when
-// a caller passes none, so an unanswering leader cannot park a gate probe for
-// the life of the process.
+//
+// The DTM list runs on the caller's context; fallbackCtx is used only when
+// none is given, so an unreachable leader can't park a probe for the
+// process lifetime.
 func newShardReindexActivityBuilder(
 	fallbackCtx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -1162,9 +1162,8 @@ func newShardReindexActivityBuilder(
 				continue
 			}
 			for _, shardName := range payload.UnitToShard {
-				// Folded like blocked below: the payload carries the collection as
-				// the submitter spelled it and the caller as the schema spells it,
-				// so an unfolded miss would admit a backup of a held shard.
+				// Fold case: the payload's collection spelling may differ from the
+				// caller's schema spelling.
 				live[shardKey{strings.ToLower(collection), shardName}] = true
 			}
 		}

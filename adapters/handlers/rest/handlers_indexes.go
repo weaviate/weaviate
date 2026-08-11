@@ -655,11 +655,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if h.tasks != nil {
 		tasks, err := h.tasks.ListDistributedTasks(ctx)
 		if err != nil {
-			// Without the listing, neither the conflict check nor the cap can
-			// run, and the destructive sweep further down would then delete the
-			// on-disk state of a live task this node could not see. Same 503 as
-			// the unparseable-payload arm below, and for the same reason: a
-			// conflict that cannot be ruled out must be refused, not raced.
+			// A conflict that cannot be ruled out must be refused, not raced;
+			// the destructive sweep further down would otherwise delete a live
+			// task's on-disk state that this node couldn't see.
 			return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 				fmt.Sprintf("reindex blocked: cannot list in-flight reindex tasks, so a conflicting "+
 					"migration cannot be ruled out; retry once the cluster answers: %v", err)))

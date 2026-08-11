@@ -126,10 +126,8 @@ type ReindexProvider struct {
 	// cancelAppliedMu guards both maps below.
 	cancelAppliedMu sync.RWMutex
 	// cancelSeen is the per-collection refcount of recently applied terminal
-	// transitions — CANCELLED and FAILED alike, since
-	// [ReindexProvider.OnTerminalApplied] observes both. It answers the cluster
-	// probe only and blocks nothing; see OnTerminalApplied for why confirmation
-	// and blocking cannot be the same signal.
+	// transitions (CANCELLED and FAILED). Answers the cluster probe only and
+	// blocks nothing; see [ReindexProvider.OnTerminalApplied].
 	cancelSeen map[string]int
 	// cancelApplyGates holds the cleanup-gate release taken at cancel-apply
 	// time, until the teardown for that task takes over.
@@ -150,11 +148,8 @@ type ReindexProvider struct {
 }
 
 // reindexHoldKey keys both hold registries. Folded so a registration and a
-// probe that spell the class differently still match.
-//
-// Collection-wide, with no shard dimension: the sweeps these registries guard
-// ([Index.CleanStalePartialReindexState]) take no shard list and walk every
-// local shard, so a hold can never cover less than the whole collection.
+// probe spelling the class differently still match. Collection-wide, with no
+// shard dimension: the sweeps these registries guard walk every local shard.
 func reindexHoldKey(collection string) string {
 	return strings.ToLower(collection)
 }
@@ -1948,12 +1943,9 @@ func (p *ReindexProvider) unregisterCleanup(collection string) {
 // tearing partial sidecar state on the collection. Callers must hold
 // cleanupInProgressMu; the public form is [ReindexProvider.HoldForShard].
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard] answer
-// must include this signal — the DTM activity lookup it wraps flips a task to
-// terminal as soon as the FSM lands, but the node-local sidecar buckets are
-// still being shut down for tens of seconds after that. A backup that
-// snapshots the shard in that gap would capture half-removed __reindex /
-// __ingest dirs.
+// [DB.AnyLiveReindexForShard] must include this signal: DTM marks a task
+// terminal before the node-local sidecar teardown finishes, and a backup
+// snapshotting in that gap would capture half-removed dirs.
 func (p *ReindexProvider) cleanupHeldLocked(collection string) bool {
 	return p.cleanupInProgress[reindexHoldKey(collection)] > 0
 }
@@ -2592,15 +2584,12 @@ func (p *ReindexProvider) OnTerminalApplied(task *distributedtask.Task) {
 }
 
 // cancelCleanupWaiverApplies decides whether this node may skip the cleanup
-// gate and the drain for a cancelled task, and is the only place the two
-// node-local sites ([ReindexProvider.autoCleanupAfterTerminal] and
-// [ReindexProvider.OnTerminalApplied]) make that call.
+// gate and drain for a cancelled task.
 //
-// A live local worker vetoes the waiver. A worker registers its handle before
-// its first progress report flips a unit out of PENDING, so a cancel landing in
-// that window sees an all-PENDING unit list next to a worker that is about to
-// write __reindex / __ingest sidecars. Waiving there would report the shards
-// free to the backup gate while that worker keeps writing.
+// A live local worker vetoes the waiver: it registers its handle before its
+// first progress report flips a unit out of PENDING, so a cancel landing in
+// that window can see an all-PENDING unit list next to a worker still
+// writing sidecars.
 func (p *ReindexProvider) cancelCleanupWaiverApplies(task *distributedtask.Task) bool {
 	if !cancelledWithoutClaimedUnits(task) {
 		return false

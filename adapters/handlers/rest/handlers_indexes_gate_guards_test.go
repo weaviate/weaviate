@@ -11,10 +11,9 @@
 
 package rest
 
-// Guards on the reindex admission and cancel paths that decide what happens
-// when a question cannot be answered: an unreachable RAFT leader, a prober that
-// never reports, a peer too old to answer, and a cancel that lost a race with
-// the task's own ending.
+// Guards on the reindex admission and cancel paths for when a question
+// cannot be answered: unreachable leader, silent prober, old peer, or a
+// cancel racing the task's own ending.
 
 import (
 	"context"
@@ -42,11 +41,8 @@ import (
 // The task listing is what rules a conflicting migration out.
 // -----------------------------------------------------------------------------
 
-// Behind the listing sit the conflict check, the per-collection cap, the submit
-// gate, and a sweep that deletes .migrations trackers and the __reindex /
-// __ingest sidecars. A listing this node cannot get is a conflicting task it
-// cannot see, and sweeping on that guess destroys the live task's on-disk state
-// and then commits a second migration on top of it.
+// A failed listing hides any conflicting task, and the on-disk sweep behind
+// it must not run on that guess.
 func TestUpdateIndexRefusesWhenTheTaskListingFails(t *testing.T) {
 	svc := &raceTaskService{listErr: errors.New("raft: leader not reachable")}
 	h, provider := gatePriorityHandlers(t, svc)
@@ -64,8 +60,8 @@ func TestUpdateIndexRefusesWhenTheTaskListingFails(t *testing.T) {
 	require.Contains(t, errorMessage(t, unavailable.Payload), "raft: leader not reachable",
 		"the operator needs to know which failure to chase")
 
-	// Each of these is a step of the destructive path the refusal has to come
-	// before. Stated separately so a regression names which one it reached.
+	// Each assertion is a step of the destructive path; separated so a
+	// regression names which one it reached.
 	require.Emptyf(t, local.observed(),
 		"the handler carried on past the failed listing and read this node's backup slots")
 	require.Emptyf(t, fanOut.observed(),
@@ -81,8 +77,8 @@ func TestUpdateIndexRefusesWhenTheTaskListingFails(t *testing.T) {
 // The fan-out scan and the verdict it produces.
 // -----------------------------------------------------------------------------
 
-// perNodeProber answers each node from a script, including by panicking, which
-// is how a slot is left unwritten by a prober that never reports.
+// perNodeProber answers each node from a script; it can also panic to
+// simulate a prober that leaves its slot unwritten.
 type perNodeProber struct {
 	activity map[string]backup.NodeActivity
 	errs     map[string]error
@@ -99,10 +95,7 @@ func (p perNodeProber) NodeActivity(_ context.Context, node string) (backup.Node
 	return p.activity[node], nil
 }
 
-// The scan's three verdicts and the refusal each warrants. The rows that matter
-// most are the ones no single-condition fixture can produce: a node that is
-// certainly busy alongside one that never answered, and a node whose answer
-// never arrived at all.
+// The scan's three verdicts and the refusal each warrants.
 func TestScanBackupActivityVerdicts(t *testing.T) {
 	const (
 		busyNode        = "node1"
@@ -138,9 +131,8 @@ func TestScanBackupActivityVerdicts(t *testing.T) {
 			wantBody:        "reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers",
 		},
 		{
-			// A definite "busy" outranks a node that never answered: the caller
-			// is told to wait for the backup, which is a thing that ends, rather
-			// than for a cluster that reads as unhealthy.
+			// "busy" outranks "unreachable": wait for a backup to finish, not a
+			// cluster that merely reads unhealthy.
 			name: "a busy node and an unreachable one at the same time",
 			prober: perNodeProber{
 				activity: map[string]backup.NodeActivity{busyNode: running},
@@ -152,8 +144,8 @@ func TestScanBackupActivityVerdicts(t *testing.T) {
 			wantBody:        "reindex blocked: a backup is running in the cluster; retry after it finishes",
 		},
 		{
-			// The prober dies before writing its slot. The zero value there reads
-			// as "no backup running", so an unwritten slot has to be a refusal.
+			// The zero value reads as "no backup running", so an unwritten
+			// slot has to be a refusal.
 			name:            "a prober that never reports",
 			prober:          perNodeProber{panics: map[string]bool{unreachableNode: true}},
 			wantUnreachable: unreachableNode,
@@ -161,9 +153,8 @@ func TestScanBackupActivityVerdicts(t *testing.T) {
 			wantBody:        "reindex blocked: cannot confirm the cluster is free of backups; retry once every node answers",
 		},
 		{
-			// The deliberate fail-open. An old peer has no probe endpoint, and
-			// counting it as unreachable would 503 every submission for the whole
-			// rolling upgrade.
+			// Deliberate fail-open: an old peer has no probe endpoint, and
+			// treating it as unreachable would 503 the whole rolling upgrade.
 			name: "a peer too old to serve the probe",
 			prober: perNodeProber{errs: map[string]error{
 				unreachableNode: clients.ErrNodeActivityUnsupported,
@@ -212,9 +203,8 @@ func (unsupportedCleanupProber) CleanupInProgress(context.Context, string, strin
 	return false, clients.ErrReindexCleanupUnsupported
 }
 
-// The second deliberate fail-open. An old peer will never answer this probe, so
-// polling it spends the whole per-owner budget to learn nothing — and a cancel
-// during a rolling upgrade pays that for every old owner it names.
+// An old peer never answers this probe; polling it must give up at once
+// rather than burn the per-owner timeout budget.
 func TestAwaitOneOwnerCleanupGateGivesUpAtOnceOnAnOldPeer(t *testing.T) {
 	h, _ := gateHandlers(unsupportedCleanupProber{}, fixtureNode, "node2")
 
@@ -232,9 +222,8 @@ func TestAwaitOneOwnerCleanupGateGivesUpAtOnceOnAnOldPeer(t *testing.T) {
 // Cancelling a task that names no collection.
 // -----------------------------------------------------------------------------
 
-// The sweep is addressed by the URL's (collection, property, index type), and
-// this task names none of them. Running it would delete the on-disk state of
-// whichever migration does own that tuple.
+// A task naming no collection cannot address the on-disk sweep; running it
+// would delete state belonging to whichever migration does own that tuple.
 func TestCancelOfATaskNamingNoCollectionSkipsTheOnDiskSweep(t *testing.T) {
 	svc := &raceTaskService{tasks: []*distributedtask.Task{
 		unattributableTask("orphan", distributedtask.TaskStatusStarted),
@@ -262,11 +251,8 @@ func TestCancelOfATaskNamingNoCollectionSkipsTheOnDiskSweep(t *testing.T) {
 // A cancel that lost the race with the task's own ending.
 // -----------------------------------------------------------------------------
 
-// DTM refuses a cancel for a task that already stopped, with the same permanent
-// rejection it gives a task that is live but past the cancellation point. Only
-// a fresh listing tells the two apart, and getting it wrong either reports a
-// running migration as settled or leaves the operator with a 500 for a task
-// that is already gone.
+// DTM's rejection for an already-stopped task is identical to the one for a
+// task past the cancellation point; only a fresh listing tells them apart.
 func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 	const (
 		taskID     = "Movies:repair-filterable:title:ab3f"
@@ -304,14 +290,14 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 			wantNoOp:  true,
 		},
 		{
-			// Same rejection, live task. Reporting NO_OP here tells the operator
-			// the migration is over while it goes on to swap and flip the schema.
+			// Same rejection, but a live task: NO_OP here would misreport a
+			// migration that is still running.
 			name:      "the task is still preparing",
 			cancelErr: rejection(),
 		},
 		{
-			// The task did settle, but the error says nothing about why the
-			// cancel failed, so its state is a guess rather than a reading.
+			// The error says nothing about why the cancel failed, so the
+			// task's state is a guess, not a reading.
 			name:      "the cancel failed for an unrelated reason",
 			cancelErr: errors.New("raft: leader election in progress"),
 			settledAs: distributedtask.TaskStatusFinished,
@@ -357,10 +343,8 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 // Authorization on the cancel route.
 // -----------------------------------------------------------------------------
 
-// Cancel is carved out of the RUNTIME_REINDEX_ENABLED refusal so a migration
-// already running stays stoppable. The carve-out sits after the authorization
-// check on purpose: were it first, the kill switch would turn the cancel route
-// into an unauthenticated way to stop any migration in the cluster.
+// The kill-switch carve-out for cancel must sit after the authorization
+// check, or it becomes an unauthenticated way to stop any migration.
 func TestCancelRouteAuthorization(t *testing.T) {
 	const collection = "Movies"
 	principal := &models.Principal{Username: "u1"}
@@ -381,8 +365,8 @@ func TestCancelRouteAuthorization(t *testing.T) {
 			wantForbidden:  true,
 		},
 		{
-			// The arm that pins the ordering: with the kill switch first this is
-			// a 400 that never consults the authorizer.
+			// Pins the ordering: kill switch first would 400 without ever
+			// consulting the authorizer.
 			name: "a denial while the feature is off",
 			authzErr: func() error {
 				return forbidden(principal, authorization.UPDATE, authorization.Collections(collection)[0])
@@ -432,9 +416,8 @@ func TestCancelRouteAuthorization(t *testing.T) {
 // Wiring.
 // -----------------------------------------------------------------------------
 
-// The three permissive seams. Each is nil only in fixtures, and each fails OPEN
-// when nil, so a wiring regression on a real node leaves the gate passing its
-// own tests while no longer running. Nothing else would report it.
+// Each collaborator fails OPEN when nil, so a wiring regression must be
+// reported — nothing else would catch it.
 func TestNewIndexesHandlersReportsUnwiredGateCollaborators(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 

@@ -70,10 +70,9 @@ type Manager struct {
 	// Per-namespace terminal-apply observers; see [TerminalObserver].
 	terminalObservers map[string]TerminalObserver
 	// terminalPending holds live terminal endings that applied before the
-	// namespace registered its observer. Registration happens well after the
-	// store starts applying, and an ending dropped in that window is exactly
-	// the one the observer exists for. Bounded by
-	// [terminalPendingPerNamespace]; guarded by mu.
+	// namespace registered its observer, since registration happens well after
+	// the store starts applying. Bounded by [terminalPendingPerNamespace];
+	// guarded by mu.
 	terminalPending map[string][]*Task
 	// terminalDispatch carries terminal tasks to the single drainer goroutine
 	// that calls the observers; see [Manager.dispatchTerminalWithLock].

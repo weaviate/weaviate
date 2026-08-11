@@ -43,9 +43,8 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 		name string
 		// tasks is the full DTM snapshot the cancel handler reads.
 		tasks []*distributedtask.Task
-		// gateBlocks is what the gates' own predicate says about these tasks'
-		// status. Asserted alongside the cancel outcome, since "cancel matches
-		// the set the gates block on" is a claim about both halves.
+		// gateBlocks is the gates' own predicate for this status, checked
+		// alongside the cancel outcome so both halves stay in sync.
 		gateBlocks bool
 		// wantCancelled is the task ID cancel must send to DTM, empty for none.
 		wantCancelled string
@@ -101,9 +100,6 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFinished, collection)},
 		},
 		{
-			// The two statuses a task that was already stopped actually holds.
-			// Answering CANCELLED for them would tell an operator a second
-			// cancel did something.
 			name:  "failed is nothing to cancel",
 			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFailed, collection)},
 		},

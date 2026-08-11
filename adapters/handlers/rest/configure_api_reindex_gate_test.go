@@ -96,9 +96,7 @@ func TestShardReindexActivityBuilderScopesByCollectionAndShard(t *testing.T) {
 			wantLive: false,
 		},
 		{
-			// The payload carries the collection as the submitter spelled it
-			// and the caller as the schema spells it, so a case-sensitive
-			// compare here would admit a backup of a held shard.
+			// case-insensitive collection match
 			name:       "the held tuple spelled with different case",
 			collection: "myclass", shard: "shard1", wantLive: true,
 		},

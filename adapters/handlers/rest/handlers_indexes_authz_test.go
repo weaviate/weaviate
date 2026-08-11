@@ -112,9 +112,8 @@ func (f *authzSubmitFixture) requireNothingBehindTheCheckRan(t *testing.T) {
 func TestUpdateIndexAuthorization(t *testing.T) {
 	principal := &models.Principal{Username: "u1"}
 
-	// Both real authorizers wrap the denial (rbac prefixes "rbac:", adminlist
-	// prefixes "adminlist:"), so a bare denial alone would keep this arm green
-	// while every production refusal came back as a 500.
+	// Real authorizers wrap the denial (e.g. "rbac:" prefix); a bare denial
+	// alone would keep this arm green while production refusals came back 500.
 	denials := []struct {
 		name string
 		err  func() error

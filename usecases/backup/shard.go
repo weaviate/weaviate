@@ -209,19 +209,13 @@ func (s *backupStat) setLocked(st backup.Status) {
 	s.reqState.Err = ""
 }
 
-// publishIfOwned mirrors an operation's own outcome onto the slot, and only
-// while generation is still the claim holding it. This is the terminal write of
-// the two coordinator goroutines, so it lands after everything else the
-// operation does — long enough for a cancel to have freed the slot and a newer
-// operation to have claimed it. Stamping the newcomer publishes the finished
-// operation's outcome as the running one's: Failed together with the previous
-// error text, or Cancelled, which makes the newer operation abort itself as
-// cancelled externally.
-//
-// Keyed on the generation rather than the id, matching
-// [backupStat.resetIfOwned], because the writer is the claim holder and a newer
-// claim can carry the same id — retrying a cancelled operation under its
-// original id is a normal flow. Reports whether it wrote.
+// publishIfOwned mirrors an operation's own outcome onto the slot, but only
+// while generation is still the claim holding it. Written this late, a newer
+// operation may already have claimed the slot; writing unconditionally would
+// stamp the finished operation's outcome onto the newcomer. Keyed on
+// generation rather than id, matching [backupStat.resetIfOwned], since a
+// retried operation can reuse the same id under a new claim. Reports whether
+// it wrote.
 func (s *backupStat) publishIfOwned(generation uint64, st backup.Status, reason string) bool {
 	s.Lock()
 	defer s.Unlock()

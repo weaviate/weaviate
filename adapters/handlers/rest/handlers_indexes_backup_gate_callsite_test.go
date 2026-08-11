@@ -22,9 +22,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-// fixedActivityProber answers the backup activity probe from a static map, and
-// counts the asks: an outcome alone cannot tell a gate that ran and cleared
-// from a gate that was never consulted.
+// fixedActivityProber answers the backup activity probe from a static map and
+// counts calls, so tests can tell "gate ran and cleared" from "gate skipped".
 type fixedActivityProber struct {
 	activity map[string]backup.NodeActivity
 

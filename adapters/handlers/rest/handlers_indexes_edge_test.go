@@ -917,9 +917,7 @@ func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
 			return reason != ""
 		}},
 		{"backup gate", func(task *distributedtask.Task) bool {
-			// The wired builder, not a stand-in: it is the only reader the
-			// backup gate has, and a stand-in would keep this arm green
-			// through any change to it.
+			// Use the wired builder itself, not a stand-in.
 			build := newShardReindexActivityBuilder(context.Background(),
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
 					return map[string][]*distributedtask.Task{db.ReindexNamespace: {task}}, nil

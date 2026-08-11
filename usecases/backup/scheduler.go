@@ -247,11 +247,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			// The gate answers before existence does: a caller who cannot
 			// restore right now should be told that, not sent to fix an id
 			// that was never the problem.
-			// An explicit include scopes the gate to the collections the caller
-			// was authorized for above, so the answer discloses nothing they
-			// cannot already see. There is no descriptor to expand a wildcard
-			// pattern against, and a pattern matches no collection, so such a
-			// request is answered with the 404 instead.
+			// Scope the gate to the collections already authorized above; a
+			// wildcard pattern with no descriptor to expand against just falls
+			// through to the 404 below.
 			gateCollections := req.Include
 			if !explicitInclude {
 				// This path has no classes to authorize against, so a broad

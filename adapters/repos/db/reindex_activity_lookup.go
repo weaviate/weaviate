@@ -28,9 +28,8 @@ import (
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
 // ShardReindexActivityLookupBuilder returns a fresh snapshot. It takes the
-// caller's context because building one queries the RAFT leader: bound to the
-// wiring context instead, an unanswering leader parks the caller until the
-// process shuts down.
+// caller's context since building one queries the RAFT leader; a fixed
+// wiring context would let an unanswering leader park the caller forever.
 type ShardReindexActivityLookupBuilder func(ctx context.Context) ShardReindexActivityLookup
 
 // SetShardReindexActivityLookup installs the builder used by the backup
