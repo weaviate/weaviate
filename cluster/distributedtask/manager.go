@@ -384,11 +384,10 @@ func (m *Manager) runTerminalObserver(task *Task) {
 
 // dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
 //
-// catchingUp comes from the FSM's RAFT-replay flag: on startup a node replays
-// entries already in its local log, and signalling those endings would announce
-// something that happened long ago to an observer treating it as live. Endings
-// missed while the node was down replicate later at a higher index and fire
-// normally.
+// catchingUp comes from the FSM's RAFT-replay flag: entries already in the
+// local log are skipped so a startup replay doesn't reannounce old endings
+// as live. Endings missed while the node was down replicate later at a
+// higher index and fire normally.
 //
 // Observers run off the apply path because they take locks also held by
 // HTTP/admission code; running inline could stall the whole FSM behind a

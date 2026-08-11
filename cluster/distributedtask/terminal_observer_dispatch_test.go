@@ -514,9 +514,8 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 			"whose recover the acceptance image disables", contained(), total)
 }
 
-// restoreTaskInStatus puts a single task into the FSM at the given status,
-// which is the only way to reach the mid-flight PREPARING/SWAPPING states
-// without driving a full multi-node scheduler run.
+// restoreTaskInStatus reaches PREPARING/SWAPPING directly, without driving a
+// full multi-node scheduler run.
 func restoreTaskInStatus(t *testing.T, m *Manager, status TaskStatus) {
 	t.Helper()
 	snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
@@ -533,9 +532,7 @@ func restoreTaskInStatus(t *testing.T, m *Manager, status TaskStatus) {
 	require.NoError(t, m.Restore(snap))
 }
 
-// Pins the three FAILED routes that end a task after its units are already
-// terminal. A namespace that never hears one of these waits forever, because
-// no later transition follows to correct it.
+// Pins the three FAILED routes that must still reach the terminal observer.
 func TestTerminalObserverFiresOnEveryFailedRoute(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -609,9 +606,7 @@ func TestTerminalObserverFiresOnEveryFailedRoute(t *testing.T) {
 	}
 }
 
-// Pins the claim that a cluster with no registered observer pays nothing:
-// without the lookup guard every terminal transition would clone the task and
-// fill a queue no drainer is running to empty.
+// Pins that unregistered namespaces never get dispatched to.
 func TestTerminalDispatchSkipsUnregisteredNamespaces(t *testing.T) {
 	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
