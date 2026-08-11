@@ -582,3 +582,76 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 	assert.Equal(t, expectedID, addedObject.Properties.(map[string]interface{})["my_id"])
 	assert.Equal(t, expectedIDz, addedObject.Properties.(map[string]interface{})["my_idz"])
 }
+
+// Test_Add_Object_Waits_For_AutoSchema_Version_Before_Write pins the contract
+// that a write is never issued at a schema version the local node has not
+// waited for. Auto-schema materialises the index inside the raft apply, so
+// writing at an unawaited version lets a node that has not applied that entry
+// resolve no index and fail with "import into non-existing index".
+func Test_Add_Object_Waits_For_AutoSchema_Version_Before_Write(t *testing.T) {
+	const autoSchemaVersion uint64 = 41
+
+	existingClass := &models.Class{
+		Class: "FooExisting", Vectorizer: config.VectorizerModuleNone,
+		VectorIndexConfig: hnsw.UserConfig{},
+	}
+
+	tests := []struct {
+		name   string
+		schema schema.Schema
+		object *models.Object
+	}{
+		{
+			name:   "auto-schema creates the collection",
+			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{}}},
+			object: &models.Object{Class: "FooBrandNew", Properties: map[string]any{"title": "a"}},
+		},
+		{
+			name:   "auto-schema adds a property to an existing collection",
+			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{existingClass}}},
+			object: &models.Object{Class: "FooExisting", Properties: map[string]any{"title": "a"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: tt.schema,
+				AutoSchemaVersion: autoSchemaVersion,
+			}
+			vectorRepo := &fakeVectorRepo{}
+
+			// Sampled inside the write so the assertion sees what had been
+			// waited for at that moment. Comparing the end-state maxima
+			// instead would pass even if the wait ran after the write.
+			var (
+				maxWaitedAtWrite uint64
+				waitedAtWrite    []uint64
+			)
+			vectorRepo.On("PutObject", mock.Anything, mock.Anything).
+				Run(func(mock.Arguments) {
+					maxWaitedAtWrite = schemaManager.MaxWaitedSchemaVersion
+					waitedAtWrite = append([]uint64(nil), schemaManager.WaitedVersions...)
+				}).
+				Return(nil).Once()
+			cfg := &config.WeaviateConfig{Config: config.Config{
+				AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)},
+			}}
+			logger, _ := test.NewNullLogger()
+			modulesProvider := getFakeModulesProvider()
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
+			manager := NewManager(schemaManager, cfg, logger, mocks.NewMockAuthorizer(), vectorRepo,
+				modulesProvider, &fakeMetrics{}, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			_, err := manager.AddObject(context.Background(), nil, tt.object, nil)
+			require.NoError(t, err)
+
+			require.Equal(t, autoSchemaVersion, vectorRepo.CapturedSchemaVersion,
+				"the write must carry the version auto-schema produced")
+			assert.GreaterOrEqual(t, maxWaitedAtWrite, vectorRepo.CapturedSchemaVersion,
+				"must wait for the schema version it then writes at, before the write; versions waited for by then were %v",
+				waitedAtWrite)
+		})
+	}
+}

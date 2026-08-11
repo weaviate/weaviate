@@ -106,6 +106,15 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
 
+	// The caller already waited, but only for the version known before
+	// auto-schema ran. When auto-schema creates the class the index is
+	// materialised inside the raft apply, so a node that has not yet applied
+	// that entry resolves no index and the write fails with "import into
+	// non-existing index". Wait again on the post-auto-schema version.
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	class := fetchedClasses[object.Class].Class
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
