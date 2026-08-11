@@ -156,9 +156,8 @@ func (i *Index) cleanStalePartialReindexState(
 	dirs *dirNamesCache,
 ) error {
 	// Refused before the walk rather than per shard: the unloaded-shard gate
-	// below fails open on an index type it cannot map, so leaving the refusal
-	// to the shards would hydrate every unloaded tenant of the collection only
-	// to reject the same input once per shard.
+	// below fails open on an unmappable index type, so per-shard refusal would
+	// hydrate every unloaded tenant to reject the same input repeatedly.
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}

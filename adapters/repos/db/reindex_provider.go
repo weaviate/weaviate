@@ -1724,10 +1724,9 @@ func sweepTerminalTuples(
 // sweeps is what's reported.
 //
 // "Every shard" means every shard in the index's shard map — a tenant already
-// COLD when the sweep starts isn't in it, so its on-disk state is neither
-// swept nor reported until reactivation (the OnAfterLsmInitAsync
-// stale-sentinel check). One deactivated mid-walk was in the map and is
-// reported as [terminalSweepUnknown].
+// COLD when the sweep starts isn't in it, so its state is neither swept nor
+// reported until reactivation (the OnAfterLsmInitAsync stale-sentinel check).
+// A tenant deactivated mid-walk was in the map and reports [terminalSweepUnknown].
 type terminalSweepOutcome int
 
 const (

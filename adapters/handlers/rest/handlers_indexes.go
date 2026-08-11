@@ -605,10 +605,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
 			return sweep(ctx, collection, propertyName, indexTypeForCleanup)
 		})
-		// Error even for a truncated sweep (e.g. a tenant deactivated mid-walk,
-		// which is usually benign): the submit proceeds on state this node could
-		// not verify, and one line per submit is not a volume an operator has to
-		// filter.
+		// Error even for a benign truncation: the submit proceeds on state
+		// this node couldn't verify.
 		for _, failure := range cleanupErrs {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"collection":     collection,
@@ -939,8 +937,8 @@ func (f staleSweepFailure) Unwrap() error { return f.err }
 
 // sweepStaleReindexState runs sweep once per index type and returns only the
 // failures an operator must act on; [db.IsCleanupCollectionDropped] errors are
-// skipped since the collection's own delete removes the state itself, whether
-// or not that delete has finished by the time the sweep returns.
+// skipped since the collection's own delete removes the state itself,
+// in-flight or not.
 func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
 	var failures []staleSweepFailure
 	for _, indexType := range indexTypes {
