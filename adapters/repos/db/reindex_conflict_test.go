@@ -173,9 +173,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
-		// A status this build cannot name blocks too: reading it as done
-		// would let the mutation race a migration a newer node is still
-		// running.
+		// An unrecognized status blocks too.
 		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -382,9 +380,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
-		// A status this build cannot name blocks too: reading it as done
-		// would let the mutation race a migration a newer node is still
-		// running.
+		// An unrecognized status blocks too.
 		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -578,9 +574,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
-		// A status this build cannot name blocks too: reading it as done
-		// would let the mutation race a migration a newer node is still
-		// running.
+		// An unrecognized status blocks too.
 		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -650,9 +644,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
-		// A status this build cannot name blocks too: reading it as done
-		// would let the mutation race a migration a newer node is still
-		// running.
+		// An unrecognized status blocks too.
 		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {

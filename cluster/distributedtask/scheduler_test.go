@@ -1770,10 +1770,8 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	require.Equal(t, "unknown", remaining[0].ID)
 }
 
-// Pins: the tick warns only for a genuinely unrecognized status. Without
-// the coordination-phase case, the warn would fire on every tick of every
-// normal migration. The expectation is derived from IsRecognized so a new
-// status is classified in exactly one place.
+// Pins: the tick warns only for a genuinely unrecognized status, never for
+// STARTED or a coordination phase.
 func TestSchedulerTick_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
 	for _, status := range []TaskStatus{
 		unknownFutureStatus,
@@ -1809,12 +1807,8 @@ func TestSchedulerTick_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
 	}
 }
 
-// Pins the sampler split. The unrecognized-status warn reports a
-// steady-state condition, so on the scheduler's shared error budget it
-// would take most of the slots every window — starving the cleanup-failure
-// logging that tells the operator why nothing is being removed. With its
-// own sampler, a persistent cleanup error still gets its full budget while
-// a stuck task is present.
+// Pins: the unrecognized-status warn uses its own sampler, so a persistent
+// cleanup error still gets the shared budget's full slots.
 func TestSchedulerTick_UnrecognizedStatusWarnDoesNotStarveErrorLogging(t *testing.T) {
 	defer leaktest.Check(t)()
 

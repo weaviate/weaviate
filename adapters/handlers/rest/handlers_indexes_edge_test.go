@@ -141,9 +141,7 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	require.Equal(t, float32(0), idx.Progress)
 }
 
-// The same observable state under a status this build cannot name reads
-// "indexing", not "pending": "pending" claims no shard has begun, which
-// the unit states do not prove for a phase we cannot interpret.
+// Pins: an unrecognized status reads as "indexing", not "pending", at zero progress.
 func TestMergeReindexStatus_UnknownStatusNoProgress_ShowsIndexing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		unknownFutureStatus,
@@ -423,8 +421,6 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	now := time.Now()
 
-	// The live task's status: STARTED, and one this build cannot name —
-	// a task we cannot prove is done must not read as 'ready' either.
 	for _, liveStatus := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
 		unknownFutureStatus,
@@ -763,9 +759,7 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}{
 		{"PREPARING", distributedtask.TaskStatusPreparing},
 		{"SWAPPING", distributedtask.TaskStatusSwapping},
-		// A status this build cannot name lands in the same place, and
-		// must paint the same side-effect field: dropping it would blank
-		// the UI's tokenization preview mid-migration.
+		// An unrecognized status must land here too.
 		{"UNKNOWN", unknownFutureStatus},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -826,17 +820,13 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 	}
 }
 
-// unknownFutureStatus simulates a status a newer node introduced that
-// this build doesn't recognize. Must never become a real status name —
-// every real status is a capitalised present participle, so this one is
-// deliberately not.
+// unknownFutureStatus simulates a status a newer node introduced that this
+// build doesn't recognize. Deliberately not a capitalised present
+// participle, so it can never collide with a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
-// Pins the cancel contract findCancelTarget mirrors from
-// [distributedtask.Manager.CancelTask]: cancel stays open for STARTED and
-// for a status this build cannot name (the guards block on both and name
-// cancel as the remedy), and is closed for the coordination phases, where
-// some nodes may already have swapped their buckets.
+// Pins cancel eligibility per [distributedtask.Manager.CancelTask]: open
+// for STARTED and unrecognized statuses, closed for the coordination phases.
 func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -873,11 +863,7 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	}
 }
 
-// Pins: a whole-collection task (empty Properties) is a cancel target for
-// every property on the collection. Every guard blocks on such a task via
-// ReindexPropsOverlap, so a matcher that required a literal property name
-// would leave the operator with a blocked collection and nothing to
-// cancel.
+// Pins: empty Properties (whole-collection task) matches any property name.
 func TestFindCancelTarget_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
 	task := buildTask(t, "T_all", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -892,12 +878,7 @@ func TestFindCancelTarget_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
 	require.Equal(t, "T_all", target.ID)
 }
 
-// The two lookups the backup gate and the startup orphan audit run on
-// were closures inside configureAPI before this change, unreachable from
-// any test. These pin both halves of each: the liveness rule (an
-// unrecognized status counts as in-flight) and the key identity — the
-// audit os.RemoveAll's the tracker dirs of anything the lookup calls
-// dead, so a key that collides across tasks or collections is destructive.
+// Pins: both lookups treat an unrecognized status as in-flight.
 func TestReindexLookups_LivenessRule(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -945,10 +926,8 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 	}
 }
 
-// Pins liveReindexTrackerLookup's key. The audit reads (TaskID,
-// TaskVersion) off disk: a version-blind key makes the map last-write-wins
-// across two versions of one ID, which either deletes a live v2's trackers
-// or pins a dead v1's forever.
+// Pins: the lookup key includes TaskVersion, so two versions of one ID
+// (e.g. a dead v1 and a live v2) don't collide.
 func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -991,8 +970,6 @@ func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 			wantInFted: false,
 		},
 		{
-			// Two versions of one ID must not overwrite each other: the
-			// dead v1 is queried while the live v2 is also present.
 			name: "two versions of one ID keep separate answers",
 			tasks: []*distributedtask.Task{
 				withVersion("T1", 1, distributedtask.TaskStatusFinished),
@@ -1020,10 +997,8 @@ func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 	}
 }
 
-// Pins shardReindexActivityLookup's key. A collection-blind key answers
-// "busy" for any collection that happens to share a shard name, and
-// "shard-1" is not an unusual shard name — the backup would be refused on
-// a collection nothing is migrating.
+// Pins: the lookup key includes collection, so a shared shard name
+// doesn't falsely flag an unrelated collection as busy.
 func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 

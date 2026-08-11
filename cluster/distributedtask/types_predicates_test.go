@@ -77,10 +77,7 @@ func TestTaskStatus_IsActive(t *testing.T) {
 	}
 }
 
-// TestTaskStatus_IsRecognized pins the one place a newly added TaskStatus
-// has to be classified. Its switch carries no default case, so the
-// exhaustive linter fails on a new constant here — that is the tripwire,
-// and this table is what says what the answers are.
+// Pins: IsRecognized is true for every real status and false otherwise.
 func TestTaskStatus_IsRecognized(t *testing.T) {
 	cases := []struct {
 		status     TaskStatus
@@ -136,10 +133,8 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 			// a positive one.
 			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
 				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
-			// The implication itself, over IsCoordinationPhase's own case
-			// list: a status added to that list but classified terminal
-			// would pass the row above (both columns edited together) and
-			// fail here.
+			// Catches a status added to IsCoordinationPhase's case list but
+			// misclassified terminal, which would pass the row above.
 			if tc.status.IsCoordinationPhase() {
 				assert.True(t, tc.status.IsActive(),
 					"%q is a coordination phase, so it must be active", tc.status)

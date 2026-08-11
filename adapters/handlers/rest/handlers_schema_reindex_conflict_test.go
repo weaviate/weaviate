@@ -47,9 +47,8 @@ func reindexTask(t *testing.T, id string, status distributedtask.TaskStatus, pay
 	}
 }
 
-// Pins the fifth REST-tier in-flight gate on the same rule as the other
-// four: every non-terminal status blocks the mutation, including one this
-// build cannot name.
+// Pins: every non-terminal status blocks the mutation, including an
+// unrecognized one.
 func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -82,10 +81,8 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	}
 }
 
-// Pins the blast radius of an undecodable payload. Such a task is a hard
-// reject — we cannot prove it does not conflict — but only for its own
-// collection: a task that named a different collection before its payload
-// went bad must not block mutations cluster-wide.
+// Pins: an undecodable payload is a hard reject, but scoped to its own
+// collection.
 func TestCheckReindexConflictForPropertyMutation_UndecodablePayloadIsScopedToItsCollection(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -127,8 +124,7 @@ func TestCheckReindexConflictForPropertyMutation_UndecodablePayloadIsScopedToIts
 	}
 }
 
-// Pins: an empty Properties list means "all properties", the same rule
-// every other guard applies via db.ReindexPropsOverlap.
+// Pins: an empty Properties list means "all properties".
 func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
 	h := gateWithTasks(reindexTask(t, "T_all", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -141,8 +137,7 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 		"T_all")
 }
 
-// Pins: a task on a different property of the same collection does not
-// block the mutation.
+// Pins: a task on a different property does not block the mutation.
 func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *testing.T) {
 	h := gateWithTasks(reindexTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{

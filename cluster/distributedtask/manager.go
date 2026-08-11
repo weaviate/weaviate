@@ -819,17 +819,14 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Cancellable: STARTED, and any status this build does not recognize.
-	// The conflict guards block schema mutations for both and name cancel
-	// as the remedy, so refusing here would leave the collection blocked
-	// with no way out.
+	// Cancellable: STARTED and any unrecognized status — the conflict
+	// guards block mutations for both and name cancel as the remedy.
 	//
-	// Not cancellable: the coordination phases. By PREPARING the nodes
-	// have written their merged migration state, and by SWAPPING some may
-	// already have renamed bucket directories. Stopping the rest mid-way
-	// leaves nodes serving migrated buckets while the schema still
-	// describes the pre-migration state, and nothing on the restart path
-	// repairs that. The task has to run to FINISHED or FAILED.
+	// Not cancellable: the coordination phases (nodes may have already
+	// written merged state or renamed bucket directories). Stopping
+	// mid-way leaves the cluster serving migrated buckets under the
+	// pre-migration schema with no repair path — the task must run to
+	// FINISHED or FAILED.
 	if task.Status.IsTerminal() || task.Status.IsCoordinationPhase() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}

@@ -308,11 +308,9 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		}
 		var payload db.ReindexTaskPayload
 		decodeErr := json.Unmarshal(task.Payload, &payload)
-		// Collection match first. json.Unmarshal fills the fields it
-		// decoded before giving up, so a task that named a different
-		// collection is skipped even when the rest of its payload is
-		// garbage — otherwise one undecodable task would block property
-		// mutations on every collection in the cluster.
+		// Check collection first: json.Unmarshal fills decoded fields before
+		// erroring, so a task naming a different collection is skipped even
+		// with a garbage payload, rather than blocking mutations cluster-wide.
 		if payload.Collection != "" && !strings.EqualFold(payload.Collection, className) {
 			continue
 		}

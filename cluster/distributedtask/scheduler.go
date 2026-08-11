@@ -481,16 +481,12 @@ func (s *Scheduler) loop() {
 // progress update.
 const unrecognizedStatusWarnWindow = time.Hour
 
-// warnOnUnrecognizedStatuses tells the operator that a task is in a status
-// this build never declared, which is the only explanation for the schema
-// mutations and backups being refused on its collection.
-//
-// Runs over every listed namespace, not only the ones this node hosts a
-// provider for: such a task blocks the guards here either way.
-//
-// Its own sampler, with a long window. This reports a steady-state
-// condition rather than an event, so on the shared budget it would crowd
-// out the scheduler's error logging every window.
+// warnOnUnrecognizedStatuses tells the operator a task is in a status this
+// build never declared — the only explanation for schema mutations and
+// backups being refused on its collection. Runs over every listed
+// namespace, not just ones this node hosts a provider for, and uses its
+// own long-window sampler so a steady-state warning doesn't crowd out the
+// scheduler's error logging.
 func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
 	for namespace, tasks := range tasksByNamespace {
 		for _, task := range tasks {
@@ -587,11 +583,10 @@ func (s *Scheduler) tick() {
 				// dispatch readable and surfaces the dependency on the
 				// FSM rule for any future change.
 				//
-				// One path can still reach here past a swap: a status
-				// this build does not recognize is cancellable (it is not
+				// One exception: an unrecognized status is cancellable (not
 				// a coordination phase here), so a newer node's post-swap
-				// phase could be cancelled from this one. OnTaskCompleted
-				// logs operator repair guidance for that case.
+				// phase could be cancelled from this one; OnTaskCompleted
+				// logs repair guidance for that case.
 				//
 				// All other branches (STARTED, PREPARING, SWAPPING,
 				// FAILED, FINISHED) fall through to the in-flight ack

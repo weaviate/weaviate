@@ -457,13 +457,11 @@ func (t TaskStatus) IsCoordinationPhase() bool {
 }
 
 // IsRecognized is false for a status this build never declared — what a
-// node sees when a newer release introduces one during a rolling upgrade.
+// node sees when a newer release introduces one mid rolling-upgrade.
 //
-// Deliberately written without a default case, so the exhaustive linter
-// fails on a newly added [TaskStatus] constant. This switch is the one
-// place a new status must be classified before anything else can rely on
-// it; the alternative is a node warning operators about a status its own
-// binary declares.
+// No default case, so the exhaustive linter fails when a new [TaskStatus]
+// constant isn't added here, forcing every new status to be classified
+// before anything else can rely on it.
 func (t TaskStatus) IsRecognized() bool {
 	switch t {
 	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,

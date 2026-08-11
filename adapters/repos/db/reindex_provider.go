@@ -1583,14 +1583,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// A cancel from STARTED cannot have torn anything: no node
-				// has swapped yet. A cancel from a status this build does
-				// not recognize can have, since a newer node may have run
-				// its swap in a phase this binary cannot name. A recorded
-				// post-completion ack is the evidence that happened —
-				// runSwapPhase suppresses the ack while STARTED, so a
-				// non-empty map proves at least one node ran its swap.
-				// Under-reports rather than over-reports: acks against an
+				// A cancel from STARTED can't have torn anything (no node has
+				// swapped yet); a cancel from an unrecognized status can, if a
+				// newer node ran its swap phase. PostCompletionAcks is the
+				// evidence: runSwapPhase suppresses the ack while STARTED, so
+				// a non-empty map proves at least one node swapped. This
+				// under-reports rather than over-reports — acks against an
 				// already-CANCELLED task are dropped on the apply path.
 				if len(task.PostCompletionAcks) > 0 {
 					logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
@@ -1828,9 +1826,8 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 // skipped — every query against the affected inverted index returns 0
 // until the index is rebuilt against the current schema.
 //
-// outcome names the terminal status that produced the tear (FAILED, or
-// CANCELLED against a status this build could not recognize), so the
-// operator can match the log line to the task.
+// outcome is the terminal status that produced the tear (FAILED or
+// CANCELLED), logged so the operator can match it to the task.
 func logOperatorRepairGuidanceOnTornSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return

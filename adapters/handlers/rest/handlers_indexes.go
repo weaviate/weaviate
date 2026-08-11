@@ -704,11 +704,9 @@ const (
 )
 
 // findCancelTarget returns the in-flight reindex task for (collection,
-// propertyName, indexType), and whether DTM would accept a cancel for it.
-// Mirrors [distributedtask.Manager.CancelTask]: every non-terminal status
-// counts as in flight, but the coordination phases are past the point
-// where stopping is safe, so they report cancelTargetCoordinating and the
-// handler answers 409 rather than proposing a cancel DTM will reject.
+// propertyName, indexType) and whether DTM would accept a cancel per
+// [distributedtask.Manager.CancelTask]: coordination-phase tasks report
+// cancelTargetCoordinating instead of a cancel DTM would reject.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload, cancelTargetState) {
 	for _, task := range tasks {
 		if task.Status.IsTerminal() {
@@ -721,10 +719,8 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
-		// An empty Properties list means "all properties" for every
-		// guard that blocks on this task, so the cancel matcher has to
-		// read it the same way or the operator is left with a blocked
-		// collection and no cancel target.
+		// Empty Properties means "all properties" for every blocking guard;
+		// the matcher must agree or leave the operator with no cancel target.
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
@@ -775,11 +771,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	target, targetPayload, state := findCancelTarget(tasks[db.ReindexNamespace], collection, propertyName, indexType)
 
 	if state == cancelTargetCoordinating {
-		// Past the units: some nodes may already have swapped their
-		// buckets. Stopping the rest would leave the cluster serving
-		// migrated buckets under the pre-migration schema, so DTM refuses
-		// the cancel and we say so instead of returning a 202 the FSM
-		// will not honor.
+		// Some nodes may already have swapped buckets; stopping the rest
+		// would leave the cluster serving migrated buckets under the
+		// pre-migration schema, so DTM refuses the cancel.
 		h.appState.Logger.WithFields(logrus.Fields{
 			"audit_event": "reindex_task_cancel_refused",
 			"collection":  collection,
@@ -1247,14 +1241,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 	default:
 		// Unrecognized status: other gates already treat it as in-flight
-		// (409 on PUT, counted against the cap, backups refused), so
-		// leaving this entry "ready" would contradict them.
-		//
-		// "indexing" even at zero progress, where STARTED would say
-		// "pending". "pending" claims no shard has begun, and the units
-		// are not evidence of that for a phase this build cannot name —
-		// a newer node's post-units phase carries whatever unit state it
-		// left behind.
+		// (409 on PUT, counted against the cap, backups refused), so this
+		// reports "indexing" rather than "ready" or "pending" — the units
+		// don't prove no shard has started for a status this build can't name.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true

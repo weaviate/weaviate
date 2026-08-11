@@ -133,11 +133,8 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
 }
 
-// A cancel from STARTED cannot have torn anything — no node has swapped
-// yet. A cancel from a status this build cannot name can have, because a
-// newer node may have swapped in a phase this binary cannot interpret. A
-// recorded post-completion ack is the evidence, since the scheduler
-// suppresses the ack while STARTED.
+// Pins: repair guidance on a CANCELLED task fires only when a
+// PostCompletionAck proves a node ran its swap.
 func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -163,9 +160,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			p := &ReindexProvider{
 				logger:    logger,
 				serverCtx: context.Background(),
-				// The terminal-status cleanup that runs alongside the
-				// guidance needs a DB; an empty one has no matching index
-				// and the cleanup logs and moves on.
+				// Terminal-status cleanup needs a DB; an empty one is a no-op.
 				db: &DB{},
 			}
 

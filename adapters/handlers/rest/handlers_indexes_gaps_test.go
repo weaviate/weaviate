@@ -168,9 +168,7 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 		distributedtask.TaskStatusStarted,
 		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
-		// A status this build cannot name must block a fresh submit too:
-		// reading it as done would admit a second migration onto a
-		// property a newer node is still migrating.
+		// An unrecognized status must block a fresh submit too.
 		unknownFutureStatus,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -1126,9 +1124,6 @@ func TestCountInFlightTasksForCollection_FiltersByStatusAndCollection(t *testing
 			want: 1,
 		},
 		{
-			// The coordination phases still hold tracker dirs and reindex
-			// buckets, and a status this build cannot name may too — all
-			// of them count against the cap.
 			name:       "coordination phases and an unrecognized status count",
 			collection: "C",
 			tasks: []*distributedtask.Task{

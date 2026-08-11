@@ -2111,12 +2111,8 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// Pins the cancel contract. Cancel is the guards' only named remedy for a
-// collection blocked behind a task nothing advances, so it must stay open
-// for STARTED and for a status this build cannot name. It must stay closed
-// for the coordination phases: by then some nodes may already have renamed
-// their bucket directories, and stopping the rest leaves the cluster
-// serving migrated buckets under the pre-migration schema.
+// Pins: cancel stays open for STARTED and an unrecognized status, and
+// closed for the coordination phases.
 func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus
@@ -2154,10 +2150,7 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	}
 }
 
-// TestManager_CancelTask_RefusesTerminalStatus guards against
-// over-broadening rather than pinning a change: base already refused
-// terminal statuses via `!= STARTED`. It is what catches a future
-// correction to "cancel accepts everything".
+// Pins: cancel refuses terminal statuses.
 func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
 	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed} {
 		t.Run(string(status), func(t *testing.T) {

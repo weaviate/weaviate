@@ -1042,12 +1042,8 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"after the restored Manager records node-3's prep-ack, the barrier must lift to SWAPPING — proving the restore preserved enough state for the FSM transition to fire correctly")
 }
 
-// TestBarrier_G9_CancelRefusedOnceANodeHasSwapped pins the cancel rule the
-// swap phase depends on. Node 0 runs its swap (on the real provider this
-// renames bucket directories); a cancel arriving before node 1 has ticked
-// must be refused, so both replicas still swap and the schema flip still
-// commits. Accepting it would leave node 0 serving migrated buckets while
-// the schema kept describing the pre-migration state, on every replica.
+// Pins: cancel is refused once one replica has swapped, so both replicas
+// still swap and the schema flip still commits.
 func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
 	defer leaktest.Check(t)()
 
