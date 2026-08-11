@@ -286,6 +286,11 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // block mutations on every collection. That is over-broad on both sides,
 // but identically so, which is what makes the promise below hold.
 //
+// It also ends on the same remedy, via [db.MutationRemedy]. That matters
+// most on the DELETE-property-index path, where this check short-circuits
+// the request before the apply runs, so its wording is the only one the
+// operator ever reads.
+//
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
 // the apply-time [MutationGuard] is what closes that multi-node
@@ -345,11 +350,11 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — wait for the "+
-				"task to reach a terminal state, or cancel it via the "+
-				"reindex REST API before retrying",
+				"the reindex completes or is cancelled — %s",
 			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status)
+			propertyName, task.Status,
+			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return ""
 }
