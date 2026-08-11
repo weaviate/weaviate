@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -959,16 +960,41 @@ func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
 	hot := shd.(*Shard)
 	defer hot.Shutdown(context.Background())
 
-	dirs := &dirNamesCache{}
-	require.False(t, idx.anyPromotableReindexState(propName, indexType, dirs),
-		"the shard has no .migrations dir yet")
+	// The gate reaches the shard through DB, so both halves have to pass the
+	// cache down or the sharing stops one level short.
+	database := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
 
-	mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig", "merged.mig")
+	for _, tc := range []struct {
+		name string
+		ask  func(dirs *dirNamesCache) bool
+	}{
+		{
+			name: "per index",
+			ask: func(dirs *dirNamesCache) bool {
+				return idx.anyPromotableReindexState(propName, indexType, dirs)
+			},
+		},
+		{
+			name: "through the db",
+			ask: func(dirs *dirNamesCache) bool {
+				return database.anyPromotableReindexState(className, propName, indexType, dirs)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.RemoveAll(filepath.Join(hot.pathLSM(), ".migrations")))
 
-	require.False(t, idx.anyPromotableReindexState(propName, indexType, dirs),
-		"a shared cache answers from the snapshot the first pair took")
-	require.True(t, idx.anyPromotableReindexState(propName, indexType, nil),
-		"a nil cache reads the filesystem, which now holds the state")
+			dirs := &dirNamesCache{}
+			require.False(t, tc.ask(dirs), "the shard has no .migrations dir yet")
+
+			mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig", "merged.mig")
+
+			require.False(t, tc.ask(dirs),
+				"a shared cache answers from the snapshot the first pair took")
+			require.True(t, tc.ask(nil),
+				"a nil cache reads the filesystem, which now holds the state")
+		})
+	}
 }
 
 // TestHasPromotableReindexStateFailsClosed pins that an unrecognized
