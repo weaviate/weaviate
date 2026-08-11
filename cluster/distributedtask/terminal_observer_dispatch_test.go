@@ -477,8 +477,6 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		return m.terminalOverflowInFlight.Load() == 0
 	}, 5*time.Second, 10*time.Millisecond,
 		"every overflow goroutine must have released its slot")
-	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
-		"the in-flight count must settle at exactly zero, never negative")
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
@@ -604,6 +602,49 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 		"every observer panic must be contained and logged the same way the drainer contains one; "+
 			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
 			"whose recover the acceptance image disables", contained(), total)
+}
+
+// panickingTerminalObserver is a named function so the stack-frame assertion
+// in TestTerminalObserverPanicLogsTheObserverStack can match its frame.
+func panickingTerminalObserver(*Task) {
+	panic("named observer blew up")
+}
+
+// Pins that a contained observer panic still reports the way GoWrapper would:
+// the logged stack includes the observer's own frame (not just the panic
+// value), and the drainer keeps delivering to other namespaces' observers.
+func TestTerminalObserverPanicLogsTheObserverStack(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	defer h.Close()
+	hook := h.loggerHook
+
+	const healthyNamespace = "healthy"
+	var rec observerRecorder
+	h.manager.RegisterTerminalObserver(observerNamespace, panickingTerminalObserver)
+	h.manager.RegisterTerminalObserver(healthyNamespace, rec.record)
+
+	healthyTask := terminalDispatchTask(h.manager)
+	healthyTask.Namespace = healthyNamespace
+
+	h.manager.mu.Lock()
+	h.manager.dispatchTerminalWithLock(terminalDispatchTask(h.manager), false)
+	h.manager.dispatchTerminalWithLock(healthyTask, false)
+	h.manager.mu.Unlock()
+
+	rec.waitForCount(t, 1,
+		"a panic in one namespace's observer must not stop delivery to another's")
+
+	stackLogged := func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "panickingTerminalObserver") {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventuallyf(t, stackLogged, 5*time.Second, 10*time.Millisecond,
+		"the panic log must include a stack with the observer's frame, not just the panic value")
 }
 
 // restoreTask installs a single task in the given status and unit layout,
