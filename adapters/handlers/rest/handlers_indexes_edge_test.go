@@ -20,8 +20,6 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1142,62 +1140,5 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 	return events[0]
 }
 
-// Pins: a cancel refused at apply time answers the same way the pre-flight
-// would have. The status can flip between the list read and the apply, and
-// the 500 that used to result rendered the sentinel's internal marker into
-// the response body.
-func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
-	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		}, nil)
-
-	for _, tc := range []struct {
-		name      string
-		err       error
-		wantCode  int
-		wantAudit string
-		wantBody  string
-	}{
-		{
-			name:      "task is no longer running",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
-			wantCode:  http.StatusConflict,
-			wantAudit: "reindex_task_cancel_refused",
-			wantBody:  "T1",
-		},
-		{
-			name:      "task does not exist",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskDoesNotExist),
-			wantCode:  http.StatusAccepted,
-			wantAudit: "reindex_task_cancel_noop",
-			wantBody:  reindexCancelStatusNoOp,
-		},
-		{
-			name:     "anything else",
-			err:      errors.New("raft unavailable"),
-			wantCode: http.StatusInternalServerError,
-			wantBody: "raft unavailable",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			h := &indexesHandlers{appState: &state.State{Logger: logger}}
-
-			rec := httptest.NewRecorder()
-			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
-				WriteResponse(rec, runtime.JSONProducer())
-
-			require.Equal(t, tc.wantCode, rec.Code)
-			require.Contains(t, rec.Body.String(), tc.wantBody)
-			require.NotContains(t, rec.Body.String(), "dtm-perm/",
-				"the sentinel's internal marker is not user-facing")
-			if tc.wantAudit == "" {
-				return
-			}
-			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
-		})
-	}
-}
+// The apply-time mapping of DTM's rejections is pinned by
+// TestCancelThatRacedTheTasksOwnEnding, which drives the real cancel handler.
