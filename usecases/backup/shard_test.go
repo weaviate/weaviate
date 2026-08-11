@@ -253,12 +253,8 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 	}
 }
 
-// Pins resetIfCancelled's check-and-clear as a single lock acquisition. A split
-// one would read a cancelled slot, lose the race to the retry claiming it, and
-// then clear the retry's claim. Deleting resetIfCancelled leaves this green —
-// TestBackupStatResetIfCancelled is what covers that; this guards the shape.
-// The racers spin on a shared flag rather than a channel to line up tightly
-// enough for a split implementation to lose the race.
+// Pins resetIfCancelled's check-and-clear as a single lock acquisition: a
+// split one could drop a concurrent renew's claim.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
@@ -531,9 +527,9 @@ func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 	}
 }
 
-// lockProbeHook reports, from inside the log call, whether the slot's lock was
-// free at that moment. TryLock from the logging goroutine itself is what makes
-// this observable without deadlocking on a lock that is still held.
+// lockProbeHook reports, from inside the log call, whether the slot's lock
+// was free. TryLock from the logging goroutine is what makes that observable
+// without deadlocking on a lock still held.
 type lockProbeHook struct {
 	stat  *backupStat
 	fired atomic.Bool
@@ -551,9 +547,8 @@ func (h *lockProbeHook) Fire(*logrus.Entry) error {
 	return nil
 }
 
-// Pins that a refused write is logged with the slot's lock released. logrus
-// writes synchronously, so a slow or blocking hook would otherwise stall every
-// status poll, which reads the slot behind that same lock.
+// Pins that a refused write is logged with the slot's lock released, so a
+// blocking log hook can't stall pollers reading the slot behind that lock.
 func TestSlotOwnerLogsDroppedWritesOutsideTheLock(t *testing.T) {
 	t.Parallel()
 
