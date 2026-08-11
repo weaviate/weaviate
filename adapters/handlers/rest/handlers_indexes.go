@@ -18,13 +18,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -1377,11 +1375,8 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// reindexCapExceededResponder returns a 429 Too Many Requests response with
-// the standard ErrorResponse body shape. The swagger spec for
-// PUT /v1/schema/{class}/indexes/{prop} does not declare a 429 response —
-// it predates the per-collection cap — so we hand-roll the responder
-// instead of adding to the generated code.
+// reindexCapExceededResponder returns the 429 Too Many Requests refusal for
+// the per-collection cap.
 //
 // The status is intentionally 429 and not 503: the rejection is driven by
 // a concurrency limit specific to this caller's collection, not by the
@@ -1389,17 +1384,9 @@ const maxConcurrentReindexPerCollection = 32
 // reindex_concurrent acceptance test asserts the cap is reached, not that
 // the service went unhealthy).
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
-	body := errorResponse(principal, fmt.Sprintf(
+	return schema.NewSchemaObjectsIndexesUpdateTooManyRequests().WithPayload(errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
-		collection, inflight, capLimit))
-	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		if err := producer.Produce(w, body); err != nil {
-			// Match the generated swagger responders' behaviour for body
-			// write failures; the recovery middleware logs and returns 500.
-			panic(err)
-		}
-	})
+		collection, inflight, capLimit)))
 }
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a

@@ -28,6 +28,7 @@ package rest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	clientschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -1244,6 +1246,39 @@ func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
 		"error message must name the offending collection")
 	assert.Contains(t, body.Error[0].Message, "32",
 		"error message must surface the cap and inflight count for operator triage")
+}
+
+// stubClientResponse is the generated reader's view of an HTTP response.
+type stubClientResponse struct {
+	code int
+	body io.Reader
+}
+
+func (s stubClientResponse) Code() int                  { return s.code }
+func (s stubClientResponse) Message() string            { return http.StatusText(s.code) }
+func (s stubClientResponse) GetHeader(string) string    { return "" }
+func (s stubClientResponse) GetHeaders(string) []string { return nil }
+func (s stubClientResponse) Body() io.ReadCloser        { return io.NopCloser(s.body) }
+
+// The cap's 429 body carries the only text that tells a caller what to do
+// about the refusal. A status the spec does not declare lands in the reader's
+// default arm, which keeps the code and throws the body away. Pins that the
+// generated client reads the refusal as a typed 429 with its payload intact.
+func TestGeneratedClientParsesTheCapRefusal(t *testing.T) {
+	rec := httptest.NewRecorder()
+	reindexCapExceededResponder(&models.Principal{Username: "u1"}, "MyCollection", 32, 32).
+		WriteResponse(rec, runtime.JSONProducer())
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+
+	reader := &clientschema.SchemaObjectsIndexesUpdateReader{}
+	_, err := reader.ReadResponse(stubClientResponse{code: rec.Code, body: rec.Body}, runtime.JSONConsumer())
+
+	var capped *clientschema.SchemaObjectsIndexesUpdateTooManyRequests
+	require.ErrorAs(t, err, &capped,
+		"the client must recognize 429, not fall through to the default arm")
+	require.Len(t, capped.Payload.Error, 1)
+	require.Contains(t, capped.Payload.Error[0].Message, "wait for one to finish",
+		"the actionable half of the refusal has to survive the round trip")
 }
 
 // -----------------------------------------------------------------------------

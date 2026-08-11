@@ -5848,6 +5848,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish before submitting another; the message names the collection, how many tasks are in flight, and the cap.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred.",
             "schema": {
@@ -17400,6 +17406,12 @@ func init() {
           },
           "409": {
             "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish before submitting another; the message names the collection, how many tasks are in flight, and the cap.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

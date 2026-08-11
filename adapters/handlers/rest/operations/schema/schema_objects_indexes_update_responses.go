@@ -274,6 +274,51 @@ func (o *SchemaObjectsIndexesUpdateConflict) WriteResponse(rw http.ResponseWrite
 	}
 }
 
+// SchemaObjectsIndexesUpdateTooManyRequestsCode is the HTTP code returned for type SchemaObjectsIndexesUpdateTooManyRequests
+const SchemaObjectsIndexesUpdateTooManyRequestsCode int = 429
+
+/*
+SchemaObjectsIndexesUpdateTooManyRequests The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish before submitting another; the message names the collection, how many tasks are in flight, and the cap.
+
+swagger:response schemaObjectsIndexesUpdateTooManyRequests
+*/
+type SchemaObjectsIndexesUpdateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsIndexesUpdateTooManyRequests creates SchemaObjectsIndexesUpdateTooManyRequests with default headers values
+func NewSchemaObjectsIndexesUpdateTooManyRequests() *SchemaObjectsIndexesUpdateTooManyRequests {
+
+	return &SchemaObjectsIndexesUpdateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the schema objects indexes update too many requests response
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexesUpdateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects indexes update too many requests response
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SchemaObjectsIndexesUpdateInternalServerErrorCode is the HTTP code returned for type SchemaObjectsIndexesUpdateInternalServerError
 const SchemaObjectsIndexesUpdateInternalServerErrorCode int = 500
 
