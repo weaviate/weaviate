@@ -692,7 +692,18 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // propertyName, indexType), or nil when none matches. Whether DTM would
 // accept a cancel for it is [distributedtask.TaskStatus.IsCancellable] on
 // the returned task, the same predicate the FSM guard uses.
+//
+// A cancellable match wins over any other, so several matching in-flight
+// tasks cannot cost the operator a cancel that one of them would have
+// accepted. ConflictDetector.CheckConflict is supposed to make that
+// impossible; preferring it here costs one branch and does not rely on
+// that holding. Otherwise the first in-flight match is returned, so the
+// 409 still names a real task.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string, logger logrus.FieldLogger) (*distributedtask.Task, db.ReindexTaskPayload) {
+	var (
+		refusable        *distributedtask.Task
+		refusablePayload db.ReindexTaskPayload
+	)
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
@@ -716,9 +727,14 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
 			continue
 		}
-		return task, payload
+		if task.Status.IsCancellable() {
+			return task, payload
+		}
+		if refusable == nil {
+			refusable, refusablePayload = task, payload
+		}
 	}
-	return nil, db.ReindexTaskPayload{}
+	return refusable, refusablePayload
 }
 
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
