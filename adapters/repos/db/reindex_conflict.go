@@ -314,11 +314,10 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //
 // p is the offending task's payload; askedProperty is the property named in
 // the caller's request, or "" when the refusal isn't property-scoped.
-// callerDropsTheData is true when the caller's own action destroys ALL the
-// shards the migration works on (today only DeleteClass), so the follow-up
-// the other variants name would 404 — these are told to cancel and retry
-// instead. Tenant mutations pass false: they leave the migration's on-disk
-// state behind (see [ReindexProvider.CheckTenantMutation]).
+// callerDropsTheData is true only when the caller's action destroys ALL the
+// shards the migration works on (today only DeleteClass): those get told to
+// cancel and retry, since a follow-up call would 404. Tenant mutations pass
+// false — the migration's on-disk state survives them.
 //
 // Precondition: status is non-terminal ([distributedtask.TaskStatus.IsActive]);
 // callers pre-filter on it, so a terminal status here would be misreported
@@ -574,15 +573,11 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
 //
-// Unlike [ReindexProvider.CheckClassMutation], the remedy here must not
-// claim the migration's state disappears with the mutation: a
-// deactivated shard keeps its merged generation on disk and promotes it
-// on reactivation (the weaviate/weaviate#12575 inversion), and deleting some tenants
-// leaves the collection-wide migration's state on every surviving
-// shard. The guard interface carries no transition kind, so the gate
-// cannot tell a deactivation from a delete and renders the
-// repair-naming remedy (callerDropsTheData=false), which is true for
-// both.
+// Unlike [ReindexProvider.CheckClassMutation], the remedy must not claim the
+// migration's state disappears: a deactivated shard promotes its merged
+// generation on reactivation (weaviate/weaviate#12575), and a delete leaves it on
+// every surviving shard. The guard can't tell the two apart, so both render
+// callerDropsTheData=false.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.

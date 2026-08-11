@@ -746,16 +746,9 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
-// TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved pins that both
-// dispatch arms of the tenant gate — deactivation (UpdateTenants away from
-// ACTIVE) and delete (DeleteTenants) — get a remedy that names the repair
-// instead of claiming the migration's state goes away with the mutation. It
-// does not: a deactivated shard promotes its merged generation on
-// reactivation (the weaviate/weaviate#12575 inversion), and a delete leaves the
-// collection-wide migration's state on every surviving tenant's shard. Both
-// arms reach [ReindexProvider.CheckTenantMutation] through the same guard
-// interface, which carries no transition kind, so the wording must be true
-// for both; the two subtests document the two arms it has to hold for.
+// TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved pins that
+// neither dispatch arm (deactivate or delete) claims the migration's
+// on-disk state is gone (weaviate/weaviate#12575).
 func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
 	semanticPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:         "C",
@@ -809,8 +802,7 @@ func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
 
 	provider := &ReindexProvider{}
 
-	// Same call twice on purpose: the gate cannot see which arm dispatched
-	// it, so the assertions must hold for both.
+	// Run for both arms: the gate can't tell them apart, so it must hold either way.
 	for _, arm := range []string{
 		"deactivation (UpdateTenants away from ACTIVE)",
 		"delete (DeleteTenants)",
@@ -1223,9 +1215,8 @@ type schemaMutationGate struct {
 	name string
 	call func(className string, tasks []*distributedtask.Task) error
 	// dropsTheData marks gates whose caller destroys ALL the shards the
-	// migration works on, changing the remedy rendered. Only DeleteClass
-	// qualifies: a tenant mutation leaves the migration's state on
-	// deactivated and surviving shards.
+	// migration works on. Only DeleteClass qualifies — a tenant mutation
+	// leaves the migration's state behind.
 	dropsTheData bool
 }
 

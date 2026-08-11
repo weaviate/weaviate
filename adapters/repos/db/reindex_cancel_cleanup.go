@@ -65,9 +65,8 @@ func (db *DB) CleanStalePartialReindexState(
 //
 // Over-approximates on purpose (any matching generation and any unreadable
 // dir count as promotable). Fails open when there's no local index to
-// promote into, and one level down when the index is closing
-// ([Index.HasPromotableReindexState] walks no shards then); every other
-// case fails closed to true.
+// promote into, or when it's closing ([Index.HasPromotableReindexState]
+// walks no shards then); every other case fails closed to true.
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
