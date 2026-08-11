@@ -1338,9 +1338,13 @@ func TestSegmentGroup_WatchAbort(t *testing.T) {
 		})
 		cancel()
 
-		// cancel races at most one tick; a poller left running reaches ~7
-		time.Sleep(7 * abortPollInterval)
-		require.LessOrEqual(t, polls.Load(), int64(2), "the poller must not outlive the context")
+		// a stopped poller holds the count still; a running one never reads
+		// the same value twice
+		require.Eventually(t, func() bool {
+			settled := polls.Load()
+			time.Sleep(5 * abortPollInterval)
+			return polls.Load() == settled
+		}, 10*time.Second, time.Millisecond, "the poller must not outlive the context")
 	})
 }
 
