@@ -60,9 +60,9 @@ import (
 // The returned sweep shares a directory-listing cache across every call, so a
 // run of sweeps over one collection reads each skipped shard's directories
 // once instead of once per index type (a hydrated shard's sweep reads the
-// filesystem directly, so it never acts on a snapshot). It is therefore not safe for concurrent
-// use, and must be short-lived: it answers from a filesystem snapshot taken
-// on first read (see [dirNamesCache]).
+// filesystem directly, so it never acts on a snapshot). It is therefore not
+// safe for concurrent use, and must be short-lived: it answers from a
+// filesystem snapshot taken on first read (see [dirNamesCache]).
 func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {

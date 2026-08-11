@@ -2048,8 +2048,12 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // prior FinalizeCompletedMigrations already promoted-and-removed it.
 //
 // Generation-less dirs (from before [genSuffix]) count too, matching what
-// [migrationDirScope.matches] — and through it the cleanup sweep — treats as
-// this tuple's trackers.
+// [migrationDirScope.match] — and through it the cleanup sweep — treats as
+// this tuple's trackers. A tracker whose payload exists but can't be read or
+// parsed counts as well: the payload could name this property, and reporting
+// "done" on unreadable state would deregister the local callbacks while an
+// untidied tracker remains. Like the unloaded-shard gate
+// ([hasStalePartialReindexState]), this fails toward recovery.
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -2060,7 +2064,8 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 		if !entry.IsDir() {
 			continue
 		}
-		if !scope.matches(entry.Name()) {
+		matched, unreadablePayload := scope.match(entry.Name())
+		if !matched && !unreadablePayload {
 			continue
 		}
 		dirPath := filepath.Join(migsDir, entry.Name())

@@ -150,9 +150,13 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 }
 
 // hasStalePartialReindexState re-derives, independently, the same rules
-// Shard.CleanStalePartialReindexState removes by. This pins the two against
-// the same fixtures so they can't drift apart.
-func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
+// Shard.CleanStalePartialReindexState removes by. This pins the not-stale
+// direction: whenever the gate says "nothing here", the hydrated sweep must
+// find nothing either, so a skipped shard never hides removable state. The
+// stale direction is deliberately not compared — several stale rows are
+// fail-open answers (unreadable dirs, unmappable index types) where the
+// sweep removes nothing, and a wrong "stale" only costs an extra hydration.
+func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing.T) {
 	// A completed-but-deferred migration: the tracker carries tidied.mig and
 	// its ingest sidecar is the live bucket, which the sweep preserves.
 	deferredFinalize := map[string][]string{

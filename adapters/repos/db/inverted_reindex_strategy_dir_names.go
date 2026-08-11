@@ -275,9 +275,10 @@ func (s migrationDirScope) matches(name string) bool {
 // match additionally reports a payload that exists but could not be read or
 // parsed. Deletion ([migrationDirScope.matches]) ignores that and keeps the
 // no-payload fallback — deleting on a guess could remove another property's
-// tracker — while the unloaded-shard gate fails open on it, since answering
-// from the narrowed fallback could report a shard clean that the payload, once
-// readable again, says this sweep owns.
+// tracker — while the unloaded-shard gate and the recovery probe
+// ([hasUntidiedTracker]) fail open on it, since answering from the narrowed
+// fallback could report as clean (or recovered) state that the payload, once
+// readable again, says they own.
 func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {

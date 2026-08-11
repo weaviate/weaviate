@@ -292,7 +292,8 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
 // payload (os.IsNotExist) distinguishable from an unreadable or unparseable
 // one: [migrationDirScope.match] treats only the former as "the task recorded
-// nothing", while the latter makes the unloaded-shard gate fail open.
+// nothing", while the latter makes the unloaded-shard gate and the recovery
+// probe ([hasUntidiedTracker]) fail open.
 func readRecoveryPropertyNames(migDir string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
 	if err != nil {

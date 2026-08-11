@@ -35,7 +35,10 @@ func TestHasUntidiedTracker(t *testing.T) {
 		trackers map[string][]string
 		// payloads is the property list a tracker's task recorded.
 		payloads map[string][]string
-		want     bool
+		// corruptPayloads name trackers whose payload.mig exists but does
+		// not parse.
+		corruptPayloads []string
+		want            bool
 	}{
 		{
 			name:     "no .migrations dir → no recovery needed",
@@ -128,6 +131,34 @@ func TestHasUntidiedTracker(t *testing.T) {
 			},
 			want: false,
 		},
+		// A payload that exists but doesn't parse could name this property;
+		// reporting "done" on it would deregister the local callbacks while
+		// the untidied tracker remains. Fails toward recovery, like the
+		// unloaded-shard gate on identical input.
+		{
+			name: "an untidied multi-property tracker with a corrupt payload → recovery NEEDED",
+			trackers: map[string][]string{
+				"enable_searchable_other_text_1": {"started.mig"},
+			},
+			corruptPayloads: []string{"enable_searchable_other_text_1"},
+			want:            true,
+		},
+		{
+			name: "a tidied tracker with a corrupt payload → completed, no recovery",
+			trackers: map[string][]string{
+				"enable_searchable_other_text_1": {"started.mig", "tidied.mig"},
+			},
+			corruptPayloads: []string{"enable_searchable_other_text_1"},
+			want:            false,
+		},
+		{
+			name: "a corrupt payload on another index type's tracker → no recovery",
+			trackers: map[string][]string{
+				"filterable_retokenize_text_1": {"started.mig"},
+			},
+			corruptPayloads: []string{"filterable_retokenize_text_1"},
+			want:            false,
+		},
 		// A dir from before [genSuffix]: the sweep deletes it, so the
 		// recovery probe must see it too.
 		{
@@ -171,6 +202,11 @@ func TestHasUntidiedTracker(t *testing.T) {
 					if props, ok := tc.payloads[trackerName]; ok {
 						mkRecoveryPayload(t, tmp, trackerName, props...)
 					}
+				}
+				for _, trackerName := range tc.corruptPayloads {
+					require.NoError(t, os.WriteFile(
+						filepath.Join(migsDir, trackerName, reindexRecoveryPayloadFile),
+						[]byte("not a recovery record"), 0o644))
 				}
 			}
 			indexType := tc.indexType
