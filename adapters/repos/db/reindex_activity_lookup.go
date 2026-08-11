@@ -11,6 +11,14 @@
 
 package db
 
+import (
+	"encoding/json"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+)
+
 // ShardReindexActivityLookup reports whether any LIVE reindex task in
 // the DTM snapshot targets (collection, shardName). Used by the backup
 // gate; consults RAFT-replicated DTM rather than local filesystem
@@ -19,6 +27,36 @@ type ShardReindexActivityLookup func(collection, shardName string) bool
 
 // ShardReindexActivityLookupBuilder returns a fresh snapshot.
 type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+
+// NewShardReindexActivityLookup snapshots which shards a reindex is
+// working on. Every non-terminal status counts, including one this build
+// cannot name: a shard whose migration this build cannot prove is
+// finished would otherwise be captured half-migrated.
+func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) ShardReindexActivityLookup {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	live := make(map[shardKey]bool)
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("action", "backup_reindex_gate").
+				WithField("task_id", task.ID).
+				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+			continue
+		}
+		for _, shardName := range payload.UnitToShard {
+			live[shardKey{payload.Collection, shardName}] = true
+		}
+	}
+	return func(collection, shardName string) bool {
+		return live[shardKey{collection, shardName}]
+	}
+}
 
 // SetShardReindexActivityLookup installs the builder used by the backup
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup

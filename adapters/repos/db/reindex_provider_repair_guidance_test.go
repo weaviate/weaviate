@@ -42,7 +42,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnTornSemanticMigration(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1, "expected one error entry per property")
 	entry := hook.Entries[0]
@@ -67,7 +67,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilt
 		Properties:         []string{"category"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnTornSemanticMigration(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1)
 	entry := hook.Entries[0]
@@ -86,7 +86,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *
 		MigrationType: ReindexTypeEnableFilterable,
 		Properties:    []string{"a", "b", "c"},
 	}
-	logOperatorRepairGuidanceOnTornSemanticMigration(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed)
 
 	// One entry per property — easier for log scrapers to alert per-prop.
 	require.Len(t, hook.Entries, 3)
@@ -112,7 +112,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_FormatOnlyMigrationIsN
 				MigrationType: mt,
 				Properties:    []string{"name"},
 			}
-			logOperatorRepairGuidanceOnTornSemanticMigration(logger.WithField("taskID", "T"), payload, distributedtask.TaskStatusFailed)
+			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), payload, distributedtask.TaskStatusFailed)
 			require.Empty(t, hook.Entries,
 				"format-only migration %s must not produce repair guidance", mt)
 		})
@@ -127,7 +127,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    nil, // reserved for future whole-collection rebuild
 	}
-	logOperatorRepairGuidanceOnTornSemanticMigration(logger.WithField("taskID", "T4"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T4"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1, "empty Properties → one generic guidance entry")
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
