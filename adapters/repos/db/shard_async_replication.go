@@ -376,7 +376,14 @@ func initRetryBackoff(i int) time.Duration {
 // hashbeat work without relying solely on Deregister/disableAsyncReplication
 // being called on every path.
 func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hashtree.AggregatedHashTree) error {
+	// The store clears its bucket map at shutdown; a nil bucket means teardown won.
+	if s.store == nil {
+		return fmt.Errorf("store not initialized on shard %q", s.name)
+	}
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return fmt.Errorf("objects bucket unavailable on shard %q (store shutting down)", s.name)
+	}
 
 	parentCtx := context.Background()
 	if s.index != nil && s.index.asyncReplicationScheduler != nil {
@@ -924,22 +931,22 @@ func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error 
 func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTree {
 	s.asyncReplicationRWMux.Lock()
 
-	if s.hashtree == nil {
-		s.asyncReplicationRWMux.Unlock()
-		return nil
-	}
-
-	s.asyncReplicationCancelFunc()
-
-	// Capture before clearing state; the caller persists outside any lock.
+	// A nil tree (async off, or a rebuild's disable→enable window) still requires
+	// the Deregister + drain below: an in-flight cycle from before the disable may
+	// be unwinding, and skipping the drain would let store teardown race it.
 	var capturedHT hashtree.AggregatedHashTree
-	if capture && s.hashtreeFullyInitialized {
-		capturedHT = s.hashtree
-	}
+	if s.hashtree != nil {
+		s.asyncReplicationCancelFunc()
 
-	s.hashtree = nil
-	s.hashtreeFullyInitialized = false
-	s.clearAsyncCheckpointLocked()
+		// Capture before clearing state; the caller persists outside any lock.
+		if capture && s.hashtreeFullyInitialized {
+			capturedHT = s.hashtree
+		}
+
+		s.hashtree = nil
+		s.hashtreeFullyInitialized = false
+		s.clearAsyncCheckpointLocked()
+	}
 
 	s.asyncReplicationRWMux.Unlock()
 
@@ -2064,7 +2071,13 @@ func (s *Shard) collectObjectsToPropagate(
 	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 
 	// Digest mode: this scan reads only headers; full objects are fetched later.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	// The store clears its bucket map at shutdown; a nil bucket means teardown won.
+	objectsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		err = fmt.Errorf("objects bucket unavailable on shard %q (store shutting down)", s.name)
+		return
+	}
+	cursor := objectsBucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	scratch := newPropagationScratch(config.diffBatchSize)

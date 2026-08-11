@@ -26,6 +26,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
+// haltedForTransfer reports whether a backup/offload halt is in progress; the
+// hashtree rebuild uses it to stand down instead of re-enabling async
+// replication on a shard that is mid-transfer.
+func (s *Shard) haltedForTransfer() bool {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+	return s.haltForTransferCount > 0
+}
+
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload.
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout.

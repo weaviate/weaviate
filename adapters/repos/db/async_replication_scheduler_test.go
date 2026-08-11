@@ -657,8 +657,9 @@ func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
 
 	sched := newSchedulerForUnitTest(t)
 
-	// Index with nil scheduler → enableAsyncReplication returns an error immediately.
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	// Nil store on the shard → enableAsyncReplication returns an error immediately.
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
@@ -702,7 +703,7 @@ func TestTryRebuildHashtreeYieldsWhileApplyLockHeld(t *testing.T) {
 	}
 	attemptDone := make(chan attempt, 1)
 	go func() {
-		retry, delay := sched.tryRebuildHashtree(s)
+		retry, delay, _ := sched.tryRebuildHashtree(s)
 		attemptDone <- attempt{retry, delay}
 	}()
 
@@ -729,9 +730,10 @@ func TestTryRebuildHashtreeYieldsToPendingWaiter(t *testing.T) {
 
 	idx.asyncReplicationApplyWaiters.Store(1)
 
-	retry, delay := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
 	require.Zero(t, s.asyncRepRebuildFailures.Load(), "yield is not a failure")
 }
 
@@ -739,7 +741,8 @@ func TestTryRebuildHashtreeYieldsToPendingWaiter(t *testing.T) {
 func TestTryRebuildHashtreeIgnoresShutdownLock(t *testing.T) {
 	sched := newSchedulerForUnitTest(t)
 
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
@@ -755,17 +758,107 @@ func TestTryRebuildHashtreeIgnoresShutdownLock(t *testing.T) {
 	}
 	attemptDone := make(chan attempt, 1)
 	go func() {
-		retry, delay := sched.tryRebuildHashtree(s)
+		retry, delay, _ := sched.tryRebuildHashtree(s)
 		attemptDone <- attempt{retry, delay}
 	}()
 
 	select {
 	case a := <-attemptDone:
-		require.True(t, a.retry, "the enable failure (nil scheduler on the index) must request a retry")
+		require.True(t, a.retry, "the enable failure (nil store on the shard) must request a retry")
 		require.Positive(t, a.delay)
 		require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "the attempt must reach enableAsyncReplication")
 	case <-time.After(5 * time.Second):
 		t.Fatal("tryRebuildHashtree blocked on a held shutdownLock")
+	}
+}
+
+// TestTryRebuildHashtreeStopsWhenGloballyDisabled: a kill-switch flip between attempts must terminate the rebuild instead of resurrecting async replication.
+func TestTryRebuildHashtreeStopsWhenGloballyDisabled(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	idx.globalreplicationConfig = &replication.GlobalConfig{
+		AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
+	}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	require.False(t, retry, "a disabled decision is terminal, not retried")
+	require.Zero(t, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "the attempt must stop before disable/enable")
+}
+
+// TestTryRebuildHashtreeYieldsWhileShutdownRequested: teardown intent makes the attempt stand down before touching any state.
+func TestTryRebuildHashtreeYieldsWhileShutdownRequested(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+	s.shutdownRequested.Store(true)
+
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "standing down is not a failure")
+}
+
+// TestTryRebuildHashtreeYieldsWhileHaltedForTransfer: a backup/offload halt makes the attempt stand down instead of re-enabling mid-transfer.
+func TestTryRebuildHashtreeYieldsWhileHaltedForTransfer(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+	s.haltForTransferCount = 1
+
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "standing down is not a failure")
+}
+
+// TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.
+func TestMayStopAsyncReplicationDrainsWithNilHashtree(t *testing.T) {
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: logrus.New()}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.asyncRepWg.Add(1)
+	done := make(chan struct{})
+	go func() {
+		require.Nil(t, s.mayStopAsyncReplication(true))
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("mayStopAsyncReplication returned without draining the in-flight worker")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	s.asyncRepWg.Done()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("mayStopAsyncReplication did not return after the worker drained")
 	}
 }
 
@@ -777,7 +870,8 @@ func TestApplyLockFreeWhileRebuildRetries(t *testing.T) {
 
 	sched := newSchedulerForUnitTest(t)
 
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
