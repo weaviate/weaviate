@@ -1173,48 +1173,65 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 	}
 }
 
-// Pins the boundary of the cap comparison: a submit is rejected only when
-// the inflight count is greater than or equal to the cap. With the current
-// `inflight >= max` predicate, this means:
-//   - inflight == max-1 → admit (caller becomes the max-th simultaneously
-//     running task)
-//   - inflight == max → reject (admitting would push us above the cap)
+// Pins the boundary of the cap by calling the production decision itself:
+// a submit is admitted while strictly fewer than the cap are in flight and
+// refused from the cap upward, so the number that can run at once equals the
+// cap constant (not cap-1 and not cap+1).
 //
-// If the comparison were ever flipped to `inflight > max`, the cap would
-// silently grow by one (max+1 simultaneous). If it were `inflight+1 >= max`
-// the cap would silently shrink to max-1. Both have caused outages of this
-// kind before — the test pins the exact arithmetic so a future refactor
-// can't drift the semantics.
-func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
-	mkStarted := func(id, coll string) *distributedtask.Task {
-		return buildTask(t, id, distributedtask.TaskStatusStarted,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeChangeTokenization,
-				Collection:    coll,
-				Properties:    []string{"p_" + id},
-			}, nil)
-	}
-
+// The assertions deliberately never restate `inflight >= cap`. A test that
+// recomputes the comparison in its own body passes whichever way the
+// production one points, which is exactly how an off-by-one on this cap sat
+// unguarded here before.
+func TestReindexCapRefusal_Boundary(t *testing.T) {
 	const collection = "C"
-	cap := maxConcurrentReindexPerCollection
+	capLimit := maxConcurrentReindexPerCollection
 
-	// At the cap minus one, a submit must be admitted.
-	tasksAtCapMinusOne := make([]*distributedtask.Task, 0, cap-1)
-	for i := 0; i < cap-1; i++ {
-		tasksAtCapMinusOne = append(tasksAtCapMinusOne,
-			mkStarted(fmtTaskID(i), collection))
+	startedTasks := func(n int) []*distributedtask.Task {
+		tasks := make([]*distributedtask.Task, 0, n)
+		for i := 0; i < n; i++ {
+			id := fmtTaskID(i)
+			tasks = append(tasks, buildTask(t, id, distributedtask.TaskStatusStarted,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization,
+					Collection:    collection,
+					Properties:    []string{"p_" + id},
+				}, nil))
+		}
+		return tasks
 	}
-	got := countStartedTasksForCollection(collection, tasksAtCapMinusOne)
-	require.Equal(t, cap-1, got)
-	require.False(t, got >= cap,
-		"with %d inflight (cap=%d) the submit must be admitted", got, cap)
 
-	// At exactly the cap, a submit must be rejected.
-	tasksAtCap := append(tasksAtCapMinusOne, mkStarted(fmtTaskID(cap-1), collection))
-	got = countStartedTasksForCollection(collection, tasksAtCap)
-	require.Equal(t, cap, got)
-	require.True(t, got >= cap,
-		"with %d inflight (cap=%d) the submit must be rejected", got, cap)
+	cases := []struct {
+		name     string
+		inflight int
+		refuse   bool
+	}{
+		{name: "nothing in flight", inflight: 0, refuse: false},
+		{name: "one below the cap", inflight: capLimit - 1, refuse: false},
+		{name: "exactly at the cap", inflight: capLimit, refuse: true},
+		{name: "above the cap", inflight: capLimit + 1, refuse: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tasks := startedTasks(tc.inflight)
+			require.Equal(t, tc.inflight, countStartedTasksForCollection(collection, tasks),
+				"fixture must put the intended number of tasks in flight")
+
+			refusal := reindexCapRefusal(nil, collection, tasks)
+			if !tc.refuse {
+				require.Nil(t, refusal,
+					"with %d in flight (cap %d) the submit must be admitted", tc.inflight, capLimit)
+				return
+			}
+			require.NotNil(t, refusal,
+				"with %d in flight (cap %d) the submit must be refused", tc.inflight, capLimit)
+
+			rec := httptest.NewRecorder()
+			refusal.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, http.StatusTooManyRequests, rec.Code,
+				"the refusal must be the 429, not some other responder")
+		})
+	}
 }
 
 func fmtTaskID(i int) string {

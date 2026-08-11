@@ -568,8 +568,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// is unavailable". Returning 503 here misled callers and
 			// monitoring into thinking the cluster was unhealthy rather than
 			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+			if refusal := reindexCapRefusal(principal, collection, tasks[db.ReindexNamespace]); refusal != nil {
+				return refusal
 			}
 		}
 	}
@@ -1371,8 +1371,8 @@ func normalizeSearchableAlgorithm(s string) string {
 // fan-out from a script that loops over hundreds of properties. The
 // original value of 4 was too restrictive: it rejected legitimate batch
 // migrations against modest-sized collections and broke the
-// reindex_concurrent acceptance test which exercises 15 simultaneous
-// non-conflicting submits.
+// reindex_concurrent acceptance test, which keeps 15 non-conflicting tasks
+// in flight at once.
 const maxConcurrentReindexPerCollection = 32
 
 // reindexCapExceededResponder returns the 429 Too Many Requests refusal for
@@ -1386,6 +1386,18 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 	return schema.NewSchemaObjectsIndexesUpdateTooManyRequests().WithPayload(errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
 		collection, inflight, capLimit)))
+}
+
+// reindexCapRefusal returns the 429 refusal when the collection is already at
+// the per-collection cap, or nil when the submit may proceed. Admitting while
+// strictly fewer than the cap are in flight makes the cap itself the maximum
+// number that can run at once.
+func reindexCapRefusal(principal *models.Principal, collection string, tasks []*distributedtask.Task) middleware.Responder {
+	inflight := countStartedTasksForCollection(collection, tasks)
+	if inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+	}
+	return nil
 }
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a
