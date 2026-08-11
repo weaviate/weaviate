@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -34,6 +35,11 @@ const nodeNotFoundBody = "404 page not found"
 
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
 // resolve a node name to a host, GET a JSON route, decode the answer.
+//
+// client must be appState.ClusterHttpClient, whose transport injects the
+// credentials the probe routes sit behind. Any other client gets a 401, which
+// maps to a hard, non-terminal error, so a wrongly built probe fails its
+// caller's gate closed rather than reporting every node as clear.
 type nodeProbe struct {
 	client   *http.Client
 	resolver nodeResolver
@@ -115,15 +121,19 @@ func isNodeAnswer(res *http.Response, body []byte, want string) bool {
 		strings.TrimSpace(string(body)) == want
 }
 
+// snippet makes a peer's response body safe to put in an error a caller logs:
+// quoting escapes the newline that would otherwise split one log line into two
+// forgeable ones, and the cap stops a peer from writing a whole body per error.
 func snippet(body []byte) string {
 	const max = 120
 	if len(body) <= max {
-		return string(body)
+		return strconv.Quote(string(body))
 	}
-	// Cut on a rune boundary so the snippet stays printable.
+	// Cut on a rune boundary so the snippet stays readable rather than ending
+	// in an escaped half rune.
 	cut := max
 	for cut > 0 && !utf8.RuneStart(body[cut]) {
 		cut--
 	}
-	return string(body[:cut]) + "..."
+	return strconv.Quote(string(body[:cut]) + "...")
 }

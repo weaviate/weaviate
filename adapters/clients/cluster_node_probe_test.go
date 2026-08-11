@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -163,14 +164,17 @@ func TestProbeRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-// snippet() must not cut a multi-byte rune in half. The ascii prefixes shift
-// where the cap lands, covering every byte offset a cut could fall on.
-func TestSnippetCutsOnRuneBoundaries(t *testing.T) {
+// snippet() lands in errors a caller logs, so it must be quoted and must not
+// cut a multi-byte rune in half. The ascii prefixes shift where the cap lands,
+// covering every byte offset a cut could fall on.
+func TestSnippetIsQuotedAndCutsOnRuneBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
 	}{
 		{name: "short body is kept whole", body: "not found"},
+		{name: "newline forging a second log line", body: "not found\nlevel=error msg=forged"},
+		{name: "carriage return", body: "not found\rmsg=forged"},
 		{name: "ascii is cut at the cap", body: strings.Repeat("a", 500)},
 		{name: "two-byte runes, cap on a boundary", body: strings.Repeat("é", 200)},
 		{name: "two-byte runes, cap one byte in", body: "a" + strings.Repeat("é", 200)},
@@ -183,7 +187,12 @@ func TestSnippetCutsOnRuneBoundaries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := snippet([]byte(tt.body))
 
-			kept := strings.TrimSuffix(got, "...")
+			assert.NotContains(t, got, "\n", "a raw newline ends the line and forges the next one")
+			assert.NotContains(t, got, "\r")
+
+			unquoted, err := strconv.Unquote(got)
+			require.NoError(t, err, "the snippet has to be a quoted Go string")
+			kept := strings.TrimSuffix(unquoted, "...")
 			assert.True(t, strings.HasPrefix(tt.body, kept), "the snippet has to be a prefix of the body")
 			assert.True(t, utf8.ValidString(kept), "a cut must not split a rune")
 		})

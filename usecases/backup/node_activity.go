@@ -63,11 +63,16 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 	if r.Busy == nil {
 		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
 	}
-	// A busy answer's kind is formatted verbatim into the 409 a caller sees, so
-	// only the kinds this package emits are accepted.
+	// A busy answer's kind and ID are formatted verbatim into the 409 a caller
+	// sees, so only the kinds this package emits are accepted.
 	if *r.Busy && r.Kind != NodeActivityKindBackup && r.Kind != NodeActivityKindRestore {
 		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q, want %q or %q",
 			r.Kind, NodeActivityKindBackup, NodeActivityKindRestore)
+	}
+	// A held slot always carries its ID, so a busy answer without one did not
+	// come from this package and would put an empty backup id in that 409.
+	if *r.Busy && r.ID == "" {
+		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q but names no id", r.Kind)
 	}
 	// Only a held slot has a kind or an ID, so an idle answer naming either did
 	// not come from this package and its "not busy" cannot be trusted.

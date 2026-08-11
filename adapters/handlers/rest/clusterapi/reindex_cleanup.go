@@ -14,9 +14,9 @@ package clusterapi
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 
@@ -40,11 +40,6 @@ type ReindexCleanup struct {
 }
 
 func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
-	if logger == nil {
-		discard := logrus.New()
-		discard.Out = io.Discard
-		logger = discard
-	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
@@ -68,7 +63,13 @@ const loggedCollectionLimit = 128
 // from being written per request.
 func loggableCollection(collection string) string {
 	if len(collection) > loggedCollectionLimit {
-		collection = collection[:loggedCollectionLimit] + "…(truncated)"
+		// Cut on a rune boundary so the kept part stays readable rather than
+		// ending in an escaped half rune.
+		cut := loggedCollectionLimit
+		for cut > 0 && !utf8.RuneStart(collection[cut]) {
+			cut--
+		}
+		collection = collection[:cut] + "…(truncated)"
 	}
 	return strconv.Quote(collection)
 }
@@ -88,6 +89,12 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			return
 		}
 
+		// The cancelling node waits on this answer, so an operator tracing a
+		// slow cancel needs to see that the question arrived and what it got,
+		// on every path the request can leave by.
+		log := rc.logger.WithField("action", "reindex_cleanup_probe").
+			WithField("collection", loggableCollection(collection))
+
 		// Never silently report "not cleaning up": a cancel's answer depends
 		// on this, and a wrong "no" reopens the window it exists to close.
 		var prober ReindexCleanupProber
@@ -97,17 +104,13 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 		if prober == nil {
 			// The sentinel body lets the caller tell this permanent 503 apart
 			// from a transient one; see [clusterprobe.ProbeNotWiredMarker].
+			log.Debug("reindex cleanup probe answered: not wired on this node")
 			http.Error(w, clusterprobe.ProbeNotWiredMarker, http.StatusServiceUnavailable)
 			return
 		}
 
 		cleaningUp := prober.AnyCleanupInProgressForCollection(collection)
-		// The cancelling node waits on this answer, so an operator tracing a
-		// slow cancel needs to see that the question arrived and what it got.
-		rc.logger.WithField("action", "reindex_cleanup_probe").
-			WithField("collection", loggableCollection(collection)).
-			WithField("cleaning_up", cleaningUp).
-			Debug("reindex cleanup probe answered")
+		log.WithField("cleaning_up", cleaningUp).Debug("reindex cleanup probe answered")
 		data, err := json.Marshal(clusterprobe.NewReindexCleanupActivity(cleaningUp))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
