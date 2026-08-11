@@ -472,13 +472,21 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			tracker:     "enable_filterable_other_1",
 			wantTracker: true, wantGateHold: true,
 		},
+		// Except when that other property's name carries this one as a token:
+		// the name is equally a two-property task for "a"+"x", so the sidecar
+		// is over-preserved. See [migrationDirScope] for why that direction.
+		{
+			name:        "a completed tracker of a property whose name extends this one, payload gone",
+			tracker:     "enable_filterable_a_x_1",
+			wantTracker: true, wantSidecar: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
 			class := newTestClassWithProps("UnloadedSweepMultiPropDone_"+uuid.NewString()[:8],
-				[]string{"a", "b", "other"})
+				[]string{"a", "b", "other", "a_x"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
 			shard := shd.(*Shard)

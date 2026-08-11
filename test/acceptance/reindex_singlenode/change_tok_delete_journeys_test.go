@@ -36,7 +36,7 @@ import (
 // c98a3477ea) added a body shape that retokenizes ONLY the filterable
 // bucket. The classic ReindexTypeChangeTokenization retokenizes BOTH
 // buckets when both indexes exist. The two share submit-time cleanup
-// (CleanStalePartialReindexState in handlers_indexes.go) but
+// (the NewStalePartialReindexSweep call in handlers_indexes.go) but
 // indexTypeFromMigrationType returns ("", false) for the classic both-
 // indexes variant — meaning the submit-time pre-cleanup is SKIPPED for
 // change-tok-both. That's the gap the journeys below probe.
@@ -458,7 +458,7 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 // filterable-only retokenize can proceed.
 //
 // Hazard: indexTypeFromMigrationType returns ("", false) for
-// ReindexTypeChangeTokenization, which means CleanStalePartialReindexState
+// ReindexTypeChangeTokenization, which means the stale-state sweep
 // is NOT called by the submit-time pre-cleanup at handlers_indexes.go:427.
 // The cancel handler at handlers_indexes.go:598 IS called but only with
 // the specific indexType passed in the cancel body. If the change-tok-both

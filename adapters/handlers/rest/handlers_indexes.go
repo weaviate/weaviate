@@ -969,9 +969,10 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 // IsTidied check while OnMigrationComplete still flipped the schema's
 // Tokenization. Schema and on-disk state then disagreed.
 //
-// Callers iterate the returned slice and run CleanStalePartialReindexState
-// once per indexType. Safe to call when no stale state exists: missing
-// directories and unloaded buckets are silently skipped.
+// Callers iterate the returned slice and run the sweep from
+// db.DB.NewStalePartialReindexSweep once per indexType. Safe to call when no
+// stale state exists: missing directories and unloaded buckets are silently
+// skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
 	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:

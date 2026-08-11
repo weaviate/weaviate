@@ -106,6 +106,10 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not
 // sweep it. A delete landing mid-walk after a shard already failed carries
 // both this and [ErrCleanupCollectionDropped].
+//
+// Exported, like [ErrCleanupSweepTruncated], for the REST-side reporting of a
+// truncated sweep, which lands with the parent branch; inside this package
+// only [ReindexProvider] classifies them so far.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
@@ -174,6 +178,9 @@ func (i *Index) cleanStalePartialReindexState(
 			if !isLazy {
 				// Skipped, not failed: the post-restart finalize and
 				// OnAfterLsmInitAsync stale-sentinel check catch it on next load.
+				// Unreachable in production (only the two implementations exist);
+				// were a third to appear, this shard would count as visited
+				// without having been looked at.
 				return nil
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate,

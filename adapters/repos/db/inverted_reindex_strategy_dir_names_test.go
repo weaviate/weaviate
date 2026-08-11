@@ -245,6 +245,19 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_other_1",
 			propName: "cat", preserve: true, want: false,
 		},
+		// Over-preserved on purpose: this name is equally a two-property task
+		// for "cat"+"x" and the unrelated property "cat_x", and keeping a
+		// stranger's tracker beats deleting a live bucket.
+		{
+			name:     "a property whose name extends this one, with no payload, in the preserve set",
+			dir:      "enable_filterable_cat_x_1",
+			propName: "cat", preserve: true, want: true,
+		},
+		{
+			name:     "a property whose name this one extends across the join character, in the preserve set",
+			dir:      "enable_filterable_b_a_1",
+			propName: "a", preserve: true, want: true,
+		},
 		// An empty payload decides nothing, so falls back to the name like a
 		// missing payload does.
 		{

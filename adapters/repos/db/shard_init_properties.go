@@ -181,8 +181,9 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
-// cleans up everything). Match by prefix and walk every entry so we
-// don't miss old generations.
+// cleans up everything). Walk every entry, asking
+// [migrationDirScope.matches] about each, so we don't miss old
+// generations.
 //
 // Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
 // live deferred-finalize state for a successfully completed migration,

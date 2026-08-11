@@ -203,6 +203,13 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //     property list carries this property as a whole "_"-delimited token,
 //     because refusing to guess lets sidecar deletion — which is not
 //     payload-gated — remove the live bucket the in-memory pointer is on.
+//
+// The preserve direction therefore over-matches: for property "cat" a
+// payload-less "enable_filterable_cat_x" is kept even when it is really the
+// unrelated property "cat_x", and symmetrically "b_a" keeps "a". The name
+// cannot tell the two apart, and this is the cheaper end to be wrong on: an
+// over-kept tracker dir costs a later "rename: file exists" on re-enable,
+// which is recoverable, while an under-kept one deletes live data.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache
@@ -253,8 +260,9 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 // matches reports whether the tracker dir called name is in this scope. See
 // [migrationDirScope] for why the payload decides and the name only fills in.
 //
-// Retokenize strategies name their dir with a bare property name; that's
-// safe only because generateTasks limits such payloads to one property.
+// Retokenize strategies name their dir with a bare property name; that's safe
+// only because [ReindexProvider.createReindexTasks] rejects such a payload
+// unless it carries exactly one property.
 func (s migrationDirScope) matches(name string) bool {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {
@@ -295,8 +303,12 @@ func (s migrationDirScope) matches(name string) bool {
 
 // namesPropertyToken reports whether base is prefix + "_" + a property list
 // that carries propName as one whole "_"-delimited token, e.g.
-// "enable_filterable_a_b" for propName "a", without matching an unrelated
-// property.
+// "enable_filterable_a_b" for propName "a".
+//
+// A whole token is as precise as the name gets: a single property named "a_b"
+// produces the identical dir name, so this also reports true for a property
+// whose own name merely extends propName across "_". See [migrationDirScope]
+// for why over-matching is the safe direction here.
 func namesPropertyToken(base, prefix, propName string) bool {
 	props, ok := strings.CutPrefix(base, prefix+"_")
 	if !ok {
