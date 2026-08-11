@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -47,25 +48,33 @@ const (
 	tmpExt        = ".tmp"
 )
 
-// Backupable returns whether all given class can be backed up.
-// Refuses if any shard has an in-flight runtime-reindex; this runs in
-// the coordinator's canCommit phase so no staging dir is created on
-// rejection.
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample.
+const reindexRefusalShardSample = 10
+
+// Backupable returns whether all given classes can be backed up. Refuses if
+// any shard has an in-flight runtime-reindex; this runs in the coordinator's
+// canCommit phase so no staging dir is created on rejection.
 //
-// All per-class / per-shard failures are accumulated and joined into a
-// single error rather than short-circuiting on the first one. Joining
-// ensures that when several classes are blocked at once, the operator sees
-// the full list in a single canCommit round instead of fixing one,
-// retrying, fixing the next, retrying, and so on. The joined error still
-// satisfies errors.Is for any wrapped sentinel (e.g.
-// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
-// underlying error graph.
+// All per-class / per-shard failures are accumulated rather than
+// short-circuiting on the first one, so that when several classes are blocked
+// at once the operator sees the full list in a single canCommit round instead
+// of fixing one, retrying, fixing the next, retrying, and so on.
+//
+// When a gate refusal is among them, only gate refusals (which name no node
+// or shard, so are safe in an API response) and missing-class errors are
+// returned; everything else goes to the log via [DB.logReindexRefusals] since
+// it names the local node. The joined error still satisfies errors.Is for any
+// wrapped sentinel (e.g. ErrBackupBlockedByInFlightReindex) because
+// errors.Join preserves the underlying error graph.
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	var errs []error
+	var errs, gateErrs, missingClassErrs []error
+	gateSeen := map[string]struct{}{}
+	blockedShards := map[string][]string{}
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -74,7 +83,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			// class, and the integration test casing-permutation case
 			// pins the bare wording so the coordinator's class-missing
 			// detection works the same as it did pre-Wave-2.
-			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
+			missingClassErrs = append(missingClassErrs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
 		shards, _, err := idx.readSchema()
@@ -83,15 +92,77 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+			// The quiet variant: this pass logs its own summary below rather
+			// than one line per shard.
+			err := idx.refuseIfReindexInFlightQuiet(shardName)
+			if err == nil {
+				continue
 			}
+			// One entry per distinct refusal, not per shard. The refusal text
+			// names no shard, so per-shard joining returns one byte-identical
+			// sentence per shard, and this pass covers five-figure shard counts.
+			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
+			blockedShards[c] = append(blockedShards[c], shardName)
 		}
 	}
+	if len(gateErrs) > 0 {
+		db.logReindexRefusals(nodeName, blockedShards, errs)
+		return stderrors.Join(append(gateErrs, missingClassErrs...)...)
+	}
+	errs = append(errs, missingClassErrs...)
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
 	}
 	return nil
+}
+
+// appendUniqueGateErr appends err to gateErrs unless an error with the same
+// message was already appended, tracking what it has seen in seen.
+func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) []error {
+	if _, dup := seen[err.Error()]; dup {
+		return gateErrs
+	}
+	seen[err.Error()] = struct{}{}
+	return append(gateErrs, err)
+}
+
+// logReindexRefusals logs the gate refusals collected by [DB.Backupable].
+// blockedShards maps a collection to the shards the gate held; errs are the
+// other precheck errors, which are withheld from the response because they
+// name the local node.
+func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string, errs []error) {
+	if db.logger == nil {
+		return
+	}
+	// One line per collection, shard list capped (this pass can cover
+	// five-figure shard counts); count is exact, names are a sample. Sorted
+	// so repeated refusals diff cleanly.
+	collections := make([]string, 0, len(blockedShards))
+	for c := range blockedShards {
+		collections = append(collections, c)
+	}
+	sort.Strings(collections)
+	for _, c := range collections {
+		shardNames := blockedShards[c]
+		sort.Strings(shardNames)
+		sample := shardNames
+		if len(sample) > reindexRefusalShardSample {
+			sample = sample[:reindexRefusalShardSample]
+		}
+		db.logger.WithField("action", "backup_reindex_gate").
+			WithField("collection", c).
+			WithField("node", nodeName).
+			WithField("blocked_shards", sample).
+			WithField("blocked_shard_count", len(shardNames)).
+			Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
+				"blocked_shards lists the first %d", len(shardNames), c, len(sample))
+	}
+	if len(errs) > 0 {
+		// Withheld from the response, not from the operator.
+		db.logger.WithField("action", "backup_reindex_gate").
+			Warnf("backup precheck refused by the reindex gate; also hit %d other error(s), "+
+				"reported here only: %v", len(errs), stderrors.Join(errs...))
+	}
 }
 
 // BackupDescriptors returns a channel of class descriptors.
