@@ -152,6 +152,21 @@ func FromEnv(config *Config) error {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
 	}
 
+	// Written only when the variable is set, so a value from the config file
+	// survives.
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_DISABLED"); v != "" {
+		config.LazyLoadShardWarmupDisabled = entcfg.Enabled(v)
+	}
+	// Eager loading ignores the knob entirely, so warning there would describe a
+	// state no collection on this node is in. Auto-detection is resolved per
+	// collection later, so a nil setting still warns.
+	if config.LazyLoadShardWarmupDisabled &&
+		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
+		logrus.Warn("lazy shard background warmup is disabled; shards stay unloaded until first access. " +
+			"An untouched HOT tenant keeps its expired objects, because the TTL sweep skips unloaded shards. " +
+			"Async replication also skips it, so a stale replica is not repaired until something loads it.")
+	}
+
 	// Lazy load shard size threshold for auto-detection (in GB)
 	// Determines at what total shard size auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
