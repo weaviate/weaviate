@@ -24,6 +24,12 @@ const (
 	Failed       Status = "FAILED"
 )
 
+// IsCancellation reports whether the operation is being cancelled or has been.
+// Testing only for Cancelled would treat an in-flight cancel as live.
+func (s Status) IsCancellation() bool {
+	return s == Cancelling || s == Cancelled
+}
+
 type CreateMeta struct {
 	Path   string
 	Status Status

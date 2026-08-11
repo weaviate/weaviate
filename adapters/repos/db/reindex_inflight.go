@@ -147,10 +147,8 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // that a shard is live — so it points at the GET poll instead of guessing a
 // property/index-type pair that could 202 NO_OP.
 //
-// `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
-// stored; canCommit runs synchronously inside coordinator.Backup, so the REST
-// error path strips it before returning. The async backup-status field is
-// not stripped.
+// `collection` stays namespace-qualified: the sync REST error path strips
+// it, but the async backup-status field does not.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

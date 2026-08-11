@@ -272,18 +272,29 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
-// checkReindexConflictForPropertyMutation is the REST-handler pre-flight for
-// the mutation guard: returns a non-empty reason if a reindex migration on
-// (className, propertyName) is non-terminal (per
-// [distributedtask.TaskStatus.IsActive]), mirroring the schema FSM's
-// MutationGuard at apply time but earlier, for operator UX.
+// checkReindexConflictForPropertyMutation is the REST-handler
+// pre-flight for the mutation guard. Returns a non-empty conflict
+// reason iff a reindex migration on (className, propertyName) is in
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive],
+// which includes a status this build does not recognize) — same
+// epistemics as the schema FSM's MutationGuard at apply time, just
+// earlier in the request lifecycle for operator UX.
 //
-// Per-node and best-effort: two nodes can both see "no conflict" and race to
-// RAFT, which the apply-time [MutationGuard] closes for real. A missing
-// lister or a TaskLister error returns "" so the request falls through to
-// RAFT rather than spuriously rejecting. An unreadable or incomplete payload
-// is a refusal instead, mirroring the apply side: we cannot prove
-// non-conflict, so the caller must not be told there is none.
+// Per-node, in-memory: two REST handlers on different nodes can both
+// observe "no conflict" and both forward to RAFT — that's expected,
+// the apply-time [MutationGuard] is what closes that multi-node
+// race. This check exists purely to short-circuit the common
+// single-node case with a clean 4xx instead of an apply-time
+// rejection.
+//
+// Degrades gracefully: a TaskLister error returns "" (no conflict
+// detected) so the request proceeds to RAFT and the apply-time guard
+// handles correctness. We never spuriously reject due to a transient
+// local error.
+//
+// Best-effort UX only: it fails open (returns "") on a missing or erroring
+// TaskLister, and fails closed (refuses) on a payload it cannot prove
+// harmless.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
@@ -299,23 +310,29 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return strings.Compare(a.ID, b.ID)
 	})
 	for _, task := range tasks {
-		// Every non-terminal status counts as in-flight — see
-		// [checkReindexConflict]'s godoc for why (races the in-flight
-		// per-shard bucket-pointer flip).
+		// Every non-terminal status counts as in-flight — see the godoc
+		// on [checkReindexConflict] for the full reasoning. Mutating the
+		// property mid-migration would race the per-shard bucket-pointer
+		// flip.
 		if !task.Status.IsActive() {
 			continue
 		}
-		// Mirrors the apply gate's wording so a retry isn't told
-		// something different on the second pass.
 		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		decodeErr := json.Unmarshal(task.Payload, &payload)
+		// Check collection first: json.Unmarshal fills decoded fields before
+		// erroring, so a task naming a different collection is skipped even
+		// with a garbage payload, rather than blocking mutations cluster-wide.
+		if payload.Collection != "" && !strings.EqualFold(payload.Collection, className) {
+			continue
+		}
+		if decodeErr != nil {
 			// Task ID withheld: an unreadable payload also hides which
 			// namespace the task belongs to.
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
 					"conflict (see GET /v1/tasks): %v",
-				className, propertyName, err)
+				className, propertyName, decodeErr)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
@@ -334,14 +351,15 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
-		// Matches the apply gate's wording too, for the same reason.
+		// callerDropsTheData is false: DELETE removes only the named index,
+		// so the remedy's repair suggestion is still meaningful.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
 				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
 			propertyName, task.Status,
-			db.ReindexGateRemedy(task.Status, payload, propertyName))
+			db.ReindexGateRemedy(task.Status, payload, propertyName, false))
 	}
 	return ""
 }

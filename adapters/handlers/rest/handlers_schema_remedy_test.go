@@ -27,8 +27,7 @@ import (
 )
 
 // TestPropertyGateMessagesAreByteIdenticalAcrossLayers pins that the
-// pre-check and apply gate produce byte-identical refusals across every
-// status/payload-shape combination, not just matching substrings.
+// pre-check and apply gate produce byte-identical refusals.
 func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 	statuses := []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
@@ -81,7 +80,7 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 		},
 		{
 			// Empty Properties means "all properties" via different code on
-			// each side — the row most likely to drift.
+			// each side.
 			name: "no properties means all of them",
 			build: func(t *testing.T) []byte {
 				return marshal(t, db.ReindexTaskPayload{
@@ -101,9 +100,7 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 			build: func(t *testing.T) []byte { return []byte("{not json") },
 		},
 		{
-			// Both layers keep the qualified class in the cancel URL: a
-			// global operator has to type the prefix, and the REST error
-			// path strips it again for the namespace-confined caller.
+			// Both layers keep the qualified class in the cancel URL.
 			name:      "a namespace-qualified collection",
 			className: "customer1:C",
 			build: func(t *testing.T) []byte {
@@ -161,8 +158,7 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 }
 
 // TestTheCancelHelpersReadTheSharedIndexTypeMapping pins that both REST
-// helpers delegate to db.ReindexTargetIndexes rather than forking their own
-// copy of the mapping. (The mapping's own arms are pinned in the db package.)
+// helpers delegate to db.ReindexTargetIndexes rather than forking their own copy.
 func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 	migrationTypes := []db.ReindexMigrationType{
 		db.ReindexTypeChangeTokenization, // two index types
@@ -188,8 +184,8 @@ func TestTheCancelHelpersReadTheSharedIndexTypeMapping(t *testing.T) {
 }
 
 // TestTheRenderedCallReachesBothKindsOfCaller pins that the rendered URL
-// keeps its namespace prefix: the REST error path strips a confined
-// caller's own prefix, but a global operator needs it to reach the class.
+// keeps its namespace prefix for a global operator, but is stripped for a
+// namespace-confined caller.
 func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -239,8 +235,8 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 }
 
 // TestEveryDeclaredTypeRendersAnAcceptedRepairCall checks that every rendered
-// repair/cancel call also passes the real per-type validator, not just group
-// exclusivity — a well-formed body can still fail its own precondition.
+// repair/cancel call also passes the real per-type validator, not just
+// group exclusivity.
 func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 	const targetTok = "word"
 	// The tokenization every retokenize row is migrating away from.
@@ -258,8 +254,8 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 		return &models.Property{Name: name, DataType: []string{"int"}, IndexRangeFilters: rangeable}
 	}
 
-	// The full declared set. accept runs the same validator updateIndex runs
-	// for the verb this type's repair body carries.
+	// accept runs the same validator updateIndex runs for the verb this
+	// type's repair body carries.
 	cases := []struct {
 		migrationType db.ReindexMigrationType
 		prop          *models.Property
@@ -321,9 +317,8 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 		{
 			migrationType: db.ReindexTypeChangeTokenization,
 			prop:          textProp("name", &enabled, nil, oldTok),
-			// The schema-decidable half of what production runs: the other
-			// half only requires a live searchable bucket, which a cancelled
-			// change-tokenization never drops.
+			// Only checks the schema-decidable part; the rest needs a live
+			// searchable bucket, which a cancelled change-tokenization keeps.
 			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
 				return validateSearchableTokenizationChange(p, b.Searchable.Tokenization)
 			},
@@ -383,9 +378,9 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 	}
 }
 
-// TestBothLayersNameTheSameTaskWhenSeveralConflict pins the pre-check's sort
-// to match the apply gate's (both by task ID), so the two name the same
-// conflicting task for the same request.
+// TestBothLayersNameTheSameTaskWhenSeveralConflict pins that the pre-check
+// and the apply gate name the same conflicting task regardless of the
+// task list's input order.
 func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType:      db.ReindexTypeChangeTokenization,

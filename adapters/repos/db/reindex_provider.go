@@ -1576,28 +1576,36 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
 		// FAILED/CANCELLED both auto-clean partial sidecar state on every
-		// node, and cleanup deliberately preserves a generation that already
-		// merged or swapped. Only FAILED gets repair guidance unconditionally;
-		// see promotableReindexStateOnThisNode for why CANCELLED has to earn it.
+		// node, and log operator repair guidance when a swap can have run.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "FAILED")
+				logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// Cleanup first: it drains the local worker, so the tracker
-				// dirs the check reads are no longer being written. If the
-				// drain times out, treat the check's answer as unusable
-				// rather than trusted mid-write.
+				// A cancel from STARTED cannot have torn anything (no node has
+				// swapped yet); a cancel from an unrecognized status can, if a
+				// newer node ran its swap phase. Two independent witnesses, since
+				// either alone under-reports: PostCompletionAcks proves some node
+				// swapped (runSwapPhase suppresses the ack while STARTED) but is
+				// dropped for acks arriving after the cancel applied, while the
+				// on-disk check proves only what this node holds.
+				//
+				// Cleanup runs first: it drains the local worker, so the tracker
+				// dirs the disk check reads are no longer being written. A drain
+				// that timed out makes that answer unusable, so it counts as
+				// evidence rather than being trusted mid-write.
 				drained := p.autoCleanupAfterTerminal(task, payload, logger)
 				if !IsSemanticMigration(payload.MigrationType) {
-					// No schema flip to skip, so no inversion either way.
+					// Positive allowlist: an unknown type lands here too, so
+					// abstain rather than claim a schema-flip consequence.
 					break
 				}
-				if !drained || p.promotableReindexStateOnThisNode(payload) {
-					logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
+				if len(task.PostCompletionAcks) > 0 || !drained ||
+					p.promotableReindexStateOnThisNode(payload) {
+					logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
 				} else {
-					logger.Info("reindex provider: cancelled before any generation merged on this node; the buckets and the schema are both still pre-migration here, so there is nothing to repair")
+					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; the next restart would promote nothing here, so no repair guidance is issued for this node")
 				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
@@ -1665,7 +1673,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // teardown sees [distributedtask.TaskStatus.IsActive]==false but the on-disk
 // __reindex / __ingest sidecars are still being torn out. Registering
 // every shard the task touched in [cleanupInProgress] before
-// CleanStalePartialReindexState fires (and unregistering after) makes
+// the sweep fires (and unregistering after) makes
 // "cleanup is still happening on this shard" an explicit state the
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
@@ -1687,7 +1695,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
 	// The unregister fires from the defer so any return path — including
-	// a panic inside CleanStalePartialReindexState — releases the slot.
+	// a panic inside the sweep — releases the slot.
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
@@ -1699,22 +1707,17 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	swept, dropped := true, false
-	for _, propName := range payload.Properties {
-		for _, indexType := range indexTypes {
-			err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType)
-			switch {
-			case err == nil:
-			case errors.Is(err, ErrCleanupCollectionDropped):
-				dropped = true
-			default:
-				swept = false
-				logger.WithField("property", propName).WithField("index_type", indexType).
-					Warnf("auto-cleanup after terminal status failed: %v", err)
-			}
-		}
-	}
-	msg, warn := terminalCleanupOutcome(swept, dropped)
+	// One sweep for the whole loop, so each shard's directories are read once.
+	sweep := p.db.NewStalePartialReindexSweep()
+	worst := sweepTerminalTuples(payload.Properties, indexTypes,
+		func(propName, indexType string) error {
+			return sweep(cleanupCtx, payload.Collection, propName, indexType)
+		},
+		func(propName, indexType string, failure error) {
+			logger.WithField("property", propName).WithField("index_type", indexType).
+				Warnf("auto-cleanup after terminal status failed: %v", failure)
+		})
+	msg, warn := terminalCleanupOutcome(worst)
 	if warn {
 		logger.Warn(msg)
 	} else {
@@ -1723,18 +1726,84 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	return true
 }
 
-// terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. State left on disk is the only outcome worth a warning: a collection
-// being deleted takes its partial state with it, so there is nothing to act on
-// even though no shard was swept.
-func terminalCleanupOutcome(swept, dropped bool) (msg string, warn bool) {
+// sweepTerminalTuples runs sweep once per (property, index type), reporting
+// each failure to onFailure, and returns the worst outcome of the run — a
+// later clean tuple must not mask an earlier one that left state behind.
+func sweepTerminalTuples(
+	propNames, indexTypes []string,
+	sweep func(propName, indexType string) error,
+	onFailure func(propName, indexType string, failure error),
+) terminalSweepOutcome {
+	worst := terminalSweepClean
+	for _, propName := range propNames {
+		for _, indexType := range indexTypes {
+			outcome, failure := classifyTerminalSweep(sweep(propName, indexType))
+			worst = max(worst, outcome)
+			if failure != nil {
+				onFailure(propName, indexType, failure)
+			}
+		}
+	}
+	return worst
+}
+
+// terminalSweepOutcome is what one sweep left for the operator, ordered by
+// how much of the collection is unaccounted for; the max across a run's
+// sweeps is what's reported.
+//
+// "Every shard" means every shard in the index's shard map — a tenant already
+// COLD when the sweep starts isn't in it, so its state is neither swept nor
+// reported until reactivation (the OnAfterLsmInitAsync stale-sentinel check).
+// A tenant deactivated mid-walk was in the map and reports [terminalSweepUnknown].
+type terminalSweepOutcome int
+
+const (
+	// terminalSweepClean: every shard in the map was swept.
+	terminalSweepClean terminalSweepOutcome = iota
+	// terminalSweepDropped: no shard was swept and none had to be — the
+	// collection is not on this node, so its partial state is not here either.
+	terminalSweepDropped
+	// terminalSweepUnknown: shards were left unvisited. What is on them is
+	// unknown, which is not the same as knowing state is there.
+	terminalSweepUnknown
+	// terminalSweepFailed: a shard was reached and could not be swept. Nothing
+	// was removed from it, so whatever partial state it holds is still there.
+	terminalSweepFailed
+)
+
+// classifyTerminalSweep splits one sweep's error into what it left behind and
+// the failure the operator has to act on. A shard can fail before the
+// collection is deleted mid-walk; that outcome is [terminalSweepFailed], not
+// [terminalSweepDropped] — the delete doesn't erase the earlier failure.
+func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure error) {
 	switch {
-	case !swept:
-		return "auto-cleanup after terminal status: some partial sidecar state is still on this node", true
-	case dropped:
-		return "auto-cleanup after terminal status: the collection is being deleted, which takes its partial sidecar state with it", false
+	case err == nil:
+		return terminalSweepClean, nil
+	case IsCleanupCollectionDropped(err):
+		return terminalSweepDropped, nil
+	case errors.Is(err, ErrCleanupShardFailed):
+		return terminalSweepFailed, err
+	case errors.Is(err, ErrCleanupSweepTruncated):
+		return terminalSweepUnknown, err
 	default:
-		return "auto-cleanup after terminal status: partial sidecar state cleared on this node", false
+		// Not expected to be reached; an unmarked error is unknown, not clean.
+		return terminalSweepUnknown, err
+	}
+}
+
+// terminalCleanupOutcome is what the operator is told after the post-terminal
+// sweep. A dropped collection warrants no warning (no state left to act on);
+// failed and unknown both do, since neither confirms the state is gone.
+func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
+	switch outcome {
+	case terminalSweepFailed:
+		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
+	case terminalSweepUnknown:
+		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
+	case terminalSweepDropped:
+		return "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either", false
+	default:
+		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
 	}
 }
 
@@ -1818,8 +1887,8 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 }
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
-// terminal-task cleanup goroutine still inside its
-// CleanStalePartialReindexState loop?" probe. Sibling type to
+// terminal-task cleanup goroutine still inside its [sweepTerminalTuples] run
+// over [DB.NewStalePartialReindexSweep]?" probe. Sibling type to
 // [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
 // "is there a LIVE reindex task on this shard?" probe). The backup
 // gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
@@ -1855,16 +1924,20 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// logOperatorRepairGuidanceOnTerminalSemanticMigration logs the REST command
-// to recover from a semantic migration that reached `outcome` (FAILED or
-// CANCELLED) with a bucket left NEW-tokenized under an unflipped schema.
+// logOperatorRepairGuidanceOnTornSemanticMigration logs the REST command to
+// recover from a semantic migration that stopped after a bucket could
+// already have been left NEW-tokenized under an unflipped schema. Sub-tasks
+// that merged or swapped before the task terminalized leave the affected
+// inverted index returning 0 rows until it is rebuilt.
 //
-// FAILED always has evidence (a unit died mid-work); CANCELLED only logs
-// this when [ReindexProvider.promotableReindexStateOnThisNode] confirms
-// something merged, since a STARTED cancel wrote nothing. See
-// [ReindexGateRemedy] for the phase reasoning; same collection-naming rule
-// as [ReindexCancelCall].
-func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome string) {
+// FAILED always has evidence; CANCELLED earns it from a recorded swap ack
+// or from promotable on-disk state (see the CANCELLED arm of
+// [ReindexProvider.OnTaskCompleted]). See [ReindexGateRemedy] for the phase
+// reasoning.
+//
+// outcome is the terminal status that produced the tear (FAILED or
+// CANCELLED), logged so the operator can match it to the task.
+func logOperatorRepairGuidanceOnTornSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -1908,13 +1981,10 @@ func logOperatorRepairGuidanceOnTerminalSemanticMigration(logger logrus.FieldLog
 
 // promotableReindexStateOnThisNode reports whether this node holds reindex
 // state the next restart would promote — the evidence gate for CANCELLED
-// repair guidance, since an unconditional "buckets are inverted" would be a
-// false alarm at STARTED, which [ReindexGateRemedy] calls safe to cancel.
-//
-// Per-node: at SWAPPING one replica can have merged while another hasn't,
-// and guidance belongs on the node that needs repairing. Answers true when
-// it cannot tell (no local store) — silence about possibly-inverted data is
-// the worse error.
+// repair guidance, since an unconditional "buckets are inverted" claim would
+// be a false alarm at STARTED. Per-node, since one SWAPPING replica can have
+// merged while another hasn't. Answers true when it cannot tell (no local
+// store) — silence about possibly-inverted data is the worse error.
 func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
 	if p.db == nil {
 		return true
@@ -1974,16 +2044,15 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		lsmPath := concrete.pathLSM()
-		// ChangeAlgorithm uses a class-level tracker dir; per-property
-		// migrationDirsForPropertyIndex deliberately omits it.
+		// ChangeAlgorithm uses a class-level tracker dir; the per-property
+		// scope deliberately omits it.
 		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
-			hasUntidiedTracker(lsmPath, []string{MigrationDirSearchableMapToBlockmax}) {
+			hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
 			return false
 		}
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
-				prefixes := migrationDirsForPropertyIndex(propName, indexType)
-				if hasUntidiedTracker(lsmPath, prefixes) {
+				if hasUntidiedTracker(migrationDirsOf(lsmPath, nil, propName, indexType)) {
 					return false
 				}
 			}
@@ -1994,55 +2063,45 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
 // each semantic migration type writes per-property tracker dirs for.
-// Format-only migrations don't appear here because LocalCallbacksDone
-// short-circuits on !IsSemanticMigration before calling this.
+// Derived from [ReindexTargetIndexes] rather than mapped again here to
+// avoid a second copy of the table drifting out of sync.
+// Nil for a format-only type short-circuits LocalCallbacksDone's recovery
+// check — those don't cross the swap barrier, so nothing to recover.
 func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable:
-		return []string{"filterable"}
-	case ReindexTypeChangeAlgorithm:
-		return []string{"searchable"}
-	case ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		// Format-only migrations. Returning nil short-circuits
-		// LocalCallbacksDone's recovery check — they don't go through
-		// the swap barrier so there's nothing to recover at this layer.
+	if !IsSemanticMigration(mt) {
 		return nil
 	}
-	return nil
+	return ReindexTargetIndexes(mt)
 }
 
-// hasUntidiedTracker returns true iff at least one of the named tracker
-// prefixes has a generation directory on disk that has started.mig but
-// neither tidied.mig nor merged.mig — the signature of a swap that
-// began but did not commit. Trackers that have tidied/merged are NOT a
+// hasUntidiedTracker returns true iff at least one tracker dir in scope has
+// started.mig but neither tidied.mig nor merged.mig — the signature of a swap
+// that began but did not commit. Trackers that have tidied/merged are NOT a
 // recovery signal (they are completed migrations waiting for the next
 // restart's FinalizeCompletedMigrations to promote them to canonical).
 // A completely missing tracker dir is also NOT a recovery signal: a
 // prior FinalizeCompletedMigrations already promoted-and-removed it.
-func hasUntidiedTracker(lsmPath string, prefixes []string) bool {
-	migsDir := filepath.Join(lsmPath, ".migrations")
+//
+// Generation-less dirs (from before [genSuffix]) count too, matching what
+// [migrationDirScope.match] — and through it the cleanup sweep — treats as
+// this tuple's trackers. A tracker whose payload exists but can't be read or
+// parsed counts as well, and so does a .migrations dir that exists but can't
+// be listed: either could hide a tracker naming this property, and reporting
+// "done" on unreadable state would deregister the local callbacks while an
+// untidied tracker remains. Like the unloaded-shard gate
+// ([hasStalePartialReindexState]), this fails toward recovery.
+func hasUntidiedTracker(scope migrationDirScope) bool {
+	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
-		return false
-	}
-	prefixSet := map[string]bool{}
-	for _, p := range prefixes {
-		prefixSet[p] = true
+		return !os.IsNotExist(err)
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		base, _, ok := parseMigrationDirName(entry.Name())
-		if !ok || !prefixSet[base] {
+		matched, unreadablePayload := scope.match(entry.Name())
+		if !matched && !unreadablePayload {
 			continue
 		}
 		dirPath := filepath.Join(migsDir, entry.Name())
@@ -2289,8 +2348,8 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 // than letting partially-flipped buckets misroute against the OLD
 // schema tokenization. The partial-success case surfaces through the
 // repair_command log line in
-// [logOperatorRepairGuidanceOnTerminalSemanticMigration], which fires on
-// FAILED and on a CANCELLED task that left promotable state behind.
+// [logOperatorRepairGuidanceOnTornSemanticMigration], which fires on FAILED
+// and on a CANCELLED task that a swap ack or promotable state implicates.
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).
@@ -2318,7 +2377,7 @@ func maybeClearTokenizationOverlayOnAllFailed(
 // [distributedtask.Manager.CancelDistributedTask] cannot safely tear
 // down the __reindex / __ingest sidecar buckets while the worker
 // goroutine is still writing to them. Calling WaitForLocalTaskDrain
-// between CancelDistributedTask and [DB.CleanStalePartialReindexState]
+// between CancelDistributedTask and [DB.NewStalePartialReindexSweep]'s sweep
 // closes that race window.
 //
 // Returns nil immediately if no goroutine is running for this descriptor

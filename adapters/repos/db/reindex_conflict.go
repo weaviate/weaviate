@@ -109,14 +109,12 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
 //
-// Fails closed on an unrecognized migration type (e.g. a newer node during a
-// rolling upgrade): this runs on the RAFT apply path, replayed on restart on
-// every node, so panicking would crash-loop the cluster instead of just
-// rejecting a request. Overlap is checked first since it depends only on
-// property sets, which stay correct regardless of type. Safe only because
-// every overlap currently conflicts; a future "these types are compatible"
-// exception would make an older node reject what a newer one accepts,
-// splitting the FSM.
+// Fails closed on an unrecognized migration type (RAFT apply path — a panic
+// would crash-loop the cluster). Overlap is checked first since it needs
+// only property sets, which stay correct regardless of type. Safe only
+// because every overlap currently conflicts; a future compatible-types
+// exception must preserve that, or an older node would reject what a newer
+// one accepts, splitting the FSM.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -143,9 +141,9 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 }
 
 // TypesConflictReason is the package-public alias for typesConflictReason,
-// used by the REST handlers' pre-flight conflict check. Inline so the
-// internal caller (CheckConflict) continues to use the lowercase symbol
-// without indirection.
+// used by the REST handlers' pre-flight conflict check. A separate
+// exported name rather than a rename, so the in-package callers keep
+// using the lowercase symbol.
 func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -174,18 +172,11 @@ func ReindexPropsOverlap(a, b []string) bool {
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
 // to, or nil for an unknown type.
 //
-// Single source of truth for that mapping: [ReindexCancelCall],
-// [firstUnknownMigrationType], the REST cancel matcher and submit-time
-// cleanup, and the two disk-deleting cleanup paths (autoCleanupAfterTerminal,
-// the restart orphan audit) all read it. A mismatch between them risks
-// silent data loss, so this is the only place that maps a type to an index.
-// A new type still needs an arm in [reindexRepairBody] as well, which maps
-// the same constants onto submit bodies; both tables are pinned against the
-// declared set in reindex_conflict_test.go.
-//
-// Not semanticMigrationIndexTypes (reindex_provider.go), which answers a
-// different question — which types cross the swap barrier — and returns
-// nil for format-only types.
+// Single source of truth for that mapping — read by [ReindexCancelCall],
+// [firstUnknownMigrationType], the REST cancel matcher, submit-time
+// cleanup, and both disk-deleting cleanup paths. A mismatch between callers
+// risks silent data loss. [reindexRepairBody] needs its own arm per type;
+// both tables are pinned against the declared set in reindex_conflict_test.go.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
@@ -216,22 +207,16 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 }
 
 // ReindexCancelCall renders a request that cancels the task described by p,
-// or "" when this build cannot name one. Callers must not print a
-// placeholder for "": the cancel endpoint 202s with NO_OP on a non-matching
-// request, so a guessed URL would look like success for a still-running task.
+// or "" when p.Collection/p.Properties are empty or p.MigrationType maps to
+// no index. Callers must not print a placeholder for "": the cancel
+// endpoint 202s with NO_OP on a non-matching request, so a guessed URL
+// would look like success for a still-running task.
 //
-// "" happens when p.Collection is empty, p.Properties is empty (reserved
-// whole-collection rebuild — no shipping route produces this today), or
-// p.MigrationType maps to no index via [ReindexTargetIndexes].
+// The collection keeps its namespace-qualified prefix — needed by the
+// global-operator reader; a confined caller's own prefix is stripped
+// elsewhere ([namespacing.StripErrorMessage]).
 //
-// The collection segment keeps its namespace-qualified prefix as stored: a
-// global operator (the only server-log reader) needs it to reach the right
-// collection, and [namespacing.StripErrorMessage] already strips a confined
-// caller's own prefix from the whole message on the REST path.
-//
-// askedProperty is named when the task carries it, falling back to the
-// first property otherwise — cancel is task-scoped, so which one is named
-// doesn't change what gets cancelled.
+// Exported only for handlers_schema_remedy_test.go.
 func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
@@ -242,19 +227,21 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 }
 
 // ReindexRepairCall renders the request that repairs the property after the
-// migration terminalized with the buckets ahead of the schema, or "" when
-// this build cannot name one. Same rendering rules as [ReindexCancelCall].
+// migration terminalized with buckets ahead of the schema, or "" when this
+// build cannot name one. Re-submits the original migration rather than a
+// bare rebuild: every rebuild verb validates against the bit the skipped
+// schema flip would have set.
 //
-// The repair re-submits the original migration rather than a bare rebuild:
-// a terminal task skipped its schema flip, and every rebuild verb validates
-// against exactly the bit that flip would have set (e.g. `searchable.rebuild`
-// 400s while the algorithm is still WAND).
+// change-algorithm on an already-promoted shard is untested (weaviate/weaviate#12575).
 //
-// change-algorithm on an already-promoted shard is an untested corner: the
-// canonical bucket is already inverted while the strategy declares a
-// map-collection source. Tracked at weaviate/weaviate#12575.
+// Exported for the same reason as [ReindexCancelCall].
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
-	body := reindexRepairBody(p)
+	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
+}
+
+// reindexSubmitCall renders a submit request against p's collection and
+// named property with the given body, or "" when any part is missing.
+func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string {
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
 		return ""
 	}
@@ -263,21 +250,14 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 }
 
 // reindexRepairBody renders the submit body that produced p's migration
-// type. Exactly one index group per body — validateBodyExclusivity in the
-// REST handlers refuses a body naming two.
+// type — one index group per body, matching every per-type REST
+// precondition, not just group exclusivity (e.g. enable-searchable carries
+// its tokenization since the handler reads the target from the same body).
 //
-// Every arm has to clear the per-type precondition the REST handler runs on
-// the post-terminal state, not just the group-exclusivity check.
-// enable-searchable therefore carries its tokenization: the handler reads the
-// target from the same body and rejects an empty one.
-//
-// "" for an unrecognized type, for enable-rangeable (see below), and for a
-// body whose payload carries no target tokenization (written by an older
-// binary) — guessing would retokenize the property to the wrong value.
-//
-// The mapping stays total over all declared types, even though both callers
-// gate on [IsSemanticMigration] and never reach the format-only arms today —
-// kept so a type promoted to semantic later doesn't silently render nothing.
+// "" for an unrecognized type, for enable-rangeable (no body is valid in
+// every terminal state), or when the payload carries no target
+// tokenization (an older binary wrote it) — guessing would retokenize to
+// the wrong value.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:
@@ -289,6 +269,9 @@ func reindexRepairBody(p ReindexTaskPayload) string {
 	case ReindexTypeRebuildSearchable:
 		return `{"searchable":{"rebuild":true}}`
 	case ReindexTypeChangeAlgorithm:
+		// blockmax hardcoded: it is the only target algorithm
+		// validateChangeAlgorithmProperty accepts, and the payload carries
+		// no target field. A second algorithm must extend both places.
 		return `{"searchable":{"algorithm":"blockmax"}}`
 	case ReindexTypeChangeTokenization:
 		if p.TargetTokenization == "" {
@@ -326,46 +309,32 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 
 // ReindexGateRemedy is the closing sentence every reindex schema gate (RAFT
 // apply path and REST pre-check) appends to its refusal, kept in one place
-// so the two can't drift. Not used by the backup gate, which is shard-keyed
-// and never sees the task (its wording is in reindexInFlightError).
+// so the two can't drift. Not used by the backup gate (shard-keyed, never
+// sees the task — its wording is in reindexInFlightError).
 //
 // p is the offending task's payload; askedProperty is the property named in
-// the caller's request, or "" when the refusal isn't property-scoped
-// (DeleteClass, tenant mutations).
+// the caller's request, or "" when the refusal isn't property-scoped.
+// callerDropsTheData is true only when the caller's action destroys ALL the
+// shards the migration works on (today only DeleteClass): those get told to
+// cancel and retry, since a follow-up call would 404. Tenant mutations pass
+// false — the migration's on-disk state survives them.
 //
-// The sentence depends on status and on [IsSemanticMigration]:
-//   - unrecognized status (e.g. a newer node's, or terminal — no caller
-//     exercises terminal since every gate pre-filters on
-//     [distributedtask.TaskStatus.IsActive]): claims nothing about cancel.
-//   - no cancel call nameable: task can only be waited out.
-//   - STARTED on a semantic (barrier) migration: nothing is on disk yet, so
-//     cancel or wait are both safe.
-//   - any status on a format-only migration: PREPARING never exists
-//     ([distributedtask.Task.NeedsPreparationBarrier] == [IsSemanticMigration])
-//     but SWAPPING does, and per-shard swaps commit independently in both
-//     STARTED and SWAPPING — cancelling leaves some shards rebuilt, others
-//     not. There is no schema flip to skip, so none of the inversion wording
-//     below applies. The follow-up is the same request for every format-only
-//     type except enable-rangeable, which invalidates its own submit
-//     precondition as it goes (see there). It re-runs every shard, the ones
-//     that already committed included, which is idempotent but not free.
-//   - PREPARING/SWAPPING on a semantic migration: steer toward waiting and name the repair cancel
-//     makes necessary ([ReindexRepairCall], not a rebuild — see there).
-//     The window opens at the MERGE, not the swap:
-//     [FinalizeCompletedMigrations] promotes on merged.mig alone, which
-//     runtimePrepare writes during PREPARING before any shard swaps — so a
-//     PREPARING-time cancel already leaves promotion-eligible data (and,
-//     since only the swap sets [Shard.tokenizationOverlay], there is no
-//     in-memory mask to lose either way). Cancel does not roll this back:
-//     CleanStalePartialReindexState deliberately preserves a merged/tidied
-//     generation (wiping it is #10675-shape data loss), so the next restart
-//     promotes it into the same bucket↔schema inversion [CheckClassMutation]
-//     calls catastrophic. Tracked at weaviate/weaviate#12575.
+// Precondition: status is non-terminal ([distributedtask.TaskStatus.IsActive]);
+// callers pre-filter on it, so a terminal status here would be misreported
+// as one this build doesn't recognize.
 //
-// The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true
-// to be accepted — the sentence names it. Cancel is exempt from that flag
-// (requestsCancel in the REST handler), so the cancel half always applies.
-func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string) string {
+// For a semantic migration, the repair window opens at the MERGE, not the
+// swap: [FinalizeCompletedMigrations] promotes on merged.mig alone, written
+// during PREPARING before any shard swaps. Cancel does not roll a merged
+// generation back ([CleanStalePartialReindexState] preserves it —
+// wiping it is #10675-shape data loss) — so a PREPARING-time cancel already
+// leaves promotion-eligible data behind, and the next restart promotes it
+// into the bucket↔schema inversion [CheckClassMutation] treats as
+// catastrophic (weaviate/weaviate#12575).
+//
+// The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true;
+// cancel is exempt from that flag.
+func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {
 		return "this build does not know that status, most likely because a " +
@@ -376,40 +345,81 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 	if cancelCall == "" {
 		return "the cancel endpoint is keyed on one collection, property and " +
 			"index type, and this task names none this build can fill in, " +
-			"so it can only be waited out"
+			"so this build can only tell you to wait it out; if a newer node " +
+			"submitted this migration type, read the task there instead"
 	}
 	if !IsSemanticMigration(p.MigrationType) {
-		partial := "cancel it via " + cancelCall + ", or wait for it to finish; " +
-			"this migration has no cluster-wide cutover, so its shards commit " +
-			"one by one rather than at a single point and cancelling leaves the " +
-			"ones that already finished rebuilt and the rest untouched — "
-		if p.MigrationType == ReindexTypeEnableRangeable {
-			return partial + "re-submit the same request while no shard has " +
-				"finished yet, or " +
-				`{"rangeable":{"rebuild":true}} once one has: enable-rangeable ` +
-				"sets indexRangeFilters on the property as soon as its first " +
-				"shard commits, and each of the two verbs is rejected in the " +
-				"state the other one covers"
+		partial := "cancel it via " + cancelCall + ", or wait for it to finish. " +
+			"This migration has no cluster-wide cutover, so its shards commit " +
+			"one by one rather than at a single point: cancelling leaves the " +
+			"ones that already finished rebuilt and the rest untouched. "
+		if callerDropsTheData {
+			// Wording note: no literal "go " on this line —
+			// tools/linter_go_routines.sh greps for it and would report this
+			// file as using bare goroutines.
+			return partial + "The rebuilt shards are dropped along with the " +
+				"data you are removing, so there is nothing to finish " +
+				"afterwards: cancel it, then re-issue this request."
 		}
-		return partial + "re-submit the same request, which re-runs every " +
-			"shard, the ones that already finished included"
+		if p.MigrationType == ReindexTypeEnableRangeable {
+			return partial + "To finish the job later, re-submit it via " +
+				reindexSubmitCall(p, askedProperty, `{"rangeable":{"enabled":true}}`) +
+				" while no shard has finished yet, or via " +
+				reindexSubmitCall(p, askedProperty, `{"rangeable":{"rebuild":true}}`) +
+				" once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike " +
+				"cancel). enable-rangeable sets indexRangeFilters on the " +
+				"property as soon as its first shard commits, and each of the " +
+				"two verbs is rejected in the state the other one covers."
+		}
+		// A format-only type flips no schema, so its original submit body
+		// stays accepted post-cancel — the re-submit IS the repair.
+		return partial + "To finish the job later, re-submit it via " +
+			ReindexRepairCall(p, askedProperty) +
+			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
+			"re-runs every shard, the ones that already finished included."
 	}
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	inversion := "wait for it to finish: its per-shard work is already merged " +
-		"on disk, so cancelling now skips the schema change but does not drop " +
-		"that data, and the next restart promotes it — which leaves those " +
-		"buckets holding the new format under the old schema, repairable "
+	inversion := "wait for it to finish. From this phase on its per-shard work " +
+		"may already be merged on disk, so cancelling now skips the schema " +
+		"change but does not drop that data, and the next restart promotes it, " +
+		"leaving those buckets holding the new format under the old schema. "
+	if callerDropsTheData {
+		return inversion + "That inversion goes with the data you are removing, " +
+			"so there is nothing left to repair: cancel it via " + cancelCall +
+			", then re-issue this request."
+	}
 	repairCall := ReindexRepairCall(p, askedProperty)
 	if repairCall == "" {
-		return inversion + "only by re-running the migration, which this build " +
-			"cannot name from the task's payload — if you accept that, " +
-			"cancel it via " + cancelCall
+		return inversion + "That is repairable only by re-running the " +
+			"migration, which this build cannot name from the task's payload. " +
+			"If you accept that, cancel it via " + cancelCall + "."
 	}
-	return inversion + "only by re-running the migration via " + repairCall +
-		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel) — if you " +
-		"accept that, cancel it via " + cancelCall
+	return inversion + "That is repairable only by re-running the migration " +
+		"via " + repairCall +
+		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel). If you " +
+		"accept that, cancel it via " + cancelCall + "."
+}
+
+// abortedMigrationConsequence names what killing an in-flight migration
+// costs the data that survives it: a schema inversion for semantic
+// types, a half-applied rebuild for format-only ones. Only
+// [ReindexProvider.CheckTenantMutation] uses it — see
+// [ReindexProvider.CheckClassMutation] for why DeleteClass does not.
+//
+// [IsSemanticMigration] is a positive allowlist: an unrecognized type would
+// otherwise fall into the format-only arm and claim a cost about semantics
+// this build doesn't know. Unknown types abstain instead.
+func abortedMigrationConsequence(mt ReindexMigrationType) string {
+	if firstUnknownMigrationType(mt) != "" {
+		return "have a consequence this build cannot name (it does not know " +
+			"this migration type, most likely because a newer node submitted it)"
+	}
+	if IsSemanticMigration(mt) {
+		return "can produce a bucket↔schema inversion"
+	}
+	return "leave its index rebuild half-applied"
 }
 
 // CheckPropertyUpdate implements
@@ -485,7 +495,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			ReindexGateRemedy(task.Status, existP, propertyName))
+			ReindexGateRemedy(task.Status, existP, propertyName, false))
 	}
 	return nil
 }
@@ -498,9 +508,9 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
 //
-// Class-wide blast radius: DeleteClass arriving mid-reindex is the
-// catastrophic extension of the per-property bucket↔schema inversion
-// — it destroys every property's bucket state at once.
+// Skips [abortedMigrationConsequence]: that names a cost the surviving data
+// carries, but DeleteClass leaves no data behind — whatever the migration
+// half-wrote disappears with the class.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
@@ -536,11 +546,11 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 		}
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
-				"deleting this class would destroy the migration's "+
-				"working state and produce a bucket↔schema inversion "+
-				"on every replica — %s",
+				"deleting this class would abort the migration on every "+
+				"replica, and the interrupted migration's partial state is "+
+				"removed with the class, so nothing is left to repair — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			ReindexGateRemedy(task.Status, existP, ""))
+			ReindexGateRemedy(task.Status, existP, "", true))
 	}
 	return nil
 }
@@ -562,6 +572,12 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
+//
+// Unlike [ReindexProvider.CheckClassMutation], the remedy must not claim the
+// migration's state disappears: a deactivated shard promotes its merged
+// generation on reactivation (weaviate/weaviate#12575), and a delete leaves it on
+// every surviving shard. The guard can't tell the two apart, so both render
+// callerDropsTheData=false.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
@@ -594,10 +610,15 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — %s",
+				"unavailable and %s. The migration's on-disk state is not "+
+				"removed by this mutation: a deactivated shard promotes any "+
+				"merged generation on reactivation, and a delete leaves every "+
+				"remaining "+
+				"tenant's shard carrying it — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
-			ReindexGateRemedy(task.Status, existP, ""))
+			abortedMigrationConsequence(existP.MigrationType),
+			ReindexGateRemedy(task.Status, existP, "", false))
 	}
 	return nil
 }

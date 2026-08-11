@@ -233,6 +233,11 @@ var (
 	errIndexShutdown = stderrors.New("node is shutting down")
 )
 
+// errShardsSkipped reports a walk that did not reach every shard in the map
+// when it started; what is on those shards is unknown rather than done. Not a
+// cause of Index.closeRequestedCtx — it describes a walk, not the index.
+var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
+
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -774,16 +779,14 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 	}
 }
 
-// closeCause reports why the index is closing, or nil while it is still open.
-// Walking the shards of a closing index risks a panic, so every walk asks this
-// first. The cause tells a collection being deleted apart from a node shutting
-// down: a deleted collection takes its on-disk state with it, a shut-down one
-// leaves it for the next start. A close nobody signalled a cause for reads as
-// [errIndexClosed], which callers must treat like a shutdown.
+// closeCause reports why the index is closing, or nil if still open. It is
+// nil-safe (unlike calling Err on closingCtx directly), and lets callers tell
+// a collection delete (on-disk state gone) from a shutdown (state persists);
+// an unsignalled close reads as [errIndexClosed].
+//
+// Trade-off: an Index whose contexts were never wired also reads as open,
+// so [Index.ForEachShard] walks it rather than panicking.
 func (i *Index) closeCause() error {
-	// Calling Err on a nil context panics, and an Index built without either
-	// context is still one this has to answer for. Nothing has closed an index
-	// that has no closingCtx, so it is open.
 	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
 	}
@@ -796,24 +799,68 @@ func (i *Index) closeCause() error {
 	return errIndexClosed
 }
 
-// forEachShardStrict is [Index.ForEachShard] for callers that cannot read a
-// closing index as a walk that reached every shard: it returns the close cause
-// where ForEachShard returns nil.
+// forEachShardStrict is [Index.ForEachShard] for callers that must not treat
+// a walk that skipped shards as one that reached them all: a closing index or
+// an unvisited shard is reported as an error, not swallowed into a nil.
 //
-// Asked again after the walk, because a close that lands mid-walk is the same
-// false clean: [Index.drop] deletes each shard from the map as it goes, and a
-// sync.Map range may skip entries deleted while it runs, so the walk can end
-// early with nothing to report. The second check catches those, because a drop
-// signals its cause before it deletes the first entry — any entry the walk can
-// miss was already preceded by a visible cause.
+// sync.Map.Range can skip entries deleted mid-walk, so the close cause is
+// re-checked after the walk to catch a drop landing mid-range. Removals that
+// signal no cause (tenant delete, offload, replica move) are caught instead
+// by diffing unvisited names against the shard set captured before the walk,
+// reported as [errShardsSkipped].
+//
+// The set is captured at the start: a shard already gone is out of scope, but
+// one that leaves mid-walk is reported, since only that case can invalidate a
+// "reached every shard" claim.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeCause(); cause != nil {
 		return cause
 	}
-	if err := i.shards.Range(f); err != nil {
+	unvisited := i.shardNameSet()
+	err := i.shards.Range(func(name string, shard ShardLike) error {
+		delete(unvisited, name)
+		return f(name, shard)
+	})
+	if err != nil {
 		return err
 	}
-	return i.closeCause()
+	if cause := i.closeCause(); cause != nil {
+		return cause
+	}
+	if len(unvisited) > 0 {
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
+	}
+	return nil
+}
+
+// shardNameSet is the set of shards in the map right now, bounded by the
+// collection's live shard count. The extra Range and the transient map of
+// shared name strings are cheap next to what one missed skip would cost: a
+// sweep falsely reported as having reached every shard.
+func (i *Index) shardNameSet() map[string]struct{} {
+	names := map[string]struct{}{}
+	i.shards.Range(func(name string, _ ShardLike) error {
+		names[name] = struct{}{}
+		return nil
+	})
+	return names
+}
+
+// reportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message; the cap itself is reported as an entry so the
+// count of unaccounted shards isn't lost. Spelled like [errorcompounder]'s
+// ToErrorLimited cap, since one sweep error can carry both.
+func reportedShardNames(names map[string]struct{}) []string {
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
+	}
+	slices.Sort(sorted)
+	if len(sorted) <= maxReportedErrors {
+		return sorted
+	}
+	return append(sorted[:maxReportedErrors:maxReportedErrors],
+		fmt.Sprintf("(and %d more)", len(sorted)-maxReportedErrors))
 }
 
 // ForEachShard applies func f on each shard in the index.

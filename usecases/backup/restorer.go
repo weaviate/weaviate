@@ -53,7 +53,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
-	return &restorer{
+	r := &restorer{
 		node:              node,
 		logger:            logger,
 		sourcer:           sourcer,
@@ -63,6 +63,8 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		namespacesEnabled: namespacesEnabled,
 		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
+	r.setSlotLogger(logger)
+	return r
 }
 
 func (r *restorer) restore(
@@ -82,14 +84,22 @@ func (r *restorer) restore(
 
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
-	if lastOp := r.lastOp.get(); lastOp.ID == req.ID &&
-		(lastOp.Status == backup.Cancelling || lastOp.Status == backup.Cancelled) {
+	// Only Cancelled is reachable here today (Cancelling is coordinator-only),
+	// but refusing on both keeps this correct if that changes.
+	if lastOp := r.lastOp.get(); lastOp.ID == req.ID && lastOp.Status.IsCancellation() {
 		err := fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", req.ID)
+		// The caller only learns this through the CanCommit response, so the
+		// node that refused says so in its own log too.
+		r.logger.WithFields(logrus.Fields{
+			"action":      "restore",
+			"backup_id":   req.ID,
+			"slot_status": lastOp.Status,
+		}).Info("refused restore: a cancellation of the same restore is still in progress")
 		return ret, err
 	}
 
 	// make sure there is no active restore
-	prevID, slotGeneration := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path)
+	prevID, slot := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path)
 	if prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
@@ -120,7 +130,7 @@ func (r *restorer) restore(
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
-			r.lastOp.resetIfOwned(slotGeneration)
+			slot.release()
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
@@ -138,7 +148,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, !r.namespacesEnabled)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, !r.namespacesEnabled, slot)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -153,17 +163,21 @@ func (r *restorer) restore(
 
 // restoreAll restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
+//
+// slot is the claim restore() took. Writes below ignore its refusal, since
+// each is just this node reporting where it got to; cancellation reaches the
+// participant through ctx, not through the slot.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
-	stripNamespaces bool,
+	stripNamespaces bool, slot slotOwner,
 ) error {
 	compressionType := desc.GetCompressionType()
-	r.lastOp.setIfOwned(desc.ID, backup.Transferring)
+	slot.set(backup.Transferring)
 
 	// Check for cancellation before starting restore operations
 	if err := ctx.Err(); err != nil {
-		r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
+		slot.set(backup.Cancelled)
 		return fmt.Errorf("restore cancelled: %w", err)
 	}
 
@@ -173,7 +187,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 		// Check for cancellation after User restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
+			slot.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 	}
@@ -184,7 +198,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 		// Check for cancellation after RBAC restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
+			slot.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 	}
@@ -192,12 +206,12 @@ func (r *restorer) restoreAll(ctx context.Context,
 	for _, cdesc := range desc.Classes {
 		// Check for cancellation before each class restore
 		if err := ctx.Err(); err != nil {
-			r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
+			slot.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
 			if errors.Is(err, context.Canceled) {
-				r.lastOp.setIfOwned(desc.ID, backup.Cancelled)
+				slot.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
 			}
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
