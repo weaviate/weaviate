@@ -537,35 +537,40 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	ctx, cancelPrefill := context.WithCancel(ctx)
-	stopOnIndexShutdown := context.AfterFunc(h.shutdownCtx, cancelPrefill)
+	// Registered here rather than inside the goroutine below: stopPrefill must be
+	// able to observe this prefill the moment prefillCache returns. Cancelling and
+	// waiting keeps a scan cursor from outliving the cache or the lsmkv store — the
+	// shard-drop path never cancels the PostStartup ctx before closing segments.
+	prefillCtx, cancel := context.WithCancel(ctx)
+	h.prefillCancel.Store(&cancel)
+	h.prefillWG.Add(1)
 
 	prefillCacheFunc := func() {
-		defer stopOnIndexShutdown()
-		defer cancelPrefill()
-
-		h.logger.WithFields(logrus.Fields{
-			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
-		}).Debug("context.WithTimeout")
+		defer h.prefillWG.Done()
+		defer cancel()
 
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache(ctx)
+				h.compressor.PrefillCache(prefillCtx)
 			} else {
-				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
+				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
 		} else if h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
-			err = h.prefillCacheParallel(ctx)
+			err = h.prefillCacheParallel(prefillCtx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
 		}
 
 		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
+			if prefillStoppedByShutdown(err, prefillCtx) {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").
+					Debug("vector cache prefill stopped: context canceled")
+			} else {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
+			}
 		}
 
 		h.cachePrefilled.Store(true)
@@ -582,10 +587,6 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		h.prefillWg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer h.prefillWg.Done()
-			prefillCacheFunc()
-		}, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }
