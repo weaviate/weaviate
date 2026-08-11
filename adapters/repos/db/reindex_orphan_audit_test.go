@@ -104,11 +104,9 @@ func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 }
 
 // TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType pins that
-// the audit reads the payload's migration type through
-// [ReindexTargetIndexes]. That field decides whether an orphan gets the
-// per-index-type CleanStalePartialReindexState treatment or falls back to
-// removing the tracker dir outright, so a consumer that stopped reading the
-// mapping would silently take the blunt path for every type.
+// the audit reads the migration type through [ReindexTargetIndexes], which
+// decides between the per-index-type cleanup and the blunt tracker-dir
+// removal fallback.
 func TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
@@ -209,7 +207,7 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	lsmPath := shd.(*Shard).pathLSM()
 	migs := filepath.Join(lsmPath, ".migrations")
 	// Tracker dir names must encode the property prefix so the underlying
-	// cleanStaleMigrationDirs can match them (see migrationDirsForPropertyIndex).
+	// cleanStaleMigrationDirs can match them (see migrationDirPrefixesForIndexType).
 	orphans := []struct{ prop, dir string }{
 		{"alpha", "searchable_retokenize_alpha_1"},
 		{"beta", "searchable_retokenize_beta_1"},

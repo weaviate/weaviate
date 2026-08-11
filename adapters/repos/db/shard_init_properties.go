@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -180,8 +181,9 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
-// cleans up everything). Match by prefix and walk every entry so we
-// don't miss old generations.
+// cleans up everything). Walk every entry, asking
+// [migrationDirScope.matches] about each, so we don't miss old
+// generations.
 //
 // Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
 // live deferred-finalize state for a successfully completed migration,
@@ -199,14 +201,14 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 		}
 		return
 	}
-	prefixes := migrationDirsForPropertyIndex(propName, indexType)
-	preserved := completedMigrationGens(lsmPath, prefixes)
+	scope := migrationDirsOf(lsmPath, nil, propName, indexType)
+	preserved := completedMigrationGens(scope)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !isMigrationDirOf(name, prefixes) {
+		if !scope.matches(name) {
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
@@ -274,13 +276,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
-	// The preserve set spans MORE prefixes than the tracker-deletion sweep:
-	// class-level gens are excluded from deletion but their sidecars are live.
-	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
-	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		preservePrefixes = append(preservePrefixes, classDir)
-	}
-	preserveSidecars := completedMigrationSidecarSuffixes(s.pathLSM(), preservePrefixes)
+	preserveSidecars := completedMigrationSidecarSuffixes(
+		migrationDirsOf(s.pathLSM(), nil, propName, indexType).preserving(indexType))
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -336,6 +333,12 @@ func preserveSidecarsSlice(preserveSidecars map[string]bool) []string {
 // disk for a given (propName, indexType). Used by
 // CleanStalePartialReindexState to compute the prefix that identifies
 // per-property sidecar buckets.
+//
+// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than this
+// function: bucket names are "property_<prop>" plus a fixed suffix, and
+// property names may collide with them — e.g. "cat_searchable" filterable and
+// "cat" searchable share a bucket name, so a sweep of either reaches the
+// other's sidecars. Fixing it means renaming buckets on disk.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":
@@ -358,9 +361,9 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // "rename: file exists" the next time RunSwapOnShard tries to move the
 // fresh main into __backup.
 //
-// The sidecar names are <mainBucket>__<strategy-specific-suffix>, where
-// suffixes vary per strategy. Matching by prefix avoids hard-coding every
-// strategy's suffixes here and naturally absorbs future strategies.
+// Sidecar names are <mainBucket>__<strategy>_<role>[_<gen>]; see
+// [isSidecarDirOf] for why matching on the role word (not the whole suffix)
+// avoids reading a property's own name as a sidecar.
 //
 // In addition to removing the on-disk dirs, this function ALSO drops the
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
@@ -420,27 +423,48 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 	}
 }
 
+// sidecarRoleWords are the words every migration sidecar suffix ends in, once
+// the numeric generation tail is off. Keep in lockstep with the strategies'
+// ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
+// pins that a new strategy either reuses one of these or extends the list.
+var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+
 // isSidecarDirOf reports whether name is a per-property sidecar of
-// mainBucketName — the same name on disk and in the bucket registry. Never the
-// main bucket itself: mainBucketName is the exact name and the sidecars carry a
-// "__" separator, but a future helper that uses underscores differently would
-// otherwise tear down the live bucket.
+// mainBucketName. "__" alone isn't enough: property names may contain "__"
+// too, so "property_a__b" is property "a__b"'s own main bucket, not a
+// sidecar of "a" — the trailing role word decides instead. Shared with
+// [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
-// Shared with [hasStalePartialReindexState], which decides from the same rule
-// whether a cold shard has to be loaded at all.
+// The role word narrows the collision family in [mainBucketForPropertyIndex]
+// (weaviate/weaviate#12574) but does not close it: a property named
+// "a__ingest" still reads as a sidecar of "a", so sweeping "a" removes its
+// live bucket. Needs the on-disk rename #12574 asks for;
+// [TestIsSidecarDirOfRejectsOtherPropertiesBuckets] pins the current answer.
 func isSidecarDirOf(name, mainBucketName string) bool {
-	return name != mainBucketName && strings.HasPrefix(name, mainBucketName+"__")
+	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
+	if !ok {
+		return false
+	}
+	return slices.Contains(sidecarRoleWords, sidecarRoleWord(suffix))
 }
 
-// isMigrationDirOf reports whether name is a migration tracker dir of one of
-// prefixes, in any generation.
-func isMigrationDirOf(name string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if name == p || strings.HasPrefix(name, p+"_") {
-			return true
-		}
+// sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
+// "_<gen>" tail [genSuffix] appends.
+//
+// Only an all-digit tail is dropped — a non-numeric tail is part of the
+// property's own name, not a generation, so "property_a__ingest_x" stays
+// "a__ingest_x"'s main bucket. That also covers generation 0, which a buggy
+// writer could have left even though [parseMigrationDirName] only accepts
+// generations >= 1.
+func sidecarRoleWord(suffix string) string {
+	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
+		suffix = suffix[:i]
 	}
-	return false
+	return suffix[strings.LastIndexByte(suffix, '_')+1:]
+}
+
+func isAllDigits(s string) bool {
+	return s != "" && strings.TrimLeft(s, "0123456789") == ""
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
