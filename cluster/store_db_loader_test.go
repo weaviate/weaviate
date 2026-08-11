@@ -19,9 +19,7 @@ import (
 
 // TestDBLoaderDeferredDeletesKeepFrozen pins that the one drop pass a deferred
 // delete gets is told about frozen tenants if any incarnation of the class had
-// them. A class can be deleted and re-added several times during a load; if a
-// later hot delete overwrites an earlier frozen one, DropClass is never told to
-// clean up cloud storage and the offloaded data is orphaned.
+// them.
 func TestDBLoaderDeferredDeletesKeepFrozen(t *testing.T) {
 	t.Parallel()
 
