@@ -18,6 +18,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -79,13 +80,15 @@ func capturePassFixture(t testing.TB, collection string, shards []string) (*Inde
 }
 
 // countingActivityBuilder installs an activity lookup that tallies how many
-// times it was built. Concurrent because the hardlink capture pass fans its
-// shards out over an error group.
-func countingActivityBuilder(db *DB, builds *atomic.Int64, live bool) {
+// times it was built, and returns the tally. Concurrent because the hardlink
+// capture pass fans its shards out over an error group.
+func countingActivityBuilder(db *DB, live bool) *atomic.Int64 {
+	var builds atomic.Int64
 	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		builds.Add(1)
 		return func(string, string) bool { return live }
 	})
+	return &builds
 }
 
 // Building the activity snapshot is a leader-forwarded RAFT query plus a decode
@@ -97,8 +100,8 @@ func TestCapturePassBuildsGateSnapshotOncePerPass(t *testing.T) {
 	shards := []string{"s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"}
 	idx, _ := capturePassFixture(t, "CapturePassBuildCountClass", shards)
 
-	var activityBuilds, cleanupBuilds atomic.Int64
-	countingActivityBuilder(idx.db, &activityBuilds, true)
+	var cleanupBuilds atomic.Int64
+	activityBuilds := countingActivityBuilder(idx.db, true)
 	idx.db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 		cleanupBuilds.Add(1)
 		return func(string, string) ReindexHold { return ReindexHoldNone }
@@ -122,8 +125,7 @@ func TestCapturePassSnapshotRefusesEveryShardOfThePass(t *testing.T) {
 	shards := []string{"s1", "s2", "s3", "s4", "s5", "s6"}
 	idx, hook := capturePassFixture(t, "CapturePassWideRefusalClass", shards)
 
-	var builds atomic.Int64
-	countingActivityBuilder(idx.db, &builds, true)
+	countingActivityBuilder(idx.db, true)
 
 	var desc entitiesbackup.ClassDescriptor
 	err := idx.descriptor(context.Background(), "backup-1", &desc, nil)
@@ -145,20 +147,42 @@ func TestCapturePassSnapshotRefusesEveryShardOfThePass(t *testing.T) {
 
 // A capture pass that clears the gate must not be refused by the reuse itself:
 // one snapshot reporting no live task has to admit every shard.
+//
+// The lookup records which shards it was asked about, because the returned
+// error cannot say how far the pass got: the fixture's shard dirs carry no
+// metadata files, so the capture fails past the gate and the error group
+// abandons the rest. Those recorded names are what makes "every shard"
+// checkable rather than assumed.
 func TestCapturePassSnapshotAdmitsEveryShardWhenNoTaskIsLive(t *testing.T) {
 	shards := []string{"s1", "s2", "s3"}
 	idx, _ := capturePassFixture(t, "CapturePassAdmitClass", shards)
 
-	var builds atomic.Int64
-	countingActivityBuilder(idx.db, &builds, false)
+	var (
+		mu     sync.Mutex
+		gated  = map[string]struct{}{}
+		builds atomic.Int64
+	)
+	idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+		builds.Add(1)
+		return func(_, shardName string) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			gated[shardName] = struct{}{}
+			return false
+		}
+	})
 
 	var desc entitiesbackup.ClassDescriptor
 	err := idx.descriptor(context.Background(), "backup-1", &desc, nil)
 
-	// The fixture's shard dirs carry no metadata files, so the capture fails
-	// past the gate. What matters is that it is not the gate that refused.
 	require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 		"a snapshot reporting no live task must admit every shard of the pass")
+	asked := make([]string, 0, len(gated))
+	for name := range gated {
+		asked = append(asked, name)
+	}
+	assert.ElementsMatch(t, shards, asked,
+		"every shard of the pass must reach the gate under the one snapshot")
 	assert.Equal(t, int64(1), builds.Load(), "still one build for the pass")
 }
 
@@ -168,8 +192,7 @@ func TestCapturePassSnapshotAdmitsEveryShardWhenNoTaskIsLive(t *testing.T) {
 func TestSingleShardGateBuildsItsOwnSnapshot(t *testing.T) {
 	idx, _ := capturePassFixture(t, "SingleShardGateClass", []string{"s1"})
 
-	var builds atomic.Int64
-	countingActivityBuilder(idx.db, &builds, false)
+	builds := countingActivityBuilder(idx.db, false)
 
 	ctx := context.Background()
 	for range 3 {

@@ -156,7 +156,9 @@ type reindexGateSnapshot struct {
 }
 
 // reindexGateSnapshotCtxKey addresses the pass snapshot stored on a context by
-// [DB.withReindexGateSnapshot].
+// [DB.withReindexGateSnapshot]. The key carries no [DB] identity, so a second
+// DB in the same process would read the first one's snapshot; a process runs
+// one (configure_api.go is the only caller of [New]).
 type reindexGateSnapshotCtxKey struct{}
 
 // withReindexGateSnapshot returns a context carrying one pass's gate snapshot,
@@ -165,8 +167,8 @@ type reindexGateSnapshotCtxKey struct{}
 // shards; see [reindexGateSnapshot] for why the capture pass needs the context
 // rather than a parameter.
 //
-// The snapshot is built from the caller's context, so the leader query it makes
-// is bounded by the caller and not by the returned context.
+// The leader query runs here, not on the first shard checked: every shard
+// under the returned context answers from the cluster state as of this call.
 func (db *DB) withReindexGateSnapshot(ctx context.Context) context.Context {
 	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, db.newReindexGateSnapshot(ctx))
 }
