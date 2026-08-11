@@ -232,9 +232,8 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 // first property otherwise — cancel is task-scoped, so which one is named
 // doesn't change what gets cancelled.
 //
-// Exported for handlers_schema_remedy_test.go, which runs the rendered
-// bodies through the real REST validators; no production consumer outside
-// this package. Unexporting it would silently drop that test.
+// Exported only for handlers_schema_remedy_test.go, which runs the
+// rendered bodies through the real REST validators.
 func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
@@ -257,8 +256,7 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // canonical bucket is already inverted while the strategy declares a
 // map-collection source. Tracked at weaviate/weaviate#12575.
 //
-// Exported for the same cross-package test as [ReindexCancelCall], and for
-// the same reason.
+// Exported for the same reason as [ReindexCancelCall].
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
 }
