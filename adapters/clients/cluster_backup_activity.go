@@ -33,9 +33,8 @@ type ClusterBackupActivity struct {
 	nodeProbe
 }
 
-// NewClusterBackupActivity builds the probe client. Pass
-// appState.ClusterHttpClient; see nodeProbe for why any other client fails the
-// caller's gate closed.
+// NewClusterBackupActivity builds the probe client; client must be
+// appState.ClusterHttpClient (see nodeProbe).
 func NewClusterBackupActivity(client *http.Client, resolver nodeResolver) *ClusterBackupActivity {
 	return &ClusterBackupActivity{nodeProbe{client: client, resolver: resolver}}
 }
