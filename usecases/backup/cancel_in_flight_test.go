@@ -169,9 +169,18 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
 		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
 	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
-	fs.client.On("Status", mock.Anything, node, mock.Anything).
-		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil)
 	fs.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
+
+	// The restore releases the slot as soon as its poll loop sees the cancel,
+	// which would empty the slot before the read below. Parking the loop inside
+	// its participant poll holds it still for the length of the cancel without
+	// touching the path under test.
+	pollGate := make(chan struct{})
+	unblockPoll := sync.OnceFunc(func() { close(pollGate) })
+	t.Cleanup(unblockPoll)
+	fs.client.On("Status", mock.Anything, node, mock.Anything).
+		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil).
+		Run(func(mock.Arguments) { <-pollGate })
 
 	s := fs.scheduler()
 	s.restorer.timeoutNextRound = time.Millisecond
@@ -197,6 +206,8 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 
 	require.True(t, stamped.IsCancellation(),
 		"the cancel must stamp the slot before aborting the participants, or the restore never learns of it")
+
+	unblockPoll()
 	require.Eventually(t, func() bool { return s.restorer.lastOp.get().ID == "" },
 		20*time.Second, time.Millisecond, "the cancelled restore never stopped")
 }
