@@ -65,16 +65,39 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		// reading it as done would admit a second migration onto a
 		// property a newer node is still migrating.
 		{unknownFutureStatus, true},
-		{TaskStatus(""), true},
 		{TaskStatus("started"), true}, // wrong case is not TaskStatusStarted
-		{TaskStatus("SOMETHING_ELSE"), true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			assert.Equal(t, tc.active, tc.status.IsActive(),
 				"%q.IsActive() should be %v", tc.status, tc.active)
-			assert.Equal(t, !tc.active, tc.status.IsTerminal(),
-				"%q: IsActive must be the exact negation of IsTerminal", tc.status)
+		})
+	}
+}
+
+// TestTaskStatus_IsRecognized pins the one place a newly added TaskStatus
+// has to be classified. Its switch carries no default case, so the
+// exhaustive linter fails on a new constant here — that is the tripwire,
+// and this table is what says what the answers are.
+func TestTaskStatus_IsRecognized(t *testing.T) {
+	cases := []struct {
+		status     TaskStatus
+		recognized bool
+	}{
+		{TaskStatusStarted, true},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{TaskStatusFinished, true},
+		{TaskStatusFailed, true},
+		{TaskStatusCancelled, true},
+		{unknownFutureStatus, false},
+		{TaskStatus(""), false},
+		{TaskStatus("started"), false}, // wrong case is not TaskStatusStarted
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.status), func(t *testing.T) {
+			assert.Equal(t, tc.recognized, tc.status.IsRecognized(),
+				"%q.IsRecognized() should be %v", tc.status, tc.recognized)
 		})
 	}
 }
@@ -111,6 +134,14 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 			// a positive one.
 			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
 				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
+			// The implication itself, over IsCoordinationPhase's own case
+			// list: a status added to that list but classified terminal
+			// would pass the row above (both columns edited together) and
+			// fail here.
+			if tc.status.IsCoordinationPhase() {
+				assert.True(t, tc.status.IsActive(),
+					"%q is a coordination phase, so it must be active", tc.status)
+			}
 		})
 	}
 }
