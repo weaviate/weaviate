@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1795,7 +1796,11 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 		tasks []taskSpec
 		// wantNamed is the task list the single warn line must carry;
 		// empty means no warn line at all.
-		wantNamed  string
+		wantNamed string
+		// wantGauges is the complete series set, asserted by count as
+		// well as by value: reading a child by label creates it on
+		// demand, so a value assertion alone cannot tell "written 0"
+		// from "never written".
 		wantGauges map[string]float64
 	}{
 		{
@@ -1813,7 +1818,7 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 			wantGauges: map[string]float64{"tasks-namespace": 1},
 		},
 		{
-			name: "several, across a namespace this node hosts no unrecognized task in",
+			name: "several, across two namespaces",
 			tasks: []taskSpec{
 				{"tasks-namespace", "zeta", 10, unknownFutureStatus},
 				{"tasks-namespace", "alpha", 11, unknownFutureStatus},
@@ -1859,6 +1864,9 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 					"a recognized status must not be named")
 			}
 
+			require.Equal(t, len(tc.wantGauges),
+				testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus),
+				"a namespace with no series at all reads the same as one at 0")
 			for namespace, want := range tc.wantGauges {
 				require.InDelta(t, want,
 					testutil.ToFloat64(h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)), 0,
@@ -1866,6 +1874,41 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Pins that a task list this node cannot get still updates the gauge.
+// The list is leader-routed; this node's own FSM copies are not, and a
+// task only this node still holds is exactly the one the leader has
+// stopped carrying. Returning early on the list error instead froze the
+// gauge at its last value for as long as the failure lasted.
+func TestSchedulerTick_UnrecognizedStatusGaugeSurvivesAFailingList(t *testing.T) {
+	const namespace = "tasks-namespace"
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{
+		namespace: {{
+			Namespace:      namespace,
+			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
+			Status:         unknownFutureStatus,
+		}},
+	}
+	h = h.init(t)
+
+	h.scheduler.taskLister = &flappyTasksLister{
+		failsLeft: math.MaxInt,
+		err:       errors.New("raft unavailable"),
+		inner:     h.manager,
+	}
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)),
+		"this node's own copy is what the gauge has to report while the list is down")
 }
 
 // alwaysFailingAckRecorder makes the post-completion ack fail on every

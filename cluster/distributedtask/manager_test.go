@@ -2025,6 +2025,10 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
 	default:
+		// No production transition writes a status this build cannot
+		// name — only Manager.Restore can put one here — so this arm
+		// assigns it. The assert below is load-bearing for the five
+		// production-driven arms and self-confirming for this one.
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		h.manager.tasks[ns][id].Status = status
 	}
@@ -2032,6 +2036,33 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	require.Equal(t, status, h.manager.tasks[ns][id].Status,
 		"fixture did not reach %q", status)
 	return ns, id, version
+}
+
+// Pins the reader every "a task only this node still holds" claim rests
+// on: the one place that filters this node's own FSM copies on
+// IsRecognized. The scheduler's warn reaches it through an interface it
+// stubs out in tests, so nothing else exercises the production method.
+func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	addTaskWithUnits(t, h, "ns-a", "recognized", 1, []string{"u-n1"})
+	addTaskWithUnits(t, h, "ns-a", "from-a-newer-leader", 2, []string{"u-n1"})
+	h.manager.tasks["ns-a"]["from-a-newer-leader"].Status = unknownFutureStatus
+	addTaskWithUnits(t, h, "ns-b", "also-recognized", 3, []string{"u-n1"})
+
+	got := h.manager.LocalUnrecognizedDistributedTasks()
+	require.Len(t, got, 1, "a namespace with nothing unrecognized must not appear")
+	require.Len(t, got["ns-a"], 1, "only the unrecognized task may come back")
+	require.Equal(t, "from-a-newer-leader", got["ns-a"][0].ID)
+	require.Equal(t, unknownFutureStatus, got["ns-a"][0].Status)
+
+	got["ns-a"][0].Status = TaskStatusFinished
+	require.Equal(t, unknownFutureStatus, h.manager.tasks["ns-a"]["from-a-newer-leader"].Status,
+		"the godoc promises clones, so a caller writing to one must not reach the FSM")
+
+	h.manager.tasks["ns-a"]["from-a-newer-leader"].Status = TaskStatusStarted
+	require.Empty(t, h.manager.LocalUnrecognizedDistributedTasks(),
+		"the ordinary case reports nothing at all")
 }
 
 // Pins: CleanUpTask refuses the coordination phases, past the TTL, when
@@ -2068,7 +2099,8 @@ func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T)
 			}
 			require.NoError(t, err)
 			require.NotContains(t, h.manager.tasks[ns], id,
-				"a task in %q has no other way out of this node's FSM", tc.status)
+				"once a clean-up is proposed for %q, this is the task's only way "+
+					"out of the local FSM", tc.status)
 		})
 	}
 }

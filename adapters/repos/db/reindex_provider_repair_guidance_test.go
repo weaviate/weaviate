@@ -226,6 +226,78 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 	}
 }
 
+// postMergeEvidenceFixture stands up a one-shard collection carrying the
+// on-disk signature of a swap this node got far enough into: a tracker
+// generation with merged.mig.
+func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload, string) {
+	t.Helper()
+	shard, idx := testShard(t, ctx, "C")
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	dirs := migrationDirsForPropertyIndex("title", "searchable")
+	require.NotEmpty(t, dirs)
+	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", dirs[0]+"_1")
+	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+
+	payload := &ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+	}
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		nil, logrus.New(), "n1", nil, ctx)
+	return p, payload, trackerDir
+}
+
+// Pins that the evidence probe answers to a context. It force-loads
+// every shard the payload names, so on a multi-tenant collection an
+// unbounded one is a per-cancel fan-out of lazy-shard loads that blocks
+// the scheduler tick and outlives shutdown.
+func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
+	ctx := context.Background()
+	p, payload, _ := postMergeEvidenceFixture(t, ctx)
+
+	require.True(t, p.hasLocalPostMergeState(ctx, payload),
+		"merged.mig is on disk, so a live context must find it")
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.False(t, p.hasLocalPostMergeState(cancelled, payload),
+		"a shut-down node must not walk and load the task's shards")
+}
+
+// Pins what makes the cancel repair guidance reliable: the terminal
+// cleanup leaves the evidence the probe reads. Both sides key on
+// completedMigrationGens — the cleanup preserves merged/tidied
+// generations because wiping them out from under the live bucket pointer
+// is the #10675 data loss, and the probe reads them because they are the
+// signature of a swap this node armed.
+//
+// So a cleanup that stopped preserving them would silence this guidance
+// and re-open that data loss at the same time. That shared predicate is
+// also why the probe's position relative to the cleanup does not change
+// the answer.
+func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T) {
+	ctx := context.Background()
+	p, payload, trackerDir := postMergeEvidenceFixture(t, ctx)
+
+	p.autoCleanupAfterTerminal(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        []byte("{}"),
+	}, payload, logrus.New())
+
+	require.DirExists(t, trackerDir,
+		"a merged generation is live deferred-finalize state, not stale partial state")
+	require.True(t, p.hasLocalPostMergeState(ctx, payload),
+		"the guidance would go silent for every cancel that ran the cleanup first")
+}
+
 // Pins the wiring the ack maps cannot cover: a cancel that lands while
 // the task is still STARTED leaves both maps empty, so the only thing
 // that can raise the alarm is this node's own disk.

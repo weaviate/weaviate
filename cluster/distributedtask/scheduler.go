@@ -138,6 +138,11 @@ type Scheduler struct {
 	// condition that persists for the life of a node's data directory.
 	tasksUnrecognizedStatus *prometheus.GaugeVec
 
+	// unrecognizedStatusNamespaces is the label set the gauge carried
+	// last tick, so a namespace that stopped reporting can be dropped
+	// one series at a time. Written only from the tick loop.
+	unrecognizedStatusNamespaces map[string]struct{}
+
 	// localTaskInspector reads this node's own FSM copies. nil in unit
 	// tests that don't exercise the unrecognized-status warn.
 	localTaskInspector LocalTaskInspector
@@ -547,20 +552,30 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 		}
 	}
 
-	// Reset first so a namespace that stopped reporting drops its series
-	// instead of freezing at the value it last had.
-	s.tasksUnrecognizedStatus.Reset()
+	// Write every namespace's value before dropping the ones that
+	// stopped reporting. Reset-then-Set drops every series first, and a
+	// scrape landing in that window reads the metric as absent — the
+	// same thing an alert reads when the node is down.
 	for namespace, count := range counts {
 		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
 	}
+	for namespace := range s.unrecognizedStatusNamespaces {
+		if _, stillReporting := counts[namespace]; !stillReporting {
+			s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
+		}
+	}
+	s.unrecognizedStatusNamespaces = make(map[string]struct{}, len(counts))
+	for namespace := range counts {
+		s.unrecognizedStatusNamespaces[namespace] = struct{}{}
+	}
+
 	if len(named) == 0 {
 		return
 	}
 	sort.Strings(named)
 
 	s.unrecognizedStatusLogger.WithSampling(func(l logrus.FieldLogger) {
-		s.logger.
-			WithField("unrecognized_tasks", named).
+		l.WithField("unrecognized_tasks", named).
 			Warnf("%d distributed task(s) in an unrecognized status: %s. Each counts as in flight, "+
 				"so schema mutations and backups stay refused until it reaches a terminal state or "+
 				"is cancelled", len(named), strings.Join(named, ", "))
@@ -573,6 +588,11 @@ func (s *Scheduler) tick() {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
 		})
+		// This node's own copies need no leader, and a list that keeps
+		// failing is exactly when a task only this node still holds
+		// matters. Returning here instead would freeze the gauge at its
+		// last value for as long as the failure lasts.
+		s.warnOnUnrecognizedStatuses(nil)
 		return
 	}
 

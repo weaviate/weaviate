@@ -208,20 +208,36 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
-// mutationRemedy is the tail of a mutation refusal: what the operator can
+// MutationRemedy is the tail of a mutation refusal: what the operator can
 // actually do about it. Every one of these guards otherwise tells them to
-// cancel the reindex, which is advice that dead-ends for a status this
-// build cannot classify — the FSM refuses a cancel for it on every node.
+// cancel the reindex, and the cancel API accepts that for one status only
+// ([distributedtask.TaskStatus.IsCancellable], i.e. STARTED). For the
+// coordination phases and for a status this build cannot classify it
+// answers 409, so naming a cancel there sends the operator down a road
+// that dead-ends.
+//
+// whenCancellable is the caller's own phrasing for the one status where a
+// cancel is the answer. The other two arms are shared, because what they
+// describe is the cancel API's verdict rather than the mutation being
+// refused.
+//
+// Only called for a task the caller has already read as in flight, so the
+// recognized arm is PREPARING or SWAPPING.
 //
 // Only the wording branches on the local vocabulary. The reject itself
 // does not, so the apply stays deterministic.
-func mutationRemedy(status distributedtask.TaskStatus, whenRecognized string) string {
-	if status.IsRecognized() {
-		return whenRecognized
+func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
+	switch {
+	case status.IsCancellable():
+		return whenCancellable
+	case status.IsRecognized():
+		return "the task is past the point where a cancel is accepted — the reindex REST API " +
+			"answers 409 in this phase, so it has to run through to a terminal state first"
+	default:
+		return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+			"refused on every node — the task has to reach a terminal state on the nodes that do " +
+			"recognize it"
 	}
-	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
-		"refused on every node — the task has to reach a terminal state on the nodes that do " +
-		"recognize it"
 }
 
 // CheckPropertyUpdate implements
@@ -292,7 +308,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			mutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
 	return nil
@@ -345,7 +361,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"working state and produce a bucket↔schema inversion "+
 				"on every replica — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			mutationRemedy(task.Status,
+			MutationRemedy(task.Status,
 				"cancel the reindex via the REST API before deleting the class"))
 	}
 	return nil
@@ -400,7 +416,7 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
-			mutationRemedy(task.Status,
+			MutationRemedy(task.Status,
 				"cancel the reindex via the REST API before mutating these tenants"))
 	}
 	return nil

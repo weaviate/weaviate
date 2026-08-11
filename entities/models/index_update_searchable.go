@@ -35,7 +35,7 @@ type IndexUpdateSearchable struct {
 	// Enum: [blockmax]
 	Algorithm string `json:"algorithm,omitempty"`
 
-	// When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 while the task is in a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe and must be left to reach a terminal state. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.
+	// When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.
 	Cancel bool `json:"cancel,omitempty"`
 
 	// enabled
