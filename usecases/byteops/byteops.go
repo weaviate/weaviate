@@ -151,7 +151,11 @@ func (bo *ReadWriter) Remaining() uint64 {
 }
 
 func (bo *ReadWriter) checkRead(length uint64) error {
-	if length > bo.Remaining() {
+	// a cursor already past the end has to be rejected on its own: Remaining()
+	// saturates at 0, which a zero-length read would otherwise satisfy before
+	// slicing at the invalid position. Position == len(Buffer) is the legitimate
+	// end-of-value cursor and still admits a zero-length read.
+	if bo.Position > uint64(len(bo.Buffer)) || length > bo.Remaining() {
 		return fmt.Errorf("%w: %d bytes at offset %d of a %d byte buffer",
 			ErrBufferOverrun, length, bo.Position, len(bo.Buffer))
 	}

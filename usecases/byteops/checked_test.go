@@ -81,6 +81,44 @@ func TestCheckedReadsRejectOverrun(t *testing.T) {
 	}
 }
 
+// TestZeroLengthReadsRespectCursor pins the one case a Remaining()-only bound
+// misses: Remaining() saturates at 0, so a zero-length read past the end looks
+// satisfiable and then slices at the invalid position. A checked reader must
+// report, never panic, whatever the cursor holds.
+func TestZeroLengthReadsRespectCursor(t *testing.T) {
+	zeroLengthReads := []struct {
+		name string
+		read func(*ReadWriter) error
+	}{
+		{"ReadBytesFromBufferChecked", func(rw *ReadWriter) error { _, err := rw.ReadBytesFromBufferChecked(0); return err }},
+		{"CopyBytesFromBufferChecked", func(rw *ReadWriter) error { _, err := rw.CopyBytesFromBufferChecked(0, nil); return err }},
+		{"SkipChecked", func(rw *ReadWriter) error { return rw.SkipChecked(0) }},
+	}
+
+	for _, tc := range zeroLengthReads {
+		t.Run(tc.name, func(t *testing.T) {
+			// the end-of-value cursor: a zero-length read here is legitimate
+			t.Run("at the end", func(t *testing.T) {
+				rw := NewReadWriter(shortView(8))
+				rw.Position = 8
+				require.NoError(t, tc.read(&rw))
+			})
+
+			t.Run("past the end, within capacity", func(t *testing.T) {
+				rw := NewReadWriter(shortView(8))
+				rw.Position = 32
+				require.ErrorIs(t, tc.read(&rw), ErrBufferOverrun)
+			})
+
+			t.Run("past the backing array", func(t *testing.T) {
+				rw := NewReadWriter(shortView(8))
+				rw.Position = 1 << 20
+				require.ErrorIs(t, tc.read(&rw), ErrBufferOverrun)
+			})
+		})
+	}
+}
+
 func TestLengthIndicatorReadsRejectCorruptLength(t *testing.T) {
 	t.Run("uint32 length past the buffer", func(t *testing.T) {
 		buf := shortView(64)

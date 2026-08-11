@@ -195,13 +195,12 @@ func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 
 		buf = appendJSONStringKey(buf, name)
 
-		what := fmt.Sprintf("target vector %q", name)
-		if err := seekToVector(rw, seg, what, tvOffsets[name], byteops.Uint16Len); err != nil {
-			return nil, err
+		if err := seekToVector(rw, seg, tvOffsets[name], byteops.Uint16Len); err != nil {
+			return nil, fmt.Errorf("target vector %q %w", name, err)
 		}
-		vecBytes, dims, err := readVectorBytes(rw, seg, what)
+		vecBytes, dims, err := readVectorBytes(rw, seg)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("target vector %q %w", name, err)
 		}
 
 		buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(dims))
@@ -248,14 +247,13 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 
 		buf = appendJSONStringKey(buf, name)
 
-		what := fmt.Sprintf("multi vector %q", name)
-		if err := seekToVector(rw, seg, what, mvOffsets[name], byteops.Uint32Len); err != nil {
-			return nil, err
+		if err := seekToVector(rw, seg, mvOffsets[name], byteops.Uint32Len); err != nil {
+			return nil, fmt.Errorf("multi vector %q %w", name, err)
 		}
 		numVecs := uint64(rw.ReadUint32())
 		if maxVecs := (seg.end - rw.Position) / byteops.Uint16Len; numVecs > maxVecs {
-			return nil, fmt.Errorf("%s truncated at document count: declares %d documents, segment holds at most %d",
-				what, numVecs, maxVecs)
+			return nil, fmt.Errorf("multi vector %q truncated at document count: declares %d documents, segment holds at most %d",
+				name, numVecs, maxVecs)
 		}
 
 		buf = append(buf, '[')
@@ -263,9 +261,9 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 			if j > 0 {
 				buf = append(buf, ',')
 			}
-			vecBytes, dims, err := readVectorBytes(rw, seg, fmt.Sprintf("%s document %d", what, j))
+			vecBytes, dims, err := readVectorBytes(rw, seg)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("multi vector %q document %d %w", name, j, err)
 			}
 			buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(dims))
 		}

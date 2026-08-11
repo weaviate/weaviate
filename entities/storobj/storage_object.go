@@ -1600,14 +1600,18 @@ func skipVectorSegment(rw *byteops.ReadWriter, kind string) error {
 	return nil
 }
 
+// These readers name no vector in their errors: they sit under the multi-vector
+// loop, where formatting a label per document would allocate on every successful
+// passage. Callers hold the names and wrap.
+
 // seekToVector positions the cursor at the vector stored at seg.start+offset,
 // requiring room for its headerLen-byte count prefix. Offsets are read out of
 // the value itself, so one that lands outside the section must fail here rather
 // than decode the neighbouring section's bytes as a vector.
-func seekToVector(rw *byteops.ReadWriter, seg vectorSegment, what string, offset uint32, headerLen uint64) error {
+func seekToVector(rw *byteops.ReadWriter, seg vectorSegment, offset uint32, headerLen uint64) error {
 	start := seg.start + uint64(offset)
 	if start+headerLen > seg.end {
-		return fmt.Errorf("%s offset %d out of segment bounds", what, offset)
+		return fmt.Errorf("offset %d out of segment bounds", offset)
 	}
 	rw.MoveBufferToAbsolutePosition(start)
 	return nil
@@ -1617,13 +1621,13 @@ func seekToVector(rw *byteops.ReadWriter, seg vectorSegment, what string, offset
 // returns its raw little-endian float32 bytes. dims is widened before scaling:
 // the on-disk field is a uint16 and the writer permits maxVectorLength
 // dimensions, so a uint16 multiplication wraps from 16384 dimensions upwards.
-func readVectorBytes(rw *byteops.ReadWriter, seg vectorSegment, what string) ([]byte, uint64, error) {
+func readVectorBytes(rw *byteops.ReadWriter, seg vectorSegment) ([]byte, uint64, error) {
 	if rw.Position+byteops.Uint16Len > seg.end {
-		return nil, 0, fmt.Errorf("%s truncated at segment end", what)
+		return nil, 0, errors.New("truncated at segment end")
 	}
 	dims := uint64(rw.ReadUint16())
 	if rw.Position+dims*byteops.Uint32Len > seg.end {
-		return nil, 0, fmt.Errorf("%s length %d exceeds segment", what, dims)
+		return nil, 0, fmt.Errorf("length %d exceeds segment", dims)
 	}
 	return rw.ReadBytesFromBuffer(dims * byteops.Uint32Len), dims, nil
 }
@@ -1632,8 +1636,8 @@ func readVectorBytes(rw *byteops.ReadWriter, seg vectorSegment, what string) ([]
 // the capacity. A nil buffer always allocates, even for a zero-length vector:
 // nil[:0] is nil, which a caller holding the result in a map cannot tell apart
 // from an absent vector.
-func readVectorInto(rw *byteops.ReadWriter, seg vectorSegment, what string, buffer []float32) ([]float32, error) {
-	vecBytes, dims, err := readVectorBytes(rw, seg, what)
+func readVectorInto(rw *byteops.ReadWriter, seg vectorSegment, buffer []float32) ([]float32, error) {
+	vecBytes, dims, err := readVectorBytes(rw, seg)
 	if err != nil {
 		return nil, err
 	}
@@ -1661,13 +1665,12 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 
 	targetVectors := make(map[string][]float32, len(offsets))
 	for name, offset := range offsets {
-		what := fmt.Sprintf("target vector %q", name)
-		if err := seekToVector(rw, seg, what, offset, byteops.Uint16Len); err != nil {
-			return nil, err
+		if err := seekToVector(rw, seg, offset, byteops.Uint16Len); err != nil {
+			return nil, fmt.Errorf("target vector %q %w", name, err)
 		}
-		vec, err := readVectorInto(rw, seg, what, nil)
+		vec, err := readVectorInto(rw, seg, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("target vector %q %w", name, err)
 		}
 		targetVectors[name] = vec
 	}
@@ -1696,13 +1699,12 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
-	what := fmt.Sprintf("target vector %q", targetVector)
-	if err := seekToVector(rw, seg, what, offset, byteops.Uint16Len); err != nil {
-		return nil, err
+	if err := seekToVector(rw, seg, offset, byteops.Uint16Len); err != nil {
+		return nil, fmt.Errorf("target vector %q %w", targetVector, err)
 	}
-	out, err := readVectorInto(rw, seg, what, buffer)
+	out, err := readVectorInto(rw, seg, buffer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("target vector %q %w", targetVector, err)
 	}
 
 	rw.MoveBufferToAbsolutePosition(seg.end)
@@ -1737,9 +1739,8 @@ func unmarshalMultiVectors(
 			}
 		}
 
-		what := fmt.Sprintf("multi vector %q", name)
-		if err := seekToVector(rw, seg, what, offset, byteops.Uint32Len); err != nil {
-			return nil, err
+		if err := seekToVector(rw, seg, offset, byteops.Uint32Len); err != nil {
+			return nil, fmt.Errorf("multi vector %q %w", name, err)
 		}
 		numVecs := uint64(rw.ReadUint32())
 
@@ -1748,15 +1749,15 @@ func unmarshalMultiVectors(
 		// read straight out of the data.
 		maxVecs := (seg.end - rw.Position) / byteops.Uint16Len
 		if numVecs > maxVecs {
-			return nil, fmt.Errorf("%s truncated at document count: declares %d documents, segment holds at most %d",
-				what, numVecs, maxVecs)
+			return nil, fmt.Errorf("multi vector %q truncated at document count: declares %d documents, segment holds at most %d",
+				name, numVecs, maxVecs)
 		}
 
 		vecs := make([][]float32, 0, numVecs)
 		for i := uint64(0); i < numVecs; i++ {
-			vec, err := readVectorInto(rw, seg, fmt.Sprintf("%s document %d", what, i), nil)
+			vec, err := readVectorInto(rw, seg, nil)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("multi vector %q document %d %w", name, i, err)
 			}
 			vecs = append(vecs, vec)
 		}
