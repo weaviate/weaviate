@@ -37,10 +37,13 @@ const (
 
 // RegisterProbeRoutes mounts the read-only cluster-internal probe routes on
 // mux, kept separate so a test can drive the real registration with the real
-// clients.
-func RegisterProbeRoutes(mux *http.ServeMux, nodeActivity, reindexCleanupActivity http.Handler) {
-	mux.Handle(clusterprobe.BackupNodeActivityPath, nodeActivity)
-	mux.Handle(clusterprobe.ReindexCleanupActivityPath, reindexCleanupActivity)
+// clients. It takes the handler owners rather than http.Handler values so a
+// swapped call cannot compile: a swap would put the reindex handler's
+// not-wired 503 on the backup route, which clients read as the terminal
+// "older build" answer.
+func RegisterProbeRoutes(mux *http.ServeMux, backups *backups, reindexCleanup *ReindexCleanup) {
+	mux.Handle(clusterprobe.BackupNodeActivityPath, backups.NodeActivity())
+	mux.Handle(clusterprobe.ReindexCleanupActivityPath, reindexCleanup.Activity())
 }
 
 // Server represents the cluster API server
@@ -95,8 +98,7 @@ func NewServer(appState *state.State) *Server {
 	// No resolver until the reindex teardown side exists; the route reports
 	// "not wired" rather than "nothing running" until then.
 	// TODO(#12474): pass the resolver that reads the reindex provider.
-	RegisterProbeRoutes(mux, backups.NodeActivity(),
-		NewReindexCleanup(nil, auth, appState.Logger).Activity())
+	RegisterProbeRoutes(mux, backups, NewReindexCleanup(nil, auth, appState.Logger))
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())
