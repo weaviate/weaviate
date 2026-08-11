@@ -277,8 +277,8 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		if fileExistsInDir(dirPath, "tidied.mig") {
 			continue
 		}
-		propNames, ok := readRecoveryPropertyNames(dirPath)
-		if !ok {
+		propNames, err := readRecoveryPropertyNames(dirPath)
+		if err != nil {
 			continue
 		}
 		for _, propName := range propNames {
@@ -289,14 +289,15 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 
 // readRecoveryPropertyNames extracts the `Properties` slice from a
 // migration tracker dir's payload.mig sentinel file (see
-// ShardReindexTaskGeneric.SaveRecoveryPayload). Returns (nil, false)
-// when the file is missing, unreadable, or doesn't parse as a
-// ReindexTaskPayload-shaped JSON — those edge cases are tolerated by
-// the caller, which falls back to the default-true readiness policy.
-func readRecoveryPropertyNames(migDir string) ([]string, bool) {
+// ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
+// payload (os.IsNotExist) distinguishable from an unreadable or unparseable
+// one: [migrationDirScope.match] treats only the former as "the task recorded
+// nothing", while the latter makes the unloaded-shard gate and the recovery
+// probe ([hasUntidiedTracker]) fail open.
+func readRecoveryPropertyNames(migDir string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	// Anonymous shape: only the field we need. Avoids depending on
 	// ReindexTaskPayload here (no import cycle risk, but keeping shard
@@ -307,7 +308,7 @@ func readRecoveryPropertyNames(migDir string) ([]string, bool) {
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, false
+		return nil, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
 	}
-	return rec.Payload.Properties, true
+	return rec.Payload.Properties, nil
 }

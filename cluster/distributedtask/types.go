@@ -411,38 +411,19 @@ func (t TaskStatus) String() string {
 // destructive side-effects (per-shard swaps, file moves) should
 // short-circuit on terminal status to avoid running them again.
 //
-// Introducing a new terminal status is expensive during a rolling
-// upgrade, in a way that is easy to underestimate. An older node does not
-// recognize it and reads it as in-flight (see [TaskStatus.IsActive]).
-// The schema mutation guards run inside the schema FSM apply and return
-// before the entry is applied, so on that node an UpdateProperty, a
-// DeleteClass or a tenant mutation the rest of the cluster committed is
-// dropped: not a refused user request, but silent schema divergence on an
-// entry RAFT will never resend. The node also refuses backups on its
-// shards, pins the migration's tracker dirs, keeps the task alive against
-// the TTL sweep, and offers the operator no escape.
-//
-// It does not end with the upgrade either: the scheduler's task list is
-// leader-routed, so once an upgraded leader deletes its copy the task is
-// invisible to every scheduler in the cluster and no cleanup is ever
-// proposed again. The older node's copy survives indefinitely.
-//
-// Rollback is worse than upgrade. Roll a release back and the older
-// binary meets the new status already persisted in its own FSM state,
-// with no upgrade pending to resolve it — the mixed-version window never
-// closes, and combined with the leader-routing above, nothing ages the
-// task out and no exit remains.
+// Adding a new terminal status is only safe once every version in the
+// supported upgrade and rollback range recognizes it. A node that does not
+// recognize it reads it as in-flight ([TaskStatus.IsActive]), so it drops
+// schema mutations the rest of the cluster committed, refuses backups on
+// the collection, and never cleans the task up. A new non-terminal status
+// is cheaper but not free: such a node still refuses backups on the
+// collection and reports the index as "indexing". See
+// docs/runtime-reindex.md §4.2 for the mechanism.
 //
 // A new terminal status also diverges [Manager.CancelTask] across versions:
 // one log entry can leave an older node writing TaskStatusCancelled while a
 // newer node returns errTaskNotRunning — different FSM state at the same
 // log index (weaviate/weaviate#12575).
-//
-// So a new terminal status is only safe once every version in the
-// supported upgrade AND rollback range recognizes it, which means it
-// cannot ship in the same release as the code that depends on it. A new
-// non-terminal status is cheaper but not free: an older node still
-// refuses backups on the collection and reports the index as "ready".
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -455,25 +436,22 @@ func (t TaskStatus) IsTerminal() bool {
 // IsActive is true for every non-terminal status — used by conflict
 // detection and the schema MutationGuard.
 //
-// It is the exact negation of [TaskStatus.IsTerminal] so a status this
-// build does not recognize — one a newer node introduced during a rolling
-// upgrade — counts as in-flight. Guessing "not active" would admit a
-// second migration onto a property the newer node is still migrating, let
-// the startup orphan audit delete a live migration's tracker dirs, and
-// let the TTL sweep evict a task that has merely been in flight longer
-// than completedTaskTTL.
+// It is the exact negation of [TaskStatus.IsTerminal], so a status this
+// build does not recognize counts as in-flight: reading it as done would
+// admit a second migration onto a property a newer node is still
+// migrating, and would let the orphan audit and the TTL sweep delete live
+// state.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
-// (PREPARING, SWAPPING) — i.e. the scheduler-driven callback states.
+// (PREPARING, SWAPPING) — the scheduler-driven callback states.
 //
-// An unrecognized status is deliberately NOT a coordination phase, the
-// opposite of how [TaskStatus.IsActive] treats it: this method makes a
-// positive claim ("the task is in this specific phase"), where IsActive
-// makes a safety claim ("this build cannot prove the task is done"). A
-// caller that needs the safety claim must use IsActive.
+// A status this build does not recognize returns false here, where
+// [TaskStatus.IsActive] returns true: this method reports which phase a
+// task is in, IsActive reports whether this build can rule out that the
+// task is still running.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
@@ -481,6 +459,21 @@ func (t TaskStatus) IsCoordinationPhase() bool {
 	default:
 		return false
 	}
+}
+
+// IsRecognized is false for a status this build never declared — what a
+// node sees when a newer release introduces one mid rolling-upgrade.
+//
+// No default case, so the exhaustive linter fails when a new [TaskStatus]
+// constant isn't added here, forcing every new status to be classified
+// before anything else can rely on it.
+func (t TaskStatus) IsRecognized() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,
+		TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	}
+	return false
 }
 
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.

@@ -27,7 +27,9 @@ import (
 // and this build has never heard of — what a mixed-version cluster sees
 // during a rolling upgrade. Keep it a string no release will ever declare,
 // or these tests silently start asserting facts about a real status.
-const unknownFutureStatus TaskStatus = "UNKNOWN_FUTURE_STATE"
+// A var, not a const: the exhaustive linter treats every TaskStatus const
+// in the package as an enum member, and this one is not.
+var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
 
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
@@ -65,16 +67,36 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		// reading it as done would admit a second migration onto a
 		// property a newer node is still migrating.
 		{unknownFutureStatus, true},
-		{TaskStatus(""), true},
 		{TaskStatus("started"), true}, // wrong case is not TaskStatusStarted
-		{TaskStatus("SOMETHING_ELSE"), true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			assert.Equal(t, tc.active, tc.status.IsActive(),
 				"%q.IsActive() should be %v", tc.status, tc.active)
-			assert.Equal(t, !tc.active, tc.status.IsTerminal(),
-				"%q: IsActive must be the exact negation of IsTerminal", tc.status)
+		})
+	}
+}
+
+// Pins: IsRecognized is true for every real status and false otherwise.
+func TestTaskStatus_IsRecognized(t *testing.T) {
+	cases := []struct {
+		status     TaskStatus
+		recognized bool
+	}{
+		{TaskStatusStarted, true},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{TaskStatusFinished, true},
+		{TaskStatusFailed, true},
+		{TaskStatusCancelled, true},
+		{unknownFutureStatus, false},
+		{TaskStatus(""), false},
+		{TaskStatus("started"), false}, // wrong case is not TaskStatusStarted
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.status), func(t *testing.T) {
+			assert.Equal(t, tc.recognized, tc.status.IsRecognized(),
+				"%q.IsRecognized() should be %v", tc.status, tc.recognized)
 		})
 	}
 }
@@ -111,6 +133,12 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 			// a positive one.
 			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
 				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
+			// Catches a status added to IsCoordinationPhase's case list but
+			// misclassified terminal, which would pass the row above.
+			if tc.status.IsCoordinationPhase() {
+				assert.True(t, tc.status.IsActive(),
+					"%q is a coordination phase, so it must be active", tc.status)
+			}
 		})
 	}
 }

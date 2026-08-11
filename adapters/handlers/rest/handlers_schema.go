@@ -272,10 +272,29 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
-// checkReindexConflictForPropertyMutation is a best-effort UX pre-check; the
-// apply-time [MutationGuard] is what actually closes the race. It fails open
-// (returns "") on a missing/erroring TaskLister, and fails closed (refuses)
-// on a payload it can't prove doesn't conflict.
+// checkReindexConflictForPropertyMutation is the REST-handler
+// pre-flight for the mutation guard. Returns a non-empty conflict
+// reason iff a reindex migration on (className, propertyName) is in
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive],
+// which includes a status this build does not recognize) — same
+// epistemics as the schema FSM's MutationGuard at apply time, just
+// earlier in the request lifecycle for operator UX.
+//
+// Per-node, in-memory: two REST handlers on different nodes can both
+// observe "no conflict" and both forward to RAFT — that's expected,
+// the apply-time [MutationGuard] is what closes that multi-node
+// race. This check exists purely to short-circuit the common
+// single-node case with a clean 4xx instead of an apply-time
+// rejection.
+//
+// Degrades gracefully: a TaskLister error returns "" (no conflict
+// detected) so the request proceeds to RAFT and the apply-time guard
+// handles correctness. We never spuriously reject due to a transient
+// local error.
+//
+// Best-effort UX only: it fails open (returns "") on a missing or erroring
+// TaskLister, and fails closed (refuses) on a payload it cannot prove
+// harmless.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
@@ -291,21 +310,29 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return strings.Compare(a.ID, b.ID)
 	})
 	for _, task := range tasks {
-		// Every non-terminal status counts as in-flight — see
-		// [checkReindexConflict]'s godoc for why (races the in-flight
-		// per-shard bucket-pointer flip).
+		// Every non-terminal status counts as in-flight — see the godoc
+		// on [checkReindexConflict] for the full reasoning. Mutating the
+		// property mid-migration would race the per-shard bucket-pointer
+		// flip.
 		if !task.Status.IsActive() {
 			continue
 		}
 		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		decodeErr := json.Unmarshal(task.Payload, &payload)
+		// Check collection first: json.Unmarshal fills decoded fields before
+		// erroring, so a task naming a different collection is skipped even
+		// with a garbage payload, rather than blocking mutations cluster-wide.
+		if payload.Collection != "" && !strings.EqualFold(payload.Collection, className) {
+			continue
+		}
+		if decodeErr != nil {
 			// Task ID withheld: an unreadable payload also hides which
 			// namespace the task belongs to.
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
 					"conflict (see GET /v1/tasks): %v",
-				className, propertyName, err)
+				className, propertyName, decodeErr)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
