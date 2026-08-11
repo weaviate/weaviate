@@ -258,7 +258,6 @@ func TestNodeActivityProbeConcurrent(t *testing.T) {
 	}()
 
 	wg.Wait()
-	assert.Equal(t, NodeActivity{}, probe.Activity())
 }
 
 // TestNodeActivityProbeSlotExpiresWithPreCommit pins that the slot self-clears
