@@ -543,30 +543,27 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
+// noopCallback is passed to VectorIndex.UpdateUserConfig, which invokes the
+// callback unconditionally once the (possibly long, async) config apply settles.
+// The callback used to restore the shard from READONLY to READY; the shard is no
+// longer marked READONLY for a config update, so there is nothing to restore.
+func noopCallback() {}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	// Resolve the index BEFORE flipping the store read-only: the restore only
-	// runs in the success callback, so erroring after the flip would leave
-	// the shard read-only forever. A missing legacy index is a no-op, not an
-	// error — a named-vectors collection that dropped its last vector carries
-	// an inert legacy config in the schema, but its shards were built without
-	// a legacy index and there is nothing to reconfigure.
+	// A missing legacy index is a no-op, not an error — a named-vectors
+	// collection that dropped its last vector carries an inert legacy config in
+	// the schema, but its shards were built without a legacy index and there is
+	// nothing to reconfigure.
 	index, ok := s.GetVectorIndex("")
 	if !ok {
 		return nil
 	}
 
-	reason := statusReasonVectorIndexUpdate
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	return index.UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
-	})
+	return index.UpdateUserConfig(updated, noopCallback)
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -584,23 +581,10 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
-	i := 0
-	targetVecs := make([]string, len(updated))
-	for targetVec := range updated {
-		targetVecs[i] = targetVec
-		i++
-	}
-	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	wg := new(sync.WaitGroup)
 	var err error
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
-			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			if err = index.UpdateUserConfig(targetCfg, noopCallback); err != nil {
 				break
 			}
 		} else {
@@ -614,12 +598,6 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 			}
 		}
 	}
-
-	f := func() {
-		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
-	}
-	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
 }
