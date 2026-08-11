@@ -13,16 +13,25 @@ package geo
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -182,6 +191,260 @@ func TestGeoConfig(t *testing.T) {
 	require.Equal(t, 800, cfg.hnswEF())
 	cfg = Config{HNSWEF: 1900}
 	require.Equal(t, 1900, cfg.hnswEF())
+}
+
+func TestCoordinatesFromObjectVectorFromObject(t *testing.T) {
+	readErr := errors.New("cannot read object")
+
+	tests := []struct {
+		name        string
+		coordinates *models.GeoCoordinates
+		err         error
+		want        []float32
+		wantErr     error
+		wantErrMsg  string
+	}{
+		{
+			name:        "coordinates become a lat/lon vector",
+			coordinates: &models.GeoCoordinates{Latitude: ptFloat32(48.13743), Longitude: ptFloat32(11.57549)},
+			want:        []float32{48.13743, 11.57549},
+		},
+		{
+			// the prefill scan takes a nil vector as "skip this object"
+			name:        "object without coordinates yields no vector",
+			coordinates: nil,
+		},
+		{
+			name:       "read failure is passed on",
+			err:        readErr,
+			wantErr:    readErr,
+			wantErrMsg: "cannot read object",
+		},
+		{
+			name:        "coordinates without latitude",
+			coordinates: &models.GeoCoordinates{Longitude: ptFloat32(11.57549)},
+			wantErrMsg:  "latitude must be set",
+		},
+		{
+			name:        "coordinates without longitude",
+			coordinates: &models.GeoCoordinates{Latitude: ptFloat32(48.13743)},
+			wantErrMsg:  "longitude must be set",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var from CoordinatesFromObject = func([]byte) (*models.GeoCoordinates, error) {
+				return test.coordinates, test.err
+			}
+
+			vec, err := from.VectorFromObject([]byte("ignored"))
+
+			if test.wantErrMsg != "" {
+				require.ErrorContains(t, err, test.wantErrMsg)
+				if test.wantErr != nil {
+					require.ErrorIs(t, err, test.wantErr)
+				}
+				require.Nil(t, vec)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, vec)
+		})
+	}
+}
+
+// A store without a decoder would let the prefill scan cache each object's own
+// vector as if it were a coordinate, so NewIndex must refuse the pair.
+func TestNewIndexStoreRequiresCoordinatesFromObject(t *testing.T) {
+	newIndex := func(t *testing.T, store *lsmkv.Store, from CoordinatesFromObject) (*Index, error) {
+		t.Helper()
+		return NewIndex(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
+			ID:                    "unit-test",
+			CoordinatesForID:      func(context.Context, uint64) (*models.GeoCoordinates, error) { return nil, nil },
+			CoordinatesFromObject: from,
+			Store:                 store,
+			DisablePersistence:    true,
+			RootPath:              t.TempDir(),
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}
+	decode := CoordinatesFromObject(func([]byte) (*models.GeoCoordinates, error) { return nil, nil })
+
+	tests := []struct {
+		name    string
+		store   func(t testing.TB) *lsmkv.Store
+		decode  CoordinatesFromObject
+		wantErr string
+	}{
+		{
+			name:    "store without a decoder is rejected",
+			store:   testinghelpers.NewDummyStore,
+			wantErr: "coordinatesFromObject is required alongside a store",
+		},
+		{
+			name:   "store with a decoder is accepted",
+			store:  testinghelpers.NewDummyStore,
+			decode: decode,
+		},
+		{
+			name:  "no store needs no decoder",
+			store: func(testing.TB) *lsmkv.Store { return nil },
+		},
+		{
+			name:   "decoder without a store is unused, not an error",
+			store:  func(testing.TB) *lsmkv.Store { return nil },
+			decode: decode,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx, err := newIndex(t, test.store(t), test.decode)
+
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, idx)
+			require.NoError(t, idx.Shutdown(context.Background()))
+		})
+	}
+}
+
+// A persisting geo index builds a commit logger, which dereferences the logger
+// while opening its files.
+func TestNewIndexWithoutLogger(t *testing.T) {
+	idx, err := NewIndex(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
+		ID:               "unit-test-no-logger",
+		RootPath:         t.TempDir(),
+		CoordinatesForID: func(context.Context, uint64) (*models.GeoCoordinates, error) { return nil, nil },
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	require.NoError(t, idx.Shutdown(context.Background()))
+}
+
+// putGeoObject stores an object carrying propName, marshalled the way the write
+// path does, under a unique sortable key.
+func putGeoObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, propName string,
+	coordinates *models.GeoCoordinates,
+) {
+	t.Helper()
+
+	obj := storobj.New(docID)
+	obj.Object = models.Object{
+		ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID)),
+		Class:      "Test",
+		Properties: map[string]interface{}{propName: coordinates},
+	}
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	key := make([]byte, 16)
+	binary.BigEndian.PutUint64(key[8:], docID)
+	require.NoError(t, bucket.Put(key, data))
+}
+
+func coordinatesFromObjectProp(propName string) CoordinatesFromObject {
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
+	return func(objectBytes []byte) (*models.GeoCoordinates, error) {
+		obj, err := storobj.FromBinaryOptionalNetwork(objectBytes, additional.Properties{}, propExtraction)
+		if err != nil {
+			return nil, err
+		}
+
+		props, ok := obj.Properties().(map[string]interface{})
+		if !ok {
+			return nil, nil
+		}
+		coordinates, ok := props[propName].(*models.GeoCoordinates)
+		if !ok {
+			return nil, nil
+		}
+		return coordinates, nil
+	}
+}
+
+// TestGeoPrefillReadsCoordinatesFromObjectsBucket restarts a persisted geo index
+// and requires its cache to come back warm off a scan of the objects bucket. The
+// by-id reader fails on the restarted index, so any coordinate the scan missed
+// surfaces as a read error instead of a silent fallback to random seeks.
+func TestGeoPrefillReadsCoordinatesFromObjectsBucket(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	// enough objects, flushed to a segment, for QuantileKeys to seed several
+	// cursors — a memtable-only bucket yields no seeds and scans single-threaded
+	const docs = 2000
+	coordinates := make([]*models.GeoCoordinates, docs)
+	for i := range coordinates {
+		coordinates[i] = &models.GeoCoordinates{
+			Latitude:  ptFloat32(48.13743 + float32(i)*0.001),
+			Longitude: ptFloat32(11.57549 + float32(i)*0.002),
+		}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	for id, c := range coordinates {
+		putGeoObject(t, store.Bucket(helpers.ObjectsBucketLSM), uint64(id), "location", c)
+	}
+	require.NoError(t, store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
+
+	newGeoIndex := func(t *testing.T, forID CoordinatesForID) *Index {
+		t.Helper()
+		idx, err := NewIndex(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
+			ID:                    "unit-test-prefill",
+			RootPath:              rootPath,
+			CoordinatesForID:      forID,
+			Store:                 store,
+			CoordinatesFromObject: coordinatesFromObjectProp("location"),
+			WaitForCachePrefill:   true,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		return idx
+	}
+
+	built := newGeoIndex(t, func(_ context.Context, id uint64) (*models.GeoCoordinates, error) {
+		return coordinates[id], nil
+	})
+	for id, c := range coordinates {
+		require.NoError(t, built.Add(ctx, uint64(id), c))
+	}
+	require.NoError(t, built.Flush())
+	require.NoError(t, built.Shutdown(ctx))
+
+	var byIDLoads atomic.Int64
+	restarted := newGeoIndex(t, func(_ context.Context, id uint64) (*models.GeoCoordinates, error) {
+		byIDLoads.Add(1)
+		return nil, errors.New("coordinate must come from the prefilled cache")
+	})
+	t.Cleanup(func() { require.NoError(t, restarted.Shutdown(ctx)) })
+
+	// restoring the graph probes the entrypoint by id to learn the dimensions,
+	// which is not what this test is counting
+	byIDLoads.Store(0)
+	restarted.PostStartup(ctx)
+
+	// asserting per doc rather than through a search: a search only visits the
+	// nodes its descent happens to reach, which would leave gaps unnoticed
+	cached, ok := restarted.UnderlyingVectorIndex().(interface {
+		Get(id uint64) ([]float32, error)
+	})
+	require.True(t, ok)
+	for id, c := range coordinates {
+		vec, err := cached.Get(uint64(id))
+		require.NoErrorf(t, err, "doc id %d was not prefilled", id)
+		require.Equal(t, []float32{*c.Latitude, *c.Longitude}, vec)
+	}
+	require.Zero(t, byIDLoads.Load(),
+		"the objects-bucket scan must cover every coordinate, leaving no by-id lookup")
 }
 
 func ptFloat32(in float32) *float32 {

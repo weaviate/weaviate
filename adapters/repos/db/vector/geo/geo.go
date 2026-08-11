@@ -14,11 +14,13 @@ package geo
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -64,6 +66,14 @@ type Config struct {
 	RootPath           string
 	Logger             logrus.FieldLogger
 
+	// Store and CoordinatesFromObject let the cache prefill read every
+	// coordinate from the objects bucket in storage order, which it does only
+	// when WaitForCachePrefill is set. A Store without a decoder is rejected;
+	// leaving the Store out keeps the prefill on one lookup per doc ID.
+	Store                 *lsmkv.Store
+	CoordinatesFromObject CoordinatesFromObject
+	WaitForCachePrefill   bool
+
 	HNSWEF int
 
 	SnapshotDisabled                         bool
@@ -84,8 +94,29 @@ func (c Config) hnswEF() int {
 func NewIndex(config Config,
 	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Index, error) {
+	if config.Logger == nil {
+		// the commit logger dereferences this while opening its files, before
+		// hnsw.New gets a chance to substitute a default
+		logger := logrus.New()
+		logger.Out = io.Discard
+		config.Logger = logger
+	}
+
+	// without a decoder the prefill scan would read each object's own vector and
+	// cache it as a coordinate
+	if config.Store != nil && config.CoordinatesFromObject == nil {
+		return nil, errors.Errorf("geo index %q: coordinatesFromObject is required alongside a store", config.ID)
+	}
+
+	var vectorFromObject hnsw.VectorFromObject
+	if config.CoordinatesFromObject != nil {
+		vectorFromObject = config.CoordinatesFromObject.VectorFromObject
+	}
+
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
+		VectorFromObject:      vectorFromObject,
+		WaitForCachePrefill:   config.WaitForCachePrefill,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
@@ -102,7 +133,7 @@ func NewIndex(config Config,
 		// The cache drops every vector once its entry count reaches this maximum,
 		// so a zero here empties it every few seconds.
 		VectorCacheMaxObjects: vectorIndexCommon.DefaultVectorCacheMaxObjects,
-	}, tombstoneCleanupCallbacks, nil)
+	}, tombstoneCleanupCallbacks, config.Store)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}

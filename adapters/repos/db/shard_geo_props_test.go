@@ -261,6 +261,60 @@ func TestMakeCoordinatesForIDConcurrentLookups(t *testing.T) {
 	}
 }
 
+// The prefill scan reads coordinates straight off the stored bytes while every
+// other lookup goes by doc ID. A shard whose two readers disagree would index
+// coordinates it never serves.
+func TestGeoCoordinateReadersAgree(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	tests := []struct {
+		name  string
+		props map[string]interface{}
+		want  *models.GeoCoordinates
+	}{
+		{
+			name:  "geo prop next to other properties",
+			props: map[string]interface{}{"name": "munich office", "location": munichCoordinates()},
+			want:  munichCoordinates(),
+		},
+		{
+			name:  "two geo props on one object",
+			props: map[string]interface{}{"location": munichCoordinates(), "home": stuttgartCoordinates()},
+			want:  munichCoordinates(),
+		},
+		{
+			name:  "object without the requested prop",
+			props: map[string]interface{}{"name": "no coordinates here"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			docID := putGeoPropObject(t, ctx, s, test.props)
+
+			objectBytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+				GetBySecondary(ctx, 0, binary.LittleEndian.AppendUint64(nil, docID))
+			require.NoError(t, err)
+
+			fromObject, err := s.makeCoordinatesFromObject("location")(objectBytes)
+			require.NoError(t, err)
+			require.Equal(t, test.want, fromObject)
+
+			forID, err := s.makeCoordinatesForID("location")(ctx, docID)
+			if test.want == nil {
+				// the by-id reader reports a missing coordinate as a gone doc, the
+				// scan just skips the object
+				var notFound storobj.ErrNotFound
+				require.ErrorAs(t, err, &notFound)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, forID, fromObject)
+		})
+	}
+}
+
 func TestObjectByIndexIDWithPropsDecodesOnlyRequestedProps(t *testing.T) {
 	ctx := context.Background()
 	s := testGeoPropShard(t, ctx)
