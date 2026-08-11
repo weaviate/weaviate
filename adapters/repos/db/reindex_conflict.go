@@ -245,7 +245,8 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
 // migration on the same (collection, property) is in any non-terminal
-// state (STARTED, PREPARING, or SWAPPING).
+// state (via [distributedtask.TaskStatus.IsActive], which includes a
+// status this build does not recognize).
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable
