@@ -143,17 +143,43 @@ func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName 
 // need to be atomic. A nil activity lookup admits the backup, per
 // [DB.AnyLiveReindexForShard].
 //
-// This snapshot-per-pass discipline holds only for [DB.Backupable]; the
-// per-shard capture paths still build one snapshot per shard.
+// Passes reach it two ways. [DB.Backupable] owns its whole call chain, so it
+// holds the snapshot in a variable and hands it to
+// [Index.refuseIfReindexInFlightIn]. The capture pass cannot: its per-shard
+// checks sit behind [ShardLike.HaltForTransfer] and
+// [ShardLike.CreateBackupSnapshot], interface methods whose other callers have
+// no backup gate to pass, so it carries the snapshot on the context instead
+// (see [DB.withReindexGateSnapshot]).
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
 }
 
-// newReindexGateSnapshot builds the per-admission-pass snapshot. Callers
-// that check more than one shard must build it once and reuse it; see
-// [reindexGateSnapshot]. ctx bounds the leader query the activity builder runs.
+// reindexGateSnapshotCtxKey addresses the pass snapshot stored on a context by
+// [DB.withReindexGateSnapshot].
+type reindexGateSnapshotCtxKey struct{}
+
+// withReindexGateSnapshot returns a context carrying one pass's gate snapshot,
+// so every per-shard check made under it reuses that snapshot instead of
+// issuing its own leader query. Install it once at the head of a pass over many
+// shards; see [reindexGateSnapshot] for why the capture pass needs the context
+// rather than a parameter.
+//
+// The snapshot is built from the caller's context, so the leader query it makes
+// is bounded by the caller and not by the returned context.
+func (db *DB) withReindexGateSnapshot(ctx context.Context) context.Context {
+	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, db.newReindexGateSnapshot(ctx))
+}
+
+// newReindexGateSnapshot returns the pass snapshot ctx already carries, or
+// builds one. Callers that check more than one shard must arrange for the
+// reuse — with [DB.withReindexGateSnapshot] or by holding the returned value;
+// see [reindexGateSnapshot]. ctx bounds the leader query a build runs.
 func (db *DB) newReindexGateSnapshot(ctx context.Context) reindexGateSnapshot {
+	if snap, ok := ctx.Value(reindexGateSnapshotCtxKey{}).(reindexGateSnapshot); ok {
+		return snap
+	}
+
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
 		// Return before the builders run so the kill switch costs nothing (no
@@ -265,9 +291,11 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 //
 // It never logs — every caller above is reached once per shard of a
 // whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
-// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal]. It builds a
-// fresh gate snapshot per call, so ctx bounds a leader query; multi-shard
-// passes must use [Index.refuseIfReindexInFlightIn], see
+// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal].
+//
+// It takes the snapshot from ctx when a pass installed one, and otherwise
+// builds its own — so ctx bounds a leader query. A pass over many shards must
+// arrange the reuse or it pays one leader round trip per shard; see
 // [reindexGateSnapshot].
 func (i *Index) refuseIfReindexInFlight(ctx context.Context, shardName string) error {
 	if i.db == nil {

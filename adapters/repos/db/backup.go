@@ -277,6 +277,14 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		return err
 	}
 
+	// One gate snapshot for the whole capture pass. Without it every shard
+	// below rebuilds it, and a rebuild is a leader-forwarded RAFT query plus a
+	// decode of every task the cluster still retains. See [reindexGateSnapshot]
+	// for why the capture pass carries it on the context.
+	if i.db != nil {
+		ctx = i.db.withReindexGateSnapshot(ctx)
+	}
+
 	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
