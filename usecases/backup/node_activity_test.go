@@ -74,18 +74,18 @@ func TestNodeActivityProbe(t *testing.T) {
 		{
 			name: "status cleared but slot still held",
 			claim: func(h *Handler, _ *Scheduler) {
-				h.backupper.lastOp.renew("part-backup", "path", "", "")
-				h.backupper.lastOp.set(backup.Transferring)
+				_, slot := h.backupper.lastOp.renew("part-backup", "path", "", "")
+				slot.set(backup.Transferring)
 			},
 			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "part-backup"},
 		},
 		{
 			name: "released after reset",
 			claim: func(h *Handler, s *Scheduler) {
-				h.backupper.lastOp.renew("part-backup", "path", "", "")
-				s.restorer.lastOp.renew("coord-restore", "path", "", "")
-				h.backupper.lastOp.reset()
-				s.restorer.lastOp.reset()
+				_, backupSlot := h.backupper.lastOp.renew("part-backup", "path", "", "")
+				_, restoreSlot := s.restorer.lastOp.renew("coord-restore", "path", "", "")
+				backupSlot.release()
+				restoreSlot.release()
 			},
 			want: NodeActivity{},
 		},
@@ -239,15 +239,15 @@ func TestNodeActivityProbeConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
-			participant.backupper.lastOp.renew("part-backup", "path", "", "")
-			participant.backupper.lastOp.reset()
+			_, slot := participant.backupper.lastOp.renew("part-backup", "path", "", "")
+			slot.release()
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
-			scheduler.restorer.lastOp.renew("coord-restore", "path", "", "")
-			scheduler.restorer.lastOp.reset()
+			_, slot := scheduler.restorer.lastOp.renew("coord-restore", "path", "", "")
+			slot.release()
 		}
 	}()
 	go func() {
