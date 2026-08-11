@@ -41,25 +41,19 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TerminalObserver is called on every node shortly after a task goes terminal
-// (CANCELLED or FAILED), usually before the scheduler has looked at it.
-// Register via [Manager.RegisterTerminalObserver]. It exists so a namespace can
-// make "this node has seen the task end" observable to peers without waiting
-// for the scheduler tick.
+// TerminalObserver is called on the Manager's drainer goroutine (not the
+// RAFT-apply path) shortly after a task goes CANCELLED or FAILED on this
+// node, so a namespace can make that visible to peers without waiting on the
+// scheduler tick. Register via [Manager.RegisterTerminalObserver].
 //
-// Runs on the Manager's drainer goroutine, not the RAFT-apply path, so it may
-// take locks and do work. It gets a [Task.Clone], which is safe to read while
-// later applies mutate the FSM's copy, but Payload still shares its backing
-// array with that copy — writing into it corrupts RAFT-replicated state.
-// Guarantees it does NOT have: it may run after the scheduler has already
-// acted, two events may run concurrently under queue overflow, and past
-// [terminalDispatchOverflowLimit] an event is dropped rather than delivered —
-// see [Manager.dispatchTerminalWithLock].
+// Receives a [Task.Clone]; Payload still shares the original's backing array
+// and must not be mutated. No ordering vs. the scheduler is guaranteed,
+// events may run concurrently under queue overflow, and past
+// [terminalDispatchOverflowLimit] an event is dropped instead of delivered.
 //
-// Endings already in this node's local RAFT log at startup are skipped, but
-// endings the node missed while it was down arrive as fresh replication
-// afterwards and DO fire, even though they happened long ago. Observers must
-// therefore be idempotent and must not assume the ending is recent.
+// Endings already in the local RAFT log at startup are skipped, but ones
+// missed while the node was down arrive later and DO fire despite being old.
+// Observers must be idempotent and must not assume the ending is recent.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -547,20 +541,13 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time the task's UNITS stopped working, which despite
-	// the name is not always the time it reached a terminal status. It does
-	// coincide for CANCELLED (stamped from the cancel request) and for the
-	// FAILED a unit error produces. It does not for the route through
-	// PREPARING/SWAPPING: it is stamped when AllUnitsTerminal lands, with the
-	// bucket swap/rename still ahead, so a task can sit in SWAPPING for
-	// minutes with a FinishedAt already in the past.
+	// FinishedAt is the time the task's units stopped, not always when the task
+	// reached a terminal status. It matches for CANCELLED/FAILED, but on the
+	// PREPARING/SWAPPING route it is stamped when AllUnitsTerminal lands, well
+	// before the task is done, so it can be minutes stale during SWAPPING.
 	//
-	// Known wrong, and worked around rather than fixed: TTL cleanup skips
-	// non-terminal statuses, and terminal-observer dispatch keys the
-	// boot-replay skip on the FSM's own replay flag instead. Anything new that
-	// needs "when did this task end" has to do the same — the correct fix
-	// changes what this field means.
-	//
+	// TTL cleanup and terminal-observer dispatch already work around this;
+	// new code needing "when did this end" must do the same, not trust this field.
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 
@@ -614,11 +601,9 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// Clone deep-copies the maps a later apply can mutate (Units and both ack
-// maps), so the copy is safe to read while the FSM keeps writing the original.
-// Payload is NOT copied: the clone's slice shares the original's backing array,
-// and writing into it corrupts RAFT-replicated state. Payload is treated as
-// immutable everywhere, which is what makes the shared array cheap and safe.
+// Clone deep-copies mutable maps (Units, both ack maps) so the result is safe
+// to read while the FSM keeps writing the original. Payload is NOT copied —
+// it shares the backing array and must never be mutated through the clone.
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {

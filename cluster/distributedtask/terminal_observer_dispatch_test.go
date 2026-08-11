@@ -44,8 +44,8 @@ func observerAddCmd(t *testing.T, h *testHarness) *cmd.ApplyRequest {
 	})
 }
 
-// observerCancelCmd stamps the cancel with a time relative to the harness clock.
-// The stamp is the proposing node's, so nothing about dispatch may turn on it.
+// observerCancelCmd stamps the cancel with a proposer-relative time; dispatch
+// must not key on it.
 func observerCancelCmd(t *testing.T, h *testHarness, cancelledAgo time.Duration) *cmd.ApplyRequest {
 	return toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             observerNamespace,
@@ -109,9 +109,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the payload is what tells an observer which collection the task was bound to")
 	})
 
-	// A replayed ending finished long ago, so signalling it would announce an
-	// event that is not happening now. The apply path decides this on the FSM's
-	// own replay flag; nothing about the task itself distinguishes the two.
+	// The skip is keyed on the FSM's replay flag, not on the task itself.
 	t.Run("an ending replayed from the RAFT log is skipped", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer leaktest.Check(t)()
@@ -128,8 +126,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"a cancel applied while catching up must not reach the observer")
 	})
 
-	// FAILED is a terminal status like CANCELLED, and a task that failed is
-	// just as done as one that was cancelled.
 	t.Run("a unit failure fires the observer too", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer leaktest.Check(t)()
@@ -154,9 +150,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, TaskStatusFailed, rec.first().Status)
 	})
 
-	// Registration is last-write-wins, so a nil stored over a live observer
-	// would end cancel observation for the namespace with nothing logged and
-	// nothing failing — the cancels simply stop being signalled.
+	// A nil re-registration must not silently overwrite the live observer.
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer leaktest.Check(t)()
@@ -174,9 +168,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"a nil re-registration must be dropped, not stored over the live observer")
 	})
 
-	// A task restored from a peer's snapshot with an already-FAILED unit fails
-	// closed when its last unit lands. That ending is permanent and no other
-	// apply on this node will ever announce it, so it has to be signalled here.
+	// The fail-closed restore path must still signal its terminal ending.
 	t.Run("a task that fails closed on restore fires the observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		defer leaktest.Check(t)()
@@ -221,10 +213,7 @@ func TestManagerTerminalObserver(t *testing.T) {
 	})
 }
 
-// The observer is handed a clone because the FSM keeps mutating its own copy
-// after the dispatch. Handing over the live task instead breaks nothing that
-// any other test looks at, so pin it here: whatever an observer does to what it
-// was given must not reach FSM state.
+// Pins that an observer mutating its Task copy must never reach FSM state.
 func TestTerminalObserverCannotMutateFSMState(t *testing.T) {
 	defer leaktest.Check(t)()
 	h := newTestHarness(t).init(t)
@@ -261,10 +250,8 @@ func TestTerminalObserverCannotMutateFSMState(t *testing.T) {
 		"Units is deep-copied too, so a scribble on a unit must not land either")
 }
 
-// Without the single-drainer guard every registration starts another drainer,
-// and two namespaces registering is the normal case. One drainer is what makes
-// the bounded overflow arm the only concurrency in this path: a wedged observer
-// has to stall the queue rather than have a second drainer walk past it.
+// Pins that repeated registrations reuse a single drainer goroutine, so a
+// wedged observer stalls the queue instead of a second drainer walking past it.
 func TestTerminalDispatchRunsOnOneDrainer(t *testing.T) {
 	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
@@ -302,10 +289,8 @@ func TestTerminalDispatchRunsOnOneDrainer(t *testing.T) {
 		"the queued event must be delivered once the wedged observer returns")
 }
 
-// Close has to stop two separate things, and each half is pinned on its own:
-// the drainer goroutine, which otherwise outlives the Manager and keeps a
-// provider reachable after the node tore its dependencies down, and the apply
-// path's handover, which otherwise keeps feeding that goroutine.
+// Pins that Close stops both the drainer goroutine and the apply path's
+// handover to it.
 func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	defer leaktest.Check(t)()
 	h := newTestHarness(t).init(t)
@@ -318,9 +303,7 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	h.manager.Close()
 	h.manager.Close() // idempotent: shutdown runs on paths that may both fire
 
-	// Put an event on the queue by hand, bypassing the apply path's own guard:
-	// only a live drainer can take it off again, so this asks about the
-	// goroutine and nothing else.
+	// Bypass the apply path's guard to isolate the drainer's own behavior.
 	h.manager.terminalDispatch <- terminalDispatchTask(h.manager)
 	require.Never(t, func() bool { return rec.count() > 0 },
 		300*time.Millisecond, 10*time.Millisecond,
@@ -336,9 +319,8 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 		"the apply path must not hand a cancel over after Close")
 }
 
-// newTerminalDispatchManager builds a Manager without the scheduler around it,
-// because the tests below need many of them and touch nothing but the dispatch
-// path.
+// newTerminalDispatchManager builds a Manager without a scheduler, for tests
+// that only touch the dispatch path.
 func newTerminalDispatchManager() *Manager {
 	logger, _ := logrustest.NewNullLogger()
 	return NewManager(ManagerParameters{
@@ -366,10 +348,8 @@ func fillDispatchQueue(m *Manager, task *Task, n int) {
 	}
 }
 
-// The apply path spawns a goroutine per event the queue could not take, so a
-// wedged observer would otherwise turn a cancel storm into unbounded fan-out:
-// every one of those goroutines parks on the same wedge for the lifetime of the
-// process. Past the bound the events have to be dropped instead.
+// Pins that overflow goroutines are bounded, so a wedged observer cannot turn
+// a cancel storm into unbounded fan-out.
 func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
@@ -382,12 +362,9 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		rec.record(task)
 	})
 
-	// Literals, not the constants themselves. Derived from
-	// terminalDispatchQueueDepth and terminalDispatchOverflowLimit these numbers
-	// move with them, and the assertions below then hold at any bound,
-	// including one large enough to be no bound at all. 256 queue slots, one
-	// more the drainer can take and then block looking its observer up, and
-	// 32 goroutines of overflow.
+	// maxDelivered = queue depth + 1 the drainer can hold while blocked on the
+	// observer + overflow limit. Kept as literals so the assertions below stay
+	// meaningful even if the constants change.
 	const (
 		maxDelivered = 256 + 1 + 32
 		pastTheBound = 16
@@ -399,8 +376,6 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 	}
 	m.mu.Unlock()
 
-	// The observer is wedged on release, so nothing has decremented yet: the
-	// count is exactly what the apply path was allowed to spawn.
 	require.EqualValues(t, 32, m.terminalOverflowInFlight.Load(),
 		"a wedged observer must not hold more than 32 overflow goroutines")
 
@@ -415,17 +390,16 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		"every overflow goroutine must have released its slot")
 }
 
-// Close tears the Manager's dependencies down, and an overflow goroutine is not
-// joined by it, so its own stop-signal check is the only thing between a
-// shutdown and an observer call into a torn-down node.
+// Pins that an overflow goroutine's own stop-signal check, not Close joining
+// it, is what keeps it from calling into a torn-down node.
 func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
 
 	var rec observerRecorder
 	m.mu.Lock()
-	// Registered by hand: RegisterTerminalObserver would start the drainer, which
-	// would empty the queue this test needs full.
+	// Registered by hand: RegisterTerminalObserver would start the drainer and
+	// drain the queue this test needs full.
 	m.terminalObservers[observerNamespace] = rec.record
 	m.mu.Unlock()
 
@@ -433,9 +407,8 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 		m.terminalDispatch <- terminalDispatchTask(m)
 	}
 
-	// The state under test is a shutdown landing between the dispatch and the
-	// goroutine's first instruction. Close cannot stage it: it also latches the
-	// apply path shut, and the dispatch below has to get past that.
+	// Close m.terminalDispatchDone directly, bypassing Close's own latch on the
+	// apply path, to reach the goroutine's own stop-signal check.
 	close(m.terminalDispatchDone)
 
 	m.mu.Lock()
@@ -447,10 +420,9 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 		"an overflow dispatch must not call an observer once the stop signal is closed")
 }
 
-// A drainer that has a closed stop signal AND a queued event is choosing between
-// two ready select cases, which lands on the exit about half the time on its
-// own. So one drainer cannot tell a working recheck from a missing one. Many
-// independent drainers can: a missing recheck has to win every coin flip.
+// A single drainer can't distinguish a working done-recheck from a missing
+// one (select picks randomly ~half the time either way); many independent
+// drainers can, since a missing recheck has to win every coin flip.
 func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 	defer leaktest.Check(t)()
 	const drainers = 32
@@ -462,9 +434,8 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 	for range drainers {
 		m := newTerminalDispatchManager()
 		m.RegisterTerminalObserver(observerNamespace, func(task *Task) {
-			// Only the first call per drainer has to be observable; a
-			// blocking send here would wedge the extra calls a broken
-			// recheck makes, and those are the point of the test.
+			// Non-blocking: a broken recheck makes extra calls, and those
+			// extra calls are what this test is checking for.
 			select {
 			case entered <- struct{}{}:
 			default:
@@ -476,9 +447,8 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 		for range 8 {
 			m.terminalDispatch <- terminalDispatchTask(m)
 		}
-		// Parking one event inside the observer proves the drainer is past its
-		// select, and leaves the rest queued so Close finds it with both cases
-		// ready.
+		// Confirms the drainer is past its select with the rest still queued,
+		// so Close finds both cases ready.
 		<-entered
 		m.Close()
 	}
@@ -492,13 +462,9 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 		"no drainer may deliver a queued cancel after Close")
 }
 
-// A panicking observer must not end cancel observation for everyone.
-// The overflow arm dispatches on its own goroutine rather than through the
-// drainer, so it needs the drainer's containment too. GoWrapper's recover is
-// conditional on DISABLE_RECOVERY_ON_PANIC, which the acceptance image sets to
-// "true" — so relying on it means a panicking observer takes the node down
-// under queue overflow and nowhere else, which is the worst possible place for
-// it to be the only uncontained path.
+// Pins that the overflow goroutine contains a panicking observer the same way
+// the drainer does, rather than relying on GoWrapper's recover (which the
+// acceptance image disables via DISABLE_RECOVERY_ON_PANIC).
 func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 	defer leaktest.Check(t)()
 	h := newTestHarness(t).init(t)
@@ -515,19 +481,17 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 
 	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
 
-	// One event parks in the observer, the queue fills, and the remainder go
-	// down the overflow arm — the path under test.
+	// One event parks in the observer, the queue fills, and the rest go down
+	// the overflow arm under test.
 	const overflow = 3
 	total := terminalDispatchQueueDepth + 1 + overflow
 	fillDispatchQueue(h.manager, terminalDispatchTask(h.manager), total)
 
 	close(release)
 
-	// Counting, not detecting. The drainer already contains its own panics and
-	// logs this exact line, so "at least one appeared" is satisfied by the
-	// queued events alone and says nothing about the overflow arm. Only the
-	// total distinguishes them: every dispatch panics once, so all of them
-	// contained means the overflow arm is contained too.
+	// Must count every occurrence, not just detect one: the drainer already
+	// contains its own panics, so only matching the total proves the overflow
+	// arm is contained too.
 	contained := func() int {
 		n := 0
 		for _, e := range hook.AllEntries() {

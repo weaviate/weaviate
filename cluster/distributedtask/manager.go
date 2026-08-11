@@ -68,16 +68,14 @@ type Manager struct {
 
 	// Per-namespace terminal-apply observers; see [TerminalObserver].
 	terminalObservers map[string]TerminalObserver
-	// terminalDispatch carries terminal tasks from the apply path to the single
-	// drainer goroutine that calls the observers. See
-	// [Manager.dispatchTerminalWithLock] for why they do not run inline.
+	// terminalDispatch carries terminal tasks to the single drainer goroutine
+	// that calls the observers; see [Manager.dispatchTerminalWithLock].
 	terminalDispatch chan *Task
 	// terminalDispatchDone is closed by [Manager.Close] to stop the drainer.
 	terminalDispatchDone chan struct{}
-	// terminalOverflowInFlight counts the goroutines the apply path spawned
-	// because the queue was full; bounded by [terminalDispatchOverflowLimit].
-	// Read and incremented under mu (every dispatcher holds it), decremented
-	// from the goroutine itself, hence atomic.
+	// terminalOverflowInFlight counts overflow goroutines spawned when the
+	// queue is full; bounded by [terminalDispatchOverflowLimit]. Atomic: read
+	// and incremented under mu, decremented from the goroutine itself.
 	terminalOverflowInFlight atomic.Int64
 	// terminalDrainerRunning keeps the drainer to exactly one goroutine across
 	// repeated registrations. Guarded by mu.
@@ -289,9 +287,8 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 }
 
 // RegisterTerminalObserver installs the namespace's [TerminalObserver], which
-// fires on CANCELLED and on FAILED. Last write wins per namespace; nil / empty
-// arguments are silently dropped. Starts the drainer that runs the observers,
-// so registering is what opens the queue.
+// fires on CANCELLED and on FAILED. Last write wins; nil/empty arguments are
+// dropped. Also starts the drainer, so registering is what opens the queue.
 func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
 	if namespace == "" || observer == nil {
 		return
@@ -302,14 +299,11 @@ func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalOb
 	m.startTerminalDrainerWithLock()
 }
 
-// Close stops the terminal-observer drainer. Idempotent. Anything still queued is
-// dropped: the signal observers raise is only ever read by another node in the
-// same cluster, and on the way down there is no longer anyone to read it.
-//
-// Does not wait for the observer call already running: the drainer looks its
-// observer up under the same lock Close holds, so joining it here would
-// deadlock. A namespace can therefore still be called into for a moment after
-// Close returns and must tolerate that.
+// Close stops the terminal-observer drainer. Idempotent; queued events are
+// dropped since shutdown means there's no one left to read them. Does not
+// wait for an observer call already in flight — the drainer looks its
+// observer up under the same lock Close holds, so joining would deadlock.
+// Observers must tolerate being called for a moment after Close returns.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -320,16 +314,13 @@ func (m *Manager) Close() {
 	close(m.terminalDispatchDone)
 }
 
-// terminalDispatchQueueDepth is how many terminal events the apply path may hand
-// to the drainer before it has to fan one out on its own goroutine. Task endings
-// are rare and the drainer only forwards, so a queue this deep can only fill if
-// an observer has wedged.
+// terminalDispatchQueueDepth is how deep the drainer's queue can get before
+// the apply path falls back to a fan-out goroutine per event. Task endings
+// are rare, so a queue this deep only fills if an observer has wedged.
 const terminalDispatchQueueDepth = 256
 
-// terminalDispatchOverflowLimit bounds the goroutines spawned for events the
-// queue could not take. A queue this deep only fills when an observer has
-// wedged, and a wedged observer means every one of these goroutines parks
-// forever, so the fan-out has to stop somewhere.
+// terminalDispatchOverflowLimit bounds fan-out goroutines spawned once the
+// queue is full. A wedged observer would otherwise let these pile up forever.
 const terminalDispatchOverflowLimit = 32
 
 // startTerminalDrainerWithLock brings up the single goroutine that runs terminal
@@ -347,9 +338,8 @@ func (m *Manager) startTerminalDrainerWithLock() {
 			case <-done:
 				return
 			case task := <-queue:
-				// A select with two ready cases picks randomly, so without this
-				// re-check a closed done plus a queued event could still deliver
-				// to a torn-down observer after Close.
+				// select picks randomly among ready cases, so re-check done to
+				// avoid delivering to a torn-down observer after Close.
 				select {
 				case <-done:
 					return
@@ -361,10 +351,9 @@ func (m *Manager) startTerminalDrainerWithLock() {
 	}, m.dispatchLogger())
 }
 
-// runTerminalObserverSafely keeps one namespace's panicking observer from taking
-// the drainer down for all of them. GoWrapper's recover sits outside the loop,
-// so a panic there ends the goroutine for good — and terminalDrainerRunning stays
-// true, so nothing restarts it and re-registering an observer does not help.
+// runTerminalObserverSafely keeps one namespace's panicking observer from
+// killing the drainer for all of them: GoWrapper's recover sits outside the
+// loop, so an unrecovered panic ends the drainer for good with no restart.
 func (m *Manager) runTerminalObserverSafely(task *Task) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -386,10 +375,9 @@ func (m *Manager) dispatchLogger() logrus.FieldLogger {
 	return m.logger
 }
 
-// runTerminalObserver reads the observer under its own lock rather than
-// carrying one over from the apply path, which would hold the apply lock
-// across observer code. Also picks up the latest registration if the
-// namespace was re-registered between queueing and running.
+// runTerminalObserver looks the observer up under its own lock instead of
+// carrying it from the apply path, so observer code never runs with the
+// apply lock held.
 func (m *Manager) runTerminalObserver(task *Task) {
 	m.mu.RLock()
 	observer := m.terminalObservers[task.Namespace]
@@ -400,28 +388,16 @@ func (m *Manager) runTerminalObserver(task *Task) {
 	observer(task)
 }
 
-// dispatchTerminalWithLock hands a task that has just gone terminal to the
-// drainer. Caller holds m.mu.
+// dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
 //
-// catchingUp is the FSM's own replay flag: a node replaying its RAFT log at
-// startup applies endings that finished long ago, and signalling those would
-// raise a gate on this node that nothing can release except its own timeout.
-// Keyed on the flag rather than transition age, so it's immune to clock skew
-// between nodes. The flag is node-local and only ever decides this side effect,
-// never FSM state, so it cannot make two nodes diverge.
+// catchingUp comes from the FSM's RAFT-replay flag: on startup a node replays
+// entries already in its local log, and signalling those stale endings would
+// raise a gate nothing but a timeout could release. Endings missed while the
+// node was down replicate later at a higher index and fire normally.
 //
-// It covers exactly one case: entries already in this node's local log store at
-// Open (catchingUp is index <= lastAppliedIndexToDB, which Open seeds from the
-// local last index). Endings the node missed while it was down are replicated
-// by the leader afterwards, at a higher index, so they fire like live ones.
-// Closing that gap needs the observer to be told how old an ending is, which
-// FinishedAt cannot say (see its godoc); observers are required to be
-// idempotent instead.
-//
-// Observers run off the apply path, never inline: they take their own locks
-// (also taken by HTTP handlers and admission paths), and a RAFT apply blocking
-// on any of those stalls every FSM behind it. The task is cloned because it
-// stays in m.tasks and later applies mutate it.
+// Observers run off the apply path because they take locks also held by
+// HTTP/admission code; running inline could stall the whole FSM behind a
+// blocked observer. The task is cloned because m.tasks keeps mutating it.
 func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	if m.terminalDispatchClosed {
 		// The drainer is gone; without this, applies still arriving on the
@@ -447,9 +423,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		logger := m.dispatchLogger()
 		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID}
 		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
-			// Past the bound the observer is wedged rather than merely behind,
-			// and every further goroutine parks on the same wedge for the
-			// lifetime of the process.
+			// Past the bound the observer is wedged, not just behind.
 			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
 			return
 		}
@@ -458,20 +432,13 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		done := m.terminalDispatchDone
 		enterrors.GoWrapper(func() {
 			defer m.terminalOverflowInFlight.Add(-1)
-			// Not joined by Close: the observer may block for as long as it
-			// likes and Close runs under the same lock the observer takes to
-			// look itself up. Checking here is the whole stop signal, so a
-			// shutdown between the dispatch and the start skips the observer
-			// instead of calling into torn-down dependencies.
+			// Not joined by Close (it holds the lock this goroutine would need
+			// to look itself up), so this check is the only stop signal.
 			select {
 			case <-done:
 				return
 			default:
 			}
-			// Same containment as the drainer. GoWrapper's recover is
-			// conditional on DISABLE_RECOVERY_ON_PANIC, which the test image
-			// sets to "true", so relying on it here means a panicking observer
-			// takes the node down under queue overflow and nowhere else.
 			m.runTerminalObserverSafely(clone)
 		}, logger)
 	}
@@ -693,9 +660,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
 		task.FinishedAt = finishedAt
 
-		// Dispatch after FinishedAt is stamped so the observer's copy carries
-		// it. This ending is permanent and nothing else on this node will ever
-		// announce it, so a peer waiting on the task has to hear it here.
+		// Dispatch after FinishedAt is stamped so the observer's copy carries it.
 		if failedClosed {
 			m.dispatchTerminalWithLock(task, catchingUp)
 		}

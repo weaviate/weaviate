@@ -635,10 +635,8 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 
 func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
-		// The Manager is built in New, before Open, so an observer registered
-		// on a Store that never opened has already started the drainer.
-		// Nothing can have applied here, so there is no shutdown ordering
-		// left to respect.
+		// Manager is built in New, before Open, so its drainer may already be
+		// running even though nothing here ever applied.
 		st.distributedTasksManager.Close()
 		return nil
 	}
