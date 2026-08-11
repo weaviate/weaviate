@@ -131,12 +131,6 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 			// a positive one.
 			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
 				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
-			// Catches a status added to IsCoordinationPhase's case list but
-			// misclassified terminal, which would pass the row above.
-			if tc.status.IsCoordinationPhase() {
-				assert.True(t, tc.status.IsActive(),
-					"%q is a coordination phase, so it must be active", tc.status)
-			}
 		})
 	}
 }

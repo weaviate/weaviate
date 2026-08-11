@@ -214,7 +214,11 @@ func (i *Index) localNodeName() string {
 //
 // Unlike the schema gates, it has no task to key a cancel call on — only
 // that a shard is live — so it points at the GET poll instead of guessing a
-// property/index-type pair that could 202 NO_OP.
+// property/index-type pair that could 202 NO_OP. For the same reason it
+// cannot drop the cancel advice the way [ReindexGateRemedy] does once the
+// task is past STARTED, so it states the STARTED-only restriction instead:
+// TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
+// answers 409 Conflict.
 //
 // Names no shard and no node — this reaches an API response body. Those
 // reach the operator via [Index.logReindexRefusal],
@@ -232,7 +236,7 @@ func reindexInFlightError(collection string, preWire bool) error {
 		)}
 	}
 	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
-		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes, or cancel it: GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} cancels the task",
+		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, collection, collection,
 	)}
 }

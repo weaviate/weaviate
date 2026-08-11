@@ -2051,6 +2051,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	logger logrus.FieldLogger, shard ShardLike, _ reindexTracker, props []string,
 ) {
+	// Not a cold-tenant hydration despite the shape: this runs after
+	// markTidied() on a shard whose buckets this node just swapped, so it is
+	// loaded by construction and the unwrap is a type assertion.
 	concrete, err := unwrapShard(context.Background(), shard)
 	if err != nil {
 		logger.Warnf("runtime swap: trim: failed to unwrap shard; skipping cleanup: %v", err)

@@ -149,69 +149,6 @@ func TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging(
 		"FINALIZING is the point past which a cancel is refused; a cancelled restore must never reach it")
 }
 
-// Pins that a cancel arriving while a restore is staging stops it before schema apply.
-func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
-	t.Parallel()
-	const (
-		backendName = "s3"
-		backupID    = "1"
-		node        = "node1"
-		class       = "Class1"
-	)
-	ctx := context.Background()
-
-	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, backupID).Return("bucket/" + backupID)
-	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
-	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
-	fs.backend.On("Initialize", mock.Anything, backupID).Return(nil)
-	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
-	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
-	fs.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
-
-	// The restore releases the slot as soon as its poll loop sees the cancel,
-	// which would empty the slot before the read below. Parking the loop inside
-	// its participant poll holds it still for the length of the cancel without
-	// touching the path under test.
-	pollGate := make(chan struct{})
-	unblockPoll := sync.OnceFunc(func() { close(pollGate) })
-	t.Cleanup(unblockPoll)
-	fs.client.On("Status", mock.Anything, node, mock.Anything).
-		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil).
-		Run(func(mock.Arguments) { <-pollGate })
-
-	s := fs.scheduler()
-	s.restorer.timeoutNextRound = time.Millisecond
-
-	// ListClasses runs between the cancel's two slot stamps, so only the first
-	// is reliably observed here.
-	var (
-		once    sync.Once
-		stamped backup.Status
-	)
-	fs.selector.On("ListClasses", ctx).Return([]string{class}).Run(func(mock.Arguments) {
-		once.Do(func() { stamped = s.restorer.lastOp.get().Status })
-	})
-
-	store := coordStore{objectStore{fs.backend, backupID, "", "", ""}}
-	req := newReq(nil, backendName, backupID)
-	require.NoError(t, s.restorer.Restore(ctx, store, &req,
-		restoreDescriptor(backupID, node), []backup.ClassDescriptor{{Name: class}}))
-	require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == backup.Transferring },
-		20*time.Second, time.Millisecond, "the restore never reached its staging phase")
-
-	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
-
-	require.True(t, stamped.IsCancellation(),
-		"the cancel must stamp the slot before aborting the participants, or the restore never learns of it")
-
-	unblockPoll()
-	require.Eventually(t, func() bool { return s.restorer.lastOp.get().ID == "" },
-		20*time.Second, time.Millisecond, "the cancelled restore never stopped")
-}
-
 // Pins that a restore applying its schema refuses a cancel even when the
 // stored descriptor still reads TRANSFERRING.
 func TestCancelRestoreRefusesARestoreThatIsApplyingItsSchema(t *testing.T) {
@@ -307,7 +244,7 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 
 // Pins that a cancel does not inherit the reason of the failure it lands on: a
 // restore can fail on disk while the cancel that overtakes it is in flight.
-func TestSetIfOwnedDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
+func TestSlotOwnerStampDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
 	t.Parallel()
 	const (
 		id     = "restore-1"

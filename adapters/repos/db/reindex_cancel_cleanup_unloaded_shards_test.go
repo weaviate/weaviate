@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -927,10 +928,71 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 				}
 			}()
 
-			assert.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType),
-				"the only shard carrying the state is not loaded")
+			// Registered but not loaded, which is what a cold tenant looks
+			// like while it stays in the shard map. A DEACTIVATED tenant is
+			// removed from that map and is invisible to this predicate — see
+			// [DB.anyPromotableReindexState] for why that is fail-open.
+			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil),
+				"the only shard carrying the state is registered but not loaded")
 			assert.False(t, cold.isLoaded(),
 				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
+		})
+	}
+}
+
+// The CANCELLED evidence gate asks about every (property, index type) pair a
+// migration targets, and each ask walks every shard. One shared cache is what
+// keeps that from re-listing the same .migrations dir once per pair. This
+// pins that the cache reaches the per-shard read at all: with one, a later
+// pair answers from the first pair's snapshot; without, it re-reads.
+func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+	)
+
+	setupCtx := testCtx()
+	className := "CachedPromotable_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	hot := shd.(*Shard)
+	defer hot.Shutdown(context.Background())
+
+	// The gate reaches the shard through DB, so both halves have to pass the
+	// cache down or the sharing stops one level short.
+	database := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+
+	for _, tc := range []struct {
+		name string
+		ask  func(dirs *dirNamesCache) bool
+	}{
+		{
+			name: "per index",
+			ask: func(dirs *dirNamesCache) bool {
+				return idx.anyPromotableReindexState(propName, indexType, dirs)
+			},
+		},
+		{
+			name: "through the db",
+			ask: func(dirs *dirNamesCache) bool {
+				return database.anyPromotableReindexState(className, propName, indexType, dirs)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.RemoveAll(filepath.Join(hot.pathLSM(), ".migrations")))
+
+			dirs := &dirNamesCache{}
+			require.False(t, tc.ask(dirs), "the shard has no .migrations dir yet")
+
+			mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig", "merged.mig")
+
+			require.False(t, tc.ask(dirs),
+				"a shared cache answers from the snapshot the first pair took")
+			require.True(t, tc.ask(nil),
+				"a nil cache reads the filesystem, which now holds the state")
 		})
 	}
 }
