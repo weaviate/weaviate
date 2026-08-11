@@ -650,10 +650,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// the early-acquisition comment up top + [state.ReindexSubmitLocks]
 	// godoc for the multi-node caveat.
 
-	// Answered here rather than at the submit call below: without the cluster
-	// service the conflict checks cannot run at all, and a request that is
-	// certain to be refused must not first close the submit gate and let the
-	// pre-submit sweep delete on-disk state.
+	// Checked here, not at the submit call below: without the cluster service
+	// the conflict checks can't run, and a doomed request must not close the
+	// submit gate before the pre-submit sweep deletes on-disk state.
 	if h.tasks == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -944,8 +943,6 @@ func (h *indexesHandlers) awaitOneOwnerCleanupGate(ctx context.Context, node, co
 	defer cancel()
 
 	for {
-		// True means the node has seen the cancel and is holding its cleanup
-		// gate shut, which is what this wait is confirming.
 		gateClosed, err := h.reindexCleanup.CleanupInProgress(waitCtx, node, collection)
 		if errors.Is(err, clients.ErrReindexCleanupUnsupported) {
 			// An older build cannot answer; waiting would burn the whole
@@ -1318,10 +1315,9 @@ const auditEventCancelAuthorizerUnavailable = "reindex_task_cancel_unattributabl
 // window the conflict guards block on. Tasks whose payload will not decode
 // are skipped here; the caller's unreadable-payload pass handles them.
 //
-// unknownType carries a live task on this collection and property whose
-// migration type this build cannot map to index types (a newer node submitted
-// it). It matches no index type, so it can neither be cancelled nor ruled out
-// here, and the caller must say so rather than answer NO_OP.
+// unknownType is a live task whose migration type this build can't map to
+// index types (submitted by a newer node); the caller must refuse it rather
+// than answer NO_OP.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (
 	target *distributedtask.Task, targetPayload db.ReindexTaskPayload, found bool,
 	unknownType *distributedtask.Task,
@@ -1352,13 +1348,11 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return nil, db.ReindexTaskPayload{}, false, unknownType
 }
 
-// reindexUnknownTypeCancelResponder answers the cancel this node cannot
-// decide: a live task on the caller's property carries a migration type
-// missing from [db.ReindexTargetIndexes], so this build cannot say which
-// indexes it writes and therefore cannot say whether the caller's index type
-// is one of them. Unlike the submit-side conflict, routing helps here — the
-// match runs in this handler on the receiving node, not in the FSM — so the
-// advice names the other node.
+// reindexUnknownTypeCancelResponder answers a cancel this node cannot decide:
+// the live task's migration type is missing from [db.ReindexTargetIndexes],
+// so this build can't tell whether it targets the caller's index type. The
+// match runs in this handler, not the FSM, so (unlike the submit-side
+// conflict) the advice can name a different node to retry on.
 func reindexUnknownTypeCancelResponder(principal *models.Principal,
 	collection, propertyName string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
@@ -2215,10 +2209,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // Every index of the collection carries it, matching the backup gate, which
 // blocks the whole collection for the same reason.
 //
-// The reason does not reach the caller: models.IndexStatus has no message
-// field, and widening the response schema for a state only an operator can
-// resolve is not worth it. The taskID and the decode error are logged instead
-// (see the unreadable-payload arms in the cancel handler).
+// The reason itself isn't returned: models.IndexStatus has no message field.
+// It's logged instead (see the cancel handler's unreadable-payload arms).
 func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTasks []parsedReindexTask) bool {
 	for _, pt := range parsedTasks {
 		if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {

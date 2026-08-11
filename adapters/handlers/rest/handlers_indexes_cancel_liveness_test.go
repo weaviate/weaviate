@@ -124,10 +124,8 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 	}
 }
 
-// A live task whose migration type this build cannot map to index types holds
-// the backup and restore gate on its collection but matches no cancel: this
-// node cannot say which indexes the type writes. Pins: the handler says so
-// instead of answering NO_OP, which would claim the gate is clear.
+// Pins: a live task with an unrecognized migration type is refused, not
+// answered NO_OP.
 func TestCancelAnswersUnknownMigrationTypeInsteadOfNoOp(t *testing.T) {
 	const collection = "Movies"
 	// Not in db.ReindexTargetIndexes, which is what "unknown to this build" means.
