@@ -687,7 +687,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					WithField("node", req.NodeName)
 				switch {
 				case rpcErr != nil && errors.Is(rpcErr, context.Canceled):
-					// Shared errgroup context: a sibling's refusal cancels this
+					// The group's shared context: a sibling's refusal cancels this
 					// call. Not this node's fault, so Debug, not Error.
 					entry.Debugf("canCommit aborted after another participant failed: %v", err)
 				case rpcErr != nil:
