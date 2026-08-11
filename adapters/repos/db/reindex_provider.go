@@ -1944,11 +1944,6 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// reindexTornStateProbeTimeout bounds the post-merge evidence probe on a
-// cancelled task across every shard the payload names. Matches the drain
-// timeout: both run inline on the scheduler's completion dispatch.
-const reindexTornStateProbeTimeout = 10 * time.Second
-
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns the on-disk tracker dirs and sidecar buckets of its
 // migration. The rule lives here rather than at the call sites because
