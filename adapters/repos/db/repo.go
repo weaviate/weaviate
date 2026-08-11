@@ -648,6 +648,7 @@ func hasShardStore(path string) bool {
 	return false
 }
 
+// dropIndexData removes a class's files without going through an Index.
 func (db *DB) dropIndexData(className schema.ClassName) error {
 	deleted, err := renameForAsyncDelete(
 		filepath.Join(db.config.RootPath, indexID(className)), db.logger)
@@ -664,7 +665,11 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		// No live index, but the class may still have data: a startup load that
+		// never built one, or a delete applied while one was in flight. Only
+		// index.drop removes the directory, so returning here would strand it
+		// with no schema entry left to name it. Missing path is a no-op.
+		return db.dropIndexData(className)
 	}
 	id := indexID(className)
 
