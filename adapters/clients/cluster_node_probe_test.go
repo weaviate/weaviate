@@ -164,9 +164,8 @@ func TestProbeRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-// snippet() lands in errors a caller logs, so it must be quoted and must not
-// cut a multi-byte rune in half. The ascii prefixes shift where the cap lands,
-// covering every byte offset a cut could fall on.
+// snippet() must quote (log injection) and not cut a multi-byte rune in half;
+// the ascii prefixes cover every byte offset the cap can land on.
 func TestSnippetIsQuotedAndCutsOnRuneBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

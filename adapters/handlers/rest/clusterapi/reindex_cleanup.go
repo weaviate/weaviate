@@ -90,8 +90,7 @@ const loggedCollectionLimit = 128
 // from being written per request.
 func loggableCollection(collection string) string {
 	if len(collection) > loggedCollectionLimit {
-		// Cut on a rune boundary so the kept part stays readable rather than
-		// ending in an escaped half rune.
+		// Cut on a rune boundary so the kept part doesn't end in an escaped half rune.
 		cut := loggedCollectionLimit
 		for cut > 0 && !utf8.RuneStart(collection[cut]) {
 			cut--
@@ -116,9 +115,8 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			return
 		}
 
-		// The cancelling node waits on this answer, so an operator tracing a
-		// slow cancel needs to see that the question arrived and what it got,
-		// on every path the request can leave by.
+		// An operator tracing a slow cancel needs this logged on every path
+		// the request can leave by, not just the success path.
 		log := rc.logger.WithField("action", "reindex_cleanup_probe").
 			WithField("collection", loggableCollection(collection))
 

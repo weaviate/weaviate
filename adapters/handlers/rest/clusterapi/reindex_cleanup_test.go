@@ -303,9 +303,7 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 	}
 }
 
-// Until the cleanup side is wired up, every production request takes the
-// not-wired path, so that is the path an operator tracing a stalled cancel
-// needs in the log.
+// Every production request takes the not-wired path until cleanup is wired up.
 func TestInternalReindexCleanupActivityLogsTheNotWiredAnswer(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
