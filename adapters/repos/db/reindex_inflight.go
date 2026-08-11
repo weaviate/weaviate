@@ -128,18 +128,19 @@ func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName 
 	return db.reindexBlockReason(ctx, collection, shardName) != reindexNotBlocked
 }
 
-// reindexGateSnapshot is one admission pass's view of both backup-gate
-// lookups. Only activity is snapshotted (its builder issues a leader-forwarded
-// RAFT query, so per-shard rebuilds would cost one round trip per shard);
-// cleanup is a local map read via [ReindexProvider.HoldForShard], re-read on
-// every probe. The two halves can therefore answer as of different moments —
-// a hold released mid-pass can refuse an early shard and admit a later one —
-// but the commit-time overlap check catches both misses, so the pass does not
-// need to be atomic. A nil activity lookup admits the backup, per
+// reindexGateSnapshot is one pass's view of both backup-gate lookups. Only
+// activity is snapshotted (its builder issues a leader-forwarded RAFT query, so
+// per-shard rebuilds would cost one round trip per shard); cleanup is a local
+// map read via [ReindexProvider.HoldForShard], re-read on every probe. The two
+// halves can therefore answer as of different moments — a hold released
+// mid-pass can refuse an early shard and admit a later one — but the
+// commit-time overlap check catches both misses, so the pass does not need to
+// be atomic. A nil activity lookup admits the backup, per
 // [DB.AnyLiveReindexForShard].
 //
-// This snapshot-per-pass discipline holds only for [DB.Backupable]; the
-// per-shard capture paths still build one snapshot per shard.
+// Two passes build one each: the admission pass ([DB.Backupable]) and the
+// capture pass ([Index.descriptor], which carries it in its context; see
+// [Index.contextWithReindexGateSnapshot]).
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
@@ -248,8 +249,56 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
+// reindexGateSnapshotCtxKey keys the capture pass's snapshot in its context.
+// Unexported and package-private, so only this package can plant one.
+type reindexGateSnapshotCtxKey struct{}
+
+// contextWithReindexGateSnapshot returns ctx carrying one gate snapshot for a
+// whole capture pass, so the per-shard checks reached from it
+// ([Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer] via
+// [Shard.CreateBackupSnapshot]) share the single leader-forwarded DTM query
+// instead of issuing one each. A collection with 200 local shards used to pay
+// 200 of them per capture.
+//
+// Freshness: the activity half answers as of the moment the pass started, so a
+// reindex task that DTM accepts AFTER that moment does not refuse the capture
+// (window: one capture pass, i.e. as long as one collection's shards take to
+// snapshot). Two things close it. The cleanup half is not snapshotted — it
+// re-reads the node-local hold registry per shard, so a task that starts
+// locally is seen at once. And a task that starts anywhere in the cluster
+// during the window is caught at commit time by
+// [DB.RefuseIfReindexOverlapped], which asks for lifetime OVERLAP with the
+// backup window, not liveness — so the backup is refused rather than committed
+// over a shard a migration touched. Widening the snapshot beyond one capture
+// pass would widen this window without a matching backstop, so don't.
+//
+// Carried in the context rather than in a parameter because the reach passes
+// through [ShardLike] methods (CreateBackupSnapshot, HaltForTransfer) that
+// serve replica movement and tenant offload as well. Those callers build their
+// own context, so they carry no snapshot and keep reading live — deliberate:
+// replica movement is not bounded by the backup's commit-time overlap check,
+// so it has no backstop to lean on.
+func (i *Index) contextWithReindexGateSnapshot(ctx context.Context) context.Context {
+	if i.db == nil {
+		// Nothing to snapshot; refuseIfReindexInFlight fails closed on its own.
+		return ctx
+	}
+	snap := i.db.newReindexGateSnapshot(ctx)
+	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, &snap)
+}
+
+// reindexGateSnapshotFrom returns the pass snapshot ctx carries, if any.
+func reindexGateSnapshotFrom(ctx context.Context) (reindexGateSnapshot, bool) {
+	snap, ok := ctx.Value(reindexGateSnapshotCtxKey{}).(*reindexGateSnapshot)
+	if !ok {
+		return reindexGateSnapshot{}, false
+	}
+	return *snap, true
+}
+
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithHardlinks],
 // [Index.backupInactiveShardWithoutHardlinks], and
 // [Shard.HaltForTransfer]. Consults DTM via
 // [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
@@ -260,15 +309,21 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 //
 // It never logs — every caller above is reached once per shard of a
 // whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
-// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal]. It builds a
-// fresh gate snapshot per call, so ctx bounds a leader query; multi-shard
-// passes must use [Index.refuseIfReindexInFlightIn], see
-// [reindexGateSnapshot].
+// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal].
+//
+// It reuses the snapshot ctx carries when there is one (the capture pass plants
+// it; see [Index.contextWithReindexGateSnapshot]) and builds a fresh one
+// otherwise, in which case ctx bounds the leader query it costs. Multi-shard
+// callers that hold a snapshot directly use [Index.refuseIfReindexInFlightIn].
 func (i *Index) refuseIfReindexInFlight(ctx context.Context, shardName string) error {
 	if i.db == nil {
 		return reindexInFlightError(i.Config.ClassName.String(), reindexBlockedNoDBBackref)
 	}
-	return i.refuseIfReindexInFlightIn(i.db.newReindexGateSnapshot(ctx), shardName)
+	snap, ok := reindexGateSnapshotFrom(ctx)
+	if !ok {
+		snap = i.db.newReindexGateSnapshot(ctx)
+	}
+	return i.refuseIfReindexInFlightIn(snap, shardName)
 }
 
 // refuseIfReindexInFlightIn is [Index.refuseIfReindexInFlight] against an

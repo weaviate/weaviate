@@ -277,6 +277,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		return err
 	}
 
+	// One gate snapshot for this collection's whole capture pass, shared by
+	// every per-shard check below; see [Index.contextWithReindexGateSnapshot]
+	// for the freshness contract and the commit-time backstop that closes it.
+	ctx = i.contextWithReindexGateSnapshot(ctx)
+
 	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
@@ -577,6 +582,12 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 	var shard ShardLike
 	var sd backup.ShardDescriptor
 	var err error
+	// Set when the inactive path already produced the descriptor, so the
+	// active path below is skipped: `shard` is nil there, and falling through
+	// to it dereferences nil. The hardlink sibling returns inline instead;
+	// here the inactive branches sit inside a closure that only carries an
+	// error out.
+	inactiveDone := false
 	if err := func() error {
 		// Acquire shardCreateLocks to atomically check shard state and protect
 		// inactive shards. This prevents concurrent activation from racing.
@@ -589,6 +600,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
+			inactiveDone = true
 			return i.backupInactiveShardWithoutHardlinks(ctx, name, &sd, shardBaseDescr)
 		}
 
@@ -601,6 +613,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
+				inactiveDone = true
 				return i.backupInactiveShardWithoutHardlinks(ctx, name, &sd, shardBaseDescr)
 			}
 		}
@@ -608,6 +621,9 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		return nil
 	}(); err != nil {
 		return nil, err
+	}
+	if inactiveDone {
+		return &sd, nil
 	}
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).

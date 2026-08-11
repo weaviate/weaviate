@@ -46,7 +46,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	// Check before bumping haltForTransferCount so a rejection does not
 	// leave the counter incremented; the error path would not run a
-	// matching resume.
+	// matching resume. On a backup capture the gate answers from the pass
+	// snapshot ctx carries; replica movement passes its own ctx and so reads
+	// live. See [Index.contextWithReindexGateSnapshot].
 	if !offloading {
 		if blockedErr := s.index.refuseIfReindexInFlight(innerCtx, s.name); blockedErr != nil {
 			return blockedErr

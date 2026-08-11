@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -260,6 +261,85 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
 
 	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
+	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
+}
+
+// The gate snapshot is per pass, so a task DTM accepts after the pass started
+// is invisible to every shard the pass still has to capture. Pins that the
+// commit-time overlap check refuses that backup, which is what lets the
+// snapshot be taken once instead of once per shard.
+func TestReindexGateSnapshotStalenessIsClosedByTheOverlapBackstop(t *testing.T) {
+	const collection = "SnapshotStalenessClass"
+	backupStart := time.Now()
+
+	// Nothing live when the pass starts, so the gate admits every shard.
+	var tasks []*distributedtask.Task
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+		live := len(tasks) > 0
+		return func(string, string) bool { return live }
+	})
+	db.SetReindexOverlapLookup(NewReindexOverlapLookup(
+		func(context.Context) (map[string][]*distributedtask.Task, error) {
+			return map[string][]*distributedtask.Task{ReindexNamespace: tasks}, nil
+		}, time.Hour))
+
+	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+	snap := db.newReindexGateSnapshot(context.Background())
+	require.NoError(t, idx.refuseIfReindexInFlightIn(snap, "shard1"),
+		"nothing is live when the pass takes its snapshot")
+
+	// A migration is accepted while the pass is still capturing shards.
+	tasks = append(tasks, overlapTask(collection, distributedtask.TaskStatusStarted, time.Time{}))
+
+	require.NoError(t, idx.refuseIfReindexInFlightIn(snap, "shard2"),
+		"the pass snapshot cannot see a task that appeared after it was taken")
+
+	err := db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, backupStart)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+		"the commit-time overlap check is what closes the snapshot's staleness window")
+	require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined,
+		"this refusal observed the overlap; it did not merely fail to rule one out")
+}
+
+// The capture pass plants one gate snapshot in its context; HaltForTransfer
+// must answer from it instead of issuing its own leader-forwarded DTM query.
+// Replica movement passes a context without one and keeps reading live, since
+// it has no commit-time overlap check to fall back on.
+func TestShard_HaltForTransfer_HonorsCapturePassGateSnapshot(t *testing.T) {
+	ctx := testCtx()
+	className := "ShardHaltGateSnapshotClass"
+	shd, idx := testShard(t, ctx, className)
+	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+
+	var builds atomic.Int64
+	var taskLive atomic.Bool
+	taskLive.Store(true)
+	idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+		builds.Add(1)
+		blocked := taskLive.Load()
+		return func(string, string) bool { return blocked }
+	})
+
+	captureCtx := idx.contextWithReindexGateSnapshot(ctx)
+	require.EqualValues(t, 1, builds.Load(), "the pass builds its snapshot once, up front")
+
+	require.ErrorIs(t, shd.HaltForTransfer(captureCtx, false, time.Hour),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.EqualValues(t, 1, builds.Load(),
+		"the halt must answer from the pass snapshot, not build its own")
+
+	// The task reaches a terminal status mid-pass. The snapshot is deliberately
+	// stale, and staleness in this direction only refuses more.
+	taskLive.Store(false)
+	require.ErrorIs(t, shd.HaltForTransfer(captureCtx, false, time.Hour),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.EqualValues(t, 1, builds.Load())
+
+	// Replica movement: no snapshot in the context, so the gate reads live.
+	require.NoError(t, shd.HaltForTransfer(ctx, false, time.Hour))
+	require.EqualValues(t, 2, builds.Load(),
+		"a context carrying no pass snapshot must build a fresh one")
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 

@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -629,6 +630,86 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	require.LessOrEqualf(t, len(sample), wantSampleCap,
 		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
 		wantSampleCap, len(sample))
+}
+
+// Regression: capturing a COLD shard without hardlinks fell through to the
+// active-shard branch, where the shard handle is nil, and panicked on
+// HaltForTransfer. Every no-hardlink backup of an unloaded tenant crashed the
+// node.
+func TestDescriptorWithoutHardlinksCapturesColdTenant(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	rootDir := t.TempDir()
+	const className = "TestClass"
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	var desc backup.ClassDescriptor
+	require.NoError(t, idx.descriptor(context.Background(), "no-hardlink-cold", &desc, nil))
+
+	require.Len(t, desc.Shards, 1)
+	assert.Equal(t, "cold-tenant", desc.Shards[0].Name)
+	assert.NotEmpty(t, desc.Shards[0].Files, "the COLD descriptor must carry its files from disk")
+}
+
+// The activity half of the gate is a leader-forwarded DTM query, so building it
+// per shard costs one round trip per shard. Pins that a capture pass builds
+// exactly one regardless of how many shards it captures.
+func TestDescriptorBuildsOneReindexGateSnapshotPerCapturePass(t *testing.T) {
+	const (
+		className  = "TestClass"
+		shardCount = 4
+	)
+
+	tests := []struct {
+		name            string
+		forceNoHardlink bool
+	}{
+		{name: "hardlink capture"},
+		{name: "no-hardlink capture", forceNoHardlink: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.forceNoHardlink {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			}
+			rootDir := t.TempDir()
+
+			// Replicated everywhere so every tenant is a local shard of this node.
+			builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(shardCount)
+			tenants := make([]string, 0, shardCount)
+			for i := range shardCount {
+				name := fmt.Sprintf("cold-%02d", i)
+				tenants = append(tenants, name)
+				builder = builder.AddTenant(name, models.TenantActivityStatusCOLD)
+			}
+
+			idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
+			for _, name := range tenants {
+				createColdShardFiles(t, rootDir, className, name)
+			}
+
+			var builds atomic.Int64
+			idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+				builds.Add(1)
+				return func(string, string) bool { return false }
+			})
+
+			var desc backup.ClassDescriptor
+			require.NoError(t, idx.descriptor(context.Background(), "one-snapshot", &desc, nil))
+			require.Len(t, desc.Shards, shardCount, "every shard must still be captured")
+
+			require.EqualValuesf(t, 1, builds.Load(),
+				"one capture pass over %d shards must build one gate snapshot, not one per shard",
+				shardCount)
+		})
+	}
 }
 
 // Pins: the no-hardlinks fallback returns on the first refusal, so the
