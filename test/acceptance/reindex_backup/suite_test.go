@@ -10,8 +10,8 @@
 //
 
 // Package reindex_backup_test covers the backup × runtime-reindex
-// interaction: in-flight reindex rejects a backup with a structured
-// error naming the blocking tracker; quiet state round-trips cleanly.
+// interaction: an in-flight reindex rejects a backup with a structured error
+// that names neither node nor shard; quiet state round-trips cleanly.
 package reindex_backup_test
 
 import (
@@ -426,11 +426,18 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 // firstNodeName returns the name of the first node the cluster reports.
 func firstNodeName(t *testing.T, restURI string) string {
 	t.Helper()
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI), nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
+	require.Equalf(t, http.StatusOK, resp.StatusCode,
+		"listing nodes failed: %s", string(body))
 
 	var nodesResp struct {
 		Nodes []struct {

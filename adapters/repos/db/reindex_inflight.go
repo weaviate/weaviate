@@ -278,6 +278,12 @@ func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName st
 	return reindexInFlightError(collection, reason)
 }
 
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample. It does not
+// bound the number of lines: [DB.logReindexRefusals] emits one per blocked
+// collection.
+const reindexRefusalShardSample = 10
+
 // logReindexRefusal records the shard and node the refusal body withholds. It
 // is a no-op unless err is a gate refusal. Single-shard call sites only; a pass
 // over many shards must use [Index.logReindexRefusalSummary].
@@ -331,10 +337,18 @@ func (i *Index) localNodeName() string {
 // advice: a live task, a cancelled task still tearing down, and a lookup that
 // is not yet installed each need a different next step.
 //
-// Names no shard and no node: this text reaches an API response body, and
-// backing up a collection grants nothing on either. The caller already named
-// the collection, and the shard and node reach the operator through the log in
-// [Index.refuseIfReindexInFlight].
+// Unlike the schema gates, it has no task to key a cancel call on — only
+// that a shard is live — so it points at the GET poll instead of guessing a
+// property/index-type pair that could 202 NO_OP.
+//
+// Names no shard and no node — this reaches an API response body. Those
+// reach the operator via [Index.logReindexRefusal],
+// [Index.logReindexRefusalSummary] and [DB.logReindexRefusals].
+//
+// `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
+// stored; canCommit runs synchronously inside coordinator.Backup, so the REST
+// error path strips it before returning. The async backup-status field is
+// not stripped.
 func reindexInFlightError(collection string, reason reindexBlockReason) error {
 	var advice string
 	switch reason {

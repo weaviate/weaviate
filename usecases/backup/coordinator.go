@@ -550,7 +550,14 @@ func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFli
 //     scheduler answers 422.
 //   - everything else, including the empty kind older nodes send, stays wrapped
 //     in [errCannotCommit] (none of it is retryable).
-func canCommitErrFromResponse(resp *CanCommitResponse) error {
+//
+// A reindex refusal is served to the backup caller with no node prefix, so its
+// text must name neither node nor shard. Participants older than the redaction
+// still word it with both, and are recognized by the missing sentinel prefix:
+// their text is dropped and rebuilt from classes, which the caller named in
+// its own request. The raw string stays operator-visible in the caller's log
+// line.
+func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
 	}
@@ -561,12 +568,27 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 			// would print the whole condition twice.
 			return backup.ReindexBlockedError{Msg: resp.Err}
 		}
-		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+		return backup.ReindexBlockedError{Msg: redactedReindexRefusal(classes)}
 	case CanCommitErrRestoreBlockedByReindex:
 		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
+}
+
+// redactedReindexRefusal words an in-flight-reindex refusal from the request
+// alone, for participants whose own wording cannot be published.
+func redactedReindexRefusal(classes []string) string {
+	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
+	if len(classes) == 0 {
+		return fmt.Sprintf("%s: retry after the migration finishes", sentinel)
+	}
+	quoted := make([]string, len(classes))
+	for i, c := range classes {
+		quoted[i] = fmt.Sprintf("%q", c)
+	}
+	return fmt.Sprintf("%s: a collection in the backup (%s) has an active runtime-reindex task; "+
+		"retry after the migration finishes", sentinel, strings.Join(quoted, ", "))
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
@@ -647,18 +669,30 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			redactNode := false
 			if rpcErr == nil && resp.Timeout == 0 {
 				redactNode = isNodeFreeCanCommitErrKind(resp.ErrKind)
-				err = canCommitErrFromResponse(resp)
+				err = canCommitErrFromResponse(resp, req.Classes)
 			}
 			if err != nil {
 				entry := c.log.WithField("action", req.Method).
 					WithField("backup_id", req.ID).
 					WithField("node", req.NodeName)
-				if rpcErr != nil {
+				switch {
+				case rpcErr != nil && errors.Is(rpcErr, context.Canceled):
+					// The errgroup shares one context, so the first refusal
+					// cancels every sibling still in flight. This node did
+					// not fail; blaming it at Error would page the on-call.
+					entry.Debugf("canCommit aborted after another participant failed: %v", err)
+				case rpcErr != nil:
 					// Unreachable participant: cluster-side cause, operator-only.
 					entry.Errorf("canCommit failed to reach participant: %v", err)
-				} else {
-					// Deliberate refusal: usually caller-actionable, so Warn not Error.
-					entry.Warnf("canCommit refused by participant: %v", err)
+				default:
+					// Deliberate refusal: usually caller-actionable, so Warn not
+					// Error. The participant's raw wording is logged rather than
+					// err, which may have been redacted for the caller.
+					refusal := resp.Err
+					if refusal == "" {
+						refusal = err.Error()
+					}
+					entry.Warnf("canCommit refused by participant: %v", refusal)
 				}
 				if redactNode {
 					return err
