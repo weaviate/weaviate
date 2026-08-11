@@ -52,26 +52,21 @@ const (
 // line. The count beside it is exact; this only bounds the sample.
 const reindexRefusalShardSample = 10
 
-// Backupable returns whether all given classes can be backed up. Refuses if
-// any shard has an in-flight runtime-reindex; this runs in the coordinator's
-// canCommit phase so no staging dir is created on rejection.
-//
-// All per-class / per-shard failures are accumulated rather than
-// short-circuiting on the first one, so that when several classes are blocked
-// at once the operator sees the full list in a single canCommit round instead
-// of fixing one, retrying, fixing the next, retrying, and so on.
+// Backupable returns whether all given classes can be backed up. Refuses if any
+// shard has an in-flight runtime-reindex; runs in the coordinator's canCommit
+// phase, so a rejection creates no staging dir. Failures accumulate rather
+// than short-circuit, so the operator sees the whole blocked list in one
+// canCommit round.
 //
 // When a gate refusal is among them, only gate refusals (which name no node
 // or shard, so are safe in an API response) and missing-class errors are
 // returned; everything else goes to the log via [DB.logReindexRefusals] since
 // it names the local node. The joined error still satisfies errors.Is for any
-// wrapped sentinel (e.g. ErrBackupBlockedByInFlightReindex) because
-// errors.Join preserves the underlying error graph.
-//
-// Class-missing errors stop aggregation for that class but do not short
-// circuit the whole loop; other classes still get checked.
+// wrapped sentinel (e.g. ErrBackupBlockedByInFlightReindex).
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
+	gate := db.newReindexGateSnapshot()
 	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}
 	blockedShards := map[string][]string{}
@@ -92,13 +87,12 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			// The quiet variant: this pass logs its own summary below rather
-			// than one line per shard.
-			err := idx.refuseIfReindexInFlightQuiet(shardName)
+			// No node prefix: the backup caller has no grant on node names.
+			err := idx.refuseIfReindexInFlightIn(gate, shardName)
 			if err == nil {
 				continue
 			}
-			// One entry per distinct refusal, not per shard. The refusal text
+			// One line per distinct refusal, not per shard. The refusal text
 			// names no shard, so per-shard joining returns one byte-identical
 			// sentence per shard, and this pass covers five-figure shard counts.
 			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
@@ -128,8 +122,7 @@ func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) 
 
 // logReindexRefusals logs the gate refusals collected by [DB.Backupable].
 // blockedShards maps a collection to the shards the gate held; errs are the
-// other precheck errors, which are withheld from the response because they
-// name the local node.
+// other precheck errors, which are withheld from the response.
 func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string, errs []error) {
 	if db.logger == nil {
 		return
