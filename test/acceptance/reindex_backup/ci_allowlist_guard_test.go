@@ -27,6 +27,14 @@ import (
 // This package is split across four CI matrix entries, each passing an exact-name
 // -run allowlist. A test added here but to no list never runs, and the job
 // still reports green — the failure mode this guard exists to make loud.
+//
+// Two ways a test still escapes both guards, left open deliberately. A test
+// behind a build tag is invisible to the `go test -list` below, which runs
+// without -tags; and a test in a SUBpackage of this one is invisible to
+// run.sh's `go list "./$path"`, which does not recurse. Adding /... there
+// would change every acceptance group's package set and the budgets derived
+// from it, which is a bigger change than the escape is worth. Neither hatch is
+// in use today; if one is ever needed, close it here first.
 const runShPackagePath = "test/acceptance/reindex_backup"
 
 var (
@@ -43,6 +51,10 @@ var (
 	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
 	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
 	wholeMinutesRe  = regexp.MustCompile(`^([0-9]+)m$`)
+	// Matches the package path only as a whole path segment, so a future
+	// sibling such as test/acceptance/reindex_backup_mt is not read as this
+	// package and does not silently widen what these guards claim to cover.
+	runShPackageRe = regexp.MustCompile(regexp.QuoteMeta(runShPackagePath) + `(?:[^\w.-]|$)`)
 )
 
 // imageBuildAllowanceMinutes is the slice of the job window spent building the
@@ -50,6 +62,11 @@ var (
 // a hang panic with stacks, so it only does that if the runner has not killed
 // the job first — which means the budget and the build have to share the
 // window.
+//
+// An observed average, not an enforced cap: nothing measures the build, so a
+// build that slowly grows past 5 minutes eats into the budget this guard
+// believes is available. It fails as a runner-killed job, which reads as a
+// hang without stacks.
 const imageBuildAllowanceMinutes = 5
 
 // repoRoot walks up from the working directory to the checkout root.
@@ -438,7 +455,9 @@ func collectRunShTimeouts(t *testing.T, job workflowJob, windows map[string]int)
 			continue
 		}
 		var runsRunSh bool
-		stepFlags := flags
+		// Cloned: appending to the matrix flags in place would leak this step's
+		// flags into every later step's list.
+		stepFlags := append([]string(nil), flags...)
 		for _, v := range step.With {
 			for _, w := range strings.Fields(scalar(&v)) {
 				if strings.Contains(w, "run.sh") {
@@ -654,7 +673,7 @@ func groupsRunningThisPackage(t *testing.T, runSh string) []packageGroup {
 			continue
 		}
 		scope := strings.Join(lines[i:min(i+4, len(lines))], "\n")
-		if !strings.Contains(scope, runShPackagePath) {
+		if !runShPackageRe.MatchString(scope) {
 			continue
 		}
 		require.NotEmptyf(t, current,
@@ -705,4 +724,27 @@ func flagArming(t *testing.T, runSh, group string) string {
 	}
 	t.Fatalf("no run.sh argument sets %s=true, so nothing on a CI command line can select it", group)
 	return ""
+}
+
+// TestCIPackagePathMatchesWholeSegments pins that the guards above find their
+// own package and only their own. A substring match would read a future
+// sibling package as this one and claim to cover tests it never sees.
+func TestCIPackagePathMatchesWholeSegments(t *testing.T) {
+	tests := []struct {
+		scope string
+		want  bool
+	}{
+		{scope: `run_aof_group "reindex-backup-a" test/acceptance/reindex_backup`, want: true},
+		{scope: `run_aof_group "x" test/acceptance/reindex_backup someArg`, want: true},
+		{scope: `go list ./test/acceptance/reindex_backup/...`, want: true},
+		{scope: `run_aof_group "x" test/acceptance/reindex_backup_mt`},
+		{scope: `run_aof_group "x" test/acceptance/reindex_backup-legacy`},
+		{scope: `run_aof_group "x" test/acceptance/reindex_mt`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.scope, func(t *testing.T) {
+			require.Equal(t, tc.want, runShPackageRe.MatchString(tc.scope))
+		})
+	}
 }

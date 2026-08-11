@@ -1071,6 +1071,7 @@ function run_acceptance_reindex_mt() {
 #   AOF_TEST_BUDGET TestCIAllowlistCoversEveryTestInThisPackage 0m   no deadline; costs a package build
 #   AOF_TEST_BUDGET TestCIWorkflowInvokesEveryGroupThatRunsThisPackage 0m   no deadline
 #   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
+#   AOF_TEST_BUDGET TestCIPackagePathMatchesWholeSegments 0m   no deadline; pure string matching
 #
 # That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
 # are budgeted at exactly theirs, on the assumption their tests finish well
@@ -1082,7 +1083,8 @@ function run_acceptance_reindex_mt() {
 #
 # Those sum to ~119m against a 45m job window that also has to fit the ~5m
 # image build, which is why the package is split over four entries rather than
-# run under one budget.
+# run under one budget. 40m is therefore the ceiling for any single budget
+# below; TestCIGroupTimeoutFitsTheJobWindow enforces it.
 
 function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
@@ -1096,11 +1098,12 @@ function run_acceptance_reindex_backup_suite() {
 function run_acceptance_reindex_backup_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-a (single-node restore guards)"
-  # Carries the three CI guards, which cost a package build and a
-  # `go test -list` rather than a container. They ride in the shortest group so
-  # their compile time has the most room.
-  AOF_GROUP_TIMEOUT=27m \
-    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
+  # Carries the three CI guards, which cost a package build and a nested
+  # `go test -list` (a second full compile of the package) rather than a
+  # container. 4m over the 26m floor, since that compile sits outside every
+  # per-test deadline and the group would otherwise be the tightest of the four.
+  AOF_GROUP_TIMEOUT=30m \
+    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow|TestCIPackagePathMatchesWholeSegments)$' \
     run_aof_group "reindex-backup-a" test/acceptance/reindex_backup
 }
 

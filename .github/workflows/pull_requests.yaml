@@ -815,6 +815,10 @@ jobs:
           # multi-node testcontainer suites that occasionally need the full
           # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
           # carried before the split.
+          #
+          # This number is the ceiling every AOF_GROUP_TIMEOUT in test/run.sh is
+          # checked against, minus the ~5m image build. Lowering it invalidates
+          # those budgets; TestCIGroupTimeoutFitsTheJobWindow reads it from here.
           timeout_minutes: 45
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}

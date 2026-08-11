@@ -32,6 +32,9 @@ var (
 	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
 	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
 	guardTestNameRe = regexp.MustCompile(`^func (TestCI[A-Za-z0-9_]*)\(`)
+	// Matches the package path only as a whole path segment, so a future
+	// sibling such as test/acceptance/reindex_backup_mt is not read as this one.
+	guardedPackageRe = regexp.MustCompile(regexp.QuoteMeta(guardedPackagePath) + `(?:[^\w.-]|$)`)
 )
 
 // TestReindexBackupCIGuardsSurviveAnyShardEdit fails if any hop in the chain
@@ -136,7 +139,7 @@ func groupsRunningGuardedPackage(t *testing.T, runSh string) map[string][]string
 			continue
 		}
 		scope := strings.Join(lines[i:min(i+4, len(lines))], "\n")
-		if !strings.Contains(scope, guardedPackagePath) {
+		if !guardedPackageRe.MatchString(scope) {
 			continue
 		}
 		require.NotEmptyf(t, current,
