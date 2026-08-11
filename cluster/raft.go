@@ -106,7 +106,8 @@ func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extr
 
 // RegisterDistributedTaskTerminalObserver installs a namespace's
 // [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
-// see that type for the apply-path contract.
+// see that type for the apply-path contract. No caller yet: the consumer lands
+// with the reindex namespace's registration, see weaviate/weaviate#12582.
 func (s *Raft) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
 	s.store.RegisterDistributedTaskTerminalObserver(namespace, observer)
 }

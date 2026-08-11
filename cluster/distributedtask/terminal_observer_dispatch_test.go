@@ -211,6 +211,70 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, h.clock.Now().UnixMilli(), observed.FinishedAt.UnixMilli(),
 			"the observer's copy must carry the stamp written by the same apply")
 	})
+
+	// The contract is CANCELLED and FAILED only. MarkTaskFinalized is the one
+	// terminal transition that must stay silent, and adding a dispatch there
+	// otherwise passes the whole suite.
+	t.Run("reaching FINISHED must not fire the observer", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer leaktest.Check(t)()
+		defer h.Close()
+
+		var rec observerRecorder
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            observerNamespace,
+			Id:                   observerTaskID,
+			Version:              observerVersion,
+			NodeId:               "node-1",
+			UnitId:               "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         observerNamespace,
+			Id:                observerTaskID,
+			Version:           observerVersion,
+			NodeId:            "node-1",
+			Success:           true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             observerNamespace,
+			Id:                    observerTaskID,
+			Version:               observerVersion,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, TaskStatusFinished, tasks[observerNamespace][0].Status)
+
+		// A second task cancelled in the same namespace is the barrier: once
+		// its event lands, the drainer has demonstrably run, so a missing
+		// FINISHED event is the contract holding rather than a slow drainer.
+		const cancelledTaskID = "2"
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             observerNamespace,
+			Id:                    cancelledTaskID,
+			Payload:               []byte(`{"collection":"Movies"}`),
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		}), observerVersion))
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             observerNamespace,
+			Id:                    cancelledTaskID,
+			Version:               observerVersion,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+
+		require.Eventually(t, func() bool { return rec.count() >= 1 },
+			5*time.Second, 5*time.Millisecond, "the cancel must fire the observer")
+		require.Equal(t, cancelledTaskID, rec.first().ID,
+			"only the cancelled task may be announced; FINISHED must stay silent")
+		require.Equal(t, 1, rec.count())
+	})
 }
 
 // Pins that an observer mutating its Task copy must never reach FSM state.

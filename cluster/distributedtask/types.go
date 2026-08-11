@@ -48,11 +48,18 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 //
 // Receives a [Task.Clone]; Payload still shares the original's backing array
 // and must not be mutated. No ordering vs. the scheduler is guaranteed; under
-// overflow, events run on up to 32 extra goroutines before being dropped.
+// overflow, events run on a bounded number of extra goroutines (see
+// terminalDispatchOverflowLimit) before being dropped.
 //
-// Endings already in the local RAFT log at startup are skipped, but ones
-// missed while the node was down arrive later and DO fire despite being old.
-// Observers must be idempotent and must not assume the ending is recent.
+// Delivery is best-effort, so an observer must reconcile against
+// [Manager.ListDistributedTasks] on registration and must not treat "no event"
+// as "not terminal". Three cases:
+//   - Endings already in the local RAFT log at startup are skipped.
+//   - Endings replicated as log entries after startup fire, even when old, so
+//     observers must be idempotent and must not assume the ending is recent.
+//   - Endings that arrive inside an installed snapshot never fire: a follower
+//     far enough behind for the leader to have compacted its log gets the state
+//     through [Manager.Restore], which merges tasks without dispatching.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -540,13 +547,14 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is when the task's units stopped, not necessarily when the
-	// task became terminal. It's accurate for CANCELLED and FAILED-by-unit
-	// failure, but any FINISHED/FAILED route through PREPARING/SWAPPING keeps
-	// the earlier AllUnitsTerminal stamp and can be minutes stale by then.
-	// TTL cleanup excludes SWAPPING to work around this; other code needing
-	// "when did this end" must not trust this field. Also drives cleanup
-	// scheduling.
+	// FinishedAt is the task's end stamp, but which end it means depends on
+	// the route: the cancel instant for CANCELLED (in-flight units are not
+	// waited for), the failing unit's stamp for FAILED-by-unit-failure, and
+	// the earlier AllUnitsTerminal stamp for any FINISHED/FAILED route through
+	// PREPARING/SWAPPING, which can be minutes stale by the time the task goes
+	// terminal. TTL cleanup works around this by skipping every non-terminal
+	// status; other code needing "when did this end" must not trust this
+	// field. Also drives cleanup scheduling.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
