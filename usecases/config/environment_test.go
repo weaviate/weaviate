@@ -624,6 +624,42 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentLazyLoadShardWarmupDisabled(t *testing.T) {
+	tests := []struct {
+		name string
+		// preset mirrors a value coming from the config file, which is parsed
+		// before FromEnv runs.
+		preset   bool
+		value    string
+		expected bool
+	}{
+		{name: "unset keeps warmup running", value: "", expected: false},
+		{name: "true disables", value: "true", expected: true},
+		{name: "on disables", value: "on", expected: true},
+		{name: "1 disables", value: "1", expected: true},
+		{name: "false keeps warmup running", value: "false", expected: false},
+		{name: "unparsable value keeps warmup running", value: "not-a-bool", expected: false},
+		{name: "config file value survives an unset env var", preset: true, value: "", expected: true},
+		{name: "env var overrides the config file", preset: true, value: "false", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_WARMUP_DISABLED", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_WARMUP_DISABLED", tt.value)
+			}
+
+			conf := Config{LazyLoadShardWarmupDisabled: tt.preset}
+			require.NoError(t, FromEnv(&conf))
+
+			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupDisabled)
+		})
+	}
+}
+
 func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
 	tests := []struct {
 		name        string
