@@ -13,7 +13,6 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -1138,22 +1137,19 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 	})
 }
 
-// Test_References_Batch_Waits_For_SchemaVersion pins the version the batch
-// write is made with. A source class this node has not applied yet is reported
-// as a per-ref error behind a 200, so an unwaited version drops refs silently.
-// A classless beacon on a multi-target property skips the multi-tenancy check,
-// which is the only other place the version is raised.
-func Test_References_Batch_Waits_For_SchemaVersion(t *testing.T) {
+// Test_References_Batch_Uses_SchemaVersion pins the version the batch write is
+// made with, which is what db.AddBatchReferences waits for. A classless beacon on
+// a multi-target property skips the multi-tenancy check, the only other place the
+// version is raised.
+func Test_References_Batch_Uses_SchemaVersion(t *testing.T) {
 	const classVersion uint64 = 5
 
 	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
 	refID := strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 
 	tests := []struct {
-		name    string
-		to      strfmt.URI
-		waitErr error
-		wantErr string
+		name string
+		to   strfmt.URI
 	}{
 		{
 			name: "target class in the beacon",
@@ -1163,12 +1159,6 @@ func Test_References_Batch_Waits_For_SchemaVersion(t *testing.T) {
 			name: "classless beacon on a multi-target property",
 			to:   strfmt.URI("weaviate://localhost/" + string(refID)),
 		},
-		{
-			name:    "local schema never catches up",
-			to:      strfmt.URI("weaviate://localhost/" + string(refID)),
-			waitErr: errors.New("deadline exceeded"),
-			wantErr: "error waiting for local schema to catch up to version 5",
-		},
 	}
 
 	for _, tt := range tests {
@@ -1176,7 +1166,6 @@ func Test_References_Batch_Waits_For_SchemaVersion(t *testing.T) {
 			_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false,
 				func(_ *config.WeaviateConfig, sm *fakeSchemaManager) {
 					sm.ClassVersion = classVersion
-					sm.WaitForUpdateErr = tt.waitErr
 				})
 			repo.On("AddBatchReferences", mock.Anything).Return(nil).Once()
 
@@ -1186,11 +1175,6 @@ func Test_References_Batch_Waits_For_SchemaVersion(t *testing.T) {
 			}}
 			_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
 
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
-				return
-			}
 			require.NoError(t, err)
 			assert.Equal(t, classVersion, repo.CapturedSchemaVersion,
 				"the batch write must be made with the source collection's version")
