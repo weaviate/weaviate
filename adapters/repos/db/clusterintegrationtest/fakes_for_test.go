@@ -181,7 +181,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager, nil, clusterapi.NewNoopAuthHandler())
+	backups := clusterapi.NewBackups(n.backupManager, nil, clusterapi.NewNoopAuthHandler(), nil)
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())

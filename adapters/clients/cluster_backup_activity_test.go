@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -79,7 +80,7 @@ func TestClusterBackupActivity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
-				assert.Equal(t, pathBackupNodeActivity, r.URL.Path)
+				assert.Equal(t, clusterprobe.BackupNodeActivityPath, r.URL.Path)
 				if tt.notFound {
 					http.NotFound(w, r)
 					return

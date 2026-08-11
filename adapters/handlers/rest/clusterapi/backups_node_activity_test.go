@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -123,7 +124,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 			wantBody:   `{"probe":"weaviate/backup-node-activity","busy":true,"kind":"backup","id":"backup-1"}`,
 		},
 		{
-			name:       "probe not wired",
+			name:       "probe unavailable",
 			probe:      func(*testing.T) *backup.NodeActivityProbe { return nil },
 			wantStatus: http.StatusServiceUnavailable,
 		},
@@ -131,7 +132,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := clusterapi.NewBackups(nil, tt.probe(t), clusterapi.NewNoopAuthHandler())
+			handler := clusterapi.NewBackups(nil, tt.probe(t), clusterapi.NewNoopAuthHandler(), nullLogger())
 			server := httptest.NewServer(handler.NodeActivity())
 			defer server.Close()
 
@@ -148,6 +149,67 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.wantBody, string(body))
+		})
+	}
+}
+
+// An operator tracing a stalled backup gate has to see what each node
+// answered, including the node that could not answer at all.
+func TestInternalBackupsNodeActivityLogsEveryAnswer(t *testing.T) {
+	tests := []struct {
+		name     string
+		probe    func(t *testing.T) *backup.NodeActivityProbe
+		wantBusy bool
+		wantKind string
+		wantID   string
+		wantLog  string
+	}{
+		{
+			name:    "idle",
+			probe:   func(*testing.T) *backup.NodeActivityProbe { return backup.NewNodeActivityProbe(nil) },
+			wantID:  `""`,
+			wantLog: "backup node activity probe answered",
+		},
+		{
+			name:     "busy with a backup",
+			probe:    func(t *testing.T) *backup.NodeActivityProbe { return busyBackupProbe(t, "backup-1") },
+			wantBusy: true,
+			wantKind: "backup",
+			wantID:   `"backup-1"`,
+			wantLog:  "backup node activity probe answered",
+		},
+		{
+			name:    "cannot answer",
+			probe:   func(*testing.T) *backup.NodeActivityProbe { return nil },
+			wantLog: "backup node activity probe answered: unavailable on this node",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			handler := clusterapi.NewBackups(nil, tt.probe(t), clusterapi.NewNoopAuthHandler(), logger)
+			server := httptest.NewServer(handler.NodeActivity())
+			defer server.Close()
+
+			res, err := server.Client().Get(server.URL + "/backups/node-activity")
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			entry := hook.LastEntry()
+			require.NotNil(t, entry)
+			assert.Equal(t, "backup_node_activity_probe", entry.Data["action"])
+			assert.Equal(t, tt.wantLog, entry.Message)
+			if tt.wantID == "" {
+				assert.NotContains(t, entry.Data, "busy",
+					"a node that cannot tell must not log an answer either way")
+				return
+			}
+			assert.Equal(t, tt.wantBusy, entry.Data["busy"])
+			assert.Equal(t, tt.wantKind, entry.Data["kind"])
+			assert.Equal(t, tt.wantID, entry.Data["id"])
 		})
 	}
 }
@@ -176,7 +238,7 @@ func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), auth)
+			handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), auth, nullLogger())
 			server := httptest.NewServer(handler.NodeActivity())
 			defer server.Close()
 
@@ -201,7 +263,7 @@ func TestInternalBackupsNodeActivityRequiresAuth(t *testing.T) {
 }
 
 func TestInternalBackupsNodeActivityRejectsNonGET(t *testing.T) {
-	handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), clusterapi.NewNoopAuthHandler())
+	handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil), clusterapi.NewNoopAuthHandler(), nullLogger())
 	server := httptest.NewServer(handler.NodeActivity())
 	defer server.Close()
 

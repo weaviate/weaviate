@@ -48,6 +48,71 @@ func (s *stubCleanupProber) AnyCleanupInProgressForCollection(collection string)
 	return s.cleaningUp
 }
 
+// nilReceiverProber dereferences its receiver, so a nil *nilReceiverProber
+// that reaches a call panics instead of quietly answering.
+type nilReceiverProber struct{ cleaningUp bool }
+
+func (p *nilReceiverProber) AnyCleanupInProgressForCollection(string) bool {
+	return p.cleaningUp
+}
+
+// A nil *T handed back as the interface is a non-nil interface value, so the
+// answer must come from the resolver's flag, not from comparing it to nil.
+func TestInternalReindexCleanupActivityRefusesAProberItCannotCall(t *testing.T) {
+	var typedNil *nilReceiverProber
+
+	tests := []struct {
+		name    string
+		resolve func() (clusterapi.ReindexCleanupProber, bool)
+	}{
+		{
+			name:    "nil pointer behind the interface",
+			resolve: func() (clusterapi.ReindexCleanupProber, bool) { return typedNil, false },
+		},
+		{
+			name:    "nothing at all, but reported as wired",
+			resolve: func() (clusterapi.ReindexCleanupProber, bool) { return nil, true },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := clusterapi.NewReindexCleanup(tt.resolve,
+				clusterapi.NewNoopAuthHandler(), nullLogger())
+			server := httptest.NewServer(handler.Activity())
+			defer server.Close()
+
+			res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+			assert.Equal(t, clusterprobe.ProbeNotWiredMarker, strings.TrimSpace(string(body)))
+		})
+	}
+}
+
+// App state does not always carry a logger by the time the internal server is
+// built, and the probe must not take the process down over it.
+func TestInternalReindexCleanupActivityToleratesANilLogger(t *testing.T) {
+	handler := clusterapi.NewReindexCleanup(
+		func() (clusterapi.ReindexCleanupProber, bool) { return &stubCleanupProber{cleaningUp: true}, true },
+		clusterapi.NewNoopAuthHandler(), nil)
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+	require.NoError(t, err)
+	defer res.Body.Close()
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":true}`, string(body))
+}
+
 func TestInternalReindexCleanupActivity(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -82,9 +147,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			// Must not answer "not cleaning up" from a node that cannot tell.
-			// The sentinel body is what tells the caller this 503 is permanent
-			// rather than transient, so it is part of the wire contract.
+			// A node that cannot tell must not answer "not cleaning up".
 			name:          "probe not wired",
 			prober:        nil,
 			query:         "?collection=Movies",
@@ -95,9 +158,9 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolve := func() clusterapi.ReindexCleanupProber { return nil }
+			resolve := func() (clusterapi.ReindexCleanupProber, bool) { return nil, false }
 			if tt.prober != nil {
-				resolve = func() clusterapi.ReindexCleanupProber { return tt.prober }
+				resolve = func() (clusterapi.ReindexCleanupProber, bool) { return tt.prober, true }
 			}
 			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler(), nullLogger())
 			server := httptest.NewServer(handler.Activity())
@@ -130,7 +193,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 
 func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
 	handler := clusterapi.NewReindexCleanup(
-		func() clusterapi.ReindexCleanupProber { return &stubCleanupProber{} },
+		func() (clusterapi.ReindexCleanupProber, bool) { return &stubCleanupProber{}, true },
 		clusterapi.NewNoopAuthHandler(), nullLogger())
 	server := httptest.NewServer(handler.Activity())
 	defer server.Close()
@@ -169,7 +232,7 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			prober := &stubCleanupProber{}
 			handler := clusterapi.NewReindexCleanup(
-				func() clusterapi.ReindexCleanupProber { return prober }, auth, nullLogger())
+				func() (clusterapi.ReindexCleanupProber, bool) { return prober, true }, auth, nullLogger())
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
 
@@ -275,7 +338,7 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 
 			prober := &stubCleanupProber{cleaningUp: true}
 			handler := clusterapi.NewReindexCleanup(
-				func() clusterapi.ReindexCleanupProber { return prober },
+				func() (clusterapi.ReindexCleanupProber, bool) { return prober, true },
 				clusterapi.NewNoopAuthHandler(), logger)
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
