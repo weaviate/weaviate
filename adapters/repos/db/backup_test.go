@@ -657,6 +657,39 @@ func TestDescriptorWithoutHardlinksCapturesColdTenant(t *testing.T) {
 	assert.NotEmpty(t, desc.Shards[0].Files, "the COLD descriptor must carry its files from disk")
 }
 
+// Sibling of the cold-tenant regression above: an unloaded LazyLoadShard in
+// the shard map must also be captured from disk. Falling through to the
+// active-shard branch would capture the shard a second time and force-load
+// the supposedly-cold shard mid-backup.
+func TestDescriptorWithoutHardlinksCapturesUnloadedLazyShard(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	rootDir := t.TempDir()
+	const className = "TestClass"
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	// In the shard map but never loaded. Loading it would need shard
+	// infrastructure this test does not wire up, so an attempt fails loudly.
+	lazyShard := &LazyLoadShard{
+		shardOpts: &deferredShardOpts{name: "cold-tenant", index: idx},
+	}
+	idx.shards.Store("cold-tenant", lazyShard)
+
+	var desc backup.ClassDescriptor
+	require.NoError(t, idx.descriptor(context.Background(), "no-hardlink-lazy", &desc, nil))
+
+	require.Len(t, desc.Shards, 1)
+	assert.Equal(t, "cold-tenant", desc.Shards[0].Name)
+	assert.NotEmpty(t, desc.Shards[0].Files, "the unloaded descriptor must carry its files from disk")
+	assert.False(t, lazyShard.loaded, "capturing an unloaded shard must not load it")
+}
+
 // The activity half of the gate is a leader-forwarded DTM query, so building it
 // per shard costs one round trip per shard. Pins that a capture pass builds
 // exactly one regardless of how many shards it captures.

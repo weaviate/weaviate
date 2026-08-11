@@ -256,8 +256,9 @@ type reindexGateSnapshotCtxKey struct{}
 // contextWithReindexGateSnapshot returns ctx carrying one gate snapshot for a
 // whole capture pass, so the per-shard checks reached from it
 // ([Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer] via
-// [Shard.CreateBackupSnapshot]) share the single leader-forwarded DTM query
+// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer] —
+// reached via [Shard.CreateBackupSnapshot] or called directly by the
+// no-hardlink active path) share the single leader-forwarded DTM query
 // instead of issuing one each. A collection with 200 local shards used to pay
 // 200 of them per capture.
 //
