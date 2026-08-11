@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -228,10 +227,6 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 		cancelCtx bool
 		// wantErrFor is a substring of the returned error for every failure expected.
 		wantErrFor []string
-		// wantErrIs, when set, is an error the returned error must still unwrap to.
-		wantErrIs error
-		// wantOnce, when set, is a substring the error must contain exactly once.
-		wantOnce string
 	}{
 		{
 			name:          "a failing tenant still runs the tenant delete",
@@ -285,38 +280,40 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 			},
 		},
 		{
-			// The compounding is per tenant, but a shut index fails all of them
-			// for one reason, so it is reported once rather than per tenant.
-			name: "a shut index stops after the first tenant",
+			// A shut index fails every tenant for the same reason, and each one is
+			// still attempted rather than the reconcile stopping at the first.
+			name: "a shut index reports every tenant",
 			incoming: map[string]sharding.Physical{
 				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
 			},
-			closed:     true,
-			wantErrFor: []string{"shutdown tenant shard"},
-			wantOnce:   "shutdown tenant shard",
+			closed: true,
+			wantErrFor: []string{
+				"shutdown tenant shard cold1",
+				"shutdown tenant shard cold2",
+				"shutdown tenant shard cold3",
+			},
 		},
 		{
-			// A tenant already in the wanted state reconciles without an error, so
-			// the cancellation is the only thing left to report the skipped ones by.
-			name: "a cancelled context is reported even when no tenant failed",
+			// Nothing is skipped on a cancelled context, so there is no separate
+			// cancellation to report once every tenant is in the wanted state.
+			name: "a cancelled context alone does not fail the reconcile",
 			incoming: map[string]sharding.Physical{
 				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
 			},
-			cancelCtx:  true,
-			wantErrFor: []string{"reconcile tenants of index"},
-			wantErrIs:  context.Canceled,
-			wantOnce:   "reconcile tenants of index",
+			cancelCtx: true,
 		},
 		{
-			name: "a cancelled context is reported beside the tenant that failed",
+			name: "a cancelled context still attempts every tenant",
 			incoming: map[string]sharding.Physical{
 				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"), "cold3": coldTenant("cold3"),
 			},
 			failingUnload: []string{"cold1", "cold2", "cold3"},
 			cancelCtx:     true,
-			wantErrFor:    []string{"shutdown tenant shard", "reconcile tenants of index"},
-			wantErrIs:     context.Canceled,
-			wantOnce:      "shutdown tenant shard",
+			wantErrFor: []string{
+				"shutdown tenant shard cold1",
+				"shutdown tenant shard cold2",
+				"shutdown tenant shard cold3",
+			},
 		},
 		{
 			name:     "no tenants leaves the delete to claim the residents",
@@ -381,13 +378,6 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				for _, want := range tt.wantErrFor {
 					require.ErrorContains(t, err, want)
 				}
-			}
-			if tt.wantErrIs != nil {
-				require.ErrorIs(t, err, tt.wantErrIs)
-			}
-			if tt.wantOnce != "" {
-				require.Equal(t, 1, strings.Count(err.Error(), tt.wantOnce),
-					"a failure that fails every tenant must be reported once")
 			}
 
 			for name, dir := range keptDirs {

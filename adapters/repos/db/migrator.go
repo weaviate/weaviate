@@ -428,29 +428,14 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 			continue
 		}
 
-		var err error
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			err = idx.LoadLocalShard(ctx, shardName, false)
-			ec.AddWrapf(err, "add missing tenant shard %s during update index", shardName)
+			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false),
+				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			err = idx.UnloadLocalShard(ctx, shardName)
-			ec.AddWrapf(err, "shutdown tenant shard %s during update index", shardName)
-		}
-
-		// a shut index or a dead context fails every tenant that is left, so
-		// carrying on only compounds the same error once per tenant
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			// a tenant already in the wanted state returns nil, so without this the
-			// break reports success while the remaining tenants went unreconciled
-			if !errors.Is(err, ctxErr) {
-				ec.AddWrapf(ctxErr, "reconcile tenants of index %s", idx.ID())
-			}
-			break
-		}
-		if errors.Is(err, errAlreadyShutdown) {
-			break
+			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
+				"shutdown tenant shard %s during update index", shardName)
 		}
 	}
 	return ec.ToErrorLimited(maxReportedErrors)
