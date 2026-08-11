@@ -22,9 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -244,4 +246,46 @@ func TestExecutor(t *testing.T) {
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateShardStatus(req))
 	})
+}
+
+// TestReloadLocalDBSkipsClassDeletedMidReload pins that a class deleted while a
+// reload is in flight does not fail the reload.
+//
+// ReloadLocalDB works from a snapshot taken when it started. A class deleted
+// after that is still in the snapshot but gone from the schema, so rebuilding
+// its index fails on the sharding state it no longer has. Counting that as a
+// failed reload makes an ordinary delete look like data loss, and the caller
+// reports the node's DB as incomplete on the strength of it.
+func TestReloadLocalDBSkipsClassDeletedMidReload(t *testing.T) {
+	ctx := context.Background()
+
+	cls := &models.Class{Class: "Gone", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	state := &sharding.State{Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+	req := []api.UpdateClassRequest{{Class: cls, State: state}}
+
+	tests := []struct {
+		name    string
+		exists  bool
+		wantErr bool
+	}{
+		{name: "still in the schema", exists: true, wantErr: true},
+		{name: "deleted mid-reload", exists: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ClassInfo", "Gone").Return(clusterSchema.ClassInfo{Exists: test.exists})
+
+			migrator := &fakeMigrator{}
+			migrator.On("UpdateIndex", cls, state).Return(ErrAny)
+
+			err := newMockExecutor(migrator, store).ReloadLocalDB(ctx, req)
+			if test.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }
