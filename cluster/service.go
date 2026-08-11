@@ -181,7 +181,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
 		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
+			return fmt.Errorf("could not join raft join list: %w. This node has stored state and could not reach a leader to rejoin: check that the peers in RAFT_JOIN are reachable and that a quorum is available. Local shard loading no longer blocks this step, so raising RAFT_BOOTSTRAP_TIMEOUT only helps if cluster formation itself is slow", err)
 		}
 	} else {
 		bs := bootstrap.NewBootstrapper(

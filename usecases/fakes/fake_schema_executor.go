@@ -22,6 +22,7 @@ import (
 
 type MockSchemaExecutor struct {
 	mock.Mock
+	ReloadLocalDBErr error
 }
 
 func NewMockSchemaExecutor() *MockSchemaExecutor {
@@ -72,11 +73,11 @@ func (m *MockSchemaExecutor) UpdateIndex(req cmd.UpdateClassRequest) error {
 }
 
 func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []cmd.UpdateClassRequest) error {
-	return nil
+	return m.ReloadLocalDBErr
 }
 
 func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {
-	args := m.Called(name)
+	args := m.Called(name, hasFrozen)
 	return args.Error(0)
 }
 

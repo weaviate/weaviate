@@ -45,7 +45,7 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("AddClass", Anything).Return(nil)
 	m.indexer.On("RestoreClassDir", Anything).Return(nil)
 	m.indexer.On("UpdateClass", Anything).Return(nil)
-	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.indexer.On("DeleteClass", Anything, Anything).Return(nil)
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
@@ -462,7 +462,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	// Relax expectations for lifecycle-invoked methods with correct signatures
 	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
 	m.indexer.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
-	m.indexer.On("DeleteClass", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -472,7 +472,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	// Relax expectations for lifecycle-invoked methods
 	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
 	m.indexer.On("UpdateClass", mock.Anything).Return(nil).Maybe()
-	m.indexer.On("DeleteClass", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 

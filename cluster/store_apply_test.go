@@ -147,7 +147,7 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 			name:    "DeleteClass command",
 			cmdType: api.ApplyRequest_TYPE_DELETE_CLASS,
 			setupMocks: func(ms MockStore) {
-				ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				ms.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 			},
@@ -261,7 +261,8 @@ func TestStore_Apply_CatchingUp(t *testing.T) {
 func TestStore_Apply_ReloadDB(t *testing.T) {
 	// runFirstApplyTriggeringReload: shared phase-1 setup. Seeds the store
 	// with lastAppliedIndexToDB=100, then applies at index 150 to trigger
-	// the DB-reload path (which resets lastAppliedIndexToDB to 0).
+	// the DB-reload path. That path leaves lastAppliedIndexToDB alone: the
+	// index bookkeeping belongs to Restore, which runs before raft exists.
 	runFirstApplyTriggeringReload := func(t *testing.T) (MockStore, *raft.Log) {
 		t.Helper()
 		ms, log := setupApplyTest(t)
@@ -276,8 +277,8 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
-		// lastAppliedIndexToDB must be reset to 0 once the reload runs.
-		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		// Untouched by the Apply path; only Restore recomputes it.
+		assert.Equal(t, uint64(100), ms.store.lastAppliedIndexToDB.Load())
 		return ms, log
 	}
 
@@ -327,8 +328,8 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
 
-		// Verify lastAppliedIndexToDB is still 0
-		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		// Still untouched: the Apply path never recomputes it.
+		assert.Equal(t, uint64(100), ms.store.lastAppliedIndexToDB.Load())
 
 		// Verify all mock expectations
 		ms.parser.AssertExpectations(t)
@@ -550,7 +551,7 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 
 	ms.indexer.On("Open", mock.Anything).Return(nil)
 	ms.indexer.On("AddClass", mock.Anything).Return(nil)
-	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
 	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
 	// Optional: skipped on schemaOnly catchup-replay (updateStore branch).
