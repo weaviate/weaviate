@@ -141,6 +141,30 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	require.Equal(t, float32(0), idx.Progress)
 }
 
+// The same observable state under a status this build cannot name reads
+// "indexing", not "pending": "pending" claims no shard has begun, which
+// the unit states do not prove for a phase we cannot interpret.
+func TestMergeReindexStatus_UnknownStatusNoProgress_ShowsIndexing(t *testing.T) {
+	task := buildTask(t, "C:enable-filterable:foo:abcd",
+		unknownFutureStatus,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"unit1": {ID: "unit1", Status: distributedtask.UnitStatusPending, Progress: 0},
+			"unit2": {ID: "unit2", Status: distributedtask.UnitStatusPending, Progress: 0},
+		},
+	)
+
+	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+
+	require.Equal(t, "indexing", idx.Status)
+	require.Equal(t, float32(0), idx.Progress)
+}
+
 // Edge case 2: Orphaned / crashed STARTED task. The RAFT FSM still records
 // the task as STARTED but the Scheduler isn't actually executing it (e.g.
 // server restarted between FSM apply and the Scheduler pickup). Units are
@@ -399,47 +423,57 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	now := time.Now()
 
-	failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
-		},
-	)
-	failedAttempt.StartedAt = now.Add(-2 * time.Hour)
-
-	startedRetry := buildTask(t, "C:enable-filterable:foo:0002",
+	// The live task's status: STARTED, and one this build cannot name —
+	// a task we cannot prove is done must not read as 'ready' either.
+	for _, liveStatus := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
-		},
-	)
-	startedRetry.StartedAt = now
-
-	for _, order := range []struct {
-		name  string
-		tasks []*distributedtask.Task
-	}{
-		{"failed-first", []*distributedtask.Task{failedAttempt, startedRetry}},
-		{"started-first", []*distributedtask.Task{startedRetry, failedAttempt}},
+		unknownFutureStatus,
 	} {
-		t.Run(order.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+		t.Run(string(liveStatus), func(t *testing.T) {
+			failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
+				distributedtask.TaskStatusFailed,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				},
+				map[string]*distributedtask.Unit{
+					"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
+				},
+			)
+			failedAttempt.StartedAt = now.Add(-2 * time.Hour)
 
-			require.Equal(t, "indexing", idx.Status,
-				"STARTED retry must beat older FAILED attempt regardless of slice order")
-			require.InDelta(t, 0.1, idx.Progress, 0.0001)
+			liveRetry := buildTask(t, "C:enable-filterable:foo:0002",
+				liveStatus,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				},
+				map[string]*distributedtask.Unit{
+					"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
+				},
+			)
+			liveRetry.StartedAt = now
+
+			for _, order := range []struct {
+				name  string
+				tasks []*distributedtask.Task
+			}{
+				{"failed-first", []*distributedtask.Task{failedAttempt, liveRetry}},
+				{"live-first", []*distributedtask.Task{liveRetry, failedAttempt}},
+			} {
+				t.Run(order.name, func(t *testing.T) {
+					idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+					mergeReindexStatus(idx, "C", "foo", "filterable", false,
+						parseReindexTasks(order.tasks), time.Hour, nil)
+
+					require.Equal(t, "indexing", idx.Status,
+						"the live retry must beat the older FAILED attempt regardless of slice order")
+					require.InDelta(t, 0.1, idx.Progress, 0.0001,
+						"the stale attempt's progress must not be surfaced")
+				})
+			}
 		})
 	}
 }
@@ -729,6 +763,10 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}{
 		{"PREPARING", distributedtask.TaskStatusPreparing},
 		{"SWAPPING", distributedtask.TaskStatusSwapping},
+		// A status this build cannot name lands in the same place, and
+		// must paint the same side-effect field: dropping it would blank
+		// the UI's tokenization preview mid-migration.
+		{"UNKNOWN", unknownFutureStatus},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			task := buildTask(t, "C:change-tokenization:foo:"+tt.name,
@@ -789,71 +827,17 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 }
 
 // unknownFutureStatus simulates a status a newer node introduced that
-// this build doesn't recognize. Must never become a real status name.
-const unknownFutureStatus distributedtask.TaskStatus = "VERIFYING"
+// this build doesn't recognize. Must never become a real status name —
+// every real status is a capitalised present participle, so this one is
+// deliberately not.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
-// Pins: an unrecognized status reads as in-flight and outranks a stale
-// FAILED attempt, regardless of task order.
-func TestMergeReindexStatus_UnknownStatusOutranksStaleFailure(t *testing.T) {
-	now := time.Now()
-
-	staleFailure := buildTask(t, "C:enable-filterable:foo:0001",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.1, Error: "disk full"},
-		},
-	)
-	staleFailure.StartedAt = now.Add(-2 * time.Hour)
-
-	live := buildTask(t, "C:enable-filterable:foo:0002",
-		unknownFutureStatus,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
-		},
-	)
-	live.StartedAt = now
-
-	t.Run("alone", func(t *testing.T) {
-		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(live), time.Hour, nil)
-
-		require.Equal(t, "indexing", idx.Status,
-			"a task this build cannot prove is done must not read as 'ready'")
-		require.InDelta(t, 0.9, idx.Progress, 0.0001)
-	})
-
-	for _, order := range []struct {
-		name  string
-		tasks []*distributedtask.Task
-	}{
-		{"failed-first", []*distributedtask.Task{staleFailure, live}},
-		{"unknown-first", []*distributedtask.Task{live, staleFailure}},
-	} {
-		t.Run(order.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
-
-			require.Equal(t, "indexing", idx.Status,
-				"the live task must beat the older FAILED attempt regardless of slice order")
-			require.InDelta(t, 0.9, idx.Progress, 0.0001,
-				"the stale attempt's progress must not be surfaced")
-		})
-	}
-}
-
-// Pins: findCancelTarget accepts every non-terminal status.
-func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
+// Pins the cancel contract findCancelTarget mirrors from
+// [distributedtask.Manager.CancelTask]: cancel stays open for STARTED and
+// for a status this build cannot name (the guards block on both and name
+// cancel as the remedy), and is closed for the coordination phases, where
+// some nodes may already have swapped their buckets.
+func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
 		Collection:    "C",
@@ -862,25 +846,25 @@ func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 
 	for _, tc := range []struct {
 		status distributedtask.TaskStatus
-		want   bool
+		want   cancelTargetState
 	}{
-		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
-		{unknownFutureStatus, true},
-		{distributedtask.TaskStatusFinished, false},
-		{distributedtask.TaskStatusFailed, false},
-		{distributedtask.TaskStatusCancelled, false},
+		{distributedtask.TaskStatusStarted, cancelTargetCancellable},
+		{unknownFutureStatus, cancelTargetCancellable},
+		{distributedtask.TaskStatusPreparing, cancelTargetCoordinating},
+		{distributedtask.TaskStatusSwapping, cancelTargetCoordinating},
+		{distributedtask.TaskStatusFinished, cancelTargetNone},
+		{distributedtask.TaskStatusFailed, cancelTargetNone},
+		{distributedtask.TaskStatusCancelled, cancelTargetNone},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			task := buildTask(t, "T1", tc.status, payload, nil)
 
-			target, gotPayload, found := findCancelTarget(
+			target, gotPayload, state := findCancelTarget(
 				[]*distributedtask.Task{task}, "C", "foo", "filterable")
 
-			require.Equal(t, tc.want, found,
-				"%q must be a cancel target: %v", tc.status, tc.want)
-			if !tc.want {
+			require.Equal(t, tc.want, state,
+				"%q must resolve to state %v", tc.status, tc.want)
+			if tc.want == cancelTargetNone {
 				return
 			}
 			require.Equal(t, "T1", target.ID)
@@ -889,9 +873,32 @@ func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// Pins: every REST-tier in-flight gate (cap counter, PUT rejection,
-// backup gate, orphan audit) agrees on an unrecognized status.
-func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
+// Pins: a whole-collection task (empty Properties) is a cancel target for
+// every property on the collection. Every guard blocks on such a task via
+// ReindexPropsOverlap, so a matcher that required a literal property name
+// would leave the operator with a blocked collection and nothing to
+// cancel.
+func TestFindCancelTarget_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
+	task := buildTask(t, "T_all", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+		}, nil)
+
+	target, _, state := findCancelTarget(
+		[]*distributedtask.Task{task}, "C", "any-property", "filterable")
+
+	require.Equal(t, cancelTargetCancellable, state)
+	require.Equal(t, "T_all", target.ID)
+}
+
+// The two lookups the backup gate and the startup orphan audit run on
+// were closures inside configureAPI before this change, unreachable from
+// any test. These pin both halves of each: the liveness rule (an
+// unrecognized status counts as in-flight) and the key identity — the
+// audit os.RemoveAll's the tracker dirs of anything the lookup calls
+// dead, so a key that collides across tasks or collections is destructive.
+func TestReindexLookups_LivenessRule(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
 		Collection:    "C",
@@ -901,20 +908,11 @@ func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
 
 	logger, _ := logrustest.NewNullLogger()
 
-	gates := []struct {
+	lookups := []struct {
 		name string
-		// inFlight reports whether the gate considers the task live.
+		// inFlight reports whether the lookup considers the task live.
 		inFlight func(task *distributedtask.Task) bool
 	}{
-		{"cap counter", func(task *distributedtask.Task) bool {
-			return countStartedTasksForCollection("C", []*distributedtask.Task{task}) == 1
-		}},
-		{"PUT rejection", func(task *distributedtask.Task) bool {
-			reason, err := checkReindexConflict("C", db.ReindexTypeChangeTokenization,
-				[]string{"foo"}, []*distributedtask.Task{task})
-			require.NoError(t, err)
-			return reason != ""
-		}},
 		{"backup gate", func(task *distributedtask.Task) bool {
 			return shardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
 		}},
@@ -931,20 +929,125 @@ func TestReindexRESTGates_TreatUnknownStatusAsInFlight(t *testing.T) {
 		{distributedtask.TaskStatusPreparing, true},
 		{distributedtask.TaskStatusSwapping, true},
 		{unknownFutureStatus, true},
-		{distributedtask.TaskStatus(""), true},
-		{distributedtask.TaskStatus("started"), true}, // wrong case is not STARTED
 		{distributedtask.TaskStatusFinished, false},
 		{distributedtask.TaskStatusFailed, false},
 		{distributedtask.TaskStatusCancelled, false},
 	}
 
-	for _, g := range gates {
+	for _, l := range lookups {
 		for _, s := range statuses {
-			t.Run(g.name+"/"+string(s.status), func(t *testing.T) {
+			t.Run(l.name+"/"+string(s.status), func(t *testing.T) {
 				task := buildTask(t, "T1", s.status, payload, nil)
-				require.Equal(t, s.inFlight, g.inFlight(task),
-					"%s must read %q as in-flight=%v", g.name, s.status, s.inFlight)
+				require.Equal(t, s.inFlight, l.inFlight(task),
+					"%s must read %q as in-flight=%v", l.name, s.status, s.inFlight)
 			})
 		}
+	}
+}
+
+// Pins liveReindexTrackerLookup's key. The audit reads (TaskID,
+// TaskVersion) off disk: a version-blind key makes the map last-write-wins
+// across two versions of one ID, which either deletes a live v2's trackers
+// or pins a dead v1's forever.
+func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+	withVersion := func(id string, version uint64, status distributedtask.TaskStatus) *distributedtask.Task {
+		task := buildTask(t, id, status, payload, nil)
+		task.Version = version
+		return task
+	}
+
+	for _, tc := range []struct {
+		name        string
+		tasks       []*distributedtask.Task
+		queryID     string
+		queryVer    uint64
+		wantInFted  bool
+		description string
+	}{
+		{
+			name:       "exact match is live",
+			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
+			queryID:    "T1",
+			queryVer:   1,
+			wantInFted: true,
+		},
+		{
+			name:       "version mismatch is not live",
+			tasks:      []*distributedtask.Task{withVersion("T1", 2, distributedtask.TaskStatusStarted)},
+			queryID:    "T1",
+			queryVer:   1,
+			wantInFted: false,
+		},
+		{
+			name:       "unknown ID is not live",
+			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
+			queryID:    "T2",
+			queryVer:   1,
+			wantInFted: false,
+		},
+		{
+			// Two versions of one ID must not overwrite each other: the
+			// dead v1 is queried while the live v2 is also present.
+			name: "two versions of one ID keep separate answers",
+			tasks: []*distributedtask.Task{
+				withVersion("T1", 1, distributedtask.TaskStatusFinished),
+				withVersion("T1", 2, distributedtask.TaskStatusStarted),
+			},
+			queryID:    "T1",
+			queryVer:   1,
+			wantInFted: false,
+		},
+		{
+			name: "two versions of one ID keep separate answers (live side)",
+			tasks: []*distributedtask.Task{
+				withVersion("T1", 1, distributedtask.TaskStatusFinished),
+				withVersion("T1", 2, distributedtask.TaskStatusStarted),
+			},
+			queryID:    "T1",
+			queryVer:   2,
+			wantInFted: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.wantInFted,
+				liveReindexTrackerLookup(tc.tasks)(tc.queryID, tc.queryVer))
+		})
+	}
+}
+
+// Pins shardReindexActivityLookup's key. A collection-blind key answers
+// "busy" for any collection that happens to share a shard name, and
+// "shard-1" is not an unusual shard name — the backup would be refused on
+// a collection nothing is migrating.
+func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+
+	task := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+			UnitToShard:   map[string]string{"u1": "shard-1"},
+		}, nil)
+
+	for _, tc := range []struct {
+		name       string
+		collection string
+		shard      string
+		want       bool
+	}{
+		{"migrating collection and shard", "C", "shard-1", true},
+		{"same shard name under another collection", "Other", "shard-1", false},
+		{"migrating collection, other shard", "C", "shard-2", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want,
+				shardReindexActivityLookup([]*distributedtask.Task{task}, logger)(tc.collection, tc.shard))
+		})
 	}
 }

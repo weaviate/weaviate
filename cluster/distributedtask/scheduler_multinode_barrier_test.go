@@ -1041,3 +1041,45 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	require.Equal(t, TaskStatusSwapping, restoredTasks[h.namespace][0].Status,
 		"after the restored Manager records node-3's prep-ack, the barrier must lift to SWAPPING — proving the restore preserved enough state for the FSM transition to fire correctly")
 }
+
+// TestBarrier_G9_CancelRefusedOnceANodeHasSwapped pins the cancel rule the
+// swap phase depends on. Node 0 runs its swap (on the real provider this
+// renames bucket directories); a cancel arriving before node 1 has ticked
+// must be refused, so both replicas still swap and the schema flip still
+// commits. Accepting it would leave node 0 serving migrated buckets while
+// the schema kept describing the pre-migration state, on every replica.
+func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newBarrierHarness(t, []string{"node-1", "node-2"})
+	defer h.close()
+
+	barrierAddTaskOneUnitPerNode(t, h, "T9")
+	barrierDriveToPreparing(t, h, "T9")
+	barrierDriveAllAcksAndAssertSwapping(t, h, "T9")
+
+	// Only node 0 swaps so far.
+	h.tick(0)
+	require.Equal(t, 1, h.nodes[0].provider.swapCallsBy["T9"],
+		"node-1 must have run its swap")
+	require.Equal(t, 0, h.nodes[1].provider.swapCallsBy["T9"],
+		"node-2 must not have ticked into its swap yet")
+
+	err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    "T9",
+		Version:               1,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	}))
+	require.Error(t, err, "cancel must be refused once the task is past its units")
+	require.Equal(t, TaskStatusSwapping, h.getTask(t, "T9").Status,
+		"the refused cancel must not change the task's status")
+
+	// The migration completes on both replicas.
+	h.tickAll()
+	h.tickAll()
+	require.Equal(t, 1, h.nodes[1].provider.swapCallsBy["T9"],
+		"node-2 must still run its swap after the refused cancel")
+	require.Equal(t, TaskStatusFinished, h.getTask(t, "T9").Status,
+		"both replicas swapped, so the task must finalize rather than stay stuck")
+}
