@@ -368,10 +368,9 @@ type shardSyncChan struct {
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
 
-	// lastAsyncError used for debugging when no metadata is created. Unlike the
-	// slot, it is written from operation goroutines without a lock or an
-	// ownership check, so an outlived operation can overwrite it. Nothing in
-	// production reads it.
+	// lastAsyncError is written from operation goroutines without a lock or
+	// ownership check, so an outlived operation can overwrite it. Debugging
+	// aid only; nothing in production reads it.
 	lastAsyncError error
 }
 
