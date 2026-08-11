@@ -447,7 +447,9 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 
 // RegisterDistributedTaskTerminalObserver installs a namespace's
 // [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
-// see that type for the apply-path contract.
+// see that type for the apply-path contract. Register before [Store.Open],
+// like collection extractors: endings applied with no observer registered
+// are not queued for later registrants and are missed.
 func (st *Store) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
 	st.distributedTasksManager.RegisterTerminalObserver(namespace, observer)
 }
