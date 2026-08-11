@@ -41,6 +41,10 @@ type ReindexCleanup struct {
 }
 
 func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+	if logger == nil {
+		// The handler logs on every path; fixtures build this without a logger.
+		logger = logrus.StandardLogger()
+	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
