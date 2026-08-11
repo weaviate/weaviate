@@ -66,9 +66,16 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		// property a newer node is still migrating.
 		{unknownFutureStatus, true},
 		{TaskStatus("started"), true}, // wrong case is not TaskStatusStarted
+		// The zero value: a task whose status field never got written.
+		// Unrecognized like any other, so it is read as in flight.
+		{TaskStatus(""), true},
 	}
 	for _, tc := range cases {
-		t.Run(string(tc.status), func(t *testing.T) {
+		name := string(tc.status)
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.active, tc.status.IsActive(),
 				"%q.IsActive() should be %v", tc.status, tc.active)
 		})
@@ -108,29 +115,22 @@ func TestTaskStatus_IsRecognized(t *testing.T) {
 // would silently regress that protection.
 func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 	cases := []struct {
-		status         TaskStatus
-		coordination   bool
-		shouldBeActive bool // sanity cross-check with IsActive
+		status       TaskStatus
+		coordination bool
 	}{
-		{TaskStatusStarted, false, true},
-		{TaskStatusPreparing, true, true},
-		{TaskStatusSwapping, true, true},
-		{TaskStatusFinished, false, false},
-		{TaskStatusFailed, false, false},
-		{TaskStatusCancelled, false, false},
-		{unknownFutureStatus, false, true},
-		{TaskStatus(""), false, true},
+		{TaskStatusStarted, false},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{TaskStatusFinished, false},
+		{TaskStatusFailed, false},
+		{TaskStatusCancelled, false},
+		{unknownFutureStatus, false},
+		{TaskStatus(""), false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			assert.Equal(t, tc.coordination, tc.status.IsCoordinationPhase(),
 				"%q.IsCoordinationPhase() should be %v", tc.status, tc.coordination)
-			// Cross-invariant: IsCoordinationPhase ⊂ IsActive, by design.
-			// An unrecognized status is active but not a coordination
-			// phase — IsActive makes a safety claim, IsCoordinationPhase
-			// a positive one.
-			assert.Equal(t, tc.shouldBeActive, tc.status.IsActive(),
-				"%q.IsActive() should be %v; predicates have drifted", tc.status, tc.shouldBeActive)
 		})
 	}
 }
