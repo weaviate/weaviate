@@ -12,12 +12,15 @@
 package distributedtask
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/fortytw2/leaktest"
 	"github.com/jonboulle/clockwork"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -78,9 +81,12 @@ func (r *observerRecorder) first() *Task {
 }
 
 func TestManagerTerminalObserver(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	t.Run("a registered observer sees the cancelled task", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
+		defer leaktest.Check(t)()
+		defer h.Close()
 
 		var rec observerRecorder
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
@@ -108,7 +114,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// own replay flag; nothing about the task itself distinguishes the two.
 	t.Run("an ending replayed from the RAFT log is skipped", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
+		defer leaktest.Check(t)()
+		defer h.Close()
 
 		var rec observerRecorder
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
@@ -125,7 +132,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// just as done as one that was cancelled.
 	t.Run("a unit failure fires the observer too", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
+		defer leaktest.Check(t)()
+		defer h.Close()
 
 		var rec observerRecorder
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
@@ -151,7 +159,8 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// nothing failing — the cancels simply stop being signalled.
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer h.manager.Close()
+		defer leaktest.Check(t)()
+		defer h.Close()
 
 		var rec observerRecorder
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
@@ -164,6 +173,133 @@ func TestManagerTerminalObserver(t *testing.T) {
 			5*time.Second, 5*time.Millisecond,
 			"a nil re-registration must be dropped, not stored over the live observer")
 	})
+
+	// A task restored from a peer's snapshot with an already-FAILED unit fails
+	// closed when its last unit lands. That ending is permanent and no other
+	// apply on this node will ever announce it, so it has to be signalled here.
+	t.Run("a task that fails closed on restore fires the observer", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		defer leaktest.Check(t)()
+		defer h.Close()
+
+		var rec observerRecorder
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		// AddTask cannot reach a STARTED task with a FAILED unit — the failure
+		// path fails the task itself. Restore is the only way in.
+		snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+			observerNamespace: {{
+				Namespace:      observerNamespace,
+				TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
+				Status:         TaskStatusStarted,
+				Units: map[string]*Unit{
+					"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom"},
+					"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+		require.NoError(t, h.manager.Restore(snap))
+
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            observerNamespace,
+			Id:                   observerTaskID,
+			Version:              observerVersion,
+			NodeId:               "node-2",
+			UnitId:               "su-pending",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+
+		require.Eventually(t, func() bool { return rec.count() == 1 },
+			5*time.Second, 5*time.Millisecond,
+			"the fail-closed restore path must signal its ending like every other terminal transition")
+
+		observed := rec.first()
+		require.Equal(t, TaskStatusFailed, observed.Status)
+		require.Equal(t, h.clock.Now().UnixMilli(), observed.FinishedAt.UnixMilli(),
+			"the observer's copy must carry the stamp written by the same apply")
+	})
+}
+
+// The observer is handed a clone because the FSM keeps mutating its own copy
+// after the dispatch. Handing over the live task instead breaks nothing that
+// any other test looks at, so pin it here: whatever an observer does to what it
+// was given must not reach FSM state.
+func TestTerminalObserverCannotMutateFSMState(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	defer h.Close()
+
+	scribbled := make(chan struct{})
+	h.manager.RegisterTerminalObserver(observerNamespace, func(task *Task) {
+		task.Status = TaskStatusFinished
+		task.Error = "scribbled by the observer"
+		for _, u := range task.Units {
+			u.Status = UnitStatusFailed
+		}
+		close(scribbled)
+	})
+
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+
+	select {
+	case <-scribbled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the observer never ran")
+	}
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks[observerNamespace], 1)
+
+	stored := tasks[observerNamespace][0]
+	require.Equal(t, TaskStatusCancelled, stored.Status,
+		"the observer must have written to a copy, not to the task the FSM keeps")
+	require.Empty(t, stored.Error)
+	require.Equal(t, UnitStatusPending, stored.Units["su-1"].Status,
+		"Units is deep-copied too, so a scribble on a unit must not land either")
+}
+
+// Without the single-drainer guard every registration starts another drainer,
+// and two namespaces registering is the normal case. One drainer is what makes
+// the bounded overflow arm the only concurrency in this path: a wedged observer
+// has to stall the queue rather than have a second drainer walk past it.
+func TestTerminalDispatchRunsOnOneDrainer(t *testing.T) {
+	defer leaktest.Check(t)()
+	m := newTerminalDispatchManager()
+	defer m.Close()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	m.RegisterTerminalObserver("wedged-namespace", func(*Task) {
+		close(entered)
+		<-release
+	})
+
+	var rec observerRecorder
+	m.RegisterTerminalObserver("second-namespace", rec.record)
+
+	dispatchOne := func(namespace string) {
+		task := terminalDispatchTask(m)
+		task.Namespace = namespace
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.dispatchTerminalWithLock(task, false)
+	}
+
+	dispatchOne("wedged-namespace")
+	<-entered
+	dispatchOne("second-namespace")
+
+	require.Never(t, func() bool { return rec.count() > 0 },
+		300*time.Millisecond, 10*time.Millisecond,
+		"a second registration must not bring up a second drainer; one wedged observer stalls the queue")
+
+	close(release)
+	require.Eventually(t, func() bool { return rec.count() == 1 },
+		5*time.Second, 5*time.Millisecond,
+		"the queued event must be delivered once the wedged observer returns")
 }
 
 // Close has to stop two separate things, and each half is pinned on its own:
@@ -171,7 +307,9 @@ func TestManagerTerminalObserver(t *testing.T) {
 // provider reachable after the node tore its dependencies down, and the apply
 // path's handover, which otherwise keeps feeding that goroutine.
 func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
+	defer leaktest.Check(t)()
 	h := newTestHarness(t).init(t)
+	defer h.Close()
 
 	var rec observerRecorder
 	h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
@@ -233,6 +371,7 @@ func fillDispatchQueue(m *Manager, task *Task, n int) {
 // every one of those goroutines parks on the same wedge for the lifetime of the
 // process. Past the bound the events have to be dropped instead.
 func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
+	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
 	defer m.Close()
 
@@ -280,6 +419,7 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 // joined by it, so its own stop-signal check is the only thing between a
 // shutdown and an observer call into a torn-down node.
 func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
+	defer leaktest.Check(t)()
 	m := newTerminalDispatchManager()
 
 	var rec observerRecorder
@@ -312,6 +452,7 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 // own. So one drainer cannot tell a working recheck from a missing one. Many
 // independent drainers can: a missing recheck has to win every coin flip.
 func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
+	defer leaktest.Check(t)()
 	const drainers = 32
 
 	var rec observerRecorder
@@ -359,11 +500,10 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 // under queue overflow and nowhere else, which is the worst possible place for
 // it to be the only uncontained path.
 func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
-	h := newTestHarness(t)
-	logger, hook := logrustest.NewNullLogger()
-	h.logger = logger
-	h.init(t)
-	defer h.manager.Close()
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	defer h.Close()
+	hook := h.loggerHook
 
 	release := make(chan struct{})
 	var panics atomic.Int64

@@ -305,6 +305,11 @@ func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalOb
 // Close stops the terminal-observer drainer. Idempotent. Anything still queued is
 // dropped: the signal observers raise is only ever read by another node in the
 // same cluster, and on the way down there is no longer anyone to read it.
+//
+// Does not wait for the observer call already running: the drainer looks its
+// observer up under the same lock Close holds, so joining it here would
+// deadlock. A namespace can therefore still be called into for a moment after
+// Close returns and must tolerate that.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -404,6 +409,14 @@ func (m *Manager) runTerminalObserver(task *Task) {
 // Keyed on the flag rather than transition age, so it's immune to clock skew
 // between nodes. The flag is node-local and only ever decides this side effect,
 // never FSM state, so it cannot make two nodes diverge.
+//
+// It covers exactly one case: entries already in this node's local log store at
+// Open (catchingUp is index <= lastAppliedIndexToDB, which Open seeds from the
+// local last index). Endings the node missed while it was down are replicated
+// by the leader afterwards, at a higher index, so they fire like live ones.
+// Closing that gap needs the observer to be told how old an ending is, which
+// FinishedAt cannot say (see its godoc); observers are required to be
+// idempotent instead.
 //
 // Observers run off the apply path, never inline: they take their own locks
 // (also taken by HTTP handlers and admission paths), and a RAFT apply blocking
@@ -650,6 +663,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
+		failedClosed := false
 		if task.AnyUnitFailed() {
 			// Fail-closed: AnyUnitFailed only trips here via a restored
 			// snapshot (see its godoc), never this node's own apply path.
@@ -668,6 +682,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 				}
 				task.Error = fmt.Sprintf("%s: unit %s failed: %s", task.Error, unitID, unitErr)
 			}
+			failedClosed = true
 		} else if task.NeedsPreparationBarrier {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
 			task.Status = TaskStatusPreparing
@@ -677,6 +692,13 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
 		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
 		task.FinishedAt = finishedAt
+
+		// Dispatch after FinishedAt is stamped so the observer's copy carries
+		// it. This ending is permanent and nothing else on this node will ever
+		// announce it, so a peer waiting on the task has to hear it here.
+		if failedClosed {
+			m.dispatchTerminalWithLock(task, catchingUp)
+		}
 	}
 
 	// Notify on every unit completion — even when not the last one — so

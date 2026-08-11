@@ -48,12 +48,18 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // for the scheduler tick.
 //
 // Runs on the Manager's drainer goroutine, not the RAFT-apply path, so it may
-// take locks and do work; it gets a clone of the task and must not mutate
-// RAFT-replicated state. Guarantees it does NOT have: it may run after the
-// scheduler has already acted, two events may run concurrently under queue
-// overflow, and past [terminalDispatchOverflowLimit] an event is dropped rather
-// than delivered — see [Manager.dispatchTerminalWithLock]. Endings replayed
-// from the RAFT log at startup are skipped.
+// take locks and do work. It gets a [Task.Clone], which is safe to read while
+// later applies mutate the FSM's copy, but Payload still shares its backing
+// array with that copy — writing into it corrupts RAFT-replicated state.
+// Guarantees it does NOT have: it may run after the scheduler has already
+// acted, two events may run concurrently under queue overflow, and past
+// [terminalDispatchOverflowLimit] an event is dropped rather than delivered —
+// see [Manager.dispatchTerminalWithLock].
+//
+// Endings already in this node's local RAFT log at startup are skipped, but
+// endings the node missed while it was down arrive as fresh replication
+// afterwards and DO fire, even though they happened long ago. Observers must
+// therefore be idempotent and must not assume the ending is recent.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -541,11 +547,13 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time the task's UNITS stopped working — despite the
-	// name, NOT the time it reached a terminal status. It is stamped when
-	// AllUnitsTerminal lands, while the status becomes PREPARING or SWAPPING
-	// and the bucket swap/rename still lie ahead, so a task can sit in
-	// SWAPPING for minutes with a FinishedAt already in the past.
+	// FinishedAt is the time the task's UNITS stopped working, which despite
+	// the name is not always the time it reached a terminal status. It does
+	// coincide for CANCELLED (stamped from the cancel request) and for the
+	// FAILED a unit error produces. It does not for the route through
+	// PREPARING/SWAPPING: it is stamped when AllUnitsTerminal lands, with the
+	// bucket swap/rename still ahead, so a task can sit in SWAPPING for
+	// minutes with a FinishedAt already in the past.
 	//
 	// Known wrong, and worked around rather than fixed: TTL cleanup skips
 	// non-terminal statuses, and terminal-observer dispatch keys the
@@ -606,6 +614,11 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// Clone deep-copies the maps a later apply can mutate (Units and both ack
+// maps), so the copy is safe to read while the FSM keeps writing the original.
+// Payload is NOT copied: the clone's slice shares the original's backing array,
+// and writing into it corrupts RAFT-replicated state. Payload is treated as
+// immutable everywhere, which is what makes the shared array cheap and safe.
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {
