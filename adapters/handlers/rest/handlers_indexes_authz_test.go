@@ -112,23 +112,40 @@ func (f *authzSubmitFixture) requireNothingBehindTheCheckRan(t *testing.T) {
 func TestUpdateIndexAuthorization(t *testing.T) {
 	principal := &models.Principal{Username: "u1"}
 
-	t.Run("an unauthorized caller is refused before anything behind the check runs", func(t *testing.T) {
-		forbidden := authzerrors.NewForbidden(principal, authorization.UPDATE,
-			authorization.Collections("Movies")...)
-		f := newAuthzSubmitFixture(t, forbidden)
+	// Both real authorizers wrap the denial (rbac prefixes "rbac:", adminlist
+	// prefixes "adminlist:"), so a bare denial alone would keep this arm green
+	// while every production refusal came back as a 500.
+	denials := []struct {
+		name string
+		err  func() error
+	}{
+		{"a bare denial", func() error {
+			return authzerrors.NewForbidden(principal, authorization.UPDATE,
+				authorization.Collections("Movies")...)
+		}},
+		{"a denial wrapped the way the real authorizers wrap it", func() error {
+			return forbidden(principal, authorization.UPDATE, authorization.Collections("Movies")[0])
+		}},
+	}
 
-		responder := submitReindex(f.handlers)
+	for _, denial := range denials {
+		t.Run("an unauthorized caller is refused before anything behind the check runs: "+denial.name, func(t *testing.T) {
+			denied := denial.err()
+			f := newAuthzSubmitFixture(t, denied)
 
-		// Asserted before the status code on purpose. A refusal handed back
-		// after the work already happened carries the same 403, so checking
-		// the code first would let that regression abort the test here and
-		// never reach the assertions that would have caught it.
-		f.requireNothingBehindTheCheckRan(t)
+			responder := submitReindex(f.handlers)
 
-		refused, ok := responder.(*schema.SchemaObjectsIndexesUpdateForbidden)
-		require.Truef(t, ok, "a caller without update_collections must be refused with 403, got %T", responder)
-		require.Equal(t, forbidden.Error(), errorMessage(t, refused.Payload))
-	})
+			// Asserted before the status code on purpose. A refusal handed back
+			// after the work already happened carries the same 403, so checking
+			// the code first would let that regression abort the test here and
+			// never reach the assertions that would have caught it.
+			f.requireNothingBehindTheCheckRan(t)
+
+			refused, ok := responder.(*schema.SchemaObjectsIndexesUpdateForbidden)
+			require.Truef(t, ok, "a caller without update_collections must be refused with 403, got %T", responder)
+			require.Equal(t, denied.Error(), errorMessage(t, refused.Payload))
+		})
+	}
 
 	// A check that fails for a reason other than "denied" must not be read as a
 	// grant, and must stop the handler in the same place.

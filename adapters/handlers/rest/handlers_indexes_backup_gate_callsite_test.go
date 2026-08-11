@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,11 +22,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-// fixedActivityProber answers the backup activity probe from a static map.
-type fixedActivityProber map[string]backup.NodeActivity
+// fixedActivityProber answers the backup activity probe from a static map, and
+// counts the asks: an outcome alone cannot tell a gate that ran and cleared
+// from a gate that was never consulted.
+type fixedActivityProber struct {
+	activity map[string]backup.NodeActivity
 
-func (p fixedActivityProber) NodeActivity(_ context.Context, nodeName string) (backup.NodeActivity, error) {
-	return p[nodeName], nil
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *fixedActivityProber) NodeActivity(_ context.Context, nodeName string) (backup.NodeActivity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return p.activity[nodeName], nil
+}
+
+func (p *fixedActivityProber) probes() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
 }
 
 // fixedMembership is the node list the gate fans out over.
@@ -67,8 +84,8 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 func TestUpdateIndexWithoutClusterMembershipSkipsTheBackupGate(t *testing.T) {
 	svc := &raceTaskService{}
 	// Would refuse the submission if it were ever asked.
-	prober := fixedActivityProber{fixtureNode: backup.NodeActivity{
-		Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1",
+	prober := &fixedActivityProber{activity: map[string]backup.NodeActivity{
+		fixtureNode: {Busy: true, Kind: backup.NodeActivityKindBackup, ID: "backup-1"},
 	}}
 	h := submissionHandlers(t, svc, prober)
 	h.cluster = nil
@@ -78,4 +95,7 @@ func TestUpdateIndexWithoutClusterMembershipSkipsTheBackupGate(t *testing.T) {
 	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
 	require.Truef(t, ok, "with no membership there is nothing to probe; expected the submission to proceed, got %T", responder)
 	require.Equal(t, 1, svc.adds)
+	require.Zero(t, prober.probes(),
+		"this prober would have refused; the submission being admitted only proves the gate "+
+			"skipped it if nobody was asked")
 }

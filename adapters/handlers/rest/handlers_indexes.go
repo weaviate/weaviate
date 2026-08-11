@@ -73,7 +73,36 @@ func newIndexesHandlers(appState *state.State) *indexesHandlers {
 	if appState.BackupActivity != nil {
 		h.localBackupActivity = appState.BackupActivity
 	}
+	h.reportUnwiredGates()
 	return h
+}
+
+// reportUnwiredGates names every collaborator whose absence turns a gate off
+// rather than closing it. All three are nil only in fixtures, so on a node that
+// has a cluster service this is a wiring regression, and the gates it disables
+// go on passing their own tests while no longer running.
+func (h *indexesHandlers) reportUnwiredGates() {
+	if h.appState == nil || h.appState.ClusterService == nil || h.appState.Logger == nil {
+		return
+	}
+	unwired := []string{}
+	if h.backupActivity == nil {
+		unwired = append(unwired, "backupActivity (no peer is asked whether it holds a backup slot)")
+	}
+	if h.localBackupActivity == nil {
+		unwired = append(unwired, "localBackupActivity (this node's own slots are never read)")
+	}
+	if h.cluster == nil {
+		unwired = append(unwired, "cluster (there is no node list to fan the backup probe out over)")
+	}
+	if len(unwired) == 0 {
+		return
+	}
+	h.appState.Logger.WithField("action", "reindex_backup_gate").
+		WithField("unwired", unwired).
+		Errorf("reindex handlers: %d gate collaborators are missing on a node that has a cluster service, "+
+			"so those gates are disabled and reindex submissions run unchecked against backups; "+
+			"check the wiring in configure_api.go", len(unwired))
 }
 
 type indexesHandlers struct {
@@ -89,31 +118,43 @@ type indexesHandlers struct {
 	// nil in fixtures without a cluster; treated the same as an unwired probe.
 	cluster clusterMembership
 
-	// nil until wired; both reindex routes answer 503 then.
+	// nil until wired; the two PUT paths (submit and cancel) answer 503 then.
+	// The GET status route still answers 200, with no reindex task data in it.
 	tasks reindexTaskService
 
 	// nil in fixtures without a cluster HTTP client; the cancel handler then
 	// answers without confirming remote gates.
 	reindexCleanup reindexCleanupProber
 
-	// Per-handler, not per-process: a package-level budget would leave every
-	// test after the first exhausted.
-	gateWarnOnce    sync.Once
-	gateWarnSampler *logrusext.Sampler
+	// One budget per fail-open gate, so the gate that fires first cannot hide
+	// the other for the whole hour. Per-handler, not per-process: a
+	// package-level budget would leave every test after the first exhausted.
+	providerGateWarn gateWarnBudget
+	probeGateWarn    gateWarnBudget
 }
 
-// backupActivityGateWarn rate-limits the fail-open WARN to one line per hour,
+// gateWarnBudget rate-limits one fail-open gate's WARN to a line per hour,
 // since the condition it reports is a persistent misconfiguration, not a
 // one-off. Built lazily since fixtures construct the handler directly.
-func (h *indexesHandlers) backupActivityGateWarn() *logrusext.Sampler {
-	h.gateWarnOnce.Do(func() {
-		logger := logrus.FieldLogger(logrus.StandardLogger())
-		if h.appState != nil && h.appState.Logger != nil {
-			logger = h.appState.Logger
-		}
-		h.gateWarnSampler = logrusext.NewSampler(logger, 1, time.Hour)
+type gateWarnBudget struct {
+	once    sync.Once
+	sampler *logrusext.Sampler
+}
+
+func (b *gateWarnBudget) sample(logger logrus.FieldLogger) *logrusext.Sampler {
+	b.once.Do(func() {
+		b.sampler = logrusext.NewSampler(logger, 1, time.Hour)
 	})
-	return h.gateWarnSampler
+	return b.sampler
+}
+
+// gateWarnLogger is where a fail-open gate's WARN goes, falling back to the
+// standard logger for fixtures built without an appState.
+func (h *indexesHandlers) gateWarnLogger() logrus.FieldLogger {
+	if h.appState != nil && h.appState.Logger != nil {
+		return h.appState.Logger
+	}
+	return logrus.StandardLogger()
 }
 
 // clusterMembership is the slice of the cluster state the backup gate needs.
@@ -613,32 +654,40 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// godoc for the on-disk state race that motivated the rule.
 	if h.tasks != nil {
 		tasks, err := h.tasks.ListDistributedTasks(ctx)
-		if err == nil {
-			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
-			if checkErr != nil {
-				// An in-flight task has an unparseable payload — we cannot
-				// prove the new submit doesn't conflict with it, so refuse
-				// rather than race. Return 503 so the caller knows to retry
-				// after an operator inspects the in-flight task.
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
-			}
-			if reason != "" {
-				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
-			}
-			// Per-collection cap on concurrent STARTED reindex tasks. Without
-			// this a caller scripting `for p in $(properties); do PUT
-			// .../indexes/$p; done` against an N-property collection submits N
-			// independent RAFT tasks, each fanning out ingest+backup buckets
-			// on every replica. The LSM compaction layer and disk would not
-			// survive that. Reject with 429 once the cap is reached — the
-			// semantics ("retry later, you're over a concurrency limit") map
-			// exactly to RFC 6585's Too Many Requests, not to 503's "server
-			// is unavailable". Returning 503 here misled callers and
-			// monitoring into thinking the cluster was unhealthy rather than
-			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
-			}
+		if err != nil {
+			// Without the listing, neither the conflict check nor the cap can
+			// run, and the destructive sweep further down would then delete the
+			// on-disk state of a live task this node could not see. Same 503 as
+			// the unparseable-payload arm below, and for the same reason: a
+			// conflict that cannot be ruled out must be refused, not raced.
+			return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+				fmt.Sprintf("reindex blocked: cannot list in-flight reindex tasks, so a conflicting "+
+					"migration cannot be ruled out; retry once the cluster answers: %v", err)))
+		}
+		reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
+		if checkErr != nil {
+			// An in-flight task has an unparseable payload — we cannot
+			// prove the new submit doesn't conflict with it, so refuse
+			// rather than race. Return 503 so the caller knows to retry
+			// after an operator inspects the in-flight task.
+			return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
+		}
+		if reason != "" {
+			return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
+		}
+		// Per-collection cap on concurrent STARTED reindex tasks. Without
+		// this a caller scripting `for p in $(properties); do PUT
+		// .../indexes/$p; done` against an N-property collection submits N
+		// independent RAFT tasks, each fanning out ingest+backup buckets
+		// on every replica. The LSM compaction layer and disk would not
+		// survive that. Reject with 429 once the cap is reached — the
+		// semantics ("retry later, you're over a concurrency limit") map
+		// exactly to RFC 6585's Too Many Requests, not to 503's "server
+		// is unavailable". Returning 503 here misled callers and
+		// monitoring into thinking the cluster was unhealthy rather than
+		// rate-limiting them.
+		if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
+			return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
 		}
 	}
 
@@ -663,7 +712,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if provider := h.appState.ReindexProvider.Load(); provider != nil {
 			releaseSubmitGate = sync.OnceFunc(provider.MarkSubmitInProgress(collection))
 		} else {
-			h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+			h.providerGateWarn.sample(h.gateWarnLogger()).WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("action", "reindex_backup_gate").
 					WithField("collection", collection).
 					Warn("reindex provider is not wired; submitting without the submit gate, so a backup can " +
@@ -1177,7 +1226,7 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	if h.backupActivity == nil || len(nodes) == 0 {
-		h.backupActivityGateWarn().WithSampling(func(l logrus.FieldLogger) {
+		h.probeGateWarn.sample(h.gateWarnLogger()).WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("action", "reindex_backup_gate").
 				Warn("backup activity probe is not wired; allowing reindex submission without checking for running backups. " +
 					"Expected in test fixtures; if this appears in production, check the BackupActivity wiring in configure_api.go.")

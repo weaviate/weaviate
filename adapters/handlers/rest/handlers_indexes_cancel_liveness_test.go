@@ -43,22 +43,29 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 		name string
 		// tasks is the full DTM snapshot the cancel handler reads.
 		tasks []*distributedtask.Task
+		// gateBlocks is what the gates' own predicate says about these tasks'
+		// status. Asserted alongside the cancel outcome, since "cancel matches
+		// the set the gates block on" is a claim about both halves.
+		gateBlocks bool
 		// wantCancelled is the task ID cancel must send to DTM, empty for none.
 		wantCancelled string
 	}{
 		{
 			name:          "started",
 			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusStarted, collection)},
+			gateBlocks:    true,
 			wantCancelled: "t1",
 		},
 		{
 			name:          "preparing, payload decodes",
 			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusPreparing, collection)},
+			gateBlocks:    true,
 			wantCancelled: "t1",
 		},
 		{
 			name:          "swapping, payload decodes",
 			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusSwapping, collection)},
+			gateBlocks:    true,
 			wantCancelled: "t1",
 		},
 		{
@@ -66,6 +73,7 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			tasks: []*distributedtask.Task{
 				decodable("t1", distributedtask.TaskStatus("REBALANCING"), collection),
 			},
+			gateBlocks:    true,
 			wantCancelled: "t1",
 		},
 		{
@@ -73,26 +81,47 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			tasks: []*distributedtask.Task{
 				unreadableTask("t1", collection, distributedtask.TaskStatusPreparing),
 			},
+			gateBlocks:    true,
 			wantCancelled: "t1",
 		},
 		{
-			name:  "preparing on another collection",
-			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusPreparing, "Reviews")},
+			name:       "preparing on another collection",
+			tasks:      []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusPreparing, "Reviews")},
+			gateBlocks: true,
 		},
 		{
 			name: "preparing, unreadable, on another collection",
 			tasks: []*distributedtask.Task{
 				unreadableTask("t1", "Reviews", distributedtask.TaskStatusPreparing),
 			},
+			gateBlocks: true,
 		},
 		{
-			name:  "terminal task is nothing to cancel",
+			name:  "finished is nothing to cancel",
 			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFinished, collection)},
+		},
+		{
+			// The two statuses a task that was already stopped actually holds.
+			// Answering CANCELLED for them would tell an operator a second
+			// cancel did something.
+			name:  "failed is nothing to cancel",
+			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFailed, collection)},
+		},
+		{
+			name:  "cancelled is nothing to cancel",
+			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusCancelled, collection)},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			for _, task := range tc.tasks {
+				require.Equalf(t, tc.gateBlocks, db.IsLiveReindexTaskStatus(task.Status),
+					"the gates read %q as in-flight=%v; cancel below has to match the same set, "+
+						"or the remedy the refusal names does not reach the task holding it",
+					task.Status, tc.gateBlocks)
+			}
+
 			svc := &raceTaskService{tasks: tc.tasks}
 			h := cancelHandlers(t, svc)
 

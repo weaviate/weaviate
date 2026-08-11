@@ -54,12 +54,18 @@ type raceTaskService struct {
 	// cancelErr, when set, fails every cancel — the shape of a rollback that
 	// never lands.
 	cancelErr error
+	// listErr, when set, fails every listing — the shape of an unreachable
+	// RAFT leader.
+	listErr error
 }
 
 func (s *raceTaskService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lists++
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
 	out := make([]*distributedtask.Task, len(s.tasks))
 	copy(out, s.tasks)
 	return map[string][]*distributedtask.Task{db.ReindexNamespace: out}, nil

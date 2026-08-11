@@ -138,6 +138,14 @@ func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 			matched: finished(time.Now()),
 			flagOn:  true,
 		},
+		{
+			// Flag still off, but far outside the finalize window, so the
+			// "still swapping" override does not fire and the entry stays
+			// "ready" by a different route than the row above.
+			name:    "finished long ago with the schema flag still off",
+			matched: finished(time.Now().Add(-2 * time.Hour)),
+			flagOn:  false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -360,8 +368,14 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 		Collection:    "Movies",
 		Properties:    []string{"title"},
 	}
+	// Two units, one half done and one untouched, so the reported progress is
+	// the average rather than either unit's own number.
 	unknown := func(t *testing.T) *distributedtask.Task {
-		return buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), payload, nil)
+		return buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), payload,
+			map[string]*distributedtask.Unit{
+				"u1": {Status: distributedtask.UnitStatusInProgress, Progress: 0.5},
+				"u2": {Status: distributedtask.UnitStatusPending},
+			})
 	}
 	failed := func(t *testing.T) *distributedtask.Task {
 		return buildTask(t, "t-failed", distributedtask.TaskStatusFailed, payload,
@@ -372,6 +386,12 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 		name  string
 		tasks func(t *testing.T) []*distributedtask.Task
 	}{
+		{
+			name: "on its own",
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{unknown(t)}
+			},
+		},
 		{
 			name: "next to a terminal attempt on the same property",
 			tasks: func(t *testing.T) []*distributedtask.Task {
@@ -386,8 +406,11 @@ func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
 			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
 				tasksMap(tc.tasks(t)...), time.Hour, nil)
 
-			require.Equal(t, "indexing", idx.Status,
+			require.Equal(t, models.IndexStatusStatusIndexing, idx.Status,
 				"the task still holds this collection at the backup gate")
+			require.InDelta(t, 0.25, idx.Progress, 0.0001,
+				"the pill says indexing, so it has to carry the task's own aggregated progress; "+
+					"a zero here reads as work that has not started")
 		})
 	}
 }

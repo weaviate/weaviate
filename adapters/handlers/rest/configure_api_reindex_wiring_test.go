@@ -42,10 +42,14 @@ func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 	}
 	require.NotNil(t, makeAppState, "MakeAppState is where the gate lookups are wired")
 
-	// found holds the installs MakeAppState runs itself; deferred holds the
-	// ones that only run when some function literal is later scheduled.
-	found := map[string]bool{}
+	// found holds where MakeAppState runs each install itself; deferred holds
+	// the ones that only run when some function literal is later scheduled.
+	// bootstrapWait is the last goroutine MakeAppState launches — the one that
+	// blocks on RAFT replay — so an install after it is an install that has not
+	// happened yet while HTTP already serves.
+	found := map[string]token.Pos{}
 	deferred := map[string]bool{}
+	var bootstrapWait token.Pos
 	ast.Inspect(makeAppState.Body, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.FuncLit:
@@ -60,20 +64,28 @@ func TestCleanupLookupsAreInstalledBeforeTheBootstrapWait(t *testing.T) {
 				return true
 			})
 			return false
+		case *ast.CallExpr:
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "GoWrapper" && n.Pos() > bootstrapWait {
+				bootstrapWait = n.Pos()
+			}
 		case *ast.SelectorExpr:
 			for _, name := range installs {
 				if n.Sel.Name == name {
-					found[name] = true
+					found[name] = n.Pos()
 				}
 			}
 		}
 		return true
 	})
+	require.NotZero(t, bootstrapWait, "MakeAppState launches the post-bootstrap goroutine with GoWrapper")
 
 	for _, name := range installs {
-		require.Truef(t, found[name], "%s must be called directly in MakeAppState", name)
+		require.Containsf(t, found, name, "%s must be called directly in MakeAppState", name)
 		require.Falsef(t, deferred[name],
 			"%s is installed inside a function literal, so the gate it feeds stays unwired "+
 				"while HTTP already serves", name)
+		require.Lessf(t, found[name], bootstrapWait,
+			"%s is installed after the goroutine that waits on RAFT replay, so the gate it feeds "+
+				"stays unwired for as long as that wait lasts", name)
 	}
 }
