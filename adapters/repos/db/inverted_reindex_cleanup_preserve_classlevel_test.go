@@ -269,6 +269,10 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 		reason       string
 	}{
 		{
+			// Both the role-word check and the older "__" prefix reject this
+			// name, so this row does not discriminate the narrowing the other
+			// three do. It guards the outer rule instead: whatever decides a
+			// sidecar, the main bucket is never one.
 			name:   "the swept property's own main bucket",
 			bucket: "property_category",
 			reason: "the sweep's job is the sidecars around the main bucket, never the " +

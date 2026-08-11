@@ -362,8 +362,10 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			name:          "a cold tenant carrying nothing",
 			migrationType: ReindexTypeChangeTokenization,
 		},
-		// Format-only migrations write none of the tracker dirs this probe
-		// owns, so it answers before it reaches the shards at all.
+		// A format-only migration reports nothing even with a searchable
+		// tracker on disk, because that tracker belongs to no tuple it owns.
+		// The IsSemanticMigration early return is a short-circuit on top of
+		// that, not what produces the answer.
 		{
 			name:          "a format-only migration",
 			migrationType: ReindexTypeRebuildSearchable,
