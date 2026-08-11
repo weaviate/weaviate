@@ -17,7 +17,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -25,6 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -166,6 +170,52 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 				"a refused caller must not reach the prober")
 		})
 	}
+}
+
+// Pins that the resolver's read of the bootstrap-assigned field is race-free
+// against the startup goroutine's write (-race aborts on an unsynchronized pair).
+func TestInternalReindexCleanupActivityWiringIsRaceFree(t *testing.T) {
+	appState := &state.State{}
+
+	handler := clusterapi.NewReindexCleanupFromState(appState, clusterapi.NewNoopAuthHandler())
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+				if err != nil {
+					return
+				}
+				io.Copy(io.Discard, res.Body)
+				res.Body.Close()
+			}
+		}()
+	}
+
+	// Land the bootstrap-time write in the middle of the polling.
+	time.Sleep(20 * time.Millisecond)
+	appState.ReindexProvider.Store(&db.ReindexProvider{})
+	time.Sleep(20 * time.Millisecond)
+
+	close(stop)
+	wg.Wait()
+
+	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	require.Equal(t, http.StatusOK, res.StatusCode,
+		"the readers must observe the write, not a stale nil")
 }
 
 // Pins that a user-controlled collection name cannot forge log entries via

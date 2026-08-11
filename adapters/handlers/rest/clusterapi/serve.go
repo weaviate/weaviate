@@ -93,11 +93,7 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
-	// The cleanup prober is nil until the reindex teardown side exists to
-	// answer; the route then reports "not wired" rather than "nothing running",
-	// which is the only answer a caller may not misread.
-	RegisterProbeRoutes(mux, backups.NodeActivity(),
-		NewReindexCleanup(nil, auth, appState.Logger).Activity())
+	RegisterProbeRoutes(mux, backups.NodeActivity(), NewReindexCleanupFromState(appState, auth).Activity())
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())

@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -991,6 +992,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+
+	// Installed here, not in the goroutine below: both read this node's own
+	// provider (already stored above), so neither has anything to wait for,
+	// unlike the goroutine which waits on RAFT replay and DTM. Without this,
+	// a submission deleting sidecars right now would be invisible to a
+	// concurrent backup for that whole window.
+	reindexProvider := appState.ReindexProvider.Load()
+	repo.SetReindexCleanupInProgressLookup(reindexProvider.CleanupInProgressLookupBuilder())
+	// Same race, restore side: the cluster lookup installed below sees only
+	// DTM, which has already forgotten the task by the time sidecars come down.
+	repo.SetAnyCleanupInProgressLookup(anyCleanupInProgressLookup(reindexProvider))
+
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1074,26 +1087,127 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
-			}
-			return shardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
+		repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
+			auditCtx, appState.ClusterService.ListDistributedTasks, appState.Logger))
+		// Asks the cluster rather than this node: a class being restored has no
+		// local index yet, so a per-shard lookup would always say "free".
+		repo.SetAnyReindexActivityLookup(newAnyReindexActivityLookup(
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
+		// Commit-time overlap check; see db.ReindexOverlapLookup.
+		repo.SetReindexOverlapLookup(db.NewReindexOverlapLookup(
+			appState.ClusterService.ListDistributedTasks,
+			appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		))
 	}, appState.Logger)
 
 	return appState
+}
+
+// newShardReindexActivityBuilder builds the backup gate's per-shard lookup.
+// One DTM snapshot per admission pass, scoped to the (collection, shard)
+// tuples the live tasks name.
+//
+// A DTM it cannot reach refuses every backup, since the gate must not read
+// "free" from a question it could not ask. A live task whose payload will
+// not decode is the same uncertainty, but scoped by
+// [db.DecodeReindexTaskPayload], which recovers the collection from an
+// otherwise-unreadable payload (what a rolling upgrade produces); only a
+// payload naming no collection refuses every backup in the cluster. The
+// commit-time backstop ([db.ReindexOverlapLookup]) must agree on this same
+// scoping, so both read the payload through the same decoder.
+func newShardReindexActivityBuilder(
+	ctx context.Context,
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.ShardReindexActivityLookupBuilder {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	return func() db.ShardReindexActivityLookup {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			logger.WithField("action", "backup_reindex_gate").
+				Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			return func(string, string) bool { return true }
+		}
+		live := make(map[shardKey]bool)
+		// Collections held whole because a live task names them but its payload
+		// does not say which of their shards it took.
+		blocked := make(map[string]bool)
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			payload, collection, err := db.DecodeReindexTaskPayload(task.Payload)
+			if err != nil {
+				if collection == "" {
+					logger.WithField("action", "backup_reindex_gate").
+						WithField("task_id", task.ID).
+						Warnf("backup-reindex gate: cannot read task payload and it names no collection; refusing all backups until it is readable or evicted: %v", err)
+					return func(string, string) bool { return true }
+				}
+				logger.WithField("action", "backup_reindex_gate").
+					WithField("task_id", task.ID).
+					WithField("collection", collection).
+					Warnf("backup-reindex gate: cannot read task payload; refusing backups of this collection until it is readable or evicted: %v", err)
+				blocked[strings.ToLower(collection)] = true
+				continue
+			}
+			for _, shardName := range payload.UnitToShard {
+				live[shardKey{collection, shardName}] = true
+			}
+		}
+		return func(collection, shardName string) bool {
+			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
+		}
+	}
+}
+
+// newAnyReindexActivityLookup builds the restore gate's cluster-wide lookup.
+// Answers only for the collections being restored: a migration can run for
+// days, and a blind answer would refuse every restore for its whole
+// duration. Same scoping rule as [newShardReindexActivityBuilder]: a DTM
+// error or fully-unreadable payload refuses everything, but a payload
+// [db.DecodeReindexTaskPayload] can partially recover holds the refusal to
+// that collection.
+func newAnyReindexActivityLookup(
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
+	logger logrus.FieldLogger,
+) db.AnyReindexActivityLookup {
+	return func(ctx context.Context, collections []string) (bool, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return false, fmt.Errorf("ListDistributedTasks: %w", err)
+		}
+		wanted := make(map[string]bool, len(collections))
+		for _, c := range collections {
+			wanted[strings.ToLower(c)] = true
+		}
+		for _, task := range tasksByNamespace[db.ReindexNamespace] {
+			if !db.IsLiveReindexTaskStatus(task.Status) {
+				continue
+			}
+			_, collection, decodeErr := db.DecodeReindexTaskPayload(task.Payload)
+			if collection == "" {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					Warnf("restore-reindex gate: cannot read task payload and it names no collection; refusing all restores until it is readable or evicted: %v", decodeErr)
+				return true, nil
+			}
+			if len(wanted) > 0 && !wanted[strings.ToLower(collection)] {
+				continue
+			}
+			if decodeErr != nil {
+				logger.WithField("action", "restore_reindex_gate").
+					WithField("task_id", task.ID).
+					WithField("collection", collection).
+					Warnf("restore-reindex gate: cannot read task payload; refusing restores of this collection until it is readable or evicted: %v", decodeErr)
+			}
+			return true, nil
+		}
+		return false, nil
+	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
@@ -1127,7 +1241,14 @@ func initReindexAndDistributedTasks(
 	// to load already-loaded ingest buckets.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
-	appState.ReindexProvider = reindexProvider
+	appState.ReindexProvider.Store(reindexProvider)
+
+	// Closes this node's cleanup gate as the terminal status applies rather than
+	// when the scheduler next ticks, which is what lets a cancel be confirmed
+	// cluster-wide inside a request's budget. Fires on FAILED as well, which
+	// needs the same gate. See [db.ReindexProvider.OnTerminalApplied].
+	appState.ClusterService.RegisterDistributedTaskTerminalObserver(
+		db.ReindexNamespace, reindexProvider.OnTerminalApplied)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -2478,8 +2599,65 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
-	t := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+	return clusterHttpClient(authConfig, minimumInternalTimeout, http.ProxyFromEnvironment)
+}
+
+// reindexGateProbeHttpClient serves the backup-vs-reindex gate's two probes
+// and nothing else. Identical to [reasonableHttpClient] except it never
+// consults HTTP_PROXY/HTTPS_PROXY: a proxy answering in the peer's stead
+// would 404 everything, and the probes read a 404 as "this build predates
+// the route" — a proxy would make the gate read "no backups anywhere".
+// Scoped to just these probes; whether cluster-internal traffic in general
+// should honor a proxy is a separate, deployment-visible question.
+func reindexGateProbeHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
+	return clusterHttpClient(authConfig, minimumInternalTimeout, nil)
+}
+
+func clusterHttpClient(
+	authConfig cluster.AuthConfig,
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Client {
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(clusterHttpTransport(minimumInternalTimeout, proxy))
+
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
+	}
+	return &http.Client{Transport: transport}
+}
+
+// cleanupProber is the half of [db.ReindexProvider] the restore gate needs.
+type cleanupProber interface {
+	AnyCleanupInProgress() bool
+	BlockingHoldForCollection(collection string) bool
+}
+
+// anyCleanupInProgressLookup answers the restore gate's node-local half.
+//
+// Blind only when the caller has no class list yet; otherwise a teardown stuck
+// on one collection must not refuse restores of the rest. See
+// [db.AnyCleanupInProgressLookup].
+func anyCleanupInProgressLookup(prober cleanupProber) db.AnyCleanupInProgressLookup {
+	return func(collections []string) bool {
+		if len(collections) == 0 {
+			return prober.AnyCleanupInProgress()
+		}
+		for _, c := range collections {
+			if prober.BlockingHoldForCollection(c) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func clusterHttpTransport(
+	minimumInternalTimeout time.Duration,
+	proxy func(*http.Request) (*url.URL, error),
+) *http.Transport {
+	return &http.Transport{
+		Proxy: proxy,
 		DialContext: (&net.Dialer{
 			Timeout:   minimumInternalTimeout,
 			KeepAlive: 120 * time.Second,
@@ -2490,14 +2668,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-
-	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
-	transport := monitoring.NewTracingTransport(t)
-
-	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
-	}
-	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(appState *state.State) {

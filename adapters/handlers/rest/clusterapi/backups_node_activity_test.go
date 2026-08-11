@@ -37,8 +37,12 @@ import (
 // backup slot touches. Only the backend has a generated mock.
 type fakeBackupSourcer struct{}
 
-func (fakeBackupSourcer) ReleaseBackup(context.Context, string, string) error { return nil }
-func (fakeBackupSourcer) Backupable(context.Context, []string) error          { return nil }
+func (fakeBackupSourcer) ReleaseBackup(context.Context, string, string) error        { return nil }
+func (fakeBackupSourcer) Backupable(context.Context, []string) error                 { return nil }
+func (fakeBackupSourcer) RefuseIfAnyReindexInFlight(context.Context, []string) error { return nil }
+func (fakeBackupSourcer) RefuseIfReindexOverlapped(context.Context, []string, time.Time) error {
+	return nil
+}
 
 func (fakeBackupSourcer) BackupDescriptors(context.Context, string, []string,
 	[]*entitiesbackup.BackupDescriptor,
