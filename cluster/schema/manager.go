@@ -829,7 +829,7 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+					if err := s.db.AddReplicaToShardForMovement(req.Class, req.Shard, req.TargetNode); err != nil {
 						return err
 					}
 				}

@@ -594,6 +594,77 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 	})
 }
 
+// The two replica-add command types reach different indexer entry points on the
+// node gaining the replica. The plain type carries no op id and registers no
+// replication op, so it must not reach the movement's entry point.
+func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
+	const (
+		className = "TestClass"
+		shardName = "shard1"
+		nodeID    = "local-node"
+		schemaVer = uint64(1)
+		applyVer  = uint64(2)
+	)
+
+	tests := []struct {
+		name        string
+		cmdType     cmd.ApplyRequest_Type
+		subCommand  any
+		apply       func(*SchemaManager, *cmd.ApplyRequest) error
+		wantIndexer string
+	}{
+		{
+			name:       "a plain replica add",
+			cmdType:    cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.AddReplicaToShard{Class: className, Shard: shardName, TargetNode: nodeID},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.AddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShard",
+		},
+		{
+			name:    "a replica movement",
+			cmdType: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.ReplicationAddReplicaToShard{
+				OpId: 42, Class: className, Shard: shardName,
+				TargetNode: nodeID, SchemaVersion: schemaVer,
+			},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.ReplicationAddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShardForMovement",
+		},
+	}
+
+	for _, tc := range tests {
+		// The indexer panics on any call it has no expectation for, so reaching
+		// the other entry point fails the row rather than passing it silently.
+		t.Run(tc.name+" reaches "+tc.wantIndexer, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			indexer := fakes.NewMockSchemaExecutor()
+			indexer.On(tc.wantIndexer, className, shardName, nodeID).Return(nil)
+			indexer.On("ReconcileAsyncReplicationForShard", className, shardName).Return(nil)
+
+			sm := NewSchemaManager(nodeID, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm.SetReplicationFSM(&fakeReplicationFSM{})
+
+			ss := &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: []string{"other-node"}},
+			}}
+			require.NoError(t, sm.schema.addClass(&models.Class{Class: className}, ss, schemaVer))
+
+			sub, err := json.Marshal(tc.subCommand)
+			require.NoError(t, err)
+
+			require.NoError(t, tc.apply(sm, &cmd.ApplyRequest{
+				Type: tc.cmdType, Class: className, Version: applyVer, SubCommand: sub,
+			}))
+			indexer.AssertExpectations(t)
+		})
+	}
+}
+
 // recordingMutationGuard captures every CheckPropertyUpdate call and
 // optionally rejects with a configured error. Used to pin the
 // SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).

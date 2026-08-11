@@ -40,7 +40,12 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
+	// AddReplicaToShard materializes a replica the schema just assigned to this
+	// node, with no replica movement under way.
 	AddReplicaToShard(class, shard, targetNode string) error
+	// AddReplicaToShardForMovement materializes the target shard of a replica
+	// movement, which the schema assigns while the movement is still running.
+	AddReplicaToShardForMovement(class, shard, targetNode string) error
 	DeleteReplicaFromShard(class, shard, targetNode string) error
 	ReconcileAsyncReplicationForShard(class, shard string) error
 	LoadShard(class, shard string)     // is a no-op

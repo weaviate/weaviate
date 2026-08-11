@@ -48,6 +48,11 @@ func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, targe
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) AddReplicaToShardForMovement(class string, shard string, targetNode string) error {
+	args := m.Called(class, shard, targetNode)
+	return args.Error(0)
+}
+
 func (m *MockSchemaExecutor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	args := m.Called(class, shard, targetNode)
 	return args.Error(0)

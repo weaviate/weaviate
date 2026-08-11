@@ -316,7 +316,19 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
+// LoadShardForReplication loads the target shard of a replica movement.
+func (m *Migrator) LoadShardForReplication(ctx context.Context, class, shard string) error {
+	return m.loadShard(ctx, class, shard)
+}
+
+// LoadShardForReplicaAdd loads a shard for the apply that adds a replica to it
+// with no replica movement under way.
+func (m *Migrator) LoadShardForReplicaAdd(ctx context.Context, class, shard string) error {
+	return m.loadShard(ctx, class, shard)
+}
+
+// loadShard is the load both replica-add callers drive.
+func (m *Migrator) loadShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
