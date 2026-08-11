@@ -1218,9 +1218,10 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return bytes, nil
 }
 
-// Restore replaces the Manager's in-memory state from a Raft snapshot produced by
-// [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
-// a snapshot from the leader.
+// Restore merges the tasks from a Raft snapshot produced by [Manager.Snapshot]
+// into the Manager's in-memory state: entries are upserted per (namespace, task
+// ID), none are removed. It is called during Raft leader election or when a
+// follower installs a snapshot from the leader.
 //
 // Tasks already terminal in the snapshot do not fire their [TerminalObserver].
 func (m *Manager) Restore(bytes []byte) error {
