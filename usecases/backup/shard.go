@@ -200,7 +200,9 @@ func (s *backupStat) rememberedFailure(id string) (string, bool) {
 //
 // Identity is the generation, not the backup id: a cancel-then-retry under
 // the same id is normal, so the id alone can't tell two claims apart. The
-// zero value owns nothing; every write through it is a no-op.
+// zero value owns nothing; every write through it is a no-op, and so is one
+// with generation zero, which [backupStat.claimOf] hands back for an id that
+// does not hold the slot — renew hands out generations from one.
 type slotOwner struct {
 	stat       *backupStat
 	generation uint64
@@ -244,6 +246,8 @@ func (o slotOwner) newDroppedWrite(st backup.Status) *droppedWrite {
 		// keeps the message above
 	case o.stat.reqState.Status == backup.Finalizing:
 		msg = "slot write dropped: the restore is applying its schema and can no longer be cancelled"
+	case o.stat.reqState.Status == backup.Cancelling:
+		msg = "slot write dropped: a cancellation is in flight, and only its completion may follow"
 	default:
 		msg = "slot write dropped: the slot already reads a cancellation, which is its last word"
 	}
@@ -338,22 +342,50 @@ func (o slotOwner) release() bool {
 	return true
 }
 
-// setIfOwned writes the status only if id still holds the slot. Unlike the
-// [slotOwner] methods, the caller has no claim of its own (a cancel gets id
-// from object storage) and matches on id instead, to avoid stamping whichever
-// operation happens to hold the slot. Reports whether it wrote, and the state
-// found, read together so a caller logging both can't pair them across time.
+// claimOf is the claim held by the operation running under id, or one that
+// owns nothing if id does not hold the slot. It exists for the caller that has
+// no claim of its own — a cancel reads the id out of object storage — so that
+// its later writes still go through [slotOwner] and can tell the operation it
+// read from a retry that claimed the slot under the same id in between.
 //
-// id must be non-empty, since a free slot also carries an empty id and would
-// match. Both call sites run validateID first, which rejects it.
-func (s *backupStat) setIfOwned(id string, st backup.Status) (bool, reqState) {
+// An empty id needs no special case, even though a free slot carries one too:
+// [slotOwner.owns] refuses a slot with no holder.
+func (s *backupStat) claimOf(id string) slotOwner {
 	s.Lock()
 	defer s.Unlock()
-	held := s.reqState
-	if held.ID != id || !s.canAdvanceTo(st) {
+	if s.reqState.ID != id {
+		return slotOwner{stat: s}
+	}
+	return slotOwner{stat: s, generation: s.generation}
+}
+
+// state is what the slot holds, together with whether this claim still holds
+// it. Read under one lock, so a caller deciding on both cannot pair them
+// across two different moments.
+func (o slotOwner) state() (bool, reqState) {
+	if o.stat == nil {
+		return false, reqState{}
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	return o.owns(), o.stat.reqState
+}
+
+// stamp writes the status while this claim still holds the slot, and reports
+// the state it found along with whether it wrote — read together, so a caller
+// logging both cannot pair them across two different moments. [slotOwner.set]
+// is the same write for a caller that only needs to know whether it landed.
+func (o slotOwner) stamp(st backup.Status) (bool, reqState) {
+	if o.stat == nil {
+		return false, reqState{}
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	held := o.stat.reqState
+	if !o.owns() || !o.stat.canAdvanceTo(st) {
 		return false, held
 	}
-	s.setStatus(st)
+	o.stat.setStatus(st)
 	return true, held
 }
 

@@ -1580,16 +1580,19 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
+				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// A cancel from STARTED cannot have torn anything (no node has
 				// swapped yet); a cancel from an unrecognized status can, if a
-				// newer node ran its swap phase. Two independent witnesses, since
-				// either alone under-reports: PostCompletionAcks proves some node
-				// swapped (runSwapPhase suppresses the ack while STARTED) but is
-				// dropped for acks arriving after the cancel applied, while the
-				// on-disk check proves only what this node holds.
+				// newer node ran its swap phase. Three independent witnesses, since
+				// each alone under-reports. The ack maps prove some node got past
+				// its units — PREP acks land in PreparationCompletionAcks, post-swap
+				// ones in PostCompletionAcks — but both are dropped for acks
+				// arriving after the cancel applied. The on-disk check proves only
+				// what this node holds, which is the one witness to a cancel that
+				// landed while the task was still STARTED but this node had already
+				// written merged.mig.
 				//
 				// Cleanup runs first: it drains the local worker, so the tracker
 				// dirs the disk check reads are no longer being written. A drain
@@ -1601,9 +1604,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					// abstain rather than claim a schema-flip consequence.
 					break
 				}
-				if len(task.PostCompletionAcks) > 0 || !drained ||
+				if len(task.PostCompletionAcks) > 0 ||
+					len(task.PreparationCompletionAcks) > 0 || !drained ||
 					p.promotableReindexStateOnThisNode(payload) {
-					logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
+					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				} else {
 					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; the next restart would promote nothing here, so no repair guidance is issued for this node")
 				}
@@ -1924,20 +1928,40 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// logOperatorRepairGuidanceOnTornSemanticMigration logs the REST command to
-// recover from a semantic migration that stopped after a bucket could
-// already have been left NEW-tokenized under an unflipped schema. Sub-tasks
-// that merged or swapped before the task terminalized leave the affected
-// inverted index returning 0 rows until it is rebuilt.
+// IsLiveReindexTaskStatus reports whether a task in the given DTM status
+// still owns the on-disk tracker dirs and sidecar buckets of its
+// migration. The rule lives here rather than at the call sites because
+// the thing it protects is this package's on-disk state.
 //
-// FAILED always has evidence; CANCELLED earns it from a recorded swap ack
-// or from promotable on-disk state (see the CANCELLED arm of
-// [ReindexProvider.OnTaskCompleted]). See [ReindexGateRemedy] for the phase
-// reasoning.
+// A status this build never declared answers true: the other answer
+// deletes those dirs while a newer node is still migrating, and that is
+// the one outcome nothing downstream can undo.
+func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
+	switch status {
+	case distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping:
+		return true
+	case distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusCancelled,
+		distributedtask.TaskStatusFailed:
+		return false
+	}
+	// No default arm, so the exhaustive linter makes a newly declared
+	// status state which side of the ownership rule it falls on.
+	return true
+}
+
+// logOperatorRepairGuidanceOnPartialSwap logs the exact REST command an
+// operator should issue to recover from a semantic migration that stopped
+// after some shards had already swapped. Those shards' buckets are
+// NEW-tokenized while the cluster-wide schema flip was correctly skipped,
+// so every query against the affected inverted index returns 0 until the
+// index is rebuilt against the current schema.
 //
-// outcome is the terminal status that produced the tear (FAILED or
+// outcome is the terminal status that produced the split state (FAILED or
 // CANCELLED), logged so the operator can match it to the task.
-func logOperatorRepairGuidanceOnTornSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
+func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -2348,7 +2372,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 // than letting partially-flipped buckets misroute against the OLD
 // schema tokenization. The partial-success case surfaces through the
 // repair_command log line in
-// [logOperatorRepairGuidanceOnTornSemanticMigration], which fires on FAILED
+// [logOperatorRepairGuidanceOnPartialSwap], which fires on FAILED
 // and on a CANCELLED task that a swap ack or promotable state implicates.
 //
 // Returns true iff the clear was actually applied (for tests +
