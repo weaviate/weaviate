@@ -2058,3 +2058,52 @@ func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
 	require.Equal(t, 1.0, testutil.ToFloat64(
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 }
+
+// The line names tasks in a status this build cannot classify, and
+// CancelTask refuses a cancel for exactly that set. Naming a cancel as the
+// exit sends the operator at a verb every node answers with an error, for
+// the one task set the line exists to report. Both halves are asserted
+// here — what the FSM does with such a task, and what the operator is told
+// to do about it — so the guard and the advice cannot drift apart.
+func TestWarnOnUnrecognizedStatuses_DoesNotAdviseTheCancelTheFSMRefuses(t *testing.T) {
+	const (
+		namespace = "tasks-namespace"
+		id        = "wedged"
+		version   = uint64(7)
+	)
+
+	h := newTestHarness(t).init(t)
+	addTaskWithUnits(t, h, namespace, id, version, []string{"u-n1"})
+	wedged := h.manager.tasks[namespace][id]
+	wedged.Status = unknownFutureStatus
+
+	// The FSM's half.
+	require.ErrorContains(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    id,
+		Version:               version,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})), "is no longer running")
+	require.Equal(t, unknownFutureStatus, h.manager.tasks[namespace][id].Status,
+		"the cancel has to be refused for the advice to be wrong")
+
+	// The operator's half.
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		namespace: {wedged.TaskDescriptor: wedged},
+	})
+
+	var warned string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warned = e.Message
+		}
+	}
+	require.NotEmpty(t, warned,
+		"the fixture has to reach the warn for the rest to mean anything")
+	require.NotContains(t, warned, "is cancelled",
+		"the cancel this offers as an exit is the one the FSM refused a moment ago")
+	require.Contains(t, warned, "A cancel will not help",
+		"the operator has to be told the verb is refused, not left to find out")
+	require.Contains(t, warned, "the nodes that do recognize the status",
+		"the only exit is a terminal state written by a node that can classify it")
+}
