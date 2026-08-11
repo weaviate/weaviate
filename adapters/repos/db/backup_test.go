@@ -623,8 +623,8 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 		wantSampleCap, len(sample))
 }
 
-// The sequential no-hardlinks fallback returns on the first refusal, so its
-// summary log carries exactly the one shard the gate blocked.
+// Pins: the no-hardlinks fallback returns on the first refusal, so the
+// summary log names exactly the one blocked shard.
 func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	rootDir := t.TempDir()
