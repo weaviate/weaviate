@@ -50,35 +50,12 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 		wantCancelled string
 	}{
 		{
-			name:          "started",
-			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusStarted, collection)},
-			gateBlocks:    true,
-			wantCancelled: "t1",
-		},
-		{
-			name:          "preparing, payload decodes",
-			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusPreparing, collection)},
-			gateBlocks:    true,
-			wantCancelled: "t1",
-		},
-		{
-			name:          "swapping, payload decodes",
-			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusSwapping, collection)},
-			gateBlocks:    true,
-			wantCancelled: "t1",
-		},
-		{
+			// The unknown status stands in for PREPARING and SWAPPING too: all
+			// three reach the match through the same terminal check and only
+			// ever fail together.
 			name: "a status this build does not recognize",
 			tasks: []*distributedtask.Task{
 				decodable("t1", distributedtask.TaskStatus("REBALANCING"), collection),
-			},
-			gateBlocks:    true,
-			wantCancelled: "t1",
-		},
-		{
-			name: "preparing, payload will not decode",
-			tasks: []*distributedtask.Task{
-				unreadableTask("t1", collection, distributedtask.TaskStatusPreparing),
 			},
 			gateBlocks:    true,
 			wantCancelled: "t1",
@@ -111,16 +88,10 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			gateBlocks: true,
 		},
 		{
+			// FAILED and CANCELLED reach the same terminal check, so one
+			// terminal row is the whole set.
 			name:  "finished is nothing to cancel",
 			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFinished, collection)},
-		},
-		{
-			name:  "failed is nothing to cancel",
-			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusFailed, collection)},
-		},
-		{
-			name:  "cancelled is nothing to cancel",
-			tasks: []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusCancelled, collection)},
 		},
 	}
 

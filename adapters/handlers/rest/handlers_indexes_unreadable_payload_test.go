@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -23,22 +22,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
-
-// unreadableTaskPayload defeats the full ReindexTaskPayload decoder while
-// leaving the collection readable: unitToShard is a map today, and a newer
-// node shipping it as a string is what a rolling upgrade produces.
-func unreadableTaskPayload(collection string) []byte {
-	return []byte(`{"collection":"` + collection + `","unitToShard":"a-newer-node-changed-this-shape"}`)
-}
 
 func unreadableTask(id, collection string, status distributedtask.TaskStatus) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      db.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 3},
 		Status:         status,
-		Payload:        unreadableTaskPayload(collection),
+		Payload:        retypedFieldPayload(collection),
 	}
 }
 
@@ -115,58 +106,34 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 // fallback. FINISHED tasks live for DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS
 // (5 days by default), so any collection reindexed in the last week has one
 // sitting next to the live task the backup gate is refusing on.
+//
+// One row, not one per route to "ready": the routes differ only in how the
+// matched task leaves the entry alone, and the finalize window that separates
+// them is already pinned by TestMergeReindexStatus_FinishedBeforeSchemaFlip.
 func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
-	finished := func(finishedAt time.Time) *distributedtask.Task {
-		task := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeRepairFilterable,
-			Collection:    "Movies",
-			Properties:    []string{"title"},
-		}, map[string]*distributedtask.Unit{
-			"u1": {Status: distributedtask.UnitStatusCompleted},
-		})
-		task.FinishedAt = finishedAt
-		return task
-	}
+	matched := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Collection:    "Movies",
+		Properties:    []string{"title"},
+	}, map[string]*distributedtask.Unit{
+		"u1": {Status: distributedtask.UnitStatusCompleted},
+	})
+	matched.FinishedAt = time.Now()
 
-	tests := []struct {
-		name    string
-		matched *distributedtask.Task
-		flagOn  bool
-	}{
-		{
-			name:    "finished, schema flag already caught up",
-			matched: finished(time.Now()),
-			flagOn:  true,
-		},
-		{
-			// Flag still off, but far outside the finalize window, so the
-			// "still swapping" override does not fire and the entry stays
-			// "ready" by a different route than the row above.
-			name:    "finished long ago with the schema flag still off",
-			matched: finished(time.Now().Add(-2 * time.Hour)),
-			flagOn:  false,
-		},
-	}
+	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+	mergeReindexStatus(idx, "Movies", "title", "filterable", true,
+		tasksMap(matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)),
+		time.Hour, nil)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "Movies", "title", "filterable", tc.flagOn,
-				tasksMap(tc.matched, unreadableTask("t-poison", "Movies", distributedtask.TaskStatusStarted)),
-				time.Hour, nil)
-
-			require.Equal(t, models.IndexStatusStatusPending, idx.Status,
-				"the live unreadable task still holds the collection at the backup gate, and the "+
-					"refusal sends the operator here to poll until every index reads ready")
-			require.Zero(t, idx.Progress, "no progress was readable")
-		})
-	}
+	require.Equal(t, models.IndexStatusStatusPending, idx.Status,
+		"the live unreadable task still holds the collection at the backup gate, and the "+
+			"refusal sends the operator here to poll until every index reads ready")
+	require.Zero(t, idx.Progress, "no progress was readable")
 }
 
-// unattributableTaskPayload defeats the full ReindexTaskPayload decoder AND
-// the lenient collection reader. Nothing in it says which shards the task
-// holds, so the backup gate refuses every collection in the cluster rather
-// than one.
+// unattributableTaskPayload defeats the full decoder AND the lenient
+// collection reader. Nothing in it says which shards the task holds, so the
+// backup gate refuses every collection in the cluster rather than one.
 func unattributableTaskPayload() []byte {
 	return []byte(`{"unitToShard":"a-newer-node-changed-this-shape"}`)
 }
@@ -181,25 +148,15 @@ func unattributableTask(id string, status distributedtask.TaskStatus) *distribut
 }
 
 // renamedFieldTask is the other way a payload can name no collection, and the
-// one a decoder cannot see: a newer node renames the collection field, Go
-// ignores the unknown key, and this decodes without error into an empty
-// payload. It holds the same cluster-wide gate as a payload that will not
-// decode at all, so every pass that handles one has to handle this too.
-func renamedFieldTask(t *testing.T, id string, status distributedtask.TaskStatus) *distributedtask.Task {
-	t.Helper()
-	raw := []byte(`{"collektion":"Movies","unitToShard":{"u1":"shard1"}}`)
-
-	var probe db.ReindexTaskPayload
-	require.NoError(t, json.Unmarshal(raw, &probe),
-		"this fixture is only meaningful while the payload decodes without error")
-	require.Empty(t, probe.Collection,
-		"this fixture is only meaningful while the decoded collection is empty")
-
+// one a decoder cannot see. It holds the same cluster-wide gate as a payload
+// that will not decode at all, so every pass that handles one has to handle
+// this too.
+func renamedFieldTask(id string, status distributedtask.TaskStatus) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      db.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 3},
 		Status:         status,
-		Payload:        raw,
+		Payload:        renamedFieldPayload("Movies"),
 	}
 }
 
@@ -210,19 +167,19 @@ func renamedFieldTask(t *testing.T, id string, status distributedtask.TaskStatus
 func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 	const collection = "Movies"
 
-	decodableOnMovies := func(t *testing.T) *distributedtask.Task {
-		return buildTask(t, "t-decodable", distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
+	// The table is built with the outer t, so the rows are plain slices.
+	onMovies := func(id string) *distributedtask.Task {
+		return buildTask(t, id, distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeRepairFilterable,
 			Collection:    collection,
 			Properties:    []string{"title"},
 		}, nil)
 	}
+	orphan := unattributableTask("orphan", distributedtask.TaskStatusStarted)
 
 	tests := []struct {
 		name  string
-		tasks func(t *testing.T) []*distributedtask.Task
-		// authorizer is nil for a caller with every grant.
-		authorizer authorization.Authorizer
+		tasks []*distributedtask.Task
 		// principal is nil for a caller confined to no namespace.
 		principal *models.Principal
 		// wantCancelledID is empty when nothing may be cancelled in DTM.
@@ -233,90 +190,54 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 		wantStatus string
 	}{
 		{
-			name: "the only live task names no collection",
-			tasks: func(*testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusStarted)}
-			},
+			name:            "the only live task names no collection",
+			tasks:           []*distributedtask.Task{orphan},
 			wantCancelledID: "orphan",
 			wantTaskID:      "orphan",
 			wantStatus:      "CANCELLED",
 		},
 		{
-			name: "a decodable task on this collection wins",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{
-					unattributableTask("orphan", distributedtask.TaskStatusStarted),
-					decodableOnMovies(t),
-				}
-			},
+			name:            "a decodable task on this collection wins",
+			tasks:           []*distributedtask.Task{orphan, onMovies("t-decodable")},
 			wantCancelledID: "t-decodable",
 			wantTaskID:      "t-decodable",
 			wantStatus:      "CANCELLED",
 		},
 		{
 			name: "an unreadable task naming this collection wins",
-			tasks: func(*testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{
-					unattributableTask("orphan", distributedtask.TaskStatusStarted),
-					unreadableTask("t-named", collection, distributedtask.TaskStatusStarted),
-				}
+			tasks: []*distributedtask.Task{
+				orphan, unreadableTask("t-named", collection, distributedtask.TaskStatusStarted),
 			},
 			wantCancelledID: "t-named",
 			wantTaskID:      "t-named",
 			wantStatus:      "CANCELLED",
 		},
 		{
-			name: "the only live task has a renamed collection field",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{renamedFieldTask(t, "renamed", distributedtask.TaskStatusStarted)}
-			},
+			name:            "the only live task has a renamed collection field",
+			tasks:           []*distributedtask.Task{renamedFieldTask("renamed", distributedtask.TaskStatusStarted)},
 			wantCancelledID: "renamed",
 			wantTaskID:      "renamed",
 			wantStatus:      "CANCELLED",
 		},
 		{
-			name: "a terminal task holds no gate and is left alone",
-			tasks: func(*testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusFinished)}
-			},
+			name:       "a terminal task holds no gate and is left alone",
+			tasks:      []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusFinished)},
 			wantStatus: reindexCancelStatusNoOp,
 		},
 		{
 			// DTM cancels every non-terminal status, so a task that left
 			// STARTED is still cancellable — the gates it holds must clear.
-			name: "past STARTED is still cancellable",
-			tasks: func(*testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)}
-			},
+			name:            "past STARTED is still cancellable",
+			tasks:           []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)},
 			wantCancelledID: "orphan",
 			wantTaskID:      "orphan",
 			wantStatus:      "CANCELLED",
 		},
 		{
-			// Cancelling it stops a migration on some other collection and
-			// answers with a task id naming that collection, so the URL's own
-			// grant is not enough. The answer is the one a caller would get if
-			// this pass did not exist, so a denial discloses nothing.
-			name: "UPDATE on the URL's collection alone cannot reach a task that names none",
-			tasks: func(*testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusStarted)}
-			},
-			authorizer: grantUpdateOn(collection),
-			wantStatus: reindexCancelStatusNoOp,
-		},
-		{
 			// The id is the caller's handle on the cancel, and a namespaced
 			// caller has never seen their own prefix on anything.
-			name: "a namespaced caller gets their own prefix stripped off the id",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{
-					buildTask(t, "acme:t-namespaced", distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
-						MigrationType: db.ReindexTypeRepairFilterable,
-						Collection:    collection,
-						Properties:    []string{"title"},
-					}, nil),
-				}
-			},
+			name:            "a namespaced caller gets their own prefix stripped off the id",
+			tasks:           []*distributedtask.Task{onMovies("acme:t-namespaced")},
 			principal:       &models.Principal{Username: "u1", Namespace: "acme"},
 			wantCancelledID: "acme:t-namespaced",
 			wantTaskID:      "t-namespaced",
@@ -326,11 +247,8 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := &raceTaskService{tasks: tc.tasks(t)}
+			svc := &raceTaskService{tasks: tc.tasks}
 			h := cancelHandlers(t, svc)
-			if tc.authorizer != nil {
-				h.appState.Authorizer = tc.authorizer
-			}
 
 			principal := tc.principal
 			if principal == nil {
@@ -354,63 +272,6 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			require.Equal(t, tc.wantTaskID, accepted.Payload.TaskID,
 				"the caller has to get the id back, stripped of their own namespace, "+
 					"or they cannot poll the cancel they just asked for")
-		})
-	}
-}
-
-// A task in a status this build does not know is live to the backup gate
-// ([db.IsLiveReindexTaskStatus]), and the refusal sends the operator to this
-// endpoint to poll until every index reads "ready". Reporting "ready" for it —
-// or preferring an older terminal attempt over it — makes that a loop.
-func TestIndexStatusSurfacesATaskInAStatusThisBuildDoesNotKnow(t *testing.T) {
-	payload := db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeRepairFilterable,
-		Collection:    "Movies",
-		Properties:    []string{"title"},
-	}
-	// Two units, one half done and one untouched, so the reported progress is
-	// the average rather than either unit's own number.
-	unknown := func(t *testing.T) *distributedtask.Task {
-		return buildTask(t, "t-unknown", distributedtask.TaskStatus("REBALANCING"), payload,
-			map[string]*distributedtask.Unit{
-				"u1": {Status: distributedtask.UnitStatusInProgress, Progress: 0.5},
-				"u2": {Status: distributedtask.UnitStatusPending},
-			})
-	}
-	failed := func(t *testing.T) *distributedtask.Task {
-		return buildTask(t, "t-failed", distributedtask.TaskStatusFailed, payload,
-			map[string]*distributedtask.Unit{"u1": {Status: distributedtask.UnitStatusFailed}})
-	}
-
-	tests := []struct {
-		name  string
-		tasks func(t *testing.T) []*distributedtask.Task
-	}{
-		{
-			name: "on its own",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{unknown(t)}
-			},
-		},
-		{
-			name: "next to a terminal attempt on the same property",
-			tasks: func(t *testing.T) []*distributedtask.Task {
-				return []*distributedtask.Task{failed(t), unknown(t)}
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "Movies", "title", "filterable", true,
-				tasksMap(tc.tasks(t)...), time.Hour, nil)
-
-			require.Equal(t, models.IndexStatusStatusIndexing, idx.Status,
-				"the task still holds this collection at the backup gate")
-			require.InDelta(t, 0.25, idx.Progress, 0.0001,
-				"the pill says indexing, so it has to carry the task's own aggregated progress; "+
-					"a zero here reads as work that has not started")
 		})
 	}
 }

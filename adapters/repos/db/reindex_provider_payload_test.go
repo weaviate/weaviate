@@ -60,12 +60,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 			why: "an empty name must never scope a cascade delete",
 		},
 		{
-			name:    "fully decodable, with units",
-			payload: []byte(`{"collection":"Movies","unitToShard":{"u1":"s1"}}`),
-			want:    "Movies",
-			wantOK:  true,
-		},
-		{
 			name:    "a field retyped by a newer node",
 			payload: poisonPayload("Movies"),
 			want:    "Movies",

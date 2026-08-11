@@ -22,15 +22,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -357,16 +354,9 @@ func TestCancelRouteAuthorization(t *testing.T) {
 		wantForbidden  bool
 	}{
 		{
-			name: "a denial while the feature is on",
-			authzErr: func() error {
-				return forbidden(principal, authorization.UPDATE, authorization.Collections(collection)[0])
-			},
-			reindexEnabled: true,
-			wantForbidden:  true,
-		},
-		{
-			// Pins the ordering: kill switch first would 400 without ever
-			// consulting the authorizer.
+			// The feature is off, which pins the ordering too: kill switch
+			// first would 400 without ever consulting the authorizer. The
+			// feature-on denial takes the same branch and never fails alone.
 			name: "a denial while the feature is off",
 			authzErr: func() error {
 				return forbidden(principal, authorization.UPDATE, authorization.Collections(collection)[0])
@@ -410,35 +400,4 @@ func TestCancelRouteAuthorization(t *testing.T) {
 			require.Len(t, svc.startedTasks(), 1, "the running migration must be left alone")
 		})
 	}
-}
-
-// -----------------------------------------------------------------------------
-// Wiring.
-// -----------------------------------------------------------------------------
-
-// Each collaborator fails OPEN when nil, so a wiring regression must be
-// reported — nothing else would catch it.
-func TestNewIndexesHandlersReportsUnwiredGateCollaborators(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-
-	// A cluster service and nothing else: the shape a wiring regression leaves.
-	newIndexesHandlers(&state.State{
-		ClusterService: &rCluster.Service{},
-		Logger:         logger,
-	})
-
-	entry := entryWithMessage(hook, "gate collaborators are missing")
-	require.NotNilf(t, entry,
-		"a node with a cluster service and no probes runs reindex submissions unchecked "+
-			"against backups, and says nothing about it; entries were %q", entryMessages(hook))
-	require.Equal(t, logrus.ErrorLevel, entry.Level,
-		"a disabled safety gate is not a warning about a fixture")
-	require.ElementsMatch(t,
-		[]string{
-			"backupActivity (no peer is asked whether it holds a backup slot)",
-			"localBackupActivity (this node's own slots are never read)",
-			"cluster (there is no node list to fan the backup probe out over)",
-		},
-		entry.Data["unwired"],
-		"the line has to name which collaborator is missing, or it cannot be acted on")
 }

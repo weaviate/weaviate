@@ -146,17 +146,12 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 		// probes maps a (collection, shard) tuple to whether the gate must
 		// report it held.
 		probes map[[2]string]bool
-		// decodesCleanly pins the shape of the payload itself: the renamed
-		// case is only meaningful while json.Unmarshal accepts it, and a
-		// future payload change that starts rejecting it would otherwise leave
-		// the case passing for the wrong reason.
-		decodesCleanly bool
 	}{
 		{
 			// The rolling-upgrade case: a newer node retypes a field, the full
 			// decoder gives up, the collection is still perfectly readable.
 			name:    "a field retyped by a newer node",
-			payload: []byte(`{"collection":"MyClass","unitToShard":"a-newer-node-changed-this-shape"}`),
+			payload: retypedFieldPayload("MyClass"),
 			probes: map[[2]string]bool{
 				{"MyClass", "shard1"}:      true,
 				{"MyClass", "shard99"}:     true,
@@ -174,9 +169,8 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 			// the task under a collection no caller can name and reports every
 			// shard free, while the commit-time backstop refuses the same
 			// capture after all the upload work.
-			name:           "the collection field renamed by a newer node",
-			payload:        []byte(`{"collektion":"MyClass","unitToShard":{"u1":"shard1"}}`),
-			decodesCleanly: true,
+			name:    "the collection field renamed by a newer node",
+			payload: renamedFieldPayload("MyClass"),
 			probes: map[[2]string]bool{
 				{"MyClass", "shard1"}:      true,
 				{"OtherClass", "shard1"}:   true,
@@ -188,14 +182,6 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var probe db.ReindexTaskPayload
-			if tc.decodesCleanly {
-				require.NoError(t, json.Unmarshal(tc.payload, &probe))
-				require.Empty(t, probe.Collection)
-			} else {
-				require.Error(t, json.Unmarshal(tc.payload, &probe))
-			}
-
 			logger, hook := test.NewNullLogger()
 			lookup := newShardReindexActivityBuilder(context.Background(),
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -295,12 +281,12 @@ func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
 	}{
 		{
 			name:    "a field retyped by a newer node",
-			payload: []byte(`{"collection":"Logs","unitToShard":"a-newer-node-changed-this-shape"}`),
+			payload: retypedFieldPayload("Logs"),
 			probes:  map[string]bool{"Logs": true, "logs": true, "Docs": false},
 		},
 		{
 			name:    "the collection field renamed by a newer node",
-			payload: []byte(`{"collektion":"Logs","unitToShard":{"u1":"shard1"}}`),
+			payload: renamedFieldPayload("Logs"),
 			probes:  map[string]bool{"Logs": true, "Docs": true},
 		},
 	}

@@ -9,15 +9,32 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package ciguard holds guards for the reindex_backup CI shard chain that run
-// in the plain unit-test job, outside every acceptance shard — so disabling a
-// matrix entry can't silently take out the guard system with it.
+// Package ciguard holds the guards for the reindex_backup CI shard chain.
+//
+// test/acceptance/reindex_backup is split across four CI matrix entries, each
+// passing an exact-name -run allowlist. A test added there but to no list never
+// runs, and the job still reports green — the failure mode these guards exist to
+// make loud. Every hop of that chain is pinned here: test -> allowlist ->
+// run.sh function -> dispatcher --flag -> a workflow matrix entry passing it.
+//
+// They live in this package, which the plain unit-test job runs, rather than in
+// the guarded package itself: a guard that ships inside the shard it guards is
+// disabled by the same matrix edit it is supposed to catch. Running here also
+// keeps them off the acceptance budget entirely — no container, no image build,
+// no per-test deadline.
+//
+// One way a test still escapes, left open deliberately: a test in a SUBpackage
+// of the guarded one is invisible to run.sh's `go list "./$path"`, which does
+// not recurse. Adding /... there would change every acceptance group's package
+// set and the budgets derived from it, which is a bigger change than the escape
+// is worth. It is not in use today; if it is ever needed, close it here first.
 package ciguard
 
 import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,57 +44,210 @@ import (
 
 const guardedPackagePath = "test/acceptance/reindex_backup"
 
+// imageBuildAllowanceMinutes is the slice of the job window spent building the
+// weaviate test image before go test starts. The go-test budget is what makes
+// a hang panic with stacks, so it only does that if the runner has not killed
+// the job first — which means the budget and the build have to share the
+// window.
+//
+// An observed average, not an enforced cap: nothing measures the build, so a
+// build that slowly grows past 5 minutes eats into the budget this guard
+// believes is available. It fails as a runner-killed job, which reads as a
+// hang without stacks.
+const imageBuildAllowanceMinutes = 5
+
 var (
-	aofGroupRunRe   = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
+	aofGroupRunRe = regexp.MustCompile(`AOF_GROUP_RUN='([^']*)'`)
+	// Captures whatever a group sets its budget to, not only the readable
+	// shapes, so an unreadable one is rejected rather than skipped.
+	aofGroupTimeoutRe        = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([^\s\\]*)`)
+	aofGroupTimeoutDefaultRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT:-([^\s}]*)`)
+	aofTestBudgetRe          = regexp.MustCompile(`AOF_TEST_BUDGET (Test[A-Za-z0-9_]+) ([0-9]+)m`)
+	// Fuzz targets are declared like tests but no group's exact-name -run
+	// alternation can select one, so they must be visible to the guards rather
+	// than filtered out before they are counted.
+	declaredTestRe  = regexp.MustCompile(`^func ((?:Test|Fuzz)[A-Za-z0-9_]*)\(`)
+	testNameRe      = regexp.MustCompile(`^(?:Test|Fuzz)[A-Za-z0-9_]*$`)
 	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
 	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
-	guardTestNameRe = regexp.MustCompile(`^func (TestCI[A-Za-z0-9_]*)\(`)
+	wholeMinutesRe  = regexp.MustCompile(`^([0-9]+)m$`)
 	// Matches the package path only as a whole path segment, so a future
-	// sibling such as test/acceptance/reindex_backup_mt is not read as this one.
+	// sibling such as test/acceptance/reindex_backup_mt is not read as this
+	// package and does not silently widen what these guards claim to cover.
 	guardedPackageRe = regexp.MustCompile(regexp.QuoteMeta(guardedPackagePath) + `(?:[^\w.-]|$)`)
 )
 
-// TestReindexBackupCIGuardsSurviveAnyShardEdit fails if any hop in the chain
-// that runs the reindex_backup CI guards on a pull request breaks: a guard
-// test disappears, drops out of a run.sh allowlist, loses its dispatcher, or
-// loses its workflow matrix entry.
-func TestReindexBackupCIGuardsSurviveAnyShardEdit(t *testing.T) {
+// TestCIAllowlistCoversEveryTestInThisPackage fails when a test in the guarded
+// package is missing from run.sh's -run allowlists, which would leave it never
+// executed while CI stays green. It also fails the other way round, on a
+// filter or a budget line naming a test that no longer exists.
+func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 	root := repoRoot(t)
-	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
-	require.NoError(t, err)
-	runSh := string(runShBytes)
+	runSh := readRunSh(t, root)
 
-	groups := groupsRunningGuardedPackage(t, runSh)
-	require.NotEmptyf(t, groups,
-		"test/run.sh holds no AOF_GROUP_RUN filter for %s; the whole shard split is gone "+
-			"or this guard's parsing broke", guardedPackagePath)
+	allowed := allowlistedTests(t, runSh)
+	declared := declaredTests(t, root)
 
-	guardNames := declaredGuardTests(t, root)
-	require.NotEmptyf(t, guardNames,
-		"%s declares no TestCI* guard tests; the allowlist-guard system was removed", guardedPackagePath)
-
-	allowlisted := map[string]string{}
-	for group, names := range groups {
-		for _, name := range names {
-			allowlisted[name] = group
+	var missing []string
+	for _, name := range declared {
+		if _, ok := allowed[name]; !ok {
+			missing = append(missing, name)
 		}
 	}
-	for _, guard := range guardNames {
-		require.Containsf(t, allowlisted, guard,
-			"%s is in no AOF_GROUP_RUN filter in test/run.sh, so CI never runs it while staying green",
-			guard)
-	}
+	require.Emptyf(t, missing,
+		"these tests in %s are in NO run.sh allowlist, so CI never runs them while reporting green: %s\n"+
+			"Add each to an AOF_GROUP_RUN filter in test/run.sh (run_acceptance_reindex_backup_suite, "+
+			"_a or _b for single-node, run_acceptance_reindex_backup_cluster for multi-node), "+
+			"picking the group whose budget still covers its worst case.",
+		guardedPackagePath, strings.Join(missing, ", "))
 
-	prFlags := workflowRunShFlags(t, root)
-	for group := range groups {
-		requireDispatched(t, runSh, group)
-		flag := flagArming(t, runSh, group)
-		require.Containsf(t, prFlags, flag,
-			"no pull-request-triggered workflow job in .github/workflows passes %q to test/run.sh, "+
-				"so %s (and every test it owns) silently left PR CI", flag, group)
+	declaredSet := map[string]struct{}{}
+	for _, name := range declared {
+		declaredSet[name] = struct{}{}
+	}
+	var stale []string
+	for name, group := range allowed {
+		if _, ok := declaredSet[name]; !ok {
+			stale = append(stale, name+" (in "+group+")")
+		}
+	}
+	require.Emptyf(t, stale,
+		"these names in run.sh's allowlists match no test in %s, so that filter silently runs "+
+			"fewer tests than it reads as covering: %s",
+		guardedPackagePath, strings.Join(stale, ", "))
+
+	var staleBudgets []string
+	for name := range testWorstCases(t, runSh) {
+		if _, ok := declaredSet[name]; !ok {
+			staleBudgets = append(staleBudgets, name)
+		}
+	}
+	require.Emptyf(t, staleBudgets,
+		"these AOF_TEST_BUDGET lines in run.sh name no test in %s, so a group budget is being "+
+			"read against a worst case nothing spends: %s",
+		guardedPackagePath, strings.Join(staleBudgets, ", "))
+}
+
+// TestCIGroupTimeoutFitsTheJobWindow walks each group from its run.sh filter
+// out to the workflow, and checks its budget against the two numbers that
+// bound it: the deadlines its own tests wait on, and the window the workflow
+// gives the job. Go's -timeout is what turns a hang into a panic with stacks,
+// and it produces that only if it fires before the runner kills the job and
+// after the tests have had the time they ask for.
+//
+// Walking the chain — filter -> run.sh function -> dispatcher --flag -> a
+// workflow matrix entry passing that flag — is what finding the window
+// requires, so it is the same assertion. A matrix entry renamed, deleted,
+// commented out, or put behind any if: that is not literally true takes the
+// whole group out of PR CI while both the allowlist guard and the job stay
+// green, and lands here as a group with no window. That last hop is read from
+// parsed YAML, not the file's bytes.
+//
+// The floor comes from hand-written AOF_TEST_BUDGET lines, not from the test
+// source, so raising a helper.WithDeadline without editing that test's line
+// moves the real floor above the budget and leaves this guard green. That rot
+// is accepted: it costs CI triage, not correctness. go test still panics with
+// stacks inside the job window; the failure just reads as a product hang
+// rather than as a budget too small.
+func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
+	root := repoRoot(t)
+	runSh := readRunSh(t, root)
+
+	groups := groupsRunningThisPackage(t, runSh)
+	windows := workflowRunShWindows(t, root)
+	worstCases := testWorstCases(t, runSh)
+
+	for _, group := range groups {
+		t.Run(group.name, func(t *testing.T) {
+			budget := groupTimeoutMinutes(t, runSh, group.name)
+			requireDispatched(t, runSh, group.name)
+			flag := flagArming(t, runSh, group.name)
+
+			// Zero covers both ways the window goes missing: no
+			// pull-request-triggered job passes this flag to run.sh at all, or
+			// one does but declares a timeout_minutes this guard cannot read.
+			// Either way nothing bounds the job, so the budget below cannot be
+			// checked against anything.
+			window := windows[flag]
+			require.NotZerof(t, window,
+				"no pull-request-triggered workflow job in .github/workflows passes %q to "+
+					"test/run.sh under a readable timeout_minutes, so nothing bounds the job "+
+					"%s runs in — and if no job passes it at all, that group and every test it "+
+					"owns silently left PR CI",
+				flag, group.name)
+
+			require.LessOrEqualf(t, budget+imageBuildAllowanceMinutes, window,
+				"%s gets a %dm go-test budget and the image build takes about %dm, which "+
+					"together exceed the %dm the workflow step passing %q allows. The runner "+
+					"kills the job before go test can panic with stacks. Lower the budget, "+
+					"raise timeout_minutes, or split the group.",
+				group.name, budget, imageBuildAllowanceMinutes, window, flag)
+
+			var floor int
+			for _, name := range group.tests {
+				minutes, declared := worstCases[name]
+				require.Truef(t, declared,
+					"%s runs %s but run.sh declares no AOF_TEST_BUDGET line for it, so nothing says "+
+						"how much of the %dm budget it needs; add one next to the others",
+					group.name, name, budget)
+				floor += minutes
+			}
+			require.GreaterOrEqualf(t, budget, floor,
+				"%s gets a %dm go-test budget but its tests wait on %dm of deadlines (%s). go test "+
+					"is killed before the slowest one reaches its own assertion, and the failure "+
+					"reads as a product hang rather than a budget that is too small. Raise the "+
+					"budget, or move a test to another group.",
+				group.name, budget, floor, strings.Join(group.tests, ", "))
+		})
 	}
 }
 
+// TestCIGuardParsers pins the two readers whose failure mode is a silent pass:
+// a budget shape this guard rounds instead of rejecting would validate a group
+// against a number the group does not use, and a package match on a substring
+// would read a future sibling package as this one.
+func TestCIGuardParsers(t *testing.T) {
+	t.Run("only whole minutes are readable", func(t *testing.T) {
+		// The rejected shapes are all shapes go test itself accepts.
+		tests := []struct {
+			value string
+			want  int
+			ok    bool
+		}{
+			{value: "20m", want: 20, ok: true},
+			{value: "90s"},
+			{value: "18m30s"},
+			{value: "20"},
+			{value: ""},
+		}
+		for _, tc := range tests {
+			t.Run(tc.value, func(t *testing.T) {
+				minutes, ok := wholeMinutes(tc.value)
+				require.Equal(t, tc.ok, ok)
+				require.Equal(t, tc.want, minutes)
+			})
+		}
+	})
+
+	t.Run("the package path matches whole segments only", func(t *testing.T) {
+		tests := []struct {
+			scope string
+			want  bool
+		}{
+			{scope: `run_aof_group "reindex-backup-a" test/acceptance/reindex_backup`, want: true},
+			{scope: `run_aof_group "x" test/acceptance/reindex_backup someArg`, want: true},
+			{scope: `run_aof_group "x" test/acceptance/reindex_backup_mt`},
+			{scope: `run_aof_group "x" test/acceptance/reindex_backup-legacy`},
+		}
+		for _, tc := range tests {
+			t.Run(tc.scope, func(t *testing.T) {
+				require.Equal(t, tc.want, guardedPackageRe.MatchString(tc.scope))
+			})
+		}
+	})
+}
+
+// repoRoot walks up from the working directory to the checkout root.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -92,11 +262,18 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// declaredGuardTests reads the guarded package's sources for top-level TestCI*
-// functions. Source scan, not `go test -list`, so it still answers after the
-// package stops compiling in this environment — and still goes red if the
-// guard files themselves are deleted.
-func declaredGuardTests(t *testing.T, root string) []string {
+func readRunSh(t *testing.T, root string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
+	require.NoError(t, err)
+	return string(body)
+}
+
+// declaredTests reads the guarded package's sources for top-level test
+// functions. A source scan, not `go test -list`: it needs no toolchain and no
+// compile of an acceptance package, and it still sees a test hidden behind a
+// build tag, which `go test -list` without -tags does not.
+func declaredTests(t *testing.T, root string) []string {
 	t.Helper()
 
 	entries, err := os.ReadDir(filepath.Join(root, guardedPackagePath))
@@ -110,25 +287,81 @@ func declaredGuardTests(t *testing.T, root string) []string {
 		body, err := os.ReadFile(filepath.Join(root, guardedPackagePath, entry.Name()))
 		require.NoError(t, err)
 		for _, line := range strings.Split(string(body), "\n") {
-			if m := guardTestNameRe.FindStringSubmatch(line); m != nil {
-				names = append(names, m[1])
+			m := declaredTestRe.FindStringSubmatch(line)
+			// TestMain is the package's own entry point, never selectable by a
+			// -run filter, so it is not something an allowlist can cover.
+			if m == nil || m[1] == "TestMain" {
+				continue
 			}
+			names = append(names, m[1])
 		}
 	}
+	require.NotEmptyf(t, names,
+		"%s declares no tests; either the package moved or this guard's parsing broke, and a "+
+			"silent pass here would defeat every guard in this file", guardedPackagePath)
 	return names
 }
 
-// groupsRunningGuardedPackage maps each run_acceptance_* function carrying an
-// AOF_GROUP_RUN filter for the guarded package to the exact test names its
-// filter selects. Unanchored or non-alternation patterns are passed through as
-// opaque names; the acceptance-side guard rejects those shapes, this layer
-// only needs the guard names to be findable.
-func groupsRunningGuardedPackage(t *testing.T, runSh string) map[string][]string {
+// allowlistedTests maps each allowlisted test name to the one group that runs
+// it. Being in two groups is rejected, not merged: the second group runs the
+// test again against a budget derived on the assumption it runs once, which is
+// what moving a test between groups and leaving the old entry behind looks
+// like.
+func allowlistedTests(t *testing.T, runSh string) map[string]string {
+	t.Helper()
+
+	allowed := map[string]string{}
+	for _, group := range groupsRunningThisPackage(t, runSh) {
+		for _, name := range group.tests {
+			other, duplicate := allowed[name]
+			require.Falsef(t, duplicate,
+				"%s is in the AOF_GROUP_RUN filter of both %s and %s, so it runs twice while each "+
+					"group's budget is derived on the assumption it runs once; delete the stale entry",
+				name, other, group.name)
+			allowed[name] = group.name
+		}
+	}
+	return allowed
+}
+
+// testWorstCases reads run.sh's per-test AOF_TEST_BUDGET lines, which are the
+// sums the group budgets are derived from. They live in run.sh so the
+// derivation and the budget it produces cannot drift apart in separate files.
+func testWorstCases(t *testing.T, runSh string) map[string]int {
+	t.Helper()
+
+	worst := map[string]int{}
+	for _, m := range aofTestBudgetRe.FindAllStringSubmatch(runSh, -1) {
+		_, duplicate := worst[m[1]]
+		require.Falsef(t, duplicate, "run.sh declares two AOF_TEST_BUDGET lines for %s", m[1])
+		minutes, err := strconv.Atoi(m[2])
+		require.NoError(t, err)
+		worst[m[1]] = minutes
+	}
+	require.NotEmpty(t, worst,
+		"run.sh declares no AOF_TEST_BUDGET lines, so nothing says what each group's budget "+
+			"has to cover; either they were removed or this guard's parsing broke")
+	return worst
+}
+
+// packageGroup is one run_acceptance_* function running the guarded package,
+// with the exact test names its AOF_GROUP_RUN filter selects.
+type packageGroup struct {
+	name  string
+	tests []string
+}
+
+// groupsRunningThisPackage returns, in run.sh order, the run_acceptance_*
+// functions that carry an AOF_GROUP_RUN filter for the guarded package.
+func groupsRunningThisPackage(t *testing.T, runSh string) []packageGroup {
 	t.Helper()
 
 	lines := strings.Split(runSh, "\n")
-	groups := map[string][]string{}
-	var current string
+	var (
+		current string
+		groups  []packageGroup
+		at      = map[string]int{}
+	)
 	for i, line := range lines {
 		if m := runShFunctionRe.FindStringSubmatch(line); m != nil {
 			current = m[1]
@@ -144,14 +377,98 @@ func groupsRunningGuardedPackage(t *testing.T, runSh string) map[string][]string
 		}
 		require.NotEmptyf(t, current,
 			"an AOF_GROUP_RUN filter for %s sits outside any run_acceptance_* function "+
-				"(test/run.sh line %d)", guardedPackagePath, i+1)
-		body := strings.TrimSuffix(strings.TrimPrefix(m[1], "^"), "$")
-		if strings.HasPrefix(body, "(") && strings.HasSuffix(body, ")") {
-			body = strings.TrimSuffix(strings.TrimPrefix(body, "("), ")")
+				"(test/run.sh line %d); this guard cannot trace it to a CI flag",
+			guardedPackagePath, i+1)
+		idx, seen := at[current]
+		if !seen {
+			idx = len(groups)
+			at[current] = idx
+			groups = append(groups, packageGroup{name: current})
 		}
-		groups[current] = append(groups[current], strings.Split(body, "|")...)
+		groups[idx].tests = append(groups[idx].tests, parseExactNameAlternation(t, m[1])...)
 	}
+	require.NotEmptyf(t, groups,
+		"test/run.sh holds no AOF_GROUP_RUN filter for %s; the whole shard split is gone "+
+			"or this guard's parsing broke", guardedPackagePath)
 	return groups
+}
+
+// parseExactNameAlternation turns `^(A|B)$` or `^A$` into its names, and fails
+// on anything else: a pattern this cannot read exactly is one whose coverage
+// this guard cannot vouch for.
+func parseExactNameAlternation(t *testing.T, pattern string) []string {
+	t.Helper()
+
+	require.True(t, strings.HasPrefix(pattern, "^") && strings.HasSuffix(pattern, "$"),
+		"AOF_GROUP_RUN %q is not anchored; this guard only understands exact-name allowlists", pattern)
+	body := strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
+	if strings.HasPrefix(body, "(") && strings.HasSuffix(body, ")") {
+		body = strings.TrimSuffix(strings.TrimPrefix(body, "("), ")")
+	}
+
+	names := strings.Split(body, "|")
+	for _, name := range names {
+		require.Regexp(t, testNameRe, name,
+			"AOF_GROUP_RUN %q contains %q, which is not a plain test name; this guard only "+
+				"understands exact-name allowlists", pattern, name)
+	}
+	return names
+}
+
+// groupTimeoutMinutes reads the go-test budget a group sets, falling back to
+// run_aof_group's own default when the group does not set one. A budget written
+// in any other shape than whole minutes fails here rather than falling through
+// to the default, which would have this guard validate the group against a
+// number the group does not use.
+func groupTimeoutMinutes(t *testing.T, runSh, group string) int {
+	t.Helper()
+
+	var inGroup bool
+	for _, line := range strings.Split(runSh, "\n") {
+		if m := runShFunctionRe.FindStringSubmatch(line); m != nil {
+			inGroup = m[1] == group
+			continue
+		}
+		if !inGroup {
+			continue
+		}
+		if m := aofGroupTimeoutRe.FindStringSubmatch(line); m != nil {
+			return requireWholeMinutes(t, m[1], group+" sets AOF_GROUP_TIMEOUT")
+		}
+	}
+
+	m := aofGroupTimeoutDefaultRe.FindStringSubmatch(runSh)
+	require.NotNilf(t, m, "%s sets no AOF_GROUP_TIMEOUT and run_aof_group's default "+
+		"is not in the shape this guard reads", group)
+	return requireWholeMinutes(t, m[1], "run_aof_group's default AOF_GROUP_TIMEOUT")
+}
+
+// wholeMinutes reads an Nm duration. Every other shape go test accepts —
+// 1h, 90s, 18m30s — reports false rather than a number, because rounding one
+// silently is the same defect as reading the wrong value.
+func wholeMinutes(value string) (int, bool) {
+	m := wholeMinutesRe.FindStringSubmatch(value)
+	if m == nil {
+		return 0, false
+	}
+	minutes, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return minutes, true
+}
+
+// requireWholeMinutes is wholeMinutes with the failure spelled out for whoever
+// wrote the unreadable value.
+func requireWholeMinutes(t *testing.T, value, what string) int {
+	t.Helper()
+
+	minutes, ok := wholeMinutes(value)
+	require.Truef(t, ok,
+		"%s to %q, which is not the whole-minutes shape this guard reads, so it cannot say "+
+			"whether the group's tests fit inside it; write the budget as Nm",
+		what, value)
+	return minutes
 }
 
 // requireDispatched pins the hop between run.sh's flag variable and the call:
@@ -212,18 +529,22 @@ type workflowStep struct {
 	With map[string]yaml.Node `yaml:"with"`
 }
 
-// workflowRunShFlags returns every test/run.sh flag a pull request can
-// actually reach. Read from parsed YAML, not the file's bytes, so a matrix
-// entry that was commented out or moved behind a non-true if: no longer
-// counts as invoked.
-func workflowRunShFlags(t *testing.T, root string) map[string]struct{} {
+// workflowRunShWindows maps every test/run.sh flag a pull request can actually
+// reach to the smallest timeout_minutes bounding a step that runs it. A flag
+// present with a zero window is reachable but unbounded by any window this
+// guard can read, which is why the two facts share one map: an absent key means
+// the group left PR CI, a zero one means its budget cannot be checked.
+//
+// Read from parsed YAML, not the file's bytes, so a matrix entry that was
+// commented out or moved behind a non-true if: no longer counts as invoked.
+func workflowRunShWindows(t *testing.T, root string) map[string]int {
 	t.Helper()
 
 	dir := filepath.Join(root, ".github", "workflows")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 
-	flags := map[string]struct{}{}
+	windows := map[string]int{}
 	var parsed int
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "ml") {
@@ -244,18 +565,23 @@ func workflowRunShFlags(t *testing.T, root string) map[string]struct{} {
 			if notProvenTrue(job.If) {
 				continue
 			}
-			collectRunShFlags(job, flags)
+			collectRunShWindows(job, windows)
 		}
 	}
 	require.NotZero(t, parsed, "no workflow files found under %s", dir)
-	return flags
+	return windows
 }
 
-// collectRunShFlags adds this job's run.sh flags, from the step commands
-// themselves and from the matrix entries those commands interpolate.
-func collectRunShFlags(job workflowJob, flags map[string]struct{}) {
-	var invokesRunSh bool
-	var stepWords []string
+// collectRunShWindows records the window bounding every flag one job's run.sh
+// steps can be handed, including the ones its matrix interpolates in.
+func collectRunShWindows(job workflowJob, windows map[string]int) {
+	var matrixFlags []string
+	for _, entry := range job.Strategy.Matrix.Include {
+		for _, v := range entry {
+			matrixFlags = append(matrixFlags, flagsIn(scalar(&v))...)
+		}
+	}
+
 	for _, step := range job.Steps {
 		if notProvenTrue(step.If) {
 			continue
@@ -264,32 +590,49 @@ func collectRunShFlags(job workflowJob, flags map[string]struct{}) {
 		for _, v := range step.With {
 			commands = append(commands, scalar(&v))
 		}
+
+		var runsRunSh bool
+		// Cloned: appending to the matrix flags in place would leak this step's
+		// flags into every later step's list.
+		stepFlags := append([]string(nil), matrixFlags...)
 		for _, c := range commands {
-			if !strings.Contains(c, "run.sh") {
+			if strings.Contains(c, "run.sh") {
+				runsRunSh = true
+			}
+			stepFlags = append(stepFlags, flagsIn(c)...)
+		}
+		if !runsRunSh {
+			continue
+		}
+
+		// A timeout_minutes written as a `${{ }}` expression is a window this
+		// guard cannot read. Recording zero makes the group it covers fail as
+		// "no window found" rather than pass on an unread number.
+		var minutes int
+		if raw, ok := step.With["timeout_minutes"]; ok {
+			minutes, _ = strconv.Atoi(scalar(&raw))
+		}
+		for _, flag := range stepFlags {
+			existing, seen := windows[flag]
+			if !seen {
+				windows[flag] = minutes
 				continue
 			}
-			invokesRunSh = true
-			stepWords = append(stepWords, strings.Fields(c)...)
-		}
-	}
-	if !invokesRunSh {
-		return
-	}
-
-	for _, w := range stepWords {
-		if strings.HasPrefix(w, "--") {
-			flags[w] = struct{}{}
-		}
-	}
-	for _, entry := range job.Strategy.Matrix.Include {
-		for _, v := range entry {
-			for _, w := range strings.Fields(scalar(&v)) {
-				if strings.HasPrefix(w, "--") {
-					flags[w] = struct{}{}
-				}
+			if minutes > 0 && (existing == 0 || minutes < existing) {
+				windows[flag] = minutes
 			}
 		}
 	}
+}
+
+func flagsIn(command string) []string {
+	var flags []string
+	for _, w := range strings.Fields(command) {
+		if strings.HasPrefix(w, "--") {
+			flags = append(flags, w)
+		}
+	}
+	return flags
 }
 
 // triggersOnPullRequest reads the `on:` key in each of its three legal shapes.
@@ -315,7 +658,9 @@ func triggersOnPullRequest(on *yaml.Node) bool {
 	return false
 }
 
-// notProvenTrue reports whether an if: might not hold on a pull request; a
+// notProvenTrue reports whether an if: might not hold on a pull request, which
+// is how a job or step is kept in the file while being taken out of PR CI.
+// Anything other than an absent or literally-true condition counts, because a
 // condition like github.event_name == 'schedule' takes the group out of every
 // PR run just as effectively as a literal false.
 func notProvenTrue(expr string) bool {

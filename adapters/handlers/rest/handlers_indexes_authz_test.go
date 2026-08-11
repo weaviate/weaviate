@@ -203,38 +203,25 @@ func TestUpdateIndexAuthorization(t *testing.T) {
 func TestGetIndexesAuthorization(t *testing.T) {
 	principal := &models.Principal{Username: "u1"}
 
-	// Real authorizers wrap the denial (e.g. "rbac:" prefix); a bare denial
-	// alone would keep this arm green while production refusals came back 500.
-	denials := []struct {
-		name string
-		err  func() error
-	}{
-		{"a bare denial", func() error {
-			return authzerrors.NewForbidden(principal, authorization.READ,
-				authorization.CollectionsMetadata("Movies")...)
-		}},
-		{"a denial wrapped the way the real authorizers wrap it", func() error {
-			return forbidden(principal, authorization.READ, authorization.CollectionsMetadata("Movies")[0])
-		}},
-	}
+	// The denial arrives wrapped, the way both real authorizers wrap it
+	// ("rbac:" / "adminlist:" prefix). The bare form cannot fail on its own:
+	// any unwrapping regression reddens this arm first. The sibling PUT test
+	// keeps the bare-vs-wrapped pair as the documentary row for the trap.
+	t.Run("an unauthorized caller is refused before anything behind the check runs", func(t *testing.T) {
+		denied := forbidden(principal, authorization.READ, authorization.CollectionsMetadata("Movies")[0])
+		f := newAuthzSubmitFixture(t, denied)
 
-	for _, denial := range denials {
-		t.Run("an unauthorized caller is refused before anything behind the check runs: "+denial.name, func(t *testing.T) {
-			denied := denial.err()
-			f := newAuthzSubmitFixture(t, denied)
+		responder := getIndexesStatus(f.handlers)
 
-			responder := getIndexesStatus(f.handlers)
+		// The task-list read is the observable work behind this route's
+		// check; the allow arm below proves it does fire when admitted.
+		require.Zerof(t, f.tasks.lists,
+			"a refused caller made the handler read the cluster's task list")
 
-			// The task-list read is the observable work behind this route's
-			// check; the allow arm below proves it does fire when admitted.
-			require.Zerof(t, f.tasks.lists,
-				"a refused caller made the handler read the cluster's task list")
-
-			refused, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
-			require.Truef(t, ok, "a caller without read_collections must be refused with 403, got %T", responder)
-			require.Equal(t, denied.Error(), errorMessage(t, refused.Payload))
-		})
-	}
+		refused, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
+		require.Truef(t, ok, "a caller without read_collections must be refused with 403, got %T", responder)
+		require.Equal(t, denied.Error(), errorMessage(t, refused.Payload))
+	})
 
 	// A check that fails for a reason other than "denied" must not be read as a
 	// grant, and must stop the handler in the same place.

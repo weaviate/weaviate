@@ -177,17 +177,6 @@ func formatProbes(probes []reindexProbe) string {
 	return strings.Join(lines, "\n")
 }
 
-// localBackupStatus reads status via the process-global client (the single node under test).
-func localBackupStatus(t *testing.T, backend, backupID string) func() (string, bool) {
-	return func() (string, bool) {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
-		if err != nil || resp == nil || resp.Payload == nil || resp.Payload.Status == nil {
-			return "", false
-		}
-		return *resp.Payload.Status, true
-	}
-}
-
 // backupSnapshot is the whole status payload, not just the status string. The
 // whole-window guard needs the server-stamped capture window and the failure
 // reason to tell a migration admitted inside the window from one admitted
@@ -201,7 +190,17 @@ type backupSnapshot struct {
 
 func (s backupSnapshot) terminal() bool { return backupTerminal(s.status) }
 
-// localBackupSnapshot is localBackupStatus with the timestamps kept.
+// localBackupStatus reads status via the process-global client (the single node
+// under test).
+func localBackupStatus(t *testing.T, backend, backupID string) func() (string, bool) {
+	snapshotOf := localBackupSnapshot(t, backend, backupID)
+	return func() (string, bool) {
+		snap, ok := snapshotOf()
+		return snap.status, ok
+	}
+}
+
+// localBackupSnapshot reads the whole status payload off the same endpoint.
 func localBackupSnapshot(t *testing.T, backend, backupID string) func() (backupSnapshot, bool) {
 	return func() (backupSnapshot, bool) {
 		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")

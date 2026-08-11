@@ -69,9 +69,9 @@ func TestBackupGateRefusalsLogCollectionAndProperty(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h := submissionHandlers(t, &raceTaskService{}, perNodeProber{})
-			logger, hook := logrustest.NewNullLogger()
-			h.appState.Logger = logger
+			// Neither refusal reads the schema, the DB or the authorizer, so
+			// the gate-only fixture is the narrowest one that reaches them.
+			h, hook := gateHandlers(nil, fixtureNode)
 
 			responder := tc.refuse(h)
 			require.NotNil(t, responder, "a busy slot must refuse")

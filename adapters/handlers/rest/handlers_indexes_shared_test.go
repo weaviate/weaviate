@@ -187,6 +187,40 @@ func cancelFixture(t *testing.T, prober reindexCleanupProber) (*indexesHandlers,
 	return h, svc
 }
 
+// The two shapes a rolling upgrade produces for a reindex task payload. Both
+// are why every gate reads a payload through [db.DecodeReindexTaskPayload]
+// rather than json.Unmarshal, and both are pinned by
+// TestMalformedPayloadFixturesKeepTheirShape below.
+
+// retypedFieldPayload is a newer node shipping unitToShard as a string: the
+// full decoder gives up, the collection is still perfectly readable.
+func retypedFieldPayload(collection string) []byte {
+	return []byte(`{"collection":"` + collection + `","unitToShard":"a-newer-node-changed-this-shape"}`)
+}
+
+// renamedFieldPayload is a newer node renaming the collection field. Go
+// ignores the unknown key, so this decodes without error into an empty
+// collection — the shape a gate that trusts the decoder's silence misreads as
+// a free shard.
+func renamedFieldPayload(collection string) []byte {
+	return []byte(`{"collektion":"` + collection + `","unitToShard":{"u1":"shard1"}}`)
+}
+
+// Each fixture above only means what its callers assume while it decodes this
+// way. A payload change that starts rejecting the renamed shape would
+// otherwise leave every case built on it passing for the wrong reason.
+func TestMalformedPayloadFixturesKeepTheirShape(t *testing.T) {
+	var probe db.ReindexTaskPayload
+	require.Error(t, json.Unmarshal(retypedFieldPayload("MyClass"), &probe),
+		"the retyped-field shape has to defeat the full decoder")
+
+	probe = db.ReindexTaskPayload{}
+	require.NoError(t, json.Unmarshal(renamedFieldPayload("MyClass"), &probe),
+		"the renamed-field shape has to decode cleanly, or it is not the trap it stands for")
+	require.Empty(t, probe.Collection,
+		"...and it has to leave the collection empty, which is what the decoder alone cannot see")
+}
+
 func errorMessage(t *testing.T, payload *models.ErrorResponse) string {
 	t.Helper()
 	require.NotNil(t, payload)
