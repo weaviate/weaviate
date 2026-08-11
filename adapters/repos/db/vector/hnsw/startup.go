@@ -530,14 +530,6 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		return
 	}
 
-	// A prefill registered after Shutdown would never be cancelled: stopPrefill has
-	// already run and only sees prefills registered before it. PostStartup can still
-	// arrive that late — dynamic's flat->hnsw upgrade calls it on its own context,
-	// which a shard shutdown does not cancel.
-	if h.shutdownCtx.Err() != nil {
-		return
-	}
-
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
@@ -545,13 +537,21 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	// Registered here rather than inside the goroutine below: stopPrefill must be
-	// able to observe this prefill the moment prefillCache returns. Cancelling and
-	// waiting keeps a scan cursor from outliving the cache or the lsmkv store — the
-	// shard-drop path never cancels the PostStartup ctx before closing segments.
+	// Registered before the goroutine starts, and under the lifecycle lock: a prefill
+	// that Shutdown or Drop cannot see is one that outlives the cache and the lsmkv
+	// store it reads. PostStartup can arrive after teardown — dynamic's flat->hnsw
+	// upgrade calls it on its own context, which a shard shutdown does not cancel,
+	// and Drop never cancels shutdownCtx at all — so refusing to start is the only
+	// safe answer once stopPrefill has run.
 	prefillCtx, cancel := context.WithCancel(ctx)
-	h.prefillCancel.Store(&cancel)
-	h.prefillWG.Add(1)
+	if !h.registerPrefill(cancel) {
+		cancel()
+		h.logger.WithFields(logrus.Fields{
+			"action":   "hnsw_vector_cache_prefill",
+			"index_id": h.id,
+		}).Debug("skipping vector cache prefill: index is shutting down")
+		return
+	}
 
 	prefillCacheFunc := func() {
 		defer h.prefillWG.Done()

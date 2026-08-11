@@ -232,3 +232,69 @@ func TestPrefillCancelPropagatesFromCallerContext(t *testing.T) {
 	waitFor(t, stopPrefillAsync(h), 10*time.Second,
 		"canceling the caller context did not stop the prefill")
 }
+
+// TestPrefillRefusedAfterStop is the teardown-ordering contract: once stopPrefill has
+// run, no later prefill may start. Drop reaches this case directly — it calls
+// stopPrefill but never cancels shutdownCtx, so a PostStartup arriving afterwards
+// (dynamic's flat->hnsw upgrade drives one on its own context) has nothing in the
+// caller's context telling it the index is gone. A prefill that started here would
+// scan an lsmkv store whose segments Drop has already closed.
+func TestPrefillRefusedAfterStop(t *testing.T) {
+	const n = 200
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i), float32(i) + 1}, nil)
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := newLifecycleTestIndex(t, c, n)
+	h.store = store
+	h.waitForCachePrefill = true // a started prefill would run to completion inline
+	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
+
+	h.stopPrefill() // stands in for Drop, which does not cancel shutdownCtx
+	h.prefillCache(context.Background())
+
+	require.Equal(t, int64(0), c.CountVectors(),
+		"a prefill started after stopPrefill would read a store the caller is closing")
+	require.False(t, h.cachePrefilled.Load(), "a refused prefill must not claim to have run")
+}
+
+// TestPrefillRegistrationSerializedWithStop: the check for "already stopped" and the
+// registration that follows must be one atomic step. A stopPrefill landing between
+// them observes an empty WaitGroup and returns while the prefill goes on to start, so
+// this drives the two concurrently and requires that they cannot both win.
+func TestPrefillRegistrationSerializedWithStop(t *testing.T) {
+	const n = 100
+	logger, _ := test.NewNullLogger()
+
+	for i := 0; i < 200; i++ {
+		c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+		c.Grow(n)
+		// no store: a prefill that does start takes the serial by-id path and errors
+		// on the first cache miss, so it cannot mask a refusal by filling the cache
+		h := newLifecycleTestIndex(t, c, n)
+		h.waitForCachePrefill = false
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		enterrors.GoWrapper(func() { defer wg.Done(); h.prefillCache(context.Background()) }, logger)
+		enterrors.GoWrapper(func() { defer wg.Done(); h.stopPrefill() }, logger)
+		wg.Wait()
+
+		// Either the prefill registered first — stopPrefill then cancelled and waited
+		// for it — or it was refused and never ran. What must never happen is
+		// stopPrefill returning while a prefill is still touching the cache.
+		h.prefillMu.Lock()
+		require.True(t, h.prefillStopped, "stopPrefill must leave registration closed")
+		h.prefillMu.Unlock()
+
+		h.stopPrefill() // idempotent
+		require.Equal(t, int64(0), c.CountVectors())
+	}
+}
