@@ -224,7 +224,7 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 			})
 		)
 
-		err := h.manager.CancelTask(c)
+		err := h.manager.CancelTask(c, false)
 		require.ErrorContains(t, err, "does not exist")
 	})
 
@@ -254,7 +254,7 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		err := h.manager.AddTask(addCmd, version)
 		require.NoError(t, err)
 
-		err = h.manager.CancelTask(cancelCmd)
+		err = h.manager.CancelTask(cancelCmd, false)
 		require.ErrorContains(t, err, "does not exist")
 	})
 
@@ -284,10 +284,10 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		err := h.manager.AddTask(addCmd, version)
 		require.NoError(t, err)
 
-		err = h.manager.CancelTask(cancelCmd)
+		err = h.manager.CancelTask(cancelCmd, false)
 		require.NoError(t, err)
 
-		err = h.manager.CancelTask(cancelCmd)
+		err = h.manager.CancelTask(cancelCmd, false)
 		require.ErrorContains(t, err, "no longer running")
 	})
 }
@@ -397,7 +397,7 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		err := h.manager.AddTask(addCmd, version)
 		require.NoError(t, err)
 
-		err = h.manager.CancelTask(cancelCmd)
+		err = h.manager.CancelTask(cancelCmd, false)
 		require.NoError(t, err)
 
 		err = h.manager.CleanUpTask(cleanUpCmd)
@@ -456,7 +456,7 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 		Id:                    "task1",
 		Version:               10,
 		CancelledAtUnixMillis: now.Add(time.Minute).UnixMilli(),
-	})))
+	}), false))
 
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns1",
@@ -473,7 +473,7 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 		NodeId:               "local-node",
 		UnitId:               "su-1",
 		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
-	})))
+	}), false))
 
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns2",
@@ -604,7 +604,7 @@ func completeUnit(t *testing.T, h *testHarness, ns, id string, version uint64, n
 		NodeId:               node,
 		UnitId:               unitID,
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
 	require.NoError(t, err)
 }
 
@@ -619,7 +619,7 @@ func failUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node,
 		UnitId:               unitID,
 		Error:                errMsg,
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
 	require.NoError(t, err)
 }
 
@@ -839,7 +839,7 @@ func TestManager_RecordUnitCompletion_RespectsExistingNodeID(t *testing.T) {
 		Namespace: "ns", Id: "task1", Version: version,
 		NodeId: "node-2", UnitId: "su-1",
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
 	require.ErrorContains(t, err, "belongs to node node-1, not node-2")
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
@@ -868,7 +868,7 @@ func TestManager_RecordUnitCompletion_Failures(t *testing.T) {
 		err := h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 			Namespace: "ns", Id: "nonexistent", Version: 1,
 			NodeId: "node-1", UnitId: "su-1", FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
+		}), false)
 		require.ErrorContains(t, err, "does not exist")
 	})
 
@@ -880,7 +880,7 @@ func TestManager_RecordUnitCompletion_Failures(t *testing.T) {
 		err := h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 			Namespace: "ns", Id: "task1", Version: version,
 			NodeId: "node-1", UnitId: "su-nonexistent", FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
+		}), false)
 		require.ErrorContains(t, err, "does not exist")
 	})
 
@@ -893,7 +893,7 @@ func TestManager_RecordUnitCompletion_Failures(t *testing.T) {
 		err := h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 			Namespace: "ns", Id: "task1", Version: version,
 			NodeId: "node-1", UnitId: "su-1", FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
+		}), false)
 		require.ErrorContains(t, err, "already terminal")
 	})
 }
@@ -1258,7 +1258,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 			NodeId:               n,
 			UnitId:               "u-" + n,
 			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 	}
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
@@ -1272,7 +1272,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 			NodeId:            n,
 			Success:           true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 	}
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
@@ -1310,7 +1310,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 			NodeId:               n,
 			UnitId:               "u-" + n,
 			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 	}
 
 	// node-1 acks success.
@@ -1321,7 +1321,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
@@ -1336,7 +1336,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 		Success:           false,
 		Error:             "synthetic swap failure",
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
@@ -1365,7 +1365,7 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 		NodeId:               "node-1",
 		UnitId:               "u",
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	// First ack: success.
 	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
@@ -1375,7 +1375,7 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success)
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
@@ -1390,7 +1390,7 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 		Success:           false,
 		Error:             "stale retry that must NOT flip success",
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success,
 		"first ack wins — duplicate must not flip success to failure")
@@ -1415,7 +1415,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		NodeId:               "node-1",
 		UnitId:               "u",
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	// Drive the task to FINISHED via MarkTaskFinalized.
 	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
@@ -1425,7 +1425,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
 		Namespace:             "ns",
 		Id:                    "task1",
@@ -1448,7 +1448,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		Success:           false,
 		Error:             "stale ack after FINISHED",
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status,
@@ -1467,7 +1467,7 @@ func TestManager_MarkTaskFailed(t *testing.T) {
 			Version:            version,
 			Error:              errMsg,
 			FailedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
+		}), false)
 	}
 
 	t.Run("transitions SWAPPING to FAILED and records the error", func(t *testing.T) {
@@ -1546,7 +1546,7 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 			NodeId:               n,
 			UnitId:               "u-" + n,
 			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 	}
 	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 		Namespace:         "ns",
@@ -1555,7 +1555,7 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	snap, err := h.manager.Snapshot()
 	require.NoError(t, err)
@@ -2005,7 +2005,7 @@ func drivePreparing(t *testing.T, h *testHarness, ns, id string, version uint64,
 			NodeId:               n,
 			UnitId:               "u-" + n,
 			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 	}
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusPreparing, tasks[ns][0].Status,
@@ -2034,7 +2034,7 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 			NodeId:            n,
 			Success:           true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		}), false))
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusPreparing, tasks["ns"][0].Status,
 			"PREPARING → SWAPPING must NOT fire until EVERY expected node has acked")
@@ -2048,7 +2048,7 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 		NodeId:            "node-3",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
@@ -2083,7 +2083,7 @@ func TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed(t *test
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusPreparing, tasks["ns"][0].Status,
 		"one success ack does not lift the barrier — both nodes still owe an ack")
@@ -2098,7 +2098,7 @@ func TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed(t *test
 		Success:           false,
 		Error:             "synthetic prep failure",
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
@@ -2126,7 +2126,7 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 		NodeId:            "node-1",
 		Success:           true,
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success)
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
@@ -2142,7 +2142,7 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 		Success:           false,
 		Error:             "this must be ignored",
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	}), false))
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success,
 		"duplicate ack must not flip recorded success → failure")
@@ -2177,7 +2177,7 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 					NodeId:            n,
 					Success:           true,
 					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				}), false))
 			}
 
 			tasks, _ := h.manager.ListDistributedTasks(context.Background())
@@ -2267,7 +2267,7 @@ func TestManager_CancelTask_AcceptsEveryNonTerminalStatus(t *testing.T) {
 				Id:                    id,
 				Version:               version,
 				CancelledAtUnixMillis: cancelledAt.UnixMilli(),
-			})))
+			}), false))
 
 			task := h.manager.tasks[ns][id]
 			require.Equal(t, TaskStatusCancelled, task.Status,
@@ -2291,7 +2291,7 @@ func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
 				Id:                    id,
 				Version:               version,
 				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			}))
+			}), false)
 			require.Error(t, err)
 			require.Equal(t, status, h.manager.tasks[ns][id].Status)
 		})

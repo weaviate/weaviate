@@ -1034,8 +1034,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 			NodeId:            "node-3",
 			Success:           true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}),
-	))
+		}), false))
 	restoredTasks, err = freshManager.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, TaskStatusSwapping, restoredTasks[h.namespace][0].Status,
