@@ -414,7 +414,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema() error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -428,10 +428,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
+	return s.db.ReloadLocalDB(context.Background(), cs)
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
