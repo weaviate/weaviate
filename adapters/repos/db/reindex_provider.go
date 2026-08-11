@@ -1808,9 +1808,16 @@ func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool
 
 // hasLocalPostMergeState reports whether any shard of the task on this
 // node carries a tracker dir the migration already merged or tidied.
-// Local by construction: lookupShardByName only resolves shards this node
-// hosts.
+// Local by construction: only shards in this index's map are read, and
+// they are read without being loaded — the tracker dir sits at a path this
+// node can join, so a cold tenant stays cold.
 func (p *ReindexProvider) hasLocalPostMergeState(payload *ReindexTaskPayload) bool {
+	// Only semantic migrations write the tracker dirs
+	// hasCompletedMigrationTracker looks for, so there is nothing to walk
+	// the shards for.
+	if !IsSemanticMigration(payload.MigrationType) {
+		return false
+	}
 	if p.db == nil {
 		return false
 	}
@@ -1818,16 +1825,30 @@ func (p *ReindexProvider) hasLocalPostMergeState(payload *ReindexTaskPayload) bo
 	if idx == nil {
 		return false
 	}
-	for _, shardName := range uniqueShardsFromPayload(payload) {
-		shard, err := lookupShardByName(idx, shardName)
-		if err != nil {
+	shards := uniqueShardsFromPayload(payload)
+	if len(shards) == 0 {
+		return false
+	}
+	// One walk for the whole payload: a per-name lookup walks the shard map
+	// again for every tenant the payload names.
+	hosted := make(map[string]bool, len(shards))
+	for _, shardName := range shards {
+		hosted[shardName] = false
+	}
+	if err := idx.ForEachShard(func(name string, _ ShardLike) error {
+		if _, wanted := hosted[name]; wanted {
+			hosted[name] = true
+		}
+		return nil
+	}); err != nil {
+		return false
+	}
+	for _, shardName := range shards {
+		if !hosted[shardName] {
 			continue
 		}
-		concrete, err := unwrapShard(context.Background(), shard)
-		if err != nil {
-			continue
-		}
-		if hasCompletedMigrationTracker(concrete.pathLSM(), payload.MigrationType, payload.Properties) {
+		lsmPath := shardPathLSM(idx.path(), shardName)
+		if hasCompletedMigrationTracker(lsmPath, payload.MigrationType, payload.Properties) {
 			return true
 		}
 	}
