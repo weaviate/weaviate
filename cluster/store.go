@@ -1005,63 +1005,33 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
-const (
-	loadNow          = false
-	loadInBackground = true
-)
-
-// reloadDBFromSchema opens the local shards the schema names.
+// reloadDBFromSchema makes the local DB match the schema, repeating while
+// commands keep deferring their DB writes to it.
 //
-// Apply passes loadInBackground: it runs on raft's FSM goroutine, and a load of
-// minutes to hours there stalls every other command, including the
-// configuration entries a bootstrap join needs, so a cold start times out and
-// kills the node. Restore passes loadNow: raft requires it not to overlap other
-// commands, and the index bookkeeping below must land before raft.NewRaft
-// returns.
-func (st *Store) reloadDBFromSchema(background bool) {
-	if background {
-		if !st.dbLoad.begin() {
-			return
-		}
-		enterrors.GoWrapper(func() {
-			defer st.dbLoad.wg.Done()
-			loaded := true
-			for {
-				loaded = st.loadDBFromSchema() && loaded
-				deletes, done := st.dbLoad.finish()
-				if done {
-					break
-				}
-				loaded = st.dropDeferredDeletes(deletes) && loaded
-				st.log.Info("applying schema changes that landed while the local DB loaded")
-			}
-			if !loaded {
-				st.reportIncompleteLoad()
-			}
-			st.dbLoaded.Store(true)
-		}, st.log)
-		return
-	}
+// The caller chooses how to run it. Restore calls it directly, since raft
+// requires it not to overlap other commands. Apply hands it to dbLoad.start,
+// because Apply is raft's
+// FSM goroutine and a load of minutes to hours there stalls every other
+// command, bootstrap joins included, so a cold start times out and kills the
+// node.
+func (st *Store) reloadDBFromSchema() {
+	loaded := true
+	for {
+		loaded = st.loadDBFromSchema() && loaded
 
-	if !st.loadDBFromSchema() {
+		// Nothing deferred, so no further pass is owed. On the Restore path
+		// nothing can have deferred at all, and this breaks on the first turn.
+		deletes, done := st.dbLoad.finish()
+		if done {
+			break
+		}
+		loaded = st.dropDeferredDeletes(deletes) && loaded
+		st.log.Info("applying schema changes that landed while the local DB loaded")
+	}
+	if !loaded {
 		st.reportIncompleteLoad()
 	}
 	st.dbLoaded.Store(true)
-
-	// Only a restore before raft exists recomputes this; a runtime restore
-	// leaves it alone.
-	if st.raft != nil {
-		return
-	}
-
-	lastLogApplied, err := st.LastAppliedCommand()
-	if err != nil {
-		st.log.Warnf("can't detect the last applied command, setting the lastLogApplied to 0: %v", err)
-	}
-
-	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
-	st.lastAppliedIndexToDB.Store(val)
-	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 // reportIncompleteLoad records that the DB does not match the schema.

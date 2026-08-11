@@ -132,7 +132,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema(loadInBackground)
+			st.dbLoad.start(st.reloadDBFromSchema, st.log)
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,

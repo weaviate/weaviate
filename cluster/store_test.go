@@ -12,10 +12,12 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"sync"
@@ -36,6 +38,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	clustermocks "github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -1714,7 +1717,7 @@ func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
 	returned := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(returned)
-		st.reloadDBFromSchema(loadInBackground)
+		st.dbLoad.start(st.reloadDBFromSchema, st.log)
 	}, ms.logger)
 
 	select {
@@ -1739,11 +1742,7 @@ func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
 }
 
 // TestStoreApplyIsSchemaOnlyWhileLoading pins the barrier that replaces the
-// serialisation the FSM goroutine used to give for free. The loader works from
-// a snapshot taken when it started; a command mutating the DB against that
-// stale view resurrects tenants it is about to re-create and drops ones it has
-// never seen. Drives a real command through Apply, so deleting the check there
-// fails it.
+// serialisation the FSM goroutine used to give for free.
 func TestStoreApplyIsSchemaOnlyWhileLoading(t *testing.T) {
 	t.Parallel()
 
@@ -1794,28 +1793,50 @@ func TestStoreApplyIsSchemaOnlyWhileLoading(t *testing.T) {
 // bookkeeping must be in place before it returns, and raft requires Restore not
 // to overlap other commands.
 func TestStoreRestorePathStaysSynchronous(t *testing.T) {
-	t.Parallel()
+	source := NewMockStore(t, "restore-sync-source", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	sink := &clustermocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
 
-	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
-	st := ms.store
-	require.Nil(t, st.raft, "precondition: Restore runs before raft is constructed")
+	target := NewMockStore(t, "restore-sync-target", utils.MustGetFreeTCPPort())
+	target.store.init()
+	require.Nil(t, target.store.raft, "precondition: Restore runs before raft is constructed")
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
 
-	loaded := false
-	ms.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
-		loaded = true
-	}).Return()
+	// Hold the load open at the point the real one is slow.
+	loading, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	target.indexer.ReloadLocalDBHook = func() {
+		once.Do(func() { close(loading) })
+		<-release
+	}
 
-	st.reloadDBFromSchema(loadNow)
+	restored := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		restored <- target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes())))
+	}, target.logger)
 
-	require.True(t, loaded, "the Restore path must load before returning")
-	require.True(t, st.dbLoaded.Load(), "dbLoaded must be set before Restore returns")
+	<-loading
+	select {
+	case <-restored:
+		t.Fatal("Restore returned while the local DB was still loading; raft requires the restore not to overlap other commands, and the applied-index bookkeeping must land before raft.NewRaft returns")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(release)
+	require.NoError(t, <-restored)
+	require.True(t, target.store.dbLoaded.Load(), "dbLoaded must be set before Restore returns")
 }
 
 // TestStoreDBLoadHandoverUnderStress hammers the handover to catch interleavings
 // the targeted tests cannot reach. The invariant: a command applied schema-only
-// is always followed by a pass. If it defers and the loader exits anyway, its
-// effect never reaches the DB. The window is a few instructions wide, so it
-// needs volume and -race rather than a fixed sequence.
+// is always followed by a pass.
 func TestStoreDBLoadHandoverUnderStress(t *testing.T) {
 	t.Parallel()
 
@@ -1880,11 +1901,7 @@ func TestStoreDBLoadHandoverUnderStress(t *testing.T) {
 
 // TestStoreDeferredDeleteClassReachesTheDB pins that a class deleted while the
 // background load runs is removed from the DB, with everything the normal
-// delete carries. The pass walks the classes the schema still has, and a
-// deleted class is not among them, so nothing revisits it. The frozen case is
-// the harder half: hasFrozen tells DropClass to clean up cloud storage, and it
-// can only be read while the class is in the schema, which by pass time it is
-// not.
+// delete carries.
 func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 	t.Parallel()
 
@@ -1933,7 +1950,7 @@ func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 				}
 			}).Return()
 
-			st.reloadDBFromSchema(loadInBackground)
+			st.dbLoad.start(st.reloadDBFromSchema, st.log)
 			<-loading
 
 			// Deleted mid-load: the schema drops it, the DB write is deferred.
@@ -1953,18 +1970,22 @@ func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 
 // TestStoreIncompleteLoadStillGoesReady pins the deliberate choice: a load that
 // could not open everything the schema names still reports ready, and says so
-// on a counter. Refusing to go ready is safer, but WaitUntilDBRestored has no
-// timeout of its own, so it would hang the node at startup instead. The counter
-// is what tells us how often this happens before making that trade.
+// on a counter.
 func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 	t.Parallel()
 
-	for _, background := range []bool{loadNow, loadInBackground} {
-		name := "sync"
-		if background {
-			name = "background"
-		}
-		t.Run(name, func(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(st *Store)
+	}{
+		{name: "called directly", run: func(st *Store) { st.reloadDBFromSchema() }},
+		{name: "started in the background", run: func(st *Store) {
+			st.dbLoad.start(st.reloadDBFromSchema, st.log)
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
@@ -1972,7 +1993,7 @@ func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 			ms.indexer.ReloadLocalDBErr = fmt.Errorf("shard did not open")
 			ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 
-			st.reloadDBFromSchema(background)
+			test.run(st)
 
 			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
 				"a partial load must still report ready")

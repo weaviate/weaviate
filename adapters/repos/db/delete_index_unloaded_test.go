@@ -25,12 +25,6 @@ import (
 
 // TestDeleteIndexRemovesDataWhenIndexNotLoaded pins that dropping a class
 // erases its data even when no index for it is live.
-//
-// index.drop is what removes the directory, so with nothing in db.indices the
-// delete used to return nil having done nothing, and the class's shards stayed
-// on disk with no schema entry left to name them. Observed on two of three
-// nodes in a cold-start run: a class deleted while the local DB was still
-// loading, on nodes whose load had failed to build its index.
 func TestDeleteIndexRemovesDataWhenIndexNotLoaded(t *testing.T) {
 	t.Parallel()
 
