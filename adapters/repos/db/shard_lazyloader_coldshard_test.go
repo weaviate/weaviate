@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -343,6 +345,52 @@ func TestGetOrInitShard_InitFailureNamesShard(t *testing.T) {
 	require.ErrorContains(t, err, `init local shard "uninitialized-shard"`)
 	require.ErrorContains(t, err, f.index.ID())
 	require.ErrorContains(t, err, "memory pressure")
+}
+
+// A cold shard answers ObjectCountAsync by listing its objects directory and
+// reading a sidecar per segment. nodeWideMetricsObserver asks every shard every
+// 30 seconds, and a cold shard cannot move that number without loading first,
+// so the answer is cached.
+func TestLazyLoadShard_ObjectCountAsyncCachesColdCount(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "ColdObjectCount", singleShardState())
+
+	for name, shard := range f.coldShards(t) {
+		// Load once so the shard has real segments on disk, then go cold again.
+		require.NoError(t, shard.Load(ctx))
+		require.NoError(t, shard.Shutdown(ctx))
+		require.False(t, shard.isLoaded(), "shard %q should be cold again", name)
+
+		first, err := shard.ObjectCountAsync(ctx)
+		require.NoError(t, err)
+
+		// A second disk read cannot succeed once the objects directory is gone, so
+		// any answer at all proves the count came from the cache.
+		require.NoError(t, os.RemoveAll(path.Join(shard.pathLSM(), helpers.ObjectsBucketLSM)))
+
+		second, err := shard.ObjectCountAsync(ctx)
+		require.NoError(t, err, "shard %q re-read the objects directory", name)
+		require.Equal(t, first, second)
+	}
+}
+
+// Loading drops the cached cold count, because from then on the loaded shard
+// owns the number and writes move it.
+func TestLazyLoadShard_LoadDropsCachedColdCount(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "ColdObjectCountInvalidation", singleShardState())
+
+	for name, shard := range f.coldShards(t) {
+		require.NoError(t, shard.Load(ctx))
+		require.NoError(t, shard.Shutdown(ctx))
+
+		_, err := shard.ObjectCountAsync(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, shard.unloadedCount, "cold read should populate the cache for %q", name)
+
+		require.NoError(t, shard.Load(ctx))
+		require.Nil(t, shard.unloadedCount, "load should drop the cached cold count for %q", name)
+	}
 }
 
 // Resuming maintenance cycles after a backup must not force-load cold shards:

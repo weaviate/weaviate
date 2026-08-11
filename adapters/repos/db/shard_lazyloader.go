@@ -57,9 +57,13 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// unloadedCount caches the object count read off disk while the shard is
+	// cold, which a cold shard cannot change without loading first. nil means
+	// not read yet; Load clears it.
+	unloadedCount    *int64
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -158,6 +162,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	l.shard = shard
 	l.loaded = true
+	// The loaded shard owns the object count from here, and writes move it.
+	l.unloadedCount = nil
 
 	return nil
 }
@@ -241,12 +247,29 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
+	if l.unloadedCount != nil {
+		count := *l.unloadedCount
+		l.mutex.Unlock()
+		return count, nil
+	}
 	l.mutex.Unlock()
+
+	// Read outside the lock: this lists the objects directory and reads a sidecar
+	// per segment, and Load needs the same lock to make progress.
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
+
+	l.mutex.Lock()
+	if !l.loaded {
+		// Caching a count read before a concurrent load would outlive its accuracy.
+		count := objectUsage.Count
+		l.unloadedCount = &count
+	}
+	l.mutex.Unlock()
+
 	return objectUsage.Count, nil
 }
 
