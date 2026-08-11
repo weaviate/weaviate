@@ -1049,9 +1049,9 @@ function run_acceptance_reindex_mt() {
     test/acceptance/reindex_mt
 }
 
-# The single-node half of test/acceptance/reindex_backup is spread over the
-# three groups below. Every filter matches by exact name; a typo runs zero
-# tests and still reports green, which is what
+# test/acceptance/reindex_backup is spread over the four groups below (three
+# single-node, one multi-node). Every filter matches by exact name; a typo runs
+# zero tests and still reports green, which is what
 # TestCIAllowlistCoversEveryTestInThisPackage exists to catch (it has to be
 # listed itself to be able to run).
 #
@@ -1119,7 +1119,10 @@ function run_acceptance_reindex_backup_cluster() {
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
   # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m this budget
   # carries over its floor buys padding for the multi-node cluster, which takes
-  # the longest of the four groups to come up.
+  # the longest of the four groups to come up. The floor is the healthy-path
+  # worst case; the test's placement-retry loop can theoretically push past it
+  # (~41m), which exceeds this budget and the job window alike. Accepted: such a
+  # run fails as a go-test panic with stacks, not silently.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
