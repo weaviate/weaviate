@@ -104,7 +104,7 @@ func TestEnvironmentSetFlushAfter_AllNames(t *testing.T) {
 func TestEnvironmentFlushConflictingValues(t *testing.T) {
 	// if all 3 variable names are used, the newest variable name
 	// should be taken into consideration
-	os.Clearenv()
+	clearEnv(t)
 	t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "18")
@@ -738,14 +738,14 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 
 func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 	t.Run("DefaultVectorDistanceMetricIsEmpty", func(t *testing.T) {
-		os.Clearenv()
+		clearEnv(t)
 		conf := Config{}
 		FromEnv(&conf)
 		require.Equal(t, "", conf.DefaultVectorDistanceMetric)
 	})
 
 	t.Run("NonEmptyDefaultVectorDistanceMetric", func(t *testing.T) {
-		os.Clearenv()
+		clearEnv(t)
 		t.Setenv("DEFAULT_VECTOR_DISTANCE_METRIC", "l2-squared")
 		conf := Config{}
 		FromEnv(&conf)
@@ -772,7 +772,7 @@ func TestEnvironmentDebugEndpointsEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if tt.envSet {
 				t.Setenv("DEBUG_ENDPOINTS_ENABLED", tt.envValue)
 			}
@@ -826,7 +826,7 @@ func TestEnvironmentCORS_Origin(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if len(tt.value) == 1 {
 				os.Setenv("CORS_ALLOW_ORIGIN", tt.value[0])
 			}
@@ -918,7 +918,7 @@ func TestEnvironmentCORS_Methods(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if len(tt.value) == 1 {
 				os.Setenv("CORS_ALLOW_METHODS", tt.value[0])
 			}
@@ -1011,7 +1011,7 @@ func TestEnvironmentCORS_Headers(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if len(tt.value) == 1 {
 				os.Setenv("CORS_ALLOW_HEADERS", tt.value[0])
 			}
@@ -1319,7 +1319,7 @@ func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if len(tt.value) == 1 {
 				t.Setenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE", tt.value[0])
 			}
@@ -2072,7 +2072,7 @@ func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
+			clearEnv(t)
 			if len(tt.envValue) == 1 {
 				t.Setenv("RUNTIME_REINDEX_ENABLED", tt.envValue[0])
 			}
