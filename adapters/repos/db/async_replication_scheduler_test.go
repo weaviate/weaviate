@@ -682,8 +682,8 @@ func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
 	}
 }
 
-// TestTryRebuildHashtreeSerializedByApplyLock: a rebuild attempt must queue behind a running config fan-out, so its enable cannot re-install a stale config.
-func TestTryRebuildHashtreeSerializedByApplyLock(t *testing.T) {
+// TestTryRebuildHashtreeYieldsWhileApplyLockHeld: a rebuild attempt must not queue behind a running config fan-out — it yields immediately with the contention backoff.
+func TestTryRebuildHashtreeYieldsWhileApplyLockHeld(t *testing.T) {
 	sched := newSchedulerForUnitTest(t)
 
 	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
@@ -694,21 +694,128 @@ func TestTryRebuildHashtreeSerializedByApplyLock(t *testing.T) {
 	}
 
 	idx.asyncReplicationApplyLock.Lock()
-	attemptDone := make(chan bool, 1)
-	go func() { attemptDone <- sched.tryRebuildHashtree(s) }()
+	defer idx.asyncReplicationApplyLock.Unlock()
+
+	type attempt struct {
+		retry bool
+		delay time.Duration
+	}
+	attemptDone := make(chan attempt, 1)
+	go func() {
+		retry, delay := sched.tryRebuildHashtree(s)
+		attemptDone <- attempt{retry, delay}
+	}()
 
 	select {
-	case <-attemptDone:
-		t.Fatal("tryRebuildHashtree ran while a config fan-out held the apply lock")
-	case <-time.After(200 * time.Millisecond):
+	case a := <-attemptDone:
+		require.True(t, a.retry)
+		require.Equal(t, asyncRepRebuildContentionBackoff, a.delay)
+		require.Zero(t, s.asyncRepRebuildFailures.Load(), "yield is not a failure")
+	case <-time.After(5 * time.Second):
+		t.Fatal("tryRebuildHashtree queued behind the apply lock instead of yielding")
+	}
+}
+
+// TestTryRebuildHashtreeYieldsToPendingWaiter: a blocking apply-lock acquirer waiting in Lock() makes the attempt abort with the contention backoff instead of running a full rebuild.
+func TestTryRebuildHashtreeYieldsToPendingWaiter(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
 	}
 
-	idx.asyncReplicationApplyLock.Unlock()
+	idx.asyncReplicationApplyWaiters.Store(1)
+
+	retry, delay := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "yield is not a failure")
+}
+
+// TestTryRebuildHashtreeIgnoresShutdownLock: an attempt proceeds into disable→enable while a writer holds shutdownLock — the rebuild neither blocks on nor delays shard teardown locking.
+func TestTryRebuildHashtreeIgnoresShutdownLock(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	type attempt struct {
+		retry bool
+		delay time.Duration
+	}
+	attemptDone := make(chan attempt, 1)
+	go func() {
+		retry, delay := sched.tryRebuildHashtree(s)
+		attemptDone <- attempt{retry, delay}
+	}()
+
 	select {
-	case retry := <-attemptDone:
-		require.True(t, retry, "the enable failure (nil scheduler on the index) must request a retry")
+	case a := <-attemptDone:
+		require.True(t, a.retry, "the enable failure (nil scheduler on the index) must request a retry")
+		require.Positive(t, a.delay)
+		require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "the attempt must reach enableAsyncReplication")
 	case <-time.After(5 * time.Second):
-		t.Fatal("tryRebuildHashtree never completed after the apply lock was released")
+		t.Fatal("tryRebuildHashtree blocked on a held shutdownLock")
+	}
+}
+
+// TestApplyLockFreeWhileRebuildRetries: a schema apply acquires the apply lock promptly while the rebuild loop retries against a shard whose teardown holds shutdownLock.
+func TestApplyLockFreeWhileRebuildRetries(t *testing.T) {
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		sched.rebuildHashtree(s)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool { return s.asyncRepRebuildFailures.Load() >= 1 },
+		5*time.Second, time.Millisecond, "the attempt must run despite the held shutdownLock")
+
+	acquired := make(chan struct{})
+	go func() {
+		idx.asyncReplicationApplyWaiters.Add(1)
+		idx.asyncReplicationApplyLock.Lock()
+		idx.asyncReplicationApplyWaiters.Add(-1)
+		idx.asyncReplicationApplyLock.Unlock()
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a schema apply blocked behind the rebuild while a teardown held shutdownLock")
+	}
+
+	s.shut.Store(true)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry loop did not exit after the shard shut down")
 	}
 }
 
@@ -1064,7 +1171,7 @@ func TestRebuildHashtreeCancelledContext(t *testing.T) {
 		"asyncRepNeedsRebuild must not be set when context is already cancelled at entry")
 }
 
-// TestRebuildHashtreeSkipsWhileShutdownHoldsLock verifies rebuildHashtree blocks on shutdownLock while performShutdown holds the write lock, then skips the re-enable once s.shut is set under it.
+// TestRebuildHashtreeSkipsWhileShutdownHoldsLock verifies rebuildHashtree skips a shard already marked shut promptly, while performShutdown still holds the write lock.
 func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
 	sched := newSchedulerForUnitTest(t)
 
@@ -1075,8 +1182,9 @@ func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
 		shutdownLock: new(sync.RWMutex),
 	}
 
-	// Simulate performShutdown in progress: hold the write lock across the teardown.
+	s.shut.Store(true)
 	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
 
 	done := make(chan struct{})
 	go func() {
@@ -1084,21 +1192,10 @@ func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
 		close(done)
 	}()
 
-	// rebuildHashtree must block on shutdownLock.RLock() while shutdown holds the write lock.
-	select {
-	case <-done:
-		t.Fatal("rebuildHashtree proceeded while performShutdown held shutdownLock")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	// performShutdown sets s.shut under the write lock, then releases.
-	s.shut.Store(true)
-	s.shutdownLock.Unlock()
-
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("rebuildHashtree did not return after shutdown released the lock")
+		t.Fatal("rebuildHashtree blocked on shutdownLock instead of skipping the shut shard")
 	}
 
 	assert.False(t, s.asyncRepNeedsRebuild.Load(), "skip path must not reach enableAsyncReplication")

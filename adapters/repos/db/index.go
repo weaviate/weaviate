@@ -339,9 +339,14 @@ type Index struct {
 	replicationConfigLock sync.RWMutex
 	// serializes applyAsyncReplicationToLoadedShards fan-outs and the single-shard
 	// appliers (resume, scheduler rebuild) so a stale snapshot cannot clobber a
-	// fresher one; each holder snapshots the config AFTER acquiring it
+	// fresher one; each holder snapshots the config AFTER acquiring it.
+	// The scheduler rebuild only ever TryLocks and yields to pending waiters
+	// (asyncReplicationApplyWaiters), so it never delays schema applies or shutdown.
 	asyncReplicationApplyLock sync.Mutex
-	asyncReplicationScheduler *AsyncReplicationScheduler
+	// blocking apply-lock acquirers pending in Lock(); the scheduler rebuild polls
+	// it between steps and aborts so a schema apply never waits on a full rebuild
+	asyncReplicationApplyWaiters atomic.Int32
+	asyncReplicationScheduler    *AsyncReplicationScheduler
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -1021,7 +1026,9 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 // Callers must NOT hold i.replicationConfigLock — the fan-out takes shard mutexes a mid-load shard holds while RLocking the config (ABBA deadlock).
 // Fan-outs are serialized by asyncReplicationApplyLock and snapshot the config at start, so the last one applies the freshest and a stale caller can never clobber a fresher apply.
 func (i *Index) applyAsyncReplicationToLoadedShards(ctx context.Context) error {
+	i.asyncReplicationApplyWaiters.Add(1)
 	i.asyncReplicationApplyLock.Lock()
+	i.asyncReplicationApplyWaiters.Add(-1)
 	defer i.asyncReplicationApplyLock.Unlock()
 
 	i.replicationConfigLock.RLock()
@@ -1748,7 +1755,9 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 	// Serialize with config fan-outs and snapshot under the apply lock, so a stale
 	// rebuild cannot install an old-config tree after a fresher apply. The config
 	// lock itself must not span the call (see applyAsyncReplicationToLoadedShards).
+	i.asyncReplicationApplyWaiters.Add(1)
 	i.asyncReplicationApplyLock.Lock()
+	i.asyncReplicationApplyWaiters.Add(-1)
 	defer i.asyncReplicationApplyLock.Unlock()
 
 	i.replicationConfigLock.RLock()

@@ -44,6 +44,10 @@ const (
 	maxRootPrefilterBatchSize      = config.MaxAsyncReplicationRootPrefilterBatchSize
 
 	asyncRepRebuildMaxBackoff = 30 * time.Minute
+
+	// Retry delay after a rebuild attempt yields (apply lock busy, or a blocking
+	// acquirer started waiting). Yield probes are near-free, so keep this short.
+	asyncRepRebuildContentionBackoff = 1 * time.Second
 )
 
 // asyncRepRebuildBaseBackoff (ns) is the first-failure wait, doubled up to asyncRepRebuildMaxBackoff; atomic so tests can shrink it.
@@ -1559,10 +1563,11 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	s.asyncRepWg.Wait()
 
 	for {
-		if !sched.tryRebuildHashtree(s) {
+		retry, delay := sched.tryRebuildHashtree(s)
+		if !retry {
 			return
 		}
-		timer := time.NewTimer(asyncRepRebuildBackoffDuration(s.asyncRepRebuildFailures.Load()))
+		timer := time.NewTimer(delay)
 		select {
 		case <-sched.ctx.Done():
 			timer.Stop()
@@ -1572,26 +1577,34 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	}
 }
 
-// tryRebuildHashtree performs one disable→enable attempt; retry means back off and try again.
-func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool) {
-	// Serialize with config fan-outs (apply lock first — it is outermost): the
-	// re-read of the shard's base config below must not interleave with a fan-out,
-	// or the rebuild's enable could re-install a stale config in place.
-	s.index.asyncReplicationApplyLock.Lock()
-	defer s.index.asyncReplicationApplyLock.Unlock()
-
-	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
-	// across store teardown): enable either finishes before shutdown or is skipped.
-	// drop() never takes shutdownLock, so this check is best-effort for drop —
-	// the decisive guards are the in-mux ones inside disable/enable.
-	s.shutdownLock.RLock()
-	defer s.shutdownLock.RUnlock()
-
+// tryRebuildHashtree performs one disable→enable attempt; retry means wait delay and try again.
+// The rebuild is the lowest-priority actor: it never blocks a schema apply or a
+// shard shutdown. It only TryLocks the apply lock (a running fan-out wins), yields
+// mid-flight when a blocking acquirer starts waiting, and takes no shutdownLock at
+// all — teardown safety is the same as for drop(): the in-mux shutOrDropped guards
+// inside disable/enable plus mayStopAsyncReplication's fully-initialized capture
+// gate, which keeps a half-built tree out of the shutdown .ht dump.
+func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool, delay time.Duration) {
 	if s.shutOrDropped() {
-		return false
+		return false, 0
 	}
 
-	fail := func(stage string, err error) {
+	// Mutual exclusion with fan-outs while actually holding the lock keeps the
+	// stale-config guarantee: the base-config re-read below cannot interleave
+	// with a fan-out, so the enable cannot re-install a stale config in place.
+	if !s.index.asyncReplicationApplyLock.TryLock() {
+		return true, asyncRepRebuildContentionBackoff
+	}
+	defer s.index.asyncReplicationApplyLock.Unlock()
+
+	if s.shutOrDropped() {
+		return false, 0
+	}
+	if s.index.asyncReplicationApplyWaiters.Load() > 0 {
+		return true, asyncRepRebuildContentionBackoff
+	}
+
+	fail := func(stage string, err error) time.Duration {
 		if sched.logger != nil {
 			sched.logger.
 				WithField("action", "async_replication_rebuild").
@@ -1600,20 +1613,28 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 				Errorf("hashtree rebuild: %s failed: %v", stage, err)
 		}
 		failures := s.asyncRepRebuildFailures.Add(1)
-		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(asyncRepRebuildBackoffDuration(failures)).UnixNano())
+		backoff := asyncRepRebuildBackoffDuration(failures)
+		s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(backoff).UnixNano())
 		sched.metrics.incRebuildFailures()
+		return backoff
 	}
 
-	// disableAsyncReplication does not persist; its scrub is one ReadDir, safe under shutdownLock.RLock.
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
-		fail("stop", err)
-		return true
+		return true, fail("stop", err)
 	}
 
 	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
 	// init-scan goroutine with no cancellable context.
 	if sched.ctx.Err() != nil {
-		return false
+		return false, 0
+	}
+
+	// Yield between steps so a schema apply waits at most the current step, not
+	// the whole rebuild. Aborting here leaves the shard briefly disabled; a
+	// waiting fan-out re-enables it with fresh config, and the retry loop covers
+	// every other waiter. Not a failure: backoff state stays untouched.
+	if s.index.asyncReplicationApplyWaiters.Load() > 0 {
+		return true, asyncRepRebuildContentionBackoff
 	}
 
 	s.asyncReplicationRWMux.RLock()
@@ -1622,23 +1643,23 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 
 	// Re-check after the RLock window.
 	if sched.ctx.Err() != nil {
-		return false
+		return false, 0
 	}
 
 	if err := s.enableAsyncReplication(sched.ctx, baseCfg); err != nil {
-		fail("start", err)
-		return true
+		return true, fail("start", err)
 	}
 
 	// Reset backoff so subsequent height changes start clean.
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// Close() during enable registered against a cancelled scheduler, or a drop raced the enable — disable to clean up (shutdownLock.RLock blocks shutdown but not drop).
+	// Close() during enable registered against a cancelled scheduler, or a
+	// teardown raced the enable — disable to clean up.
 	if sched.ctx.Err() != nil || s.shutOrDropped() {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}
 	}
-	return false
+	return false, 0
 }
