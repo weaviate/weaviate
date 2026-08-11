@@ -384,6 +384,15 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 			require.Contains(t, err.Error(), "C")
 			require.Contains(t, err.Error(), "name")
 			require.Contains(t, err.Error(), string(status))
+			if status.IsRecognized() {
+				require.Contains(t, err.Error(), "cancel it via the reindex REST API")
+				return
+			}
+			// The remedy the message otherwise names is not available for
+			// a status this build cannot classify: the FSM refuses a
+			// cancel for it on every node, so saying "cancel it" would
+			// send the operator down a path that cannot work.
+			require.Contains(t, err.Error(), "cannot classify that status")
 		})
 	}
 }

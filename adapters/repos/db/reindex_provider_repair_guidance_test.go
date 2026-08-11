@@ -22,6 +22,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
 // TestLogOperatorRepairGuidanceOnTornSemanticMigration_* pin the
@@ -223,4 +224,49 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 				hasCompletedMigrationTracker(lsmPath, ReindexTypeChangeTokenization, []string{prop}))
 		})
 	}
+}
+
+// Pins the wiring the ack maps cannot cover: a cancel that lands while
+// the task is still STARTED leaves both maps empty, so the only thing
+// that can raise the alarm is this node's own disk.
+func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.T) {
+	ctx := context.Background()
+	shard, idx := testShard(t, ctx, "C")
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	dirs := migrationDirsForPropertyIndex("title", "searchable")
+	require.NotEmpty(t, dirs)
+	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", dirs[0]+"_1")
+	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+	})
+	require.NoError(t, err)
+
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		nil, logger, "n1", nil, ctx)
+
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1},
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        payload,
+	}))
+
+	var guided bool
+	for _, e := range hook.AllEntries() {
+		if _, ok := e.Data["repair_command"]; ok {
+			guided = true
+		}
+	}
+	require.True(t, guided,
+		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
 }
