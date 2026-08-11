@@ -348,6 +348,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 // drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
 // so a drop does not tear the store down underneath a running request.
+// Note: this will keep drainRefsForDrop running for 30 seconds.
 func (s *Shard) drainRefsForDrop() error {
 	s.dropRequested.Store(true)
 

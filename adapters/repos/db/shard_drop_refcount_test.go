@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -203,7 +204,7 @@ func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
 
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
-			require.ErrorIs(t, mutate(), errAlreadyShutdown)
+			require.ErrorIs(t, mutate(), lsmkv.ErrBucketNotFound)
 		})
 	}
 
