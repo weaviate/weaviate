@@ -14,9 +14,12 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,51 +29,51 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// See [Index.cleanStalePartialReindexState] for why hydrating every cold
+// See [Index.cleanStalePartialReindexState] for why hydrating every unloaded
 // tenant to check it is too expensive to do unconditionally.
-func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
+func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
-		propName  = "category"
-		indexType = "filterable"
-		tracker   = "enable_filterable_category_1"
-		coldShard = "cold-tenant"
+		propName      = "category"
+		indexType     = "filterable"
+		tracker       = "enable_filterable_category_1"
+		unloadedShard = "unloaded-tenant"
 	)
 
 	tests := []struct {
 		name string
-		// staleOnColdShard puts a cancelled run's leftovers on the cold
+		// staleOnUnloadedShard puts a cancelled run's leftovers on the unloaded
 		// shard's disk, which is the only reason to pay for loading it.
-		staleOnColdShard bool
-		cancelBeforeWalk bool
-		wantColdLoaded   bool
-		wantColdTracker  bool
+		staleOnUnloadedShard bool
+		cancelBeforeWalk     bool
+		wantUnloadedLoaded   bool
+		wantUnloadedTracker  bool
 		// wantHotTracker proves the walk stopped: a reached shard's tracker dir
 		// is removed.
 		wantHotTracker bool
 		wantErr        bool
 	}{
 		{
-			name: "a cold shard with nothing to clean is not loaded",
+			name: "an unloaded shard with nothing to clean is not loaded",
 		},
 		{
-			name:             "a cold shard with stale state is loaded and cleaned",
-			staleOnColdShard: true,
-			wantColdLoaded:   true,
+			name:                 "an unloaded shard with stale state is loaded and cleaned",
+			staleOnUnloadedShard: true,
+			wantUnloadedLoaded:   true,
 		},
 		{
-			name:             "a cancelled context stops the walk at the first shard",
-			staleOnColdShard: true,
-			cancelBeforeWalk: true,
-			wantColdTracker:  true,
-			wantHotTracker:   true,
-			wantErr:          true,
+			name:                 "a cancelled context stops the walk at the first shard",
+			staleOnUnloadedShard: true,
+			cancelBeforeWalk:     true,
+			wantUnloadedTracker:  true,
+			wantHotTracker:       true,
+			wantErr:              true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			setupCtx := testCtx()
-			className := "ColdSweep_" + uuid.NewString()[:8]
+			className := "UnloadedSweep_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 			shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
@@ -79,17 +82,17 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 
 			mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig")
 
-			coldLSM := shardPathLSM(idx.path(), coldShard)
-			if tc.staleOnColdShard {
-				mkTrackerDir(t, coldLSM, tracker, "started.mig")
+			unloadedLSM := shardPathLSM(idx.path(), unloadedShard)
+			if tc.staleOnUnloadedShard {
+				mkTrackerDir(t, unloadedLSM, tracker, "started.mig")
 			}
-			cold := NewLazyLoadShard(setupCtx, nil, coldShard, idx, class, idx.centralJobQueue,
+			unloaded := NewLazyLoadShard(setupCtx, nil, unloadedShard, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
-			idx.shards.Store(coldShard, cold)
+			idx.shards.Store(unloadedShard, unloaded)
 			defer func() {
-				if cold.isLoaded() {
-					require.NoError(t, cold.Shutdown(context.Background()))
+				if unloaded.isLoaded() {
+					require.NoError(t, unloaded.Shutdown(context.Background()))
 				}
 			}()
 
@@ -102,12 +105,12 @@ func TestIndexCleanStalePartialReindexStateLeavesColdShardsAlone(t *testing.T) {
 
 			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, nil)
 
-			assert.Equalf(t, tc.wantColdLoaded, cold.isLoaded(),
-				"cold shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
+			assert.Equalf(t, tc.wantUnloadedLoaded, unloaded.isLoaded(),
+				"unloaded shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
 					"duration, so it may only pay for a shard that has something to clean",
-				cold.isLoaded(), tc.wantColdLoaded)
-			assert.Equal(t, tc.wantColdTracker, dirExistsAt(t, coldLSM, ".migrations/"+tracker),
-				"cold shard tracker dir")
+				unloaded.isLoaded(), tc.wantUnloadedLoaded)
+			assert.Equal(t, tc.wantUnloadedTracker, dirExistsAt(t, unloadedLSM, ".migrations/"+tracker),
+				"unloaded shard tracker dir")
 			assert.Equal(t, tc.wantHotTracker, dirExistsAt(t, hot.pathLSM(), ".migrations/"+tracker),
 				"loaded shard tracker dir")
 
@@ -323,7 +326,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 				propName = "category"
 			}
 			ctx := testCtx()
-			className := "ColdSweepEquiv_" + uuid.NewString()[:8]
+			className := "UnloadedSweepEquiv_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
@@ -376,7 +379,7 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 		theirSidecar = "property_category_x__enable_filterable_ingest_1"
 	)
 	ctx := testCtx()
-	class := newTestClassWithProps("ColdSweepPrefix_"+uuid.NewString()[:8], []string{"category"})
+	class := newTestClassWithProps("UnloadedSweepPrefix_"+uuid.NewString()[:8], []string{"category"})
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	shard := shd.(*Shard)
@@ -415,7 +418,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
-			class := newTestClassWithProps("ColdSweepMultiProp_"+uuid.NewString()[:8],
+			class := newTestClassWithProps("UnloadedSweepMultiProp_"+uuid.NewString()[:8],
 				[]string{"a", "b", "c"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
@@ -446,7 +449,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 		tenant    = "loaded-tenant"
 	)
 	ctx := testCtx()
-	class := newTestClassWithProps("ColdSweepLoaded_"+uuid.NewString()[:8], []string{propName})
+	class := newTestClassWithProps("UnloadedSweepLoaded_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	defer shd.Shutdown(context.Background())
@@ -614,27 +617,58 @@ func TestMainBucketForPropertyIndexHasAKnownNameCollision(t *testing.T) {
 func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.T) {
 	const (
 		propName = "category"
-		tenant   = "cold-tenant"
+		tenant   = "unloaded-tenant"
 	)
 	ctx := testCtx()
-	class := newTestClassWithProps("ColdSweepUnknownType_"+uuid.NewString()[:8], []string{propName})
+	class := newTestClassWithProps("UnloadedSweepUnknownType_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	defer shd.Shutdown(context.Background())
 
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+	unloaded := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, cold)
+	idx.shards.Store(tenant, unloaded)
 
 	err := idx.cleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know", nil)
 
 	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
-	require.False(t, cold.isLoaded(),
+	require.False(t, unloaded.isLoaded(),
 		"refusing the input must not cost a hydration of the whole collection")
 	outcome, _ := classifyTerminalSweep(err)
 	require.Equal(t, terminalSweepUnknown, outcome,
 		"an input the node cannot process is not a swept collection")
+}
+
+// strategiesByMigrationDir builds one instance of every migration strategy,
+// keyed by the tracker dir prefix it declares. Checked for completeness against
+// the prefixes the cleanup enumerates, so a strategy missing here is a test
+// failure rather than a silent gap.
+func strategiesByMigrationDir(generation int) map[string]MigrationStrategy {
+	return map[string]MigrationStrategy{
+		MigrationDirSearchableMapToBlockmax:     &MapToBlockmaxStrategy{generation: generation},
+		MigrationDirFilterableRoaringsetRefresh: &RoaringSetRefreshStrategy{generation: generation},
+		MigrationDirPrefixFilterableToRangeable: &FilterableToRangeableStrategy{generation: generation},
+		MigrationDirPrefixSearchableRetokenize:  &SearchableRetokenizeStrategy{generation: generation},
+		MigrationDirPrefixFilterableRetokenize:  &FilterableRetokenizeStrategy{generation: generation},
+		MigrationDirPrefixEnableFilterable:      &EnableFilterableStrategy{generation: generation},
+		MigrationDirPrefixEnableSearchable:      &EnableSearchableStrategy{generation: generation},
+		MigrationDirPrefixRebuildSearchable:     &RebuildSearchableStrategy{generation: generation},
+	}
+}
+
+// sweptMigrationDirPrefixes is every tracker dir prefix the cleanup knows, taken
+// from the production tables a new strategy has to extend to be swept at all.
+func sweptMigrationDirPrefixes() []string {
+	var prefixes []string
+	for _, indexType := range []string{"filterable", "searchable", "rangeable"} {
+		prefixes = append(prefixes, migrationDirPrefixesForIndexType(indexType)...)
+		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
+			prefixes = append(prefixes, classDir)
+		}
+	}
+	slices.Sort(prefixes)
+	return slices.Compact(prefixes)
 }
 
 // Every migration strategy's sidecar suffix must be recognized by
@@ -645,17 +679,14 @@ func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 	// Generation 0 is the canonical post-finalize bucket, which carries no
 	// sidecar suffix at all; live migrations start at 1 (see genSuffix).
 	for _, gen := range []int{1, 7} {
-		strategies := []MigrationStrategy{
-			&MapToBlockmaxStrategy{generation: gen},
-			&RoaringSetRefreshStrategy{generation: gen},
-			&FilterableToRangeableStrategy{generation: gen},
-			&SearchableRetokenizeStrategy{generation: gen},
-			&FilterableRetokenizeStrategy{generation: gen},
-			&EnableFilterableStrategy{generation: gen},
-			&EnableSearchableStrategy{generation: gen},
-			&RebuildSearchableStrategy{generation: gen},
-		}
-		for _, strategy := range strategies {
+		strategies := strategiesByMigrationDir(gen)
+		require.ElementsMatch(t, sweptMigrationDirPrefixes(), slices.Collect(maps.Keys(strategies)),
+			"a strategy the cleanup sweeps but this test does not instantiate would "+
+				"never have its suffix checked against the role words")
+		for prefix, strategy := range strategies {
+			require.Truef(t, strings.HasPrefix(strategy.MigrationDirName(), prefix),
+				"%T is filed under %q but names its tracker dir %q",
+				strategy, prefix, strategy.MigrationDirName())
 			for _, suffix := range []string{
 				strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
 			} {

@@ -228,7 +228,7 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 // preserving widens the scope to include the class-level tracker for
 // indexType: excluded from deletion, but a completed one owns live sidecars
 // of every property, so it must still be in the preserve set (else
-// #10675-shape data loss). Used identically by the cold-shard gate and the
+// #10675-shape data loss). Used identically by the unloaded-shard gate and the
 // sweep so the two can't drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
@@ -241,6 +241,10 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 
 // matches reports whether the tracker dir called name is in this scope. See
 // [migrationDirScope] for why the payload decides and the name only fills in.
+//
+// The retokenize strategies name their dir with a bare property name instead of
+// [migrationDirWithProps]; the two agree only because generateTasks rejects a
+// change-tokenization payload naming anything but a single property.
 func (s migrationDirScope) matches(name string) bool {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {

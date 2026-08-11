@@ -298,6 +298,57 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
+// The marker classifyCloseCause attaches is the contract the REST-side
+// truncation reporting reads, so each cause has to reach the right one.
+func TestClassifyCloseCause(t *testing.T) {
+	unmarked := errors.New("something no close cause covers")
+
+	tests := []struct {
+		name string
+		err  error
+		// wantMarker is the sweep-level error the cause must be tagged with;
+		// nil means the error passes through untouched.
+		wantMarker error
+	}{
+		{
+			name:       "the collection is being deleted",
+			err:        errIndexDropped,
+			wantMarker: ErrCleanupCollectionDropped,
+		},
+		{
+			name:       "the node is shutting down",
+			err:        errIndexShutdown,
+			wantMarker: ErrCleanupSweepTruncated,
+		},
+		{
+			name:       "the index closed without signalling why",
+			err:        errIndexClosed,
+			wantMarker: ErrCleanupSweepTruncated,
+		},
+		{
+			name:       "the walk skipped a shard nothing explained",
+			err:        fmt.Errorf("%w: shard-b", errShardsSkipped),
+			wantMarker: ErrCleanupSweepTruncated,
+		},
+		{
+			name: "an error no close cause covers",
+			err:  unmarked,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyCloseCause(tc.err)
+			require.ErrorIs(t, got, tc.err, "the cause must stay readable under the marker")
+			if tc.wantMarker == nil {
+				require.Equal(t, tc.err, got)
+				return
+			}
+			require.ErrorIs(t, got, tc.wantMarker)
+		})
+	}
+}
+
 // Pins forEachShardStrict against a close landing mid-walk. See its doc for
 // why a whole-index drop is the only deleter that signals a cause.
 func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {

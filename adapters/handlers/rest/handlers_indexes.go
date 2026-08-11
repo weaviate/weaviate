@@ -600,7 +600,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
-		// One cache for the whole loop: every index type asks the same cold shards.
+		// One cache for the whole loop: every index type asks the same unloaded shards.
 		sweep := h.appState.DB.NewStalePartialReindexSweep()
 		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
 			return sweep(ctx, collection, propertyName, indexTypeForCleanup)

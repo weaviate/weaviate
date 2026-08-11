@@ -146,17 +146,18 @@ func classifyCloseCause(err error) error {
 // gone along with it.
 //
 // An unloaded shard is only hydrated if it actually has on-disk state to
-// remove, to avoid hydrating every cold tenant of a large collection.
+// remove, to avoid hydrating every unloaded tenant of a large collection.
 //
-// dirs carries the directory listings the cold-shard gate reads across a run
-// of sweeps; a nil cache reads the filesystem every time.
+// dirs carries the directory listings the unloaded-shard gate reads across a
+// run of sweeps; a nil cache reads the filesystem every time.
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 	dirs *dirNamesCache,
 ) error {
-	// Refused before the walk rather than per shard, so an all-cold collection
-	// doesn't skip every shard and report a clean run for an unprocessed input.
+	// Refused before the walk rather than per shard, so a collection whose shards
+	// are all unloaded doesn't skip every shard and report a clean run for an
+	// unprocessed input.
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
@@ -211,7 +212,8 @@ func (i *Index) cleanStalePartialReindexState(
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
-// one caught mid-transition reads a directory being emptied and fails open.
+// one caught mid-transition reads a directory being emptied and skips it,
+// which the offload is about to make true anyway.
 //
 // A deactivated (COLD) tenant is absent from the map too; its on-disk state
 // is untouched until reactivation (OnAfterLsmInitAsync's stale-sentinel
@@ -332,7 +334,7 @@ func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([
 		}
 		// Cloned, not clipped: clipping only shrinks the header, so the
 		// full-size backing array from listDirNames would stay alive for the
-		// rest of the run — even for a cold tenant's empty filtered listing.
+		// rest of the run — even for an unloaded tenant's empty filtered listing.
 		c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
 		c.cost += len(names) + 1
 	}

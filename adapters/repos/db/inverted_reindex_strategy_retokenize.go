@@ -38,6 +38,9 @@ type SearchableRetokenizeStrategy struct {
 func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	// Include property name + per-migration generation so back-to-back
 	// migrations on the same property don't collide on tracker state.
+	//
+	// One property only, which generateTasks enforces: [migrationDirScope.matches]
+	// rebuilds this name from the payload's whole property list.
 	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 

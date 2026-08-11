@@ -33,6 +33,8 @@ type FilterableRetokenizeStrategy struct {
 }
 
 func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
+	// One property only, which generateTasks enforces: [migrationDirScope.matches]
+	// rebuilds this name from the payload's whole property list.
 	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
