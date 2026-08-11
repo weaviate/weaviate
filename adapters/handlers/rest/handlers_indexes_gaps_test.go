@@ -1184,6 +1184,8 @@ func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
 		"error message must name the offending collection")
 	assert.Contains(t, body.Error[0].Message, "32",
 		"error message must surface the cap and inflight count for operator triage")
+	assert.Contains(t, body.Error[0].Message, "GET /v1/schema/MyCollection/indexes",
+		"every neighbouring refusal hands the caller a route to poll; this one has to as well")
 }
 
 // -----------------------------------------------------------------------------
