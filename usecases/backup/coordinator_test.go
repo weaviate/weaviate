@@ -624,11 +624,14 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 }
 
 type fakeCoordinator struct {
-	selector     fakeSelector
-	client       fakeClient
-	schema       fakeSchemaManger
-	backend      *fakeBackend
-	log          logrus.FieldLogger
+	selector fakeSelector
+	client   fakeClient
+	schema   fakeSchemaManger
+	backend  *fakeBackend
+	log      logrus.FieldLogger
+	// logs is how a test waits for a goroutine whose decision to stop leaves
+	// nothing else behind.
+	logs         *test.Hook
 	nodeResolver NodeResolver
 }
 
@@ -636,8 +639,9 @@ func newFakeCoordinator(resolver NodeResolver) *fakeCoordinator {
 	fc := fakeCoordinator{}
 	fc.backend = newFakeBackend()
 	fc.schema = fakeSchemaManger{}
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
 	fc.log = logger
+	fc.logs = hook
 	fc.nodeResolver = resolver
 	return &fc
 }

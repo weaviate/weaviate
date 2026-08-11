@@ -190,15 +190,26 @@ func newOverlappingRestores(t *testing.T, backupID, node string) *overlappingRes
 // awaitLog waits for a restore goroutine to log msg.
 func (o *overlappingRestores) awaitLog(t *testing.T, msg string) {
 	t.Helper()
+	awaitLog(t, o.logs, msg)
+}
+
+// awaitLog waits for msg to show up in hook, which is how a test waits for a
+// goroutine whose decision leaves no other trace.
+func awaitLog(t *testing.T, hook *test.Hook, msg string) {
+	t.Helper()
 	require.Eventually(t, func() bool {
-		for _, e := range o.logs.AllEntries() {
+		for _, e := range hook.AllEntries() {
 			if e.Message == msg {
 				return true
 			}
 		}
 		return false
-	}, 20*time.Second, 10*time.Millisecond, "no restore goroutine logged %q", msg)
+	}, 20*time.Second, 10*time.Millisecond, "nothing logged %q", msg)
 }
+
+// staleRestoreStopped is what a restore goroutine logs once it finds the slot
+// belongs to somebody else.
+const staleRestoreStopped = "restore no longer holds the slot, stopping without publishing"
 
 // restore starts one restore and returns once its synchronous part is done.
 func (o *overlappingRestores) restore(t *testing.T, backendName, backupID, node string) {
@@ -208,10 +219,14 @@ func (o *overlappingRestores) restore(t *testing.T, backendName, backupID, node 
 		restoreDescriptor(backupID, node), nil))
 }
 
-// finish lets every still-running restore complete and waits for the slot.
+// finish lets every still-running restore complete and joins both goroutines:
+// the one that lost the slot, which ends at its stop log, and the one holding
+// it, which ends by releasing it. Without both the cancelled restore would
+// outlive the test and touch t after it returned.
 func (o *overlappingRestores) finish(t *testing.T) {
 	t.Helper()
 	o.finished.Store(true)
+	o.awaitLog(t, staleRestoreStopped)
 	require.Eventually(t, func() bool { return o.c.lastOp.get().ID == "" },
 		20*time.Second, 10*time.Millisecond, "a restore goroutine never released its slot")
 }
@@ -235,20 +250,31 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 		freed  = make(chan struct{})
 		unfini = func(*StatusRequest) bool { return !o.finished.Load() }
 		fini   = func(*StatusRequest) bool { return o.finished.Load() }
-		// Counting distinct request values seen is how the test knows both
-		// goroutines polled at the same time, not one after the other.
-		mu      sync.Mutex
-		pollers = map[*StatusRequest]struct{}{}
+		// The single participant answers one poll per restore at a time, so an
+		// in-flight count of two is one goroutine each, both inside a poll at
+		// the same moment. Each poll then waits for the other, which is what
+		// turns "both polled" into "both polled together".
+		inFlight    atomic.Int32
+		overlapOnce sync.Once
+		overlapped  = make(chan struct{})
 	)
 	o.client.On("Status", mock.Anything, node, mock.MatchedBy(unfini)).Return(staging, nil).
-		Run(func(args mock.Arguments) {
-			mu.Lock()
-			pollers[args.Get(2).(*StatusRequest)] = struct{}{}
-			mu.Unlock()
+		Run(func(mock.Arguments) {
+			if inFlight.Add(1) == 2 {
+				overlapOnce.Do(func() { close(overlapped) })
+			}
+			defer inFlight.Add(-1)
 			once.Do(func() {
 				cancelAndFreeSlot(t, &o.c.lastOp, backupID)
 				close(freed)
 			})
+			// Bounded: the first poll runs before the retry exists, and both
+			// goroutines re-poll every timeoutNextRound, so waiting forever here
+			// would deadlock the very overlap it is looking for.
+			select {
+			case <-overlapped:
+			case <-time.After(100 * time.Millisecond):
+			}
 		})
 	o.client.On("Status", mock.Anything, node, mock.MatchedBy(fini)).Return(staged, nil)
 
@@ -263,11 +289,7 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 	// goroutine is still polling participants.
 	o.restore(t, backendName, backupID, node)
 
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(pollers) == 2
-	}, 20*time.Second, time.Millisecond,
+	awaitInterference(t, overlapped,
 		"the two restores never polled at the same time, so they never overlapped")
 	o.finish(t)
 }
@@ -321,7 +343,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 
 	// Wait for the stale goroutine to actually reach its publish decision,
 	// otherwise "no write observed" would only mean "not yet".
-	o.awaitLog(t, "restore no longer holds the slot, stopping without publishing")
+	o.awaitLog(t, staleRestoreStopped)
 	require.Never(t, func() bool { return o.backend.storedStatus(t) != backup.Transferring },
 		200*time.Millisecond, 10*time.Millisecond,
 		"the cancelled restore persisted its own outcome as the retry's")
