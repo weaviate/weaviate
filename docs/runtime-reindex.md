@@ -31,9 +31,9 @@ typical journeys it unlocks:
 - Repair a bucket suspected of corruption: `repair-filterable`,
   `repair-searchable` (which is also the Map → Blockmax format
   upgrade), `repair-rangeable`.
-- Cancel a migration that has not yet entered its cluster-wide
-  coordination phase; the cluster cleans up the partial state and the
-  property is back to its pre-submit on-disk shape.
+- Cancel a migration while it is still running its units, before the
+  cluster-wide coordination phase; the cluster cleans up the partial
+  state and the property is back to its pre-submit on-disk shape.
 
 The whole feature is built on top of three substrates:
 
@@ -60,9 +60,9 @@ together into one user-visible verb on `PUT
 > a migration returns `400 Bad Request` with
 > `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
 > The cancel verb and `GET .../indexes` keep working, so a task that was
-> already running stays observable and, until it enters a coordination
-> phase, cancellable (§12). Everything below describes behavior with the
-> flag on.
+> already running stays observable and, while it is still `STARTED`,
+> cancellable (§12). Everything below describes behavior with the flag
+> on.
 >
 > **With the flag off, a replica move can kill a running migration.** The
 > backup path's reindex check is skipped, so a replica move — or any other
@@ -88,7 +88,7 @@ Submit a migration. Body shape selects which one:
 | `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a cancellable task is cancelled (`STARTED`, or a status this build does not recognize), 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled), 409 when the task has already entered a coordination phase (`PREPARING` / `SWAPPING`). See §12. |
+| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a `STARTED` task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled), 409 for every other in-flight status — a coordination phase (`PREPARING` / `SWAPPING`), or one this build does not recognize. See §12. |
 
 Query parameters:
 
@@ -102,7 +102,7 @@ Response shapes:
 
 - `202 Accepted` — for submit, body contains the new task ID. For the
   cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
-  + `taskId` when a cancellable task was cancelled, or `Status: NO_OP`
+  + `taskId` when a `STARTED` task was cancelled, or `Status: NO_OP`
   (no `taskId`) when nothing matched. The cancel verb is idempotent and
   never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with a structured next-step
@@ -112,9 +112,11 @@ Response shapes:
 - `409 Conflict` — two distinct meanings on this operation. On a submit,
   an in-flight task already touches this property; the error names the
   offending task ID and migration type. On the cancel verb, the target
-  task is in a coordination phase (`PREPARING` / `SWAPPING`) and is past
-  the point where cancelling is safe; the error names the task ID and its
-  status, and the caller has to wait for a terminal state.
+  task is in flight but not `STARTED`; the error names the task ID and
+  its status. Either it is in a coordination phase, past the point where
+  cancelling is safe, and the caller waits for a terminal state — or it
+  carries a status this build cannot classify, and it has to terminate on
+  the nodes that can (§12).
 - `429 / 503` — per-collection in-flight cap reached (default 32) or
   cluster-service unavailable.
 
@@ -521,7 +523,7 @@ Key types & contracts:
 
 #### Task status classification
 
-`TaskStatus` is classified by four predicates in
+`TaskStatus` is classified by five predicates in
 [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go):
 
 | Predicate | True for |
@@ -530,6 +532,12 @@ Key types & contracts:
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
 | `IsCoordinationPhase()` | `PREPARING`, `SWAPPING` |
 | `IsRecognized()` | any status this build declares |
+| `IsCancellable()` | `STARTED`, and nothing else |
+
+`IsCancellable()` is the odd one out: a literal comparison rather than a
+classification. It is read inside a RAFT apply, so every binary that will
+ever replay the entry has to reach the same verdict — including one that
+cannot name the status. See §12.
 
 Because `IsActive()` is the negation of `IsTerminal()` rather than a list
 of known in-flight statuses, **a status this build does not recognize
@@ -542,7 +550,8 @@ The default is fail-closed on purpose: reading an unknown status as
 "done" would admit a second migration onto a property a newer node is
 still migrating, and would let the orphan audit and the TTL sweep delete
 live state. It costs availability instead. Until such a task reaches a
-terminal status or is cancelled, the node:
+terminal status — which only a node that recognizes the status can move
+it to, since this one refuses the cancel too — the node:
 
 - rejects schema mutations overlapping the task's properties, and rejects
   new reindex submits that overlap them (`CheckPropertyUpdate`,
@@ -554,9 +563,20 @@ terminal status or is cancelled, the node:
   that no shard has started;
 - keeps the task's on-disk tracker dirs, because the orphan audit reads
   the task as live (`liveReindexTrackerLookup`);
-- never TTL-cleans the task: both the `Scheduler` sweep and
-  `Manager.CleanUpTask` skip non-terminal tasks, and the age check alone
-  would not stop them.
+- refuses to cancel it — `IsCancellable()` is `== STARTED`, so the REST
+  verb answers `409` and `Manager.CancelTask` refuses the apply (§12);
+- never proposes a TTL clean-up for it: the `Scheduler` sweep skips every
+  non-terminal status, and the age check alone would not stop it.
+
+`Manager.CleanUpTask` is the one exit. It refuses every non-terminal
+status this build *recognizes*, and deletes an unrecognized one, because
+that is the only way such an entry ever leaves this node's FSM: no
+transition can advance a status the build cannot name, and once the peers
+have cleaned their copies up the leader-routed list no longer carries it
+either. The exit is sound because the sweep is the only proposer and it
+reads the leader's view, so a clean-up for such a task exists only once
+the cluster already considers it done
+(`TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer`).
 
 `Scheduler.warnOnUnrecognizedStatuses` emits one sampled warn line per
 tick naming every task in an unrecognized status, and exports
@@ -1240,17 +1260,26 @@ phases of different concerns and don't share state.
    verified to exist by the outer handler, so "nothing to cancel" is
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
-2. If that task is in a coordination phase (`PREPARING` / `SWAPPING`),
-   return 409 and stop. Some nodes may already have swapped their bucket
-   directories; stopping the rest would leave the cluster serving
-   migrated buckets under the pre-migration schema, repairable only by
-   an operator following the guidance the provider logs. The task has to
-   run through to `FINISHED` or `FAILED`. The REST
-   handler and `Manager.CancelTask` apply the same rule, so a cancel that
-   loses the race to a phase transition is refused at the FSM too.
-   Everything else is cancellable: `STARTED`, and any status this build
-   does not recognize (§4.2), which the same conflict guards are already
-   blocking mutations on with cancel named as the remedy.
+2. If that task is not `STARTED`, return 409 and stop
+   (`TaskStatus.IsCancellable()`, §4.2). Two conditions land here and
+   they get different bodies:
+   - **A coordination phase** (`PREPARING` / `SWAPPING`). Some nodes may
+     already have swapped their bucket directories; stopping the rest
+     would leave the cluster serving migrated buckets under the
+     pre-migration schema, repairable only by an operator following the
+     guidance the provider logs. The task has to run through to
+     `FINISHED` or `FAILED`.
+   - **A status this build does not recognize.** It cannot tell whether
+     stopping is safe, so it refuses rather than guess — and every other
+     build refuses the same way, since `IsCancellable()` is a literal.
+     Such a task has to terminate on the nodes that do recognize its
+     status; waiting on this one gets the operator nowhere.
+
+   The REST handler and `Manager.CancelTask` apply the same rule, so a
+   cancel that loses the race to a phase transition is refused at the FSM
+   too. Every mutation refusal that names a cancel as its remedy
+   (`db.MutationRemedy`) keys on the same predicate, so no guard
+   recommends a cancel this step would answer with 409.
 3. RAFT `CancelDistributedTask`.
 4. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
