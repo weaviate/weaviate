@@ -930,13 +930,45 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 			// Registered but not loaded, which is what a cold tenant looks
 			// like while it stays in the shard map. A DEACTIVATED tenant is
 			// removed from that map and is invisible to this predicate — see
-			// [DB.HasPromotableReindexState] for why that is fail-open.
-			assert.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType),
+			// [DB.anyPromotableReindexState] for why that is fail-open.
+			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil),
 				"the only shard carrying the state is registered but not loaded")
 			assert.False(t, cold.isLoaded(),
 				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
 		})
 	}
+}
+
+// The CANCELLED evidence gate asks about every (property, index type) pair a
+// migration targets, and each ask walks every shard. One shared cache is what
+// keeps that from re-listing the same .migrations dir once per pair. This
+// pins that the cache reaches the per-shard read at all: with one, a later
+// pair answers from the first pair's snapshot; without, it re-reads.
+func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+	)
+
+	setupCtx := testCtx()
+	className := "CachedPromotable_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	hot := shd.(*Shard)
+	defer hot.Shutdown(context.Background())
+
+	dirs := &dirNamesCache{}
+	require.False(t, idx.anyPromotableReindexState(propName, indexType, dirs),
+		"the shard has no .migrations dir yet")
+
+	mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig", "merged.mig")
+
+	require.False(t, idx.anyPromotableReindexState(propName, indexType, dirs),
+		"a shared cache answers from the snapshot the first pair took")
+	require.True(t, idx.anyPromotableReindexState(propName, indexType, nil),
+		"a nil cache reads the filesystem, which now holds the state")
 }
 
 // TestHasPromotableReindexStateFailsClosed pins that an unrecognized

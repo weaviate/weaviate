@@ -2022,6 +2022,14 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 // be a false alarm at STARTED. Per-node, since one SWAPPING replica can have
 // merged while another hasn't. Answers true when it cannot tell (no local
 // store) — silence about possibly-inverted data is the worse error.
+//
+// The whole loop shares one directory-listing cache. The short-circuit only
+// helps when the answer is yes, and the quiet arm — the point of the gate —
+// walks every shard for every (property, index type) pair. Without the cache
+// that is two uncached ReadDir per shard per pair, so a change-tokenization
+// on a 50k-tenant collection would issue six figures of syscalls on a
+// scheduler callback. The cache is local to the call and dies with it, so
+// the snapshot it answers from cannot go stale between callbacks.
 func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
 	if p.db == nil {
 		return true
@@ -2030,9 +2038,10 @@ func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskP
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return true
 	}
+	dirs := &dirNamesCache{}
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
-			if p.db.HasPromotableReindexState(payload.Collection, propName, indexType) {
+			if p.db.anyPromotableReindexState(payload.Collection, propName, indexType, dirs) {
 				return true
 			}
 		}
