@@ -2976,7 +2976,7 @@ func TestSchedulerBackupResponseDoesNotReadAStrangersSlot(t *testing.T) {
 				// A freshly claimed slot reads STARTED, which is what the
 				// response falls back to, so the stranger is moved on to a
 				// status only its slot can produce.
-				stamped, _ := s.backupper.lastOp.setIfOwned("another-backup", backup.Transferring)
+				stamped, _ := s.backupper.lastOp.claimOf("another-backup").stamp(backup.Transferring)
 				assert.True(t, stamped)
 			})
 		})

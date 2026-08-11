@@ -245,7 +245,7 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 // where Goexit surfaces as a hang instead of the failure.
 func cancelAndFreeSlot(t *testing.T, stat *backupStat, id string) {
 	t.Helper()
-	stamped, _ := stat.setIfOwned(id, backup.Cancelled)
+	stamped, _ := stat.claimOf(id).stamp(backup.Cancelled)
 	assert.True(t, stamped)
 	freed, _ := stat.resetIfCancelled(id)
 	assert.True(t, freed)

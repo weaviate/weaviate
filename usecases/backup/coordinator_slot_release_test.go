@@ -220,16 +220,24 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 		stillRunning   = "restore-still-running"
 	)
 
+	// claimed then completed is what a cancel writes when it carries through.
+	claimedThenCompleted := []backup.Status{backup.Cancelling, backup.Cancelled}
+
 	tests := []struct {
 		name       string
 		slotHolder string
+		// retry hands the slot to a fresh claim under the id being cancelled,
+		// while the nodes are being aborted.
+		retry      bool
 		wantStatus backup.Status
+		wantWrites []backup.Status
 		reason     string
 	}{
 		{
 			name:       "the slot is held by the restore being cancelled",
 			slotHolder: beingCancelled,
 			wantStatus: backup.Cancelled,
+			wantWrites: claimedThenCompleted,
 			reason: "this node coordinates the restore being cancelled; leaving its slot Started " +
 				"makes OnStatus report a cancelled restore as running",
 		},
@@ -237,8 +245,19 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			name:       "the slot is held by a different, live restore",
 			slotHolder: stillRunning,
 			wantStatus: backup.Started,
+			wantWrites: claimedThenCompleted,
 			reason: "a cancel aimed at a different restore stamped this one Cancelled; commit() reads " +
 				"that as 'cancelled externally' and aborts a restore nobody cancelled",
+		},
+		{
+			// The id is the same, so only the claim tells the two apart.
+			name:       "the slot is handed to a retry of the same id",
+			slotHolder: beingCancelled,
+			retry:      true,
+			wantStatus: backup.Started,
+			wantWrites: []backup.Status{backup.Cancelling},
+			reason: "the cancel stamped a retry that claimed the slot after it started, so the retry " +
+				"reports as cancelled and its descriptor is overwritten with CANCELED",
 		},
 	}
 
@@ -255,22 +274,84 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 
 			fakeScheduler.backend.On("GetObject", mock.Anything, beingCancelled, GlobalRestoreFile).Return(meta, nil)
 			fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-			fakeScheduler.backend.On("PutObject", mock.Anything, beingCancelled, GlobalRestoreFile, mock.Anything).Return(nil)
+			writes := recordRestoreMetaWrites(t, fakeScheduler, beingCancelled, nil)
 			fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
 			fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
-			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 			s := fakeScheduler.scheduler()
 			prevID, _ := s.restorer.lastOp.renew(test.slotHolder, "", "", "")
 			require.Empty(t, prevID)
+
+			// Aborting the nodes is the last step before the cancel stamps the
+			// slot, so a retry staged here lands in exactly that gap.
+			var once sync.Once
+			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).
+				Run(func(mock.Arguments) {
+					if !test.retry {
+						return
+					}
+					// assert, not require: abortAll fans out, so this runs on a
+					// goroutine where Goexit surfaces as a hang.
+					once.Do(func() { takeOverSlot(t, &s.restorer.lastOp, beingCancelled, beingCancelled) })
+				})
 
 			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancelled, "", ""))
 
 			held := s.restorer.lastOp.get()
 			require.Equal(t, test.slotHolder, held.ID, "the cancel must never take a slot over")
 			require.Equal(t, test.wantStatus, held.Status, test.reason)
+			require.Equal(t, test.wantWrites, writes.recorded(), test.reason)
 		})
 	}
+}
+
+// Pins that a cancel repeated on a CANCELLING descriptor leaves a retry of the
+// same id alone: the cancellation it read has finished, and what runs under
+// that id now is a restore nobody asked to stop. The 422 that refuses a
+// restore during a cancellation tells operators to repeat the cancel, so the
+// second cancel and the retry that outlives it are both routine.
+func TestCancelRestoreDoesNotAbortARetryOfTheIdItAlreadyCancelled(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "abc"
+	)
+	ctx := context.Background()
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+	fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+	fs.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	storedRestoreMeta(fs, backupID, backup.Cancelling)
+	writes := recordRestoreMetaWrites(t, fs, backupID, nil)
+
+	s := fs.scheduler()
+	// The restore this cancel reads: already cancelled by the first cancel,
+	// still holding the slot it is about to give back.
+	prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Cancelled))
+
+	// Initialize runs between the descriptor read this cancel acts on and the
+	// abort it drives, which is the window the retry starts in. It is called
+	// on the test's own goroutine, so require is safe here.
+	var once sync.Once
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil).
+		Run(func(mock.Arguments) {
+			once.Do(func() {
+				freeSlot(t, &s.restorer.lastOp, backupID)
+				retryID, _ := s.restorer.lastOp.renew(backupID, "path", "", "")
+				require.Empty(t, retryID, "the retry could not claim the freed slot")
+			})
+		})
+
+	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
+
+	held := s.restorer.lastOp.get()
+	require.Equal(t, backupID, held.ID)
+	require.Equal(t, backup.Started, held.Status, "the cancel stamped a retry it holds no claim on")
+	require.Empty(t, writes.recorded(), "the cancel wrote CANCELED over the retry's descriptor")
+	fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // Pins that Restore's synchronous error paths release only the slot they
@@ -715,7 +796,7 @@ func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 			// participants. assert, not require: Goexit inside a mock callback
 			// surfaces as a hang instead of this failure.
 			once.Do(func() {
-				stamped, _ := c.lastOp.setIfOwned(backupID, backup.Cancelling)
+				stamped, _ := c.lastOp.claimOf(backupID).stamp(backup.Cancelling)
 				assert.True(t, stamped)
 			})
 		})

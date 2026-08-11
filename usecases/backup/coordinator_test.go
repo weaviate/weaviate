@@ -902,7 +902,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
 				Run(func(mock.Arguments) {
 					once.Do(func() {
-						stamped, _ := coordinator.lastOp.setIfOwned(backupID, claimed)
+						stamped, _ := coordinator.lastOp.claimOf(backupID).stamp(claimed)
 						assert.True(t, stamped)
 					})
 				})
