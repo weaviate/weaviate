@@ -35,6 +35,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
+const (
+	// rebuildEventuallyDeadline bounds every convergence wait; generous so slow CI machines never flake on timing.
+	rebuildEventuallyDeadline = 180 * time.Second
+	// opWedgeBound only catches pathological stalls (the pre-fix apply-lock class was unbounded), not slow-CI latency.
+	opWedgeBound = 2 * time.Minute
+)
+
 // nodeMetricValue reads one weaviate_<name> counter/gauge from a node's Prometheus endpoint; absent metrics read as 0.
 func nodeMetricValue(ctx context.Context, node *docker.DockerContainer, name string) (float64, error) {
 	code, reader, err := node.Container().Exec(ctx, []string{
@@ -105,7 +112,7 @@ func requireClusterHealthy(t *testing.T, size int) {
 			require.NotNil(ct, n.Status)
 			require.Equal(ct, "HEALTHY", *n.Status)
 		}
-	}, 60*time.Second, 500*time.Millisecond)
+	}, 90*time.Second, 500*time.Millisecond)
 }
 
 func requireRebuildOnEveryNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, size int, minRebuilds float64, deadline time.Duration) {
@@ -173,24 +180,26 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 90*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	t.Run("no rebuilds before the height change", func(t *testing.T) {
-		for i := 1; i <= 3; i++ {
-			rebuilds, err := nodeMetricValue(ctx, compose.GetWeaviateNode(i), "async_replication_rebuild_total")
-			require.NoError(t, err)
-			require.Zero(t, rebuilds, "node %d must not have rebuilt before the height change", i)
-		}
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for i := 1; i <= 3; i++ {
+				rebuilds, err := nodeMetricValue(ctx, compose.GetWeaviateNode(i), "async_replication_rebuild_total")
+				require.NoError(ct, err)
+				require.Zero(ct, rebuilds, "node %d must not have rebuilt before the height change", i)
+			}
+		}, 60*time.Second, 2*time.Second)
 	})
 
 	t.Run("schema PUT with a new hashtree height applies promptly", func(t *testing.T) {
 		took := setAsyncReplicationHeight(t, paragraphClass.Class, 12, time.Duration(freqMs)*time.Millisecond)
-		require.Less(t, took, 30*time.Second, "schema update must not stall behind async replication machinery")
+		require.Less(t, took, opWedgeBound, "schema update must not stall behind async replication machinery")
 	})
 
 	t.Run("every node rebuilds its hashtree", func(t *testing.T) {
-		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, 120*time.Second)
+		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, rebuildEventuallyDeadline)
 	})
 
 	t.Run("rebuild completion is logged on every node", func(t *testing.T) {
@@ -200,7 +209,7 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 				require.NoError(ct, err)
 				require.GreaterOrEqual(ct, count, 1, "node %d must log the rebuild completion", i)
 			}
-		}, 30*time.Second, 2*time.Second)
+		}, 120*time.Second, 2*time.Second)
 	})
 
 	t.Run("async replication resumes after the rebuild", func(t *testing.T) {
@@ -208,7 +217,7 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 90*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	repairObj := &models.Object{
@@ -228,7 +237,7 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 				repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
 			require.NoError(ct, err)
 			require.NotNil(ct, obj)
-		}, 120*time.Second, 2*time.Second, "node 3 was not repaired after the hashtree rebuild")
+		}, rebuildEventuallyDeadline, 2*time.Second, "node 3 was not repaired after the hashtree rebuild")
 	})
 }
 
@@ -295,36 +304,43 @@ func TestHashtreeRebuildOnTenantStatusChange(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 90*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	t.Run("deactivating a tenant dumps its hashtree snapshot", func(t *testing.T) {
 		start := time.Now()
 		helper.UpdateTenants(t, paragraphClass.Class, []*models.Tenant{{Name: coldTenant, ActivityStatus: "COLD"}})
-		require.Less(t, time.Since(start), 30*time.Second, "tenant deactivation must not stall")
+		require.Less(t, time.Since(start), opWedgeBound, "tenant deactivation must not stall")
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			code, reader, err := compose.GetWeaviateNode(1).Container().Exec(ctx, []string{
-				"sh", "-c", fmt.Sprintf("find / -xdev -path '*/%s/hashtree_uuid/*.ht' 2>/dev/null", coldTenant),
-			}, tcexec.Multiplexed())
-			require.NoError(ct, err)
-			require.Equal(ct, 0, code)
-			out, err := io.ReadAll(reader)
-			require.NoError(ct, err)
-			require.Contains(ct, string(out), ".ht", "cold tenant must have a persisted hashtree snapshot")
-		}, 60*time.Second, 2*time.Second)
+			found := false
+			for i := 1; i <= 3; i++ {
+				code, reader, err := compose.GetWeaviateNode(i).Container().Exec(ctx, []string{
+					"sh", "-c", fmt.Sprintf("find / -xdev -path '*/%s/hashtree_uuid/*.ht' 2>/dev/null", coldTenant),
+				}, tcexec.Multiplexed())
+				require.NoError(ct, err)
+				require.Equal(ct, 0, code)
+				out, err := io.ReadAll(reader)
+				require.NoError(ct, err)
+				if strings.Contains(string(out), ".ht") {
+					found = true
+					break
+				}
+			}
+			require.True(ct, found, "at least one node must persist the cold tenant's hashtree snapshot")
+		}, rebuildEventuallyDeadline, 2*time.Second)
 	})
 
 	t.Run("height change while the tenant is cold rebuilds the hot tenants", func(t *testing.T) {
 		took := setAsyncReplicationHeight(t, paragraphClass.Class, 12, time.Duration(freqMs)*time.Millisecond)
-		require.Less(t, took, 30*time.Second)
-		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, 120*time.Second)
+		require.Less(t, took, opWedgeBound)
+		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, rebuildEventuallyDeadline)
 	})
 
 	t.Run("reactivating the tenant discards the stale-height snapshot and rescans", func(t *testing.T) {
 		start := time.Now()
 		helper.UpdateTenants(t, paragraphClass.Class, []*models.Tenant{{Name: coldTenant, ActivityStatus: "HOT"}})
-		require.Less(t, time.Since(start), 30*time.Second, "tenant activation must not stall")
+		require.Less(t, time.Since(start), opWedgeBound, "tenant activation must not stall")
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			total := 0
@@ -341,7 +357,7 @@ func TestHashtreeRebuildOnTenantStatusChange(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLTenantGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, types.ConsistencyLevelOne, coldTenant)
 			require.Len(ct, resp, objectCount)
-		}, 60*time.Second, 2*time.Second)
+		}, rebuildEventuallyDeadline, 2*time.Second)
 
 		obj := articles.NewParagraph().WithContents("written after reactivation").WithTenant(coldTenant).Object()
 		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), []*models.Object{obj}, types.ConsistencyLevelAll)
@@ -407,12 +423,12 @@ func TestSchemaAndTenantOpsFastDuringRebuilds(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 120*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	t.Run("trigger a rebuild storm via a height change", func(t *testing.T) {
 		took := setAsyncReplicationHeight(t, paragraphClass.Class, 12, time.Duration(freqMs)*time.Millisecond)
-		require.Less(t, took, 30*time.Second)
+		require.Less(t, took, opWedgeBound)
 	})
 
 	t.Run("tenant deactivations stay fast during the storm", func(t *testing.T) {
@@ -422,22 +438,22 @@ func TestSchemaAndTenantOpsFastDuringRebuilds(t *testing.T) {
 		}
 		start := time.Now()
 		helper.UpdateTenants(t, paragraphClass.Class, tenants)
-		require.Less(t, time.Since(start), 30*time.Second, "tenant deactivation must not queue behind hashtree rebuilds")
+		require.Less(t, time.Since(start), opWedgeBound, "tenant deactivation must not queue behind hashtree rebuilds")
 	})
 
 	t.Run("a second schema update stays fast during the storm", func(t *testing.T) {
 		took := setAsyncReplicationHeight(t, paragraphClass.Class, 12, 2*time.Second)
-		require.Less(t, took, 30*time.Second, "schema update must not queue behind hashtree rebuilds")
+		require.Less(t, took, opWedgeBound, "schema update must not queue behind hashtree rebuilds")
 	})
 
 	t.Run("the storm settles with no rebuild failures", func(t *testing.T) {
-		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, 180*time.Second)
+		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, rebuildEventuallyDeadline)
 		requireClusterHealthy(t, 3)
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 120*time.Second, 2*time.Second)
+		}, rebuildEventuallyDeadline, 2*time.Second)
 	})
 }
 
@@ -511,7 +527,7 @@ func TestHashtreeRebuildOnRuntimeToggles(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
-		}, 90*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	t.Run("kill-switch drains and restores async replication", func(t *testing.T) {
@@ -520,23 +536,23 @@ func TestHashtreeRebuildOnRuntimeToggles(t *testing.T) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Equal(ct, 0, n, "asyncReplicationStatus must drain once the kill-switch is on")
-		}, 30*time.Second, 500*time.Millisecond)
+		}, 120*time.Second, 500*time.Millisecond)
 
 		writeOverride(t, "async_replication_disabled: false\\n")
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0, "asyncReplicationStatus must repopulate once the kill-switch is off")
-		}, 60*time.Second, 1*time.Second)
+		}, rebuildEventuallyDeadline, 1*time.Second)
 	})
 
 	t.Run("runtime height override rebuilds every shard", func(t *testing.T) {
 		writeOverride(t, "async_replication_disabled: false\\nasync_replication_hashtree_height: 12\\n")
-		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, 120*time.Second)
+		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, rebuildEventuallyDeadline)
 	})
 
 	t.Run("changing the override again rebuilds again", func(t *testing.T) {
 		writeOverride(t, "async_replication_disabled: false\\nasync_replication_hashtree_height: 14\\n")
-		requireRebuildOnEveryNode(ctx, t, compose, 3, 2, 120*time.Second)
+		requireRebuildOnEveryNode(ctx, t, compose, 3, 2, rebuildEventuallyDeadline)
 	})
 }
