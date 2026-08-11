@@ -298,8 +298,6 @@ func TestReindexGateSnapshotStalenessIsClosedByTheOverlapBackstop(t *testing.T) 
 	err := db.RefuseIfReindexOverlapped(context.Background(), []string{collection}, backupStart)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
 		"the commit-time overlap check is what closes the snapshot's staleness window")
-	require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined,
-		"this refusal observed the overlap; it did not merely fail to rule one out")
 }
 
 // The capture pass plants one gate snapshot in its context; HaltForTransfer

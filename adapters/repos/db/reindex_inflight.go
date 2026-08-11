@@ -138,9 +138,9 @@ func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName 
 // be atomic. A nil activity lookup admits the backup, per
 // [DB.AnyLiveReindexForShard].
 //
-// Two passes build one each: the admission pass ([DB.Backupable]) and the
-// capture pass ([Index.descriptor], which carries it in its context; see
-// [Index.contextWithReindexGateSnapshot]).
+// The admission pass ([DB.Backupable]) builds one for the whole backup; the
+// capture pass builds one per collection ([Index.descriptor], which carries it
+// in its context; see [Index.contextWithReindexGateSnapshot]).
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
