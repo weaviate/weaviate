@@ -764,3 +764,256 @@ func TestShardedLockCache_PageSizeOnFreshCache(t *testing.T) {
 	c := newLazyTestCache[uint64](t, fetch)
 	assert.EqualValues(t, 1, c.PageSize(), "PageSize must work before the locks are allocated")
 }
+
+// TestPreloadCountsOccupiedSlotsOnly: count feeds replaceIfFull's full-cache wipe,
+// so overwrites and if-absent no-ops must not inflate it past true occupancy — and
+// PreloadIfAbsent must never replace a present vector.
+func TestPreloadCountsOccupiedSlotsOnly(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+
+	c.Preload(5, []float32{9, 9})
+	c.Preload(5, []float32{1, 2}) // overwrite: no recount
+	assert.Equal(t, int64(1), c.CountVectors())
+
+	assert.False(t, c.PreloadIfAbsent(5, []float32{9, 9}))
+	assert.True(t, c.PreloadIfAbsent(6, []float32{3, 4}))
+	assert.Equal(t, int64(2), c.CountVectors())
+
+	got, err := c.Get(context.Background(), 5)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{1, 2}, got, "PreloadIfAbsent must not overwrite")
+
+	got, err = c.Get(context.Background(), 6)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{3, 4}, got)
+}
+
+// TestMultiVectorCacheCountInvariant regresses the shardedMultipleLockCache count
+// fix: count must track occupied slots, not calls, or replaceIfFull's full-cache
+// wipe fires while the cache isn't actually full.
+func TestMultiVectorCacheCountInvariant(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("repeated PreloadPassage on same id stays at 1", func(t *testing.T) {
+		c := NewShardedMultiUInt64LockCache(nil, 1_000_000, logger, 0, nil)
+
+		for i := 0; i < 5; i++ {
+			c.PreloadPassage(3, 7, 0, []uint64{uint64(i)})
+		}
+		assert.Equal(t, int64(1), c.CountVectors())
+
+		vec, err := c.Get(context.Background(), 3)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{4}, vec, "last PreloadPassage call wins")
+	})
+
+	t.Run("PreloadMulti with overlapping ids counts distinct slots only", func(t *testing.T) {
+		c := NewShardedMultiUInt64LockCache(nil, 1_000_000, logger, 0, nil)
+
+		c.PreloadMulti(100, []uint64{1, 2, 3}, [][]uint64{{10}, {20}, {30}})
+		c.PreloadMulti(101, []uint64{3, 4, 5}, [][]uint64{{31}, {40}, {50}})
+
+		// distinct ids touched: 1, 2, 3, 4, 5
+		assert.Equal(t, int64(5), c.CountVectors())
+	})
+
+	t.Run("miss with empty fetch result does not increment count", func(t *testing.T) {
+		emptyFetch := func(context.Context, uint64) ([]uint64, error) { return []uint64{}, nil }
+		c := NewShardedMultiUInt64LockCache(emptyFetch, 1_000_000, logger, 0, nil)
+
+		vec, err := c.Get(context.Background(), 9)
+		require.NoError(t, err)
+		assert.Empty(t, vec)
+		assert.Equal(t, int64(0), c.CountVectors())
+	})
+
+	t.Run("same id missed twice via handleMultipleCacheMiss counts once", func(t *testing.T) {
+		// simulates two goroutines that both concluded a cache miss for the same id
+		// and are now racing to store: only the first store may count.
+		fetch, _ := countingFetcher[uint64]()
+		vectorCache := NewShardedMultiUInt64LockCache(fetch, 1_000_000, logger, 0, nil)
+		c, ok := vectorCache.(*shardedMultipleLockCache[uint64])
+		require.True(t, ok)
+
+		vec1, err := c.handleMultipleCacheMiss(context.Background(), 42, 42, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, vec1)
+
+		vec2, err := c.handleMultipleCacheMiss(context.Background(), 42, 42, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, vec2)
+
+		assert.Equal(t, int64(1), c.CountVectors())
+	})
+}
+
+// TestConcurrentMissSameID_NoDoubleCount hammers a single uncached id from many
+// goroutines that all overlap inside the fetch thunk, so every one of them observes
+// the slot as empty before any of them stores. Only one store may count.
+func TestConcurrentMissSameID_NoDoubleCount(t *testing.T) {
+	const goroutines = 50
+
+	t.Run("single-vector cache", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		ready := make(chan struct{}, goroutines)
+		release := make(chan struct{})
+
+		fetch := func(ctx context.Context, id uint64) ([]float32, error) {
+			ready <- struct{}{}
+			<-release
+			return []float32{float32(id)}, nil
+		}
+
+		c := NewShardedFloat32LockCache(fetch, nil, 1_000_000, 1, logger, false, 0, nil)
+
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+		for i := 0; i < goroutines; i++ {
+			go func() {
+				defer wg.Done()
+				vec, err := c.Get(context.Background(), 42)
+				require.NoError(t, err)
+				assert.Equal(t, []float32{42}, vec)
+			}()
+		}
+
+		for i := 0; i < goroutines; i++ {
+			<-ready
+		}
+		close(release)
+		wg.Wait()
+
+		assert.Equal(t, int64(1), c.CountVectors())
+	})
+
+	t.Run("multivector cache", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		ready := make(chan struct{}, goroutines)
+		release := make(chan struct{})
+
+		fetch := func(ctx context.Context, id uint64) ([]uint64, error) {
+			ready <- struct{}{}
+			<-release
+			return []uint64{id}, nil
+		}
+
+		c := NewShardedMultiUInt64LockCache(fetch, 1_000_000, logger, 0, nil)
+
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+		for i := 0; i < goroutines; i++ {
+			go func() {
+				defer wg.Done()
+				vec, err := c.Get(context.Background(), 42)
+				require.NoError(t, err)
+				assert.Equal(t, []uint64{42}, vec)
+			}()
+		}
+
+		for i := 0; i < goroutines; i++ {
+			<-ready
+		}
+		close(release)
+		wg.Wait()
+
+		assert.Equal(t, int64(1), c.CountVectors())
+	})
+}
+
+// TestPreloadIfAbsent_ContentionWithPreload pins the invariant the async prefill's
+// safety argument rests on: PreloadIfAbsent can only win on an empty slot, so once at
+// least one Preload has run for an id, the final stored value can never be a
+// PreloadIfAbsent value, no matter how the two race.
+func TestPreloadIfAbsent_ContentionWithPreload(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+
+	const (
+		numIDs       = 200
+		workersPerID = 8
+	)
+
+	var wg sync.WaitGroup
+	for id := uint64(0); id < numIDs; id++ {
+		for w := 0; w < workersPerID; w++ {
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				c.Preload(id, []float32{1, float32(id)})
+			}()
+			go func() {
+				defer wg.Done()
+				c.PreloadIfAbsent(id, []float32{2, float32(id)})
+			}()
+		}
+	}
+	wg.Wait()
+
+	assert.Equal(t, int64(numIDs), c.CountVectors(), "count must equal exactly the number of distinct ids touched")
+
+	for id := uint64(0); id < numIDs; id++ {
+		vec, err := c.Get(context.Background(), id)
+		require.NoError(t, err)
+		require.Len(t, vec, 2)
+		assert.Equal(t, float32(1), vec[0], "id %d: a Preload ran for it, so the final value must be a Preload value", id)
+		assert.Equal(t, float32(id), vec[1])
+	}
+}
+
+// TestPreloadIfAbsent_GrowRetry covers PreloadIfAbsent's Grow-retry loop (id beyond
+// the current cache length -> unlock -> Grow -> retry), which no production caller
+// reaches: prefillFromScan skips any id beyond the pre-grown node count instead of
+// growing the cache from a scan.
+func TestPreloadIfAbsent_GrowRetry(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+
+	c.Grow(10) // establish a small baseline cache, well short of id below
+	require.Less(t, int(c.Len()), 50_000)
+
+	id := uint64(50_000)
+	ok := c.PreloadIfAbsent(id, []float32{7, 8})
+	assert.True(t, ok)
+	assert.Greater(t, c.Len(), int32(id), "PreloadIfAbsent must grow the cache to cover id")
+
+	vec, err := c.Get(context.Background(), id)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{7, 8}, vec)
+	assert.Equal(t, int64(1), c.CountVectors())
+}
+
+// TestPreloadIfAbsent_GrowRetryConcurrent hunts for a lost update or livelock in the
+// retry loop by forcing many goroutines through concurrent Grow calls for distinct
+// out-of-bounds ids at once.
+func TestPreloadIfAbsent_GrowRetryConcurrent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+
+	const (
+		goroutines = 200
+		baseID     = uint64(20_000)
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			id := baseID + uint64(i)
+			ok := c.PreloadIfAbsent(id, []float32{float32(id)})
+			assert.True(t, ok)
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Equal(t, int64(goroutines), c.CountVectors())
+	for i := 0; i < goroutines; i++ {
+		id := baseID + uint64(i)
+		vec, err := c.Get(context.Background(), id)
+		require.NoError(t, err)
+		assert.Equal(t, []float32{float32(id)}, vec)
+	}
+}
