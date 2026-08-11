@@ -123,15 +123,31 @@ func TestHasPromotableReindexState(t *testing.T) {
 	)
 
 	cases := []struct {
-		name      string
+		name string
+		// tracker dir to create; defaults to the per-property one.
+		tracker   string
 		sentinels []string
 		want      bool
 	}{
-		{"no tracker dir at all", nil, false},
-		{"started, nothing written yet", []string{"started.mig"}, false},
-		{"merged during PREPARING", []string{"started.mig", "merged.mig"}, true},
-		{"swapped and tidied", []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}, true},
-		{"tidied without merged", []string{"started.mig", "tidied.mig"}, true},
+		{name: "no tracker dir at all", want: false},
+		{name: "started, nothing written yet", sentinels: []string{"started.mig"}, want: false},
+		{name: "merged during PREPARING", sentinels: []string{"started.mig", "merged.mig"}, want: true},
+		{
+			name:      "swapped and tidied",
+			sentinels: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
+			want:      true,
+		},
+		{name: "tidied without merged", sentinels: []string{"started.mig", "tidied.mig"}, want: true},
+		{
+			// change-algorithm is the one semantic migration whose tracker is
+			// class-level rather than <prefix>_<prop>, so a predicate that only
+			// looked under the per-property prefixes would answer false here and
+			// clear a cancel whose next restart still promotes.
+			name:      "merged in the class-level blockmax tracker",
+			tracker:   MigrationDirSearchableMapToBlockmax + genSuffix(1),
+			sentinels: []string{"started.mig", "merged.mig"},
+			want:      true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -139,7 +155,11 @@ func TestHasPromotableReindexState(t *testing.T) {
 			shard, idx := newReindexTestShard(t, "PromotableState", propName)
 
 			if len(tc.sentinels) > 0 {
-				mkTrackerDir(t, shard.pathLSM(), tracker, tc.sentinels...)
+				dir := tc.tracker
+				if dir == "" {
+					dir = tracker
+				}
+				mkTrackerDir(t, shard.pathLSM(), dir, tc.sentinels...)
 			}
 			require.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType))
 		})

@@ -434,8 +434,8 @@ func (t TaskStatus) String() string {
 // task out and no exit remains.
 //
 // A new terminal status also diverges CancelTask across versions:
-// [Manager.CancelTask] gates on [TaskStatus.IsActive] (this method's exact
-// negation), so one CancelTask log entry can leave an older node writing
+// [Manager.CancelTask] gates on this method, so one CancelTask log entry
+// can leave an older node writing
 // TaskStatusCancelled while a newer node returns errTaskNotRunning —
 // different FSM state at the same log index. Inherited from the cancel
 // design; tracked at weaviate/weaviate#12575.

@@ -249,6 +249,14 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // a terminal task skipped its schema flip, and every rebuild verb validates
 // against exactly the bit that flip would have set (e.g. `searchable.rebuild`
 // 400s while the algorithm is still WAND).
+//
+// The re-submit is verified to be accepted in the post-terminal state, and
+// every strategy backfills from the objects bucket rather than from the
+// source inverted bucket, so the rebuilt content is correct. For
+// change-algorithm on a shard whose generation was already promoted, the
+// swap itself is untested: the canonical bucket is already inverted while
+// the strategy declares a map-collection source. That corner sits inside
+// the bucket↔schema inversion tracked at weaviate/weaviate#12575.
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	body := reindexRepairBody(p)
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
@@ -270,6 +278,13 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 // "" for an unrecognized type, for enable-rangeable (see below), and for a
 // body whose payload carries no target tokenization (written by an older
 // binary) — guessing would retokenize the property to the wrong value.
+//
+// The mapping is total over the declared types (pinned by
+// TestReindexRepairCall), which is wider than what renders today: both
+// callers of [ReindexRepairCall] are gated on [IsSemanticMigration], so the
+// format-only arms — rebuild-searchable, repair-filterable, repair-rangeable
+// and enable-rangeable — are unreachable in production. They stay so that a
+// type promoted to semantic later does not silently render nothing.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:
@@ -299,8 +314,7 @@ func reindexRepairBody(p ReindexTaskPayload) string {
 	case ReindexTypeEnableRangeable:
 		// No body the API accepts in every terminal state: the strategy
 		// flips IndexRangeFilters per shard as it goes, so `enabled` 400s
-		// once any shard finished and `rebuild` 400s while none has. It is
-		// format-only, so no caller renders a repair for it today.
+		// once any shard finished and `rebuild` 400s while none has.
 		return ""
 	case ReindexTypeRepairRangeable:
 		return `{"rangeable":{"rebuild":true}}`
@@ -338,9 +352,10 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //     but SWAPPING does, and per-shard swaps commit independently in both
 //     STARTED and SWAPPING — cancelling leaves some shards rebuilt, others
 //     not. There is no schema flip to skip, so none of the inversion wording
-//     below applies. The follow-up that finishes the remainder is the same
-//     request for every format-only type except enable-rangeable, which
-//     invalidates its own submit precondition as it goes (see there).
+//     below applies. The follow-up is the same request for every format-only
+//     type except enable-rangeable, which invalidates its own submit
+//     precondition as it goes (see there). It re-runs every shard, the ones
+//     that already committed included, which is idempotent but not free.
 //   - PREPARING/SWAPPING on a semantic migration: steer toward waiting and name the repair cancel
 //     makes necessary ([ReindexRepairCall], not a rebuild — see there).
 //     The window opens at the MERGE, not the swap:
@@ -376,14 +391,15 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"one by one rather than at a single point and cancelling leaves the " +
 			"ones that already finished rebuilt and the rest untouched — "
 		if p.MigrationType == ReindexTypeEnableRangeable {
-			return partial + "re-submit the same request to finish the remainder " +
-				"while no shard has finished yet, or " +
+			return partial + "re-submit the same request while no shard has " +
+				"finished yet, or " +
 				`{"rangeable":{"rebuild":true}} once one has: enable-rangeable ` +
 				"sets indexRangeFilters on the property as soon as its first " +
 				"shard commits, and each of the two verbs is rejected in the " +
 				"state the other one covers"
 		}
-		return partial + "re-submit the same request to finish the remainder"
+		return partial + "re-submit the same request, which re-runs every " +
+			"shard, the ones that already finished included"
 	}
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"

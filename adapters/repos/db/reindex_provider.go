@@ -2288,8 +2288,9 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 // with the swapped index type's content, which is strictly better
 // than letting partially-flipped buckets misroute against the OLD
 // schema tokenization. The partial-success case surfaces through the
-// FAILED-task repair_command log line in
-// [logOperatorRepairGuidanceOnFailedSemanticMigration].
+// repair_command log line in
+// [logOperatorRepairGuidanceOnTerminalSemanticMigration], which fires on
+// FAILED and on a CANCELLED task that left promotable state behind.
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).

@@ -885,7 +885,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	formatOnly := []string{
 		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
 		"its shards commit one by one",
-		"re-submit the same request to finish the remainder",
+		"re-runs every shard, the ones that already finished included",
 	}
 	// enable-rangeable is the one format-only type whose own progress
 	// invalidates its submit precondition, so "re-submit the same request" is

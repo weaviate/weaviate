@@ -37,6 +37,8 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 
 	cases := []struct {
 		name string
+		// tracker dir to create; defaults to the per-property one.
+		tracker string
 		// sentinels the tracker dir carries when the task terminalizes;
 		// nil means the task never got past STARTED on this node.
 		sentinels []string
@@ -74,6 +76,18 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			wantRepairCommand: true,
 		},
 		{
+			// change-algorithm keeps its generation in a class-level tracker
+			// dir, not under <prefix>_<prop>, so the evidence check has to look
+			// there too — otherwise this cancel is cleared as harmless on a node
+			// whose next restart promotes the merged generation.
+			name:              "cancelled change-algorithm after the class-level generation merged",
+			tracker:           MigrationDirSearchableMapToBlockmax + genSuffix(1),
+			sentinels:         []string{"started.mig", "merged.mig"},
+			status:            distributedtask.TaskStatusCancelled,
+			migrationType:     ReindexTypeChangeAlgorithm,
+			wantRepairCommand: true,
+		},
+		{
 			// A unit died mid-work whatever the disk shows, so FAILED does
 			// not have to earn the message.
 			name:              "failed with nothing on disk",
@@ -105,7 +119,11 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			className := string(idx.Config.ClassName)
 
 			if len(tc.sentinels) > 0 {
-				mkTrackerDir(t, shard.pathLSM(), tracker, tc.sentinels...)
+				dir := tc.tracker
+				if dir == "" {
+					dir = tracker
+				}
+				mkTrackerDir(t, shard.pathLSM(), dir, tc.sentinels...)
 			}
 
 			logger, hook := logrustest.NewNullLogger()
