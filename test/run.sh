@@ -641,9 +641,11 @@ function get_fast_acceptance_packages() {
 #   $@: package_paths - list of package paths to run
 #
 # Optional env vars (read by this function):
-#   AOF_GROUP_RUN  - if non-empty, passed as `-run "$AOF_GROUP_RUN"` to go test
-#   AOF_GROUP_SKIP - if non-empty, passed as `-skip "$AOF_GROUP_SKIP"` to go test
-# Use these to shard a heavy test package across multiple CI jobs.
+#   AOF_GROUP_RUN     - if non-empty, passed as `-run "$AOF_GROUP_RUN"` to go test
+#   AOF_GROUP_SKIP    - if non-empty, passed as `-skip "$AOF_GROUP_SKIP"` to go test
+#   AOF_GROUP_TIMEOUT - per-package `-timeout`, default 20m
+# Use the first two to shard a heavy test package across multiple CI jobs, and
+# the third when a group legitimately runs longer than the default.
 #
 # Stress tests automatically get different flags (no timeout, no race detector).
 # Returns 1 if any test fails, 0 if all succeed.

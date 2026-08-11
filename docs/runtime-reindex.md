@@ -1251,7 +1251,7 @@ each refuses to start while another is running:
 | Submitted | Refused when | Where |
 | --- | --- | --- |
 | Backup | A live DTM reindex task targets the shard, or a cancelled task is still removing its sidecars | `Index.refuseIfReindexInFlight` |
-| Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the three `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and in each participant's `OnCanCommit` |
+| Restore | A reindex task is live on one of the collections being restored, or a cancelled one is still removing that collection's sidecars on the node | `DB.RefuseIfAnyReindexInFlight`, reached through the two `Scheduler.refuseRestoreDuringReindex` calls in `Scheduler.Restore` and again in each participant's `OnCanCommit` |
 | Reindex | Any node reports a backup or restore slot held | `indexesHandlers.probeBackupActivity`, over `GET /backups/node-activity` |
 
 These rows describe behavior with `RUNTIME_REINDEX_ENABLED=true`. The flag is
@@ -1320,6 +1320,15 @@ configuration:
   invisible to the reindex gate. The commit-time overlap check is the
   backstop on the backup side: a backup whose capture window overlapped
   a reindex fails at commit rather than being stored as good.
+  A restore refused by such a node also loses its status code. The
+  coordinator maps a refusal to 422 from the `err_kind` field on the
+  canCommit response, and a participant that predates
+  `restore_blocked_by_reindex` sends a kind the coordinator does not
+  recognize, so the refusal falls through to 500. The refusal itself is
+  correct and the message still says a migration is running; only the
+  code pages the on-call. It clears when every node is upgraded. A restore
+  the coordinator's own cluster-wide check catches is unaffected: that one
+  runs before any participant is asked.
 - *`RUNTIME_REINDEX_ENABLED=false`, the default.* Every gate returns
   before it looks at anything, so no gate refuses and none of them logs:
   this window is silent by design, and it is the shipped default. It is
@@ -1358,6 +1367,13 @@ Refusals are retryable, never terminal:
 - A reindex refused because of a backup gets 409; if a node cannot be
   reached it gets 503, since an unanswered node cannot be assumed idle.
 - A restore refused because of a reindex gets 422.
+- A restore of a backup id that does not exist gets that same 422 rather
+  than a 404 while a migration is running, because the gate answers
+  before existence does. This is deliberate: a caller who cannot restore
+  right now should be told that, not sent to fix an id that was never the
+  problem. A caller that named its collections is only gated on those, so
+  a mistyped id still gets its 404 unless a migration is live on one of
+  them.
 - Nothing needs operator action to clear. A backup or restore slot is
   held in process memory only, so it dies with the process. Participant
   slots expire on their own within 20s of an abandoned operation; a

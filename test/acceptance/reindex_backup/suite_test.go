@@ -177,7 +177,7 @@ func testReindexRefusedForTheWholeCaptureWindow(t *testing.T, restURI string) {
 			break
 		}
 
-		resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, propName, requestBody)
+		resp := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, className, propName, requestBody)
 		probes = append(probes, reindexProbe{
 			backupStatus: snap.status,
 			httpStatus:   resp.StatusCode,

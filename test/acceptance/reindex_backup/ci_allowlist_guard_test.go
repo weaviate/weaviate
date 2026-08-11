@@ -36,10 +36,13 @@ var (
 	aofGroupTimeoutRe        = regexp.MustCompile(`AOF_GROUP_TIMEOUT=([^\s\\]*)`)
 	aofGroupTimeoutDefaultRe = regexp.MustCompile(`AOF_GROUP_TIMEOUT:-([^\s}]*)`)
 	aofTestBudgetRe          = regexp.MustCompile(`AOF_TEST_BUDGET (Test[A-Za-z0-9_]+) ([0-9]+)m`)
-	testNameRe               = regexp.MustCompile(`^Test[A-Za-z0-9_]*$`)
-	runShFunctionRe          = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
-	runShFlagRe              = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
-	wholeMinutesRe           = regexp.MustCompile(`^([0-9]+)m$`)
+	// Fuzz targets list alongside tests but no group's exact-name -run
+	// alternation can select one, so they must be visible to the guards
+	// rather than filtered out before they are counted.
+	testNameRe      = regexp.MustCompile(`^(Test|Fuzz)[A-Za-z0-9_]*$`)
+	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
+	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
+	wholeMinutesRe  = regexp.MustCompile(`^([0-9]+)m$`)
 )
 
 // imageBuildAllowanceMinutes is the slice of the job window spent building the
@@ -205,9 +208,10 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 
 // Pins the chain the guard above doesn't check: filter -> run.sh function ->
 // dispatcher --flag -> a workflow matrix entry actually passing that flag. A
-// matrix entry renamed/deleted/commented-out/dead-behind-an-if takes the
-// whole group out of CI while both the allowlist guard and the job stay
-// green, so the last hop is read from parsed YAML, not the file's bytes.
+// matrix entry renamed, deleted, commented out, or put behind any if: that is
+// not literally true takes the whole group out of PR CI while both the
+// allowlist guard and the job stay green, so the last hop is read from parsed
+// YAML, not the file's bytes.
 func TestCIWorkflowInvokesEveryGroupThatRunsThisPackage(t *testing.T) {
 	root := repoRoot(t)
 	runShBytes, err := os.ReadFile(filepath.Join(root, "test", "run.sh"))
@@ -404,7 +408,7 @@ func workflowRunShTimeouts(t *testing.T, root string) map[string]int {
 			continue
 		}
 		for _, job := range wf.Jobs {
-			if alwaysFalse(job.If) {
+			if notProvenTrue(job.If) {
 				continue
 			}
 			collectRunShTimeouts(t, job, windows)
@@ -430,7 +434,7 @@ func collectRunShTimeouts(t *testing.T, job workflowJob, windows map[string]int)
 	}
 
 	for _, step := range job.Steps {
-		if alwaysFalse(step.If) {
+		if notProvenTrue(step.If) {
 			continue
 		}
 		var runsRunSh bool
@@ -527,7 +531,7 @@ func workflowRunShInvocations(t *testing.T, root string) map[string]struct{} {
 			continue
 		}
 		for _, job := range wf.Jobs {
-			if alwaysFalse(job.If) {
+			if notProvenTrue(job.If) {
 				continue
 			}
 			collectRunShFlags(job, flags)
@@ -543,7 +547,7 @@ func collectRunShFlags(job workflowJob, flags map[string]struct{}) {
 	var invokesRunSh bool
 	var stepWords []string
 	for _, step := range job.Steps {
-		if alwaysFalse(step.If) {
+		if notProvenTrue(step.If) {
 			continue
 		}
 		commands := []string{step.Run}
@@ -601,12 +605,18 @@ func triggersOnPullRequest(on *yaml.Node) bool {
 	return false
 }
 
-// alwaysFalse reports whether an if: can never hold, which is how a job or step
-// is kept in the file while being taken out of CI.
-func alwaysFalse(expr string) bool {
+// notProvenTrue reports whether an if: might not hold on a pull request, which
+// is how a job or step is kept in the file while being taken out of PR CI.
+// Anything other than an absent or literally-true condition counts, because a
+// condition like github.event_name == 'schedule' takes the group out of every
+// PR run just as effectively as a literal false.
+func notProvenTrue(expr string) bool {
 	e := strings.TrimSpace(expr)
+	if e == "" {
+		return false
+	}
 	e = strings.TrimSuffix(strings.TrimPrefix(e, "${{"), "}}")
-	return strings.EqualFold(strings.TrimSpace(e), "false")
+	return !strings.EqualFold(strings.TrimSpace(e), "true")
 }
 
 func scalar(n *yaml.Node) string {

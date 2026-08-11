@@ -113,7 +113,7 @@ func probeReindexDuringBackup(
 			break
 		}
 
-		resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, probeURI, collection, property, requestBody)
+		resp := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, probeURI, collection, property, requestBody)
 		run.probes = append(run.probes, reindexProbe{
 			backupStatus: status,
 			httpStatus:   resp.StatusCode,
@@ -346,7 +346,7 @@ func awaitBackupSuccess(t *testing.T, statusOf func() (string, bool), backupID s
 }
 
 // tryReindexSubmit tolerates transport errors (e.g. node still booting) as a
-// retryable observation, unlike reindexhelpers.SubmitIndexUpdateExpect4xx.
+// retryable observation, unlike reindexhelpers.SubmitIndexUpdateExpectRefusal.
 func tryReindexSubmit(restURI, collection, property, requestBody string) (int, string, bool) {
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
 	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(requestBody))

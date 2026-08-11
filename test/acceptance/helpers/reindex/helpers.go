@@ -90,10 +90,14 @@ type IndexUpdateErrorResponse struct {
 	Body       string
 }
 
-// SubmitIndexUpdateExpect4xx submits a PUT /indexes request expected to
-// fail at validation and returns the response status and body. The caller
-// asserts the exact status code.
-func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
+// SubmitIndexUpdateExpectRefusal submits a PUT /indexes request expected to be
+// refused, and returns the response status and body so the caller can assert
+// the exact status code. Anything outside a 4xx refusal and the 202 admission
+// the gate-probing callers poll for fails here, since a caller that goes on to
+// assert on the body of a 5xx is asserting about the wrong failure. The 202 is
+// admitted because a caller waiting for a gate to close polls through this
+// helper until the refusal arrives.
+func SubmitIndexUpdateExpectRefusal(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
 	t.Helper()
 	o := applyOptions(opts)
 
@@ -109,6 +113,12 @@ func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jso
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusAccepted {
+		require.GreaterOrEqualf(t, resp.StatusCode, 400,
+			"expected a refusal or an admission, got %d: %s", resp.StatusCode, string(body))
+		require.Lessf(t, resp.StatusCode, 500,
+			"expected a refusal, got a server error %d: %s", resp.StatusCode, string(body))
+	}
 	return IndexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
 
