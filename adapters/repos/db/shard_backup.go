@@ -48,7 +48,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
-		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
+		if blockedErr := s.index.refuseIfReindexInFlight(innerCtx, s.name); blockedErr != nil {
 			return blockedErr
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {

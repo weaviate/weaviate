@@ -292,7 +292,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+	err := idx.backupInactiveShardWithHardlinks(context.Background(), shardName, &sd, nil, stagingRoot)
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -453,14 +453,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+		err := idx.backupInactiveShardWithHardlinks(context.Background(), shardName, &sd, nil, stagingRoot)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
+		err := idx.backupInactiveShardWithoutHardlinks(context.Background(), shardName, &sd, nil)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -586,7 +586,7 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	idx.logger = logger
 	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
-	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 

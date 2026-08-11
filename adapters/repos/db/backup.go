@@ -58,7 +58,7 @@ const (
 // no node or shard — those reach the operator via [DB.logReindexRefusals].
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	// One gate snapshot for the whole admission pass; see [reindexGateSnapshot].
-	gate := db.newReindexGateSnapshot()
+	gate := db.newReindexGateSnapshot(ctx)
 	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}
 	blockedShards := map[string][]string{}
@@ -414,7 +414,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 	if shard == nil {
 		// Not in shardMap => back up from disk if directory exists.
-		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
+		if err := i.backupInactiveShardWithHardlinks(ctx, name, &sd, shardBaseDescr, stagingRoot); err != nil {
 			return nil, err
 		}
 		return &sd, nil
@@ -429,7 +429,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		if !lazyShard.loaded {
 			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
-			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
+			if err := i.backupInactiveShardWithHardlinks(ctx, name, &sd, shardBaseDescr, stagingRoot); err != nil {
 				return nil, err
 			}
 			return &sd, nil
@@ -468,7 +468,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 // backupInactiveShardWithHardlinks backs up an inactive (unloaded) shard by reading
 // its files from disk and hardlinking them into the staging directory.
-func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string) error {
+func (i *Index) backupInactiveShardWithHardlinks(ctx context.Context, name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
 		if os.IsNotExist(err) {
@@ -479,7 +479,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name); err != nil {
+	if err := i.refuseIfReindexInFlight(ctx, name); err != nil {
 		return err
 	}
 
@@ -606,7 +606,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
-			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
+			return i.backupInactiveShardWithoutHardlinks(ctx, name, &sd, shardBaseDescr)
 		}
 
 		// For unloaded LazyLoadShards, block concurrent loading so we can safely
@@ -618,7 +618,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
-				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
+				return i.backupInactiveShardWithoutHardlinks(ctx, name, &sd, shardBaseDescr)
 			}
 		}
 
@@ -649,7 +649,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 // its files directly from disk.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
+func (i *Index) backupInactiveShardWithoutHardlinks(ctx context.Context, name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
 		if os.IsNotExist(err) {
@@ -660,7 +660,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name); err != nil {
+	if err := i.refuseIfReindexInFlight(ctx, name); err != nil {
 		return err
 	}
 
