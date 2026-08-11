@@ -790,8 +790,14 @@ jobs:
             test: "--acceptance-reindex-concurrent"
           - name: "mt"
             test: "--acceptance-reindex-mt"
-          - name: "backup"
-            test: "--acceptance-reindex-backup"
+          - name: "backup-suite"
+            test: "--acceptance-reindex-backup-suite"
+          - name: "backup-a"
+            test: "--acceptance-reindex-backup-a"
+          - name: "backup-b"
+            test: "--acceptance-reindex-backup-b"
+          - name: "backup-cluster"
+            test: "--acceptance-reindex-backup-cluster"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go

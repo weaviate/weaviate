@@ -122,7 +122,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// is present, so a green backup here proves the inflight registration
 	// was cleared on every node.
 	backupID := "cancel-clears-backup"
-	require.NoError(t, createS3Backup(t, uri, className, backupID, backupBucket), "backup must succeed after cancel-cleanup drains")
+	require.NoError(t, createS3BackupAfterCancelCleanup(t, uri, className, backupID, backupBucket),
+		"backup must succeed after cancel-cleanup drains")
 
 	// DELETE class must succeed (MutationGuard treats CANCELLED tasks as
 	// not-in-flight) and the on-disk class dir must disappear on every node.
@@ -263,6 +264,46 @@ func scanClassDirAllNodes(
 		}
 	}
 	return survivors
+}
+
+// cancelCleanupRefusal is the refusal the backup gate returns while a cancelled
+// migration is still unlinking its sidecar files.
+const cancelCleanupRefusal = "a cancelled migration is still removing its temporary index files"
+
+// createS3BackupAfterCancelCleanup retries that one refusal, and nothing else.
+//
+// A shard leaves the gate when the cleanup routine returns, which is after its
+// last unlink attempt. Releasing earlier would let a backup capture files that
+// are about to disappear, so an empty .migrations tree does not yet mean the
+// gate has reopened. The two are normally milliseconds apart; under load the
+// tail stretches into seconds, and a single-shot backup lands in the gap. A
+// sweep that fails releases too, so the reverse does not hold either: an open
+// gate does not prove the shard is swept.
+//
+// Retrying proves what the test is actually about: the registration clears on
+// its own. A leaked one still fails, on the bound below. Any other failure,
+// including a refusal naming a LIVE reindex task, stays first-try terminal.
+func createS3BackupAfterCancelCleanup(t *testing.T, restURI, className, backupID, bucket string) error {
+	t.Helper()
+	const budget = 30 * time.Second
+
+	deadline := time.Now().Add(budget)
+	for attempt := 1; ; attempt++ {
+		err := createS3Backup(t, restURI, className, backupID, bucket)
+		if err == nil || !strings.Contains(err.Error(), cancelCleanupRefusal) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("cancel-cleanup gate still refusing after %s (%d attempts); "+
+				"a shard registration never cleared: %w", budget, attempt, err)
+		}
+		if attempt == 1 {
+			// Says whether this run actually exercised the gap, so a green
+			// run is distinguishable from one that never raced.
+			t.Logf("backup refused by the cancel-cleanup gate; retrying within %s", budget)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // createS3Backup posts to /v1/backups/s3 and waits for SUCCESS: an in-flight
