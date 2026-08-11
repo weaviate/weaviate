@@ -138,9 +138,9 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
 		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
-		rec.waitForCount(t, 1, "the observer must fire for the cancel")
-		// Barrier: the cancel has landed, so a second event now could only
+		// Barrier: once the cancel has landed, any further event could only
 		// have come from AddTask, which must announce nothing.
+		rec.waitForAtLeast(t, 1, "the observer must fire for the cancel")
 		rec.requireNeverExceeds(t, 1, 300*time.Millisecond,
 			"only the cancel may be announced; adding a task must stay silent")
 
