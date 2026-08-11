@@ -99,8 +99,7 @@ func TestRestorerRestoreReleasesOnlyItsOwnSlot(t *testing.T) {
 					t.Fatal("the newer restore never got to claim the slot")
 				}
 				// Storing the outcome is the step right before the deferred
-				// release, so waiting for it puts the window below around that
-				// release instead of around a goroutine that never got there.
+				// release, so the window below can't close before that release.
 				require.Eventually(t, func() bool {
 					st, err := r.status("s3", backupID)
 					return err == nil && st.Status == backup.Success
@@ -228,8 +227,8 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 			// The descriptor write is the backup's last step before its
-			// deferred release, so waiting for it puts the window below around
-			// that release instead of around a goroutine that never got there.
+			// deferred release, so the window below can't close before that
+			// release.
 			var storedOnce sync.Once
 			stored := make(chan bool)
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).

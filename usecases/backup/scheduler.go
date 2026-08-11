@@ -198,10 +198,9 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
 	} else {
-		// The slot only answers for this backup while it still holds it. Once
-		// it has moved on, STARTED is what the caller gets: the response is
-		// built right after the backup was accepted, and everything else here
-		// comes from the request.
+		// The slot only answers for this backup while it still holds it; once
+		// it has moved on, the caller gets STARTED (the response reflects
+		// acceptance, not completion).
 		status := string(backup.Started)
 		if st := s.backupper.lastOp.get(); st.ID == req.ID {
 			status = string(st.Status)
@@ -634,9 +633,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 // claimCancellation writes CANCELLING to the descriptor, the lock
 // coordinators race for. won is false if another coordinator already won or
-// the write failed (a failed write must never read as done); held is the
-// slot's state when the claim tried to stamp it, and is zero whenever won is
-// false, which is when the caller has nothing to read it for.
+// the write failed; held is the slot's state at the attempt, valid only
+// when won is true.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
 ) (bool, reqState, error) {

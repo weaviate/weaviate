@@ -210,8 +210,8 @@ func (o slotOwner) owns() bool {
 // updating" is diagnosable as a refusal rather than silence. Must be called
 // with the lock held.
 //
-// Info, not Debug: the default log level is Info, and a refusal a support
-// case starts from is worth the handful of lines an operation can produce.
+// Info, not Debug: the default log level is Info, and a dropped write is
+// often what a support case starts from.
 func (o slotOwner) logDroppedWrite(st backup.Status) {
 	if o.stat == nil || o.stat.log == nil {
 		return
