@@ -762,19 +762,56 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 }
 
 // cancelApplyFailureResponder maps an FSM rejection from the cancel apply
-// onto the answer the pre-flight would have given for the same condition.
-// The status can flip between the list read and the apply, which on a
-// small collection is an ordinary race; rendering that as a 500 also
-// leaks the sentinel's internal marker into the response body.
+// onto an answer at the same status code the pre-flight would have used
+// for the same condition. The status can flip between the list read and
+// the apply, which on a small collection is an ordinary race; rendering
+// that as a 500 also leaks the sentinel's internal marker into the
+// response body.
 func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
-		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
 	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
 	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped being
+// cancellable between the list read and the apply.
+//
+// The status this handler holds is stale by definition: reaching the
+// apply at all required [distributedtask.TaskStatus.IsCancellable], so it
+// is always STARTED, and the apply only rejects because the task is no
+// longer in that status. It could have moved into a coordination phase or
+// straight to a terminal state, and this side cannot tell which without a
+// second read that would be just as stale. So the body names no status:
+// rendering the stale STARTED would tell an operator whose task had
+// already FINISHED to wait for a terminal state it is already in, under a
+// hazard description that never applied to it.
+//
+// Still 409: the caller asked for a cancel and no cancel happened, same
+// as the pre-flight's refusal. Answering the terminal half with 202 +
+// NO_OP would be closer to the truth for that half alone, but this side
+// cannot separate the halves, and it changes the meaning of a status code
+// on a public endpoint.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_raced",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task stopped being cancellable between the list read and the apply; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between the read and the cancel, and is no "+
+			"longer cancellable: it has either entered a cluster-wide coordination phase, where nodes may "+
+			"already have written merged state or renamed bucket directories, or it has already reached a "+
+			"terminal state — re-read the index status to see where it landed",
+			target.ID, collection, propertyName)))
 }
 
 // cancelNoOpResponder answers a cancel that has nothing to cancel.

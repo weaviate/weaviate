@@ -918,10 +918,10 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 	return events[0]
 }
 
-// Pins: a cancel refused at apply time answers the same way the pre-flight
-// would have. The status can flip between the list read and the apply, and
-// the 500 that used to result rendered the sentinel's internal marker into
-// the response body.
+// Pins: a cancel refused at apply time answers at the same status code the
+// pre-flight would have used. The status can flip between the list read and
+// the apply, and the 500 that used to result rendered the sentinel's
+// internal marker into the response body.
 func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -941,7 +941,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			name:      "task is no longer running",
 			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
 			wantCode:  http.StatusConflict,
-			wantAudit: "reindex_task_cancel_refused",
+			wantAudit: "reindex_task_cancel_raced",
 			wantBody:  "T1",
 		},
 		{
@@ -976,6 +976,49 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
 		})
 	}
+}
+
+// Pins: the apply-race 409 names no status. Reaching the apply required the
+// target to be STARTED, so the status this handler still holds is stale by
+// definition — [distributedtask.ErrTaskNotRunning] covers a move into a
+// coordination phase and a move into a terminal state alike. Rendering the
+// stale STARTED told an operator whose task had already FINISHED to wait
+// for a terminal state it was already in.
+func TestCancelApplyFailureResponder_ApplyRaceNamesNoStatus(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}, nil)
+
+	rec := httptest.NewRecorder()
+	h.cancelApplyFailureResponder(
+		fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+		target, "C", "foo", "filterable", nil,
+	).WriteResponse(rec, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		require.NotContains(t, body, status.String(),
+			"this arm cannot tell which status the task moved to, so it must name none")
+	}
+
+	require.Equal(t, "reindex_task_cancel_raced", auditEvent(t, hook))
+	require.Equal(t, "STARTED", hook.LastEntry().Data["status_at_read"],
+		"the audit line keeps the status the read saw, under a name that says it is stale")
 }
 
 // Pins: an in-flight task whose payload will not decode is logged rather
