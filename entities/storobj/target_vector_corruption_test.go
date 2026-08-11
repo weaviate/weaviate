@@ -151,6 +151,127 @@ func TestUnmarshalTargetVectorsCorruptOffsets(t *testing.T) {
 	})
 }
 
+// TestVectorSectionFramingCorrupt pins the two fields that frame a section — the
+// offsets blob length and the segment length. Both are read out of the value
+// itself, one field earlier than any segment bound can apply, so they need their
+// own check: a corrupt offsets length is as reachable as a corrupt offset.
+func TestVectorSectionFramingCorrupt(t *testing.T) {
+	cases := []struct {
+		name string
+		buf  []byte
+	}{
+		{"offsets length past buffer", binary.LittleEndian.AppendUint32(nil, 0xFFFFFFF0)},
+		{"one byte, no offsets length", []byte{0x01}},
+		{"offsets read, segment length truncated", append(binary.LittleEndian.AppendUint32(nil, 0), 0x00)},
+		{"offsets blob truncated", binary.LittleEndian.AppendUint32(nil, 32)},
+	}
+
+	parsers := []struct {
+		name  string
+		parse func(*byteops.ReadWriter) error
+	}{
+		{"unmarshalTargetVectors", func(rw *byteops.ReadWriter) error { _, err := unmarshalTargetVectors(rw); return err }},
+		{"unmarshalSingleTargetVector", func(rw *byteops.ReadWriter) error {
+			_, err := unmarshalSingleTargetVector(rw, "any", nil)
+			return err
+		}},
+		{"unmarshalMultiVectors", func(rw *byteops.ReadWriter) error { _, err := unmarshalMultiVectors(rw, nil); return err }},
+		{"targetVectorsJSONFromBinary", func(rw *byteops.ReadWriter) error { _, err := targetVectorsJSONFromBinary(rw); return err }},
+		{"multiVectorsJSONFromBinary", func(rw *byteops.ReadWriter) error { _, err := multiVectorsJSONFromBinary(rw); return err }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// backed by a larger array, so an unchecked read finds bytes to slice
+			backing := make([]byte, len(tc.buf)+70_000)
+			copy(backing, tc.buf)
+			for i := len(tc.buf); i < len(backing); i++ {
+				backing[i] = 0xAA
+			}
+			in := backing[:len(tc.buf)]
+
+			for _, p := range parsers {
+				t.Run(p.name, func(t *testing.T) {
+					rw := byteops.NewReadWriter(in)
+					require.Error(t, p.parse(&rw))
+				})
+			}
+		})
+	}
+}
+
+// TestEmptyOffsetsSegment pins the cursor hand-off between the two sections. A
+// section that declares no offsets still declares a length, and the multi-vector
+// parser starts wherever the target-vector parser stopped — so stopping at the
+// segment start makes it read target-vector payload as multi-vector framing.
+func TestEmptyOffsetsSegment(t *testing.T) {
+	t.Run("advances past the declared segment", func(t *testing.T) {
+		mvSegment := encodeMultiVec([]float32{7, 8})
+
+		buf := binary.LittleEndian.AppendUint32(nil, 0) // no target vector offsets
+		buf = binary.LittleEndian.AppendUint32(buf, 6)  // but six declared bytes
+		buf = append(buf, 0xDE, 0xAD, 0xBE, 0xEF, 0xBA, 0xAD)
+		buf = append(buf, buildVectorSection(t, map[string]uint32{"colbert": 0},
+			uint32(len(mvSegment)), mvSegment, nil)...)
+
+		rw := byteops.NewReadWriter(buf)
+		tv, err := unmarshalTargetVectors(&rw)
+		require.NoError(t, err)
+		require.Nil(t, tv)
+
+		mv, err := unmarshalMultiVectors(&rw, nil)
+		require.NoError(t, err)
+		require.Equal(t, [][]float32{{7, 8}}, mv["colbert"])
+	})
+
+	t.Run("corrupt segment length still errors", func(t *testing.T) {
+		buf := binary.LittleEndian.AppendUint32(nil, 0)
+		buf = binary.LittleEndian.AppendUint32(buf, 10_000)
+		buf = append(buf, 0xDE, 0xAD)
+
+		rw := byteops.NewReadWriter(buf)
+		_, err := unmarshalTargetVectors(&rw)
+		require.ErrorContains(t, err, "exceeds buffer")
+	})
+}
+
+// TestExportVectorJSONCorruptOffsets: the export path decodes the same two
+// sections straight to JSON, so it needs the same bounds as the object decoders.
+func TestExportVectorJSONCorruptOffsets(t *testing.T) {
+	trailing := encodeTargetVec(9, 9, 9, 9)
+
+	t.Run("target vectors", func(t *testing.T) {
+		segment := encodeTargetVec(1, 2, 3)
+		buf := buildVectorSection(t, map[string]uint32{"evil": uint32(len(segment))},
+			uint32(len(segment)), segment, trailing)
+
+		rw := byteops.NewReadWriter(buf)
+		_, err := targetVectorsJSONFromBinary(&rw)
+		require.ErrorContains(t, err, "out of segment bounds")
+	})
+
+	t.Run("multi vectors", func(t *testing.T) {
+		segment := encodeMultiVec([]float32{1, 2})
+		buf := buildVectorSection(t, map[string]uint32{"evil": uint32(len(segment))},
+			uint32(len(segment)), segment, trailing)
+
+		rw := byteops.NewReadWriter(buf)
+		_, err := multiVectorsJSONFromBinary(&rw)
+		require.ErrorContains(t, err, "out of segment bounds")
+	})
+
+	t.Run("multi vector document count", func(t *testing.T) {
+		segment := binary.LittleEndian.AppendUint32(nil, 1000)
+		segment = append(segment, encodeTargetVec(1, 2)...)
+		buf := buildVectorSection(t, map[string]uint32{"colbert": 0},
+			uint32(len(segment)), segment, trailing)
+
+		rw := byteops.NewReadWriter(buf)
+		_, err := multiVectorsJSONFromBinary(&rw)
+		require.ErrorContains(t, err, "truncated at document")
+	})
+}
+
 // TestUnmarshalMultiVectorsCorruptOffsets: same guarantees for the multi-vector
 // parser, whose per-document inner reads must also stay inside the declared
 // segment.

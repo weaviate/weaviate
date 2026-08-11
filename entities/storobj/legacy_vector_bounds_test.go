@@ -17,6 +17,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -93,24 +95,40 @@ func TestMultiVectorFromBinaryPastOversizedLegacyVector(t *testing.T) {
 			// Assert the multivector decode independently of VectorFromBinary (already
 			// pinned in TestLegacyVectorRoundTrip) so a wrong pos-cursor walk here isn't
 			// masked by the legacy vector's own bounds bug.
-			gotMV, err := MultiVectorFromBinary(data, nil, "mv")
+			gotMV, err := MultiVectorFromBinary(data, "mv")
 			require.NoError(t, err)
 			require.Equal(t, multiVec, gotMV)
 		})
 	}
 }
 
-// TestVectorFromBinaryTruncatedInputErrors builds truncated views of a valid
-// object as subslices of a larger backing array whose tail is filled with a
-// 0xAA sentinel, mirroring how a value returned from an mmapped LSM segment
-// can have capacity well past its declared length. Pre-fix, in[44:44+n] was an
-// unchecked slice: Go's two-index slice bound check is against cap, not len, so
-// the read silently succeeded and copied the sentinel (standing in for a
-// neighbouring object's bytes) into the returned vector instead of erroring.
-func TestVectorFromBinaryTruncatedInputErrors(t *testing.T) {
-	const dims = 500
+// truncatedView returns data cut to n bytes but backed by a larger array whose
+// tail holds a 0xAA sentinel. A value handed back by an mmapped LSM segment has
+// capacity well past its length, and Go bounds a two-index slice against
+// capacity, so an unchecked read past the value's end yields the sentinel —
+// standing in here for a neighbouring object's bytes — rather than panicking.
+func truncatedView(data []byte, n int) []byte {
+	backing := make([]byte, len(data)+70_000)
+	copy(backing, data[:n])
+	for i := n; i < len(backing); i++ {
+		backing[i] = 0xAA
+	}
+	return backing[:n]
+}
+
+// TestTruncatedObjectDecodersError runs every decoder that reads a vector out of
+// an object value over the same truncation matrix. Each entry point reaches the
+// vector sections by its own walk over the length-prefixed fields, so each needs
+// its own coverage: a bound on one of them says nothing about the others.
+func TestTruncatedObjectDecodersError(t *testing.T) {
+	const (
+		dims      = 500
+		className = "LegacyVectorBoundsClass"
+	)
 	vec := distinctiveVector(dims)
 	obj := legacyVectorTestObject(1, vec)
+	obj.Vectors = map[string][]float32{"nv": {1, 2, 3}}
+	obj.MultiVectors = map[string][][]float32{"mv": {{1, 2}, {3, 4}}}
 
 	data, err := obj.MarshalBinary()
 	require.NoError(t, err)
@@ -119,9 +137,28 @@ func TestVectorFromBinaryTruncatedInputErrors(t *testing.T) {
 	vecEnd := vecStart + dims*4
 	require.Less(t, vecEnd, len(data), "test object must have data trailing the vector")
 
-	cases := []struct {
-		name         string
-		truncatedLen int
+	decoders := []struct {
+		name   string
+		decode func([]byte) (any, error)
+	}{
+		{"VectorFromBinary legacy", func(in []byte) (any, error) { return VectorFromBinary(in, nil, "") }},
+		{"VectorFromBinary named", func(in []byte) (any, error) { return VectorFromBinary(in, nil, "nv") }},
+		{"MultiVectorFromBinary", func(in []byte) (any, error) { return MultiVectorFromBinary(in, "mv") }},
+		{"FromBinaryDisk", func(in []byte) (any, error) { return FromBinaryDisk(in, className) }},
+		{"FromBinaryOptionalDisk", func(in []byte) (any, error) {
+			return FromBinaryOptionalDisk(in, className,
+				additional.Properties{Vector: true, Vectors: []string{"nv", "mv"}}, nil)
+		}},
+		{"UnmarshalBinaryDisk", func(in []byte) (any, error) {
+			decoded := &Object{}
+			return decoded, decoded.UnmarshalBinaryDisk(in, className)
+		}},
+		{"ExportFieldsFromBinary", func(in []byte) (any, error) { return ExportFieldsFromBinary(in) }},
+	}
+
+	lengths := []struct {
+		name string
+		n    int
 	}{
 		{"single byte", 1},
 		{"mid docID", 5},
@@ -130,27 +167,45 @@ func TestVectorFromBinaryTruncatedInputErrors(t *testing.T) {
 		{"length field present, zero vector bytes", vecStart},
 		{"half the vector present", vecStart + dims*4/2},
 		{"one byte short of full vector", vecEnd - 1},
+		{"vector complete, nothing after", vecEnd},
+		{"into the class name", vecEnd + 3},
+		{"into the vector sections", vecEnd + (len(data)-vecEnd)/2},
+		{"one byte short of complete", len(data) - 1},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			backing := make([]byte, len(data)+70_000)
-			copy(backing, data[:tc.truncatedLen])
-			for i := tc.truncatedLen; i < len(backing); i++ {
-				backing[i] = 0xAA
-			}
-			in := backing[:tc.truncatedLen]
+	for _, dec := range decoders {
+		t.Run(dec.name, func(t *testing.T) {
+			want, err := dec.decode(data)
+			require.NoError(t, err, "the complete object must decode")
 
-			_, err := VectorFromBinary(in, nil, "")
-			require.Error(t, err)
+			for _, tc := range lengths {
+				t.Run(tc.name, func(t *testing.T) {
+					got, err := dec.decode(truncatedView(data, tc.n))
+
+					// Truncations below the legacy vector's end cut a field every
+					// decoder reads, so none of them can legitimately succeed.
+					if tc.n < vecEnd {
+						require.Error(t, err)
+						return
+					}
+
+					// Past that point a decoder may stop before the truncation. What
+					// it must never do is reconstruct a plausible-looking answer out
+					// of the bytes that follow the value.
+					if err == nil {
+						require.Equal(t, want, got)
+					}
+				})
+			}
 		})
 	}
 }
 
-// TestZeroLengthNamedVectorDecodesNonNil pins readTargetVectorAt: a nil buffer
-// must allocate even for a zero-length vector, because nil[:0] is nil and a
-// caller holding the result in a map would see an absent vector rather than an
-// explicitly empty one.
+// TestZeroLengthNamedVectorDecodesNonNil pins readVectorInto: a nil buffer must
+// allocate even for a zero-length vector, because nil[:0] is nil and a caller
+// holding the result in a map would see an absent vector rather than an
+// explicitly empty one. The single-vector path takes the nil buffer, so it has
+// to be exercised directly — the full-object decode never reaches it.
 func TestZeroLengthNamedVectorDecodesNonNil(t *testing.T) {
 	obj := legacyVectorTestObject(1, nil)
 	obj.Vectors = map[string][]float32{
@@ -161,11 +216,24 @@ func TestZeroLengthNamedVectorDecodesNonNil(t *testing.T) {
 	data, err := obj.MarshalBinary()
 	require.NoError(t, err)
 
-	full, err := FromBinaryDisk(data, "LegacyVectorBoundsClass")
-	require.NoError(t, err)
+	t.Run("VectorFromBinary", func(t *testing.T) {
+		empty, err := VectorFromBinary(data, nil, "empty")
+		require.NoError(t, err)
+		require.NotNil(t, empty)
+		require.Len(t, empty, 0)
 
-	require.Contains(t, full.Vectors, "empty")
-	require.NotNil(t, full.Vectors["empty"])
-	require.Len(t, full.Vectors["empty"], 0)
-	require.Equal(t, []float32{1, 2}, full.Vectors["full"])
+		full, err := VectorFromBinary(data, nil, "full")
+		require.NoError(t, err)
+		require.Equal(t, []float32{1, 2}, full)
+	})
+
+	t.Run("full object decode", func(t *testing.T) {
+		full, err := FromBinaryDisk(data, "LegacyVectorBoundsClass")
+		require.NoError(t, err)
+
+		require.Contains(t, full.Vectors, "empty")
+		require.NotNil(t, full.Vectors["empty"])
+		require.Len(t, full.Vectors["empty"], 0)
+		require.Equal(t, []float32{1, 2}, full.Vectors["full"])
+	})
 }

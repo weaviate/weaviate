@@ -20,7 +20,6 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -56,6 +55,10 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 		return ExportFields{}, fmt.Errorf("unsupported binary marshaller version %d", version)
 	}
 
+	if len(data) < marshallerV1HeaderLen {
+		return ExportFields{}, fmt.Errorf("object of %d bytes is too short to hold a header", len(data))
+	}
+
 	rw := byteops.NewReadWriter(data)
 	rw.Position = 1
 
@@ -74,25 +77,35 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 	updateTime := int64(rw.ReadUint64())
 
 	// Primary vector: copy raw LE float32 bytes directly (no []float32 intermediate)
-	vectorLength := rw.ReadUint16()
-	vectorByteLen := uint64(vectorLength) * byteops.Uint32Len
+	vectorLength, err := rw.ReadUint16Checked()
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("read vector length: %w", err)
+	}
 	var vectorBytes []byte
 	if vectorLength > 0 {
-		vectorBytes, err = rw.CopyBytesFromBuffer(vectorByteLen, nil)
+		vectorBytes, err = rw.CopyBytesFromBufferChecked(uint64(vectorLength)*byteops.Uint32Len, nil)
 		if err != nil {
 			return ExportFields{}, fmt.Errorf("copy vector bytes: %w", err)
 		}
 	}
 
 	// Skip class name (already known from shard context, stored as file-level metadata)
-	classNameLen := rw.ReadUint16()
-	rw.MoveBufferPositionForward(uint64(classNameLen))
+	classNameLen, err := rw.ReadUint16Checked()
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("read class name length: %w", err)
+	}
+	if err := rw.SkipChecked(uint64(classNameLen)); err != nil {
+		return ExportFields{}, fmt.Errorf("skip class name: %w", err)
+	}
 
 	// Properties: copy raw JSON bytes directly (no unmarshal/enrichSchemaTypes/remarshal)
-	propsLength := rw.ReadUint32()
+	propsLength, err := rw.ReadUint32Checked()
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("read properties length: %w", err)
+	}
 	var properties []byte
 	if propsLength > 0 {
-		propsCopy, copyErr := rw.CopyBytesFromBuffer(uint64(propsLength), nil)
+		propsCopy, copyErr := rw.CopyBytesFromBufferChecked(uint64(propsLength), nil)
 		if copyErr != nil {
 			return ExportFields{}, fmt.Errorf("copy properties bytes: %w", copyErr)
 		}
@@ -104,29 +117,33 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 	}
 
 	// Skip meta (not exported)
-	metaLength := rw.ReadUint32()
-	rw.MoveBufferPositionForward(uint64(metaLength))
+	metaLength, err := rw.ReadUint32Checked()
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("read meta length: %w", err)
+	}
+	if err := rw.SkipChecked(uint64(metaLength)); err != nil {
+		return ExportFields{}, fmt.Errorf("skip meta: %w", err)
+	}
 
 	// Skip vector weights (not exported)
-	vectorWeightsLength := rw.ReadUint32()
-	rw.MoveBufferPositionForward(uint64(vectorWeightsLength))
+	vectorWeightsLength, err := rw.ReadUint32Checked()
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("read vector weights length: %w", err)
+	}
+	if err := rw.SkipChecked(uint64(vectorWeightsLength)); err != nil {
+		return ExportFields{}, fmt.Errorf("skip vector weights: %w", err)
+	}
 
 	// Named vectors: build JSON directly from binary
-	var namedVectors []byte
-	if rw.Position < uint64(len(rw.Buffer)) {
-		namedVectors, err = targetVectorsJSONFromBinary(&rw)
-		if err != nil {
-			return ExportFields{}, fmt.Errorf("export target vectors: %w", err)
-		}
+	namedVectors, err := targetVectorsJSONFromBinary(&rw)
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("export target vectors: %w", err)
 	}
 
 	// Multi-vectors: build JSON directly from binary
-	var multiVectors []byte
-	if rw.Position < uint64(len(rw.Buffer)) {
-		multiVectors, err = multiVectorsJSONFromBinary(&rw)
-		if err != nil {
-			return ExportFields{}, fmt.Errorf("export multi vectors: %w", err)
-		}
+	multiVectors, err := multiVectorsJSONFromBinary(&rw)
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("export multi vectors: %w", err)
 	}
 
 	return ExportFields{
@@ -146,21 +163,17 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 //
 // Output format: {"vecName":[1.5,2.5,3.5],"vecName2":[4.5,5.5,6.5]}
 func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
-	targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
-	targetVectorsSegmentLength := rw.ReadUint32()
-	pos := rw.Position
-
-	defer rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
-
-	if len(targetVectorsOffsets) == 0 {
-		return nil, nil
+	seg, present, err := readVectorSegment(rw, "target vectors")
+	if err != nil || !present {
+		return nil, err
 	}
 
-	var tvOffsets map[string]uint32
-	if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
-		return nil, fmt.Errorf("unmarshal target vectors offsets: %w", err)
-	}
+	defer rw.MoveBufferToAbsolutePosition(seg.end)
 
+	tvOffsets, err := seg.decodeOffsets("target vectors")
+	if err != nil {
+		return nil, err
+	}
 	if len(tvOffsets) == 0 {
 		return nil, nil
 	}
@@ -173,7 +186,7 @@ func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 	slices.Sort(names)
 
 	// Estimate ~10 bytes per float + key/bracket overhead.
-	buf := make([]byte, 0, targetVectorsSegmentLength*3)
+	buf := make([]byte, 0, (seg.end-seg.start)*3)
 	buf = append(buf, '{')
 	for i, name := range names {
 		if i > 0 {
@@ -182,11 +195,16 @@ func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 
 		buf = appendJSONStringKey(buf, name)
 
-		rw.MoveBufferToAbsolutePosition(pos + uint64(tvOffsets[name]))
-		vecLen := rw.ReadUint16()
-		vecBytes := rw.ReadBytesFromBuffer(uint64(vecLen) * byteops.Uint32Len)
+		what := fmt.Sprintf("target vector %q", name)
+		if err := seekToVector(rw, seg, what, tvOffsets[name], byteops.Uint16Len); err != nil {
+			return nil, err
+		}
+		vecBytes, dims, err := readVectorBytes(rw, seg, what)
+		if err != nil {
+			return nil, err
+		}
 
-		buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(vecLen))
+		buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(dims))
 	}
 	buf = append(buf, '}')
 
@@ -199,21 +217,17 @@ func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 //
 // Output format: {"vecName":[[1.5,2.5],[3.5,4.5]],"vecName2":[[5.5,6.5]]}
 func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
-	multiVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
-	multiVectorsSegmentLength := rw.ReadUint32()
-	pos := rw.Position
-
-	defer rw.MoveBufferToAbsolutePosition(pos + uint64(multiVectorsSegmentLength))
-
-	if len(multiVectorsOffsets) == 0 {
-		return nil, nil
+	seg, present, err := readVectorSegment(rw, "multi vectors")
+	if err != nil || !present {
+		return nil, err
 	}
 
-	var mvOffsets map[string]uint32
-	if err := msgpack.Unmarshal(multiVectorsOffsets, &mvOffsets); err != nil {
-		return nil, fmt.Errorf("unmarshal multi vectors offsets: %w", err)
-	}
+	defer rw.MoveBufferToAbsolutePosition(seg.end)
 
+	mvOffsets, err := seg.decodeOffsets("multi vectors")
+	if err != nil {
+		return nil, err
+	}
 	if len(mvOffsets) == 0 {
 		return nil, nil
 	}
@@ -225,7 +239,7 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 	}
 	slices.Sort(names)
 
-	buf := make([]byte, 0, multiVectorsSegmentLength*3)
+	buf := make([]byte, 0, (seg.end-seg.start)*3)
 	buf = append(buf, '{')
 	for i, name := range names {
 		if i > 0 {
@@ -234,17 +248,26 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 
 		buf = appendJSONStringKey(buf, name)
 
-		rw.MoveBufferToAbsolutePosition(pos + uint64(mvOffsets[name]))
-		numVecs := rw.ReadUint32()
+		what := fmt.Sprintf("multi vector %q", name)
+		if err := seekToVector(rw, seg, what, mvOffsets[name], byteops.Uint32Len); err != nil {
+			return nil, err
+		}
+		numVecs := uint64(rw.ReadUint32())
+		if maxVecs := (seg.end - rw.Position) / byteops.Uint16Len; numVecs > maxVecs {
+			return nil, fmt.Errorf("%s truncated at document count: declares %d documents, segment holds at most %d",
+				what, numVecs, maxVecs)
+		}
 
 		buf = append(buf, '[')
-		for j := range int(numVecs) {
+		for j := uint64(0); j < numVecs; j++ {
 			if j > 0 {
 				buf = append(buf, ',')
 			}
-			vecLen := rw.ReadUint16()
-			vecBytes := rw.ReadBytesFromBuffer(uint64(vecLen) * byteops.Uint32Len)
-			buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(vecLen))
+			vecBytes, dims, err := readVectorBytes(rw, seg, fmt.Sprintf("%s document %d", what, j))
+			if err != nil {
+				return nil, err
+			}
+			buf = appendFloat32BytesAsJSONArray(buf, vecBytes, int(dims))
 		}
 		buf = append(buf, ']')
 	}
