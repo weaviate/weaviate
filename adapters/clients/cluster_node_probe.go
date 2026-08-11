@@ -18,9 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
@@ -36,9 +34,10 @@ const nodeNotFoundBody = "404 page not found"
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
 // resolve a node name to a host, GET a JSON route, decode the answer.
 //
-// client must be appState.ClusterHttpClient (carries the probes' auth); any
-// other client 401s, failing the caller's gate closed instead of reporting
-// every node clear.
+// client must be appState.ClusterHttpClient: it is the one carrying the
+// cluster credentials, so wherever basic auth is enabled on the internal API,
+// any other client 401s and fails the caller's gate closed instead of
+// reporting every node clear.
 type nodeProbe struct {
 	client   *http.Client
 	resolver nodeResolver
@@ -83,7 +82,7 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 		if !isNodeNotFound(res, body) {
 			return fmt.Errorf("%s: 404 did not come from the node itself, so it does not "+
 				"mean the route is unserved; check for an HTTP proxy on the cluster port (body: %s)",
-				what, snippet(body))
+				what, clusterprobe.Loggable(string(body)))
 		}
 		return unanswerable
 	}
@@ -91,7 +90,8 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 		return unanswerable
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: unexpected status code %d (%s)", what, res.StatusCode, snippet(body))
+		return fmt.Errorf("%s: unexpected status code %d (%s)",
+			what, res.StatusCode, clusterprobe.Loggable(string(body)))
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {
@@ -118,19 +118,4 @@ func isProbeNotWired(res *http.Response, body []byte) bool {
 func isNodeAnswer(res *http.Response, body []byte, want string) bool {
 	return res.Header.Get("X-Content-Type-Options") == "nosniff" &&
 		strings.TrimSpace(string(body)) == want
-}
-
-// snippet quotes a peer's response body so it can't forge a log line via an
-// embedded newline, and caps its length so a peer can't spam the log.
-func snippet(body []byte) string {
-	const max = 120
-	if len(body) <= max {
-		return strconv.Quote(string(body))
-	}
-	// Cut on a rune boundary so the snippet doesn't end in an escaped half rune.
-	cut := max
-	for cut > 0 && !utf8.RuneStart(body[cut]) {
-		cut--
-	}
-	return strconv.Quote(string(body[:cut]) + "...")
 }

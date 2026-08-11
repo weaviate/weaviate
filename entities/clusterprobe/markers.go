@@ -10,9 +10,13 @@
 //
 
 // Package clusterprobe holds the wire contract of the read-only
-// cluster-internal probes: the markers, the paths, and the payload types that
-// carry an answer. It is a leaf so that the handler serving a probe and the
-// client reading it can share all three without importing each other.
+// cluster-internal probes: the markers, the paths, the reindex-cleanup payload,
+// and the quoting both ends apply to strings the other end controls. It is a
+// leaf so that the handler serving a probe and the client reading it can share
+// all of it without importing each other.
+//
+// The backup probe's payload is the exception: it stays in usecases/backup,
+// next to the state it reports on.
 package clusterprobe
 
 // Each route puts its marker in the "probe" field; its client refuses a 200

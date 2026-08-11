@@ -72,7 +72,7 @@ func NewServer(appState *state.State) *Server {
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
-	backups := NewBackups(appState.BackupManager, appState.BackupActivity, auth)
+	backups := NewBackups(appState.BackupManager, appState.BackupActivity, auth, appState.Logger)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)

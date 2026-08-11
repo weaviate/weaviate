@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 
@@ -64,27 +62,6 @@ func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
 
-// loggedCollectionLimit caps the query-string value this handler logs. A
-// collection name is far shorter; the cap exists for the value an unauthorized
-// caller can send, not for the one a peer sends.
-const loggedCollectionLimit = 128
-
-// loggableCollection makes an attacker-supplied query value safe to put in a
-// logrus field: quoting escapes the newline that would otherwise split one log
-// line into two forgeable ones, and the cap stops a megabyte of query string
-// from being written per request.
-func loggableCollection(collection string) string {
-	if len(collection) > loggedCollectionLimit {
-		// Cut on a rune boundary so the kept part doesn't end in an escaped half rune.
-		cut := loggedCollectionLimit
-		for cut > 0 && !utf8.RuneStart(collection[cut]) {
-			cut--
-		}
-		collection = collection[:cut] + "…(truncated)"
-	}
-	return strconv.Quote(collection)
-}
-
 func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
@@ -100,10 +77,10 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			return
 		}
 
-		// An operator tracing a slow cancel needs this logged on every path
-		// the request can leave by, not just the success path.
+		// Built before the not-wired branch so both of the probe's answers
+		// reach the log, not just the one that carries a verdict.
 		log := rc.logger.WithField("action", "reindex_cleanup_probe").
-			WithField("collection", loggableCollection(collection))
+			WithField("collection", clusterprobe.Loggable(collection))
 
 		// Never silently report "not cleaning up": a cancel's answer depends
 		// on this, and a wrong "no" reopens the window it exists to close.

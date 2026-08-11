@@ -15,10 +15,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,40 +158,6 @@ func TestProbeRejectsOversizedResponse(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.True(t, got)
-		})
-	}
-}
-
-// snippet() must quote (log injection) and not cut a multi-byte rune in half;
-// the ascii prefixes cover every byte offset the cap can land on.
-func TestSnippetIsQuotedAndCutsOnRuneBoundaries(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-	}{
-		{name: "short body is kept whole", body: "not found"},
-		{name: "newline forging a second log line", body: "not found\nlevel=error msg=forged"},
-		{name: "carriage return", body: "not found\rmsg=forged"},
-		{name: "ascii is cut at the cap", body: strings.Repeat("a", 500)},
-		{name: "two-byte runes, cap on a boundary", body: strings.Repeat("é", 200)},
-		{name: "two-byte runes, cap one byte in", body: "a" + strings.Repeat("é", 200)},
-		{name: "three-byte runes, cap on a boundary", body: strings.Repeat("日", 200)},
-		{name: "three-byte runes, cap one byte in", body: "a" + strings.Repeat("日", 200)},
-		{name: "three-byte runes, cap two bytes in", body: "aa" + strings.Repeat("日", 200)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := snippet([]byte(tt.body))
-
-			assert.NotContains(t, got, "\n", "a raw newline ends the line and forges the next one")
-			assert.NotContains(t, got, "\r")
-
-			unquoted, err := strconv.Unquote(got)
-			require.NoError(t, err, "the snippet has to be a quoted Go string")
-			kept := strings.TrimSuffix(unquoted, "...")
-			assert.True(t, strings.HasPrefix(tt.body, kept), "the snippet has to be a prefix of the body")
-			assert.True(t, utf8.ValidString(kept), "a cut must not split a rune")
 		})
 	}
 }
