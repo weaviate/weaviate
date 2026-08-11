@@ -412,13 +412,13 @@ func (t TaskStatus) String() string {
 // short-circuit on terminal status to avoid running them again.
 //
 // Adding a new terminal status is only safe once every version in the
-// supported upgrade and rollback range recognizes it. A node that does not
-// recognize it reads it as in-flight ([TaskStatus.IsActive]), so it drops
-// schema mutations the rest of the cluster committed, refuses backups on
-// the collection, and never cleans the task up. A new non-terminal status
-// is cheaper but not free: such a node still refuses backups on the
-// collection and reports the index as "indexing". See
-// docs/runtime-reindex.md §4.2 for the mechanism.
+// supported upgrade and rollback range recognizes it: a node that does not
+// reads it as in flight ([TaskStatus.IsActive]), so it drops schema
+// mutations the rest of the cluster committed and never cleans the task
+// up. A new non-terminal status is cheaper, since the fail-closed reading
+// is the correct one, but not free: [TaskStatus.IsCoordinationPhase]
+// returns false for it, so an older node accepts a cancel it should
+// refuse. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -445,8 +445,18 @@ func (t TaskStatus) IsActive() bool {
 //
 // A status this build does not recognize returns false here, where
 // [TaskStatus.IsActive] returns true: this method reports which phase a
-// task is in, IsActive reports whether this build can rule out that the
-// task is still running.
+// task is in, IsActive reports whether this build has to assume the task
+// is still running.
+// IsCancellable is true for the statuses [Manager.CancelTask] accepts:
+// STARTED, and any status this build does not recognize. A terminal task
+// has nothing left to stop. A task in a coordination phase may already
+// have written merged state or renamed bucket directories on some nodes,
+// so stopping the rest would leave the cluster serving migrated buckets
+// under the pre-migration schema.
+func (t TaskStatus) IsCancellable() bool {
+	return !t.IsTerminal() && !t.IsCoordinationPhase()
+}
+
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
