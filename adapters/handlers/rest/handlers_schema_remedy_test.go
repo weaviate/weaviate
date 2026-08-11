@@ -15,12 +15,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -142,11 +145,15 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 				require.Error(t, applyGate)
 
 				require.Equal(t, applyGate.Error(), preCheck)
-				// An unrecognized status claims nothing about cancel, so it
-				// renders no call to check the class name in.
-				if status.IsCoordinationPhase() || status == distributedtask.TaskStatusStarted {
-					for _, want := range p.wantInReason {
+				// wantInReason is the rendered cancel call, which both layers
+				// print only in the status the cancel endpoint accepts one in.
+				// Asserted in both directions off the endpoint's own predicate,
+				// so neither layer can start advertising a cancel that 409s.
+				for _, want := range p.wantInReason {
+					if status.IsCancellable() {
 						require.Contains(t, preCheck, want)
+					} else {
+						require.NotContains(t, preCheck, want)
 					}
 				}
 				for _, unwanted := range p.notInReason {
@@ -231,6 +238,104 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 			require.Len(t, payload.Error, 1)
 			require.Contains(t, payload.Error[0].Message, tc.want)
 		})
+	}
+}
+
+// declaredReindexMigrationTypes is every migration type this build declares.
+// db.TestReindexTargetIndexes scans the package source and fails if the
+// declared set ever grows past this count, so a new type cannot slip past
+// the rows below unnoticed.
+var declaredReindexMigrationTypes = []db.ReindexMigrationType{
+	db.ReindexTypeChangeTokenization,
+	db.ReindexTypeChangeTokenizationFilterable,
+	db.ReindexTypeEnableFilterable,
+	db.ReindexTypeEnableSearchable,
+	db.ReindexTypeEnableRangeable,
+	db.ReindexTypeRepairFilterable,
+	db.ReindexTypeRepairRangeable,
+	db.ReindexTypeRebuildSearchable,
+	db.ReindexTypeChangeAlgorithm,
+}
+
+// renderedCallRE matches a `PUT <path> <body>` the reindex messages render.
+// Every rendered body is one index group wrapping one flat object, so the
+// pattern needs no brace balancing.
+var renderedCallRE = regexp.MustCompile(`PUT /v1/schema/([^ ]+)/indexes/([^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
+
+// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts drives the cancel call a
+// schema gate's remedy prints through the path a PUT would take —
+// requestedCancel, validateBodyExclusivity, findCancelTarget, cancelPreflight
+// — and fails when the API would refuse it.
+//
+// This is the assertion the string tables cannot make. cancelPreflight keys on
+// TaskStatus.IsCancellable, a literal `== STARTED`, so a remedy that named a
+// cancel for PREPARING or SWAPPING would send the operator into a 409 while
+// every Contains-based row stayed green.
+//
+// It runs in both directions: a printed cancel has to be accepted, and a
+// status where one would be accepted has to have it printed.
+func TestGateRemedyNamesOnlyACancelTheCancelPathAccepts(t *testing.T) {
+	require.Len(t, declaredReindexMigrationTypes, 9,
+		"a new migration type needs rows here as well")
+
+	statuses := []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		unknownFutureStatus,
+	}
+
+	for _, migrationType := range declaredReindexMigrationTypes {
+		for _, status := range statuses {
+			for _, dropsTheData := range []bool{false, true} {
+				name := fmt.Sprintf("%s/%s/dropsTheData=%v", migrationType, status, dropsTheData)
+				t.Run(name, func(t *testing.T) {
+					payload := db.ReindexTaskPayload{
+						Collection:         "C",
+						MigrationType:      migrationType,
+						Properties:         []string{"name"},
+						TargetTokenization: "word",
+					}
+					remedy := db.ReindexGateRemedy(status, payload, "name", dropsTheData)
+					require.NotEmpty(t, remedy)
+
+					logger, _ := logrustest.NewNullLogger()
+					h := &indexesHandlers{appState: &state.State{Logger: logger}}
+					task := buildTask(t, "T1", status, payload, nil)
+
+					var printed int
+					for _, m := range renderedCallRE.FindAllStringSubmatch(remedy, -1) {
+						collection, property, rawBody := m[1], m[2], m[3]
+						var body models.IndexUpdateRequest
+						require.NoError(t, json.Unmarshal([]byte(rawBody), &body),
+							"the remedy rendered a body the API cannot parse: %s", rawBody)
+						indexType, isCancel := requestedCancel(&body)
+						if !isCancel {
+							continue
+						}
+						printed++
+						require.NoError(t, validateBodyExclusivity(&body))
+
+						target, _ := findCancelTarget(
+							[]*distributedtask.Task{task}, collection, property, indexType, logger)
+						require.NotNil(t, target,
+							"the remedy named a cancel target the matcher does not find: %s", m[0])
+						require.Nil(t,
+							h.cancelPreflight(target, collection, property, indexType, nil),
+							"the remedy named a cancel the API refuses in status %s: %s", status, m[0])
+					}
+
+					if status.IsCancellable() && db.ReindexCancelCall(payload, "name") != "" {
+						require.Equal(t, 1, printed,
+							"a cancel is accepted in status %s and this build can name it, "+
+								"so the remedy has to print it exactly once", status)
+						return
+					}
+					require.Zero(t, printed,
+						"no cancel is accepted in status %s, so the remedy must print none", status)
+				})
+			}
+		}
 	}
 }
 
@@ -369,11 +474,25 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 					"the rendered repair call is rejected by the handler that receives it")
 			}
 
-			// Cancel is dispatched before every per-type precondition, so
-			// exclusivity is the whole check it has to pass.
+			// Cancel skips the per-type preconditions, but not
+			// cancelPreflight, whose IsCancellable check refuses everything
+			// past STARTED. So the rendered call goes through the matcher and
+			// the pre-flight, not just through exclusivity.
 			cancel := db.ReindexCancelCall(payload, "name")
 			require.NotEmpty(t, cancel, "every declared type needs a cancel call")
-			require.NoError(t, validateBodyExclusivity(bodyOf(t, cancel)))
+			cancelBody := bodyOf(t, cancel)
+			require.NoError(t, validateBodyExclusivity(cancelBody))
+			indexType, isCancel := requestedCancel(cancelBody)
+			require.True(t, isCancel, "the rendered cancel call must read as one")
+
+			logger, _ := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+			task := buildTask(t, "T1", distributedtask.TaskStatusStarted, payload, nil)
+			target, _ := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "name", indexType, logger)
+			require.NotNil(t, target, "the rendered cancel call must find its target")
+			require.Nil(t, h.cancelPreflight(target, "C", "name", indexType, nil),
+				"the rendered cancel call is refused by the pre-flight that receives it")
 		})
 	}
 }

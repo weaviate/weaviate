@@ -73,7 +73,7 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 
 			// The generation is promotion-eligible from the merge onward,
 			// which is the evidence the CANCELLED repair guidance is gated on.
-			require.True(t, idx.HasPromotableReindexState(propName, indexType),
+			require.True(t, idx.anyPromotableReindexState(propName, indexType, nil),
 				"a merged generation is what the next restart promotes")
 
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, indexType))
@@ -155,7 +155,7 @@ func TestHasPromotableReindexState(t *testing.T) {
 				}
 				mkTrackerDir(t, shard.pathLSM(), dir, tc.sentinels...)
 			}
-			require.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType))
+			require.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil))
 		})
 	}
 }
@@ -167,5 +167,5 @@ func TestHasPromotableReindexState(t *testing.T) {
 func TestDBHasPromotableReindexStateWithoutLocalIndex(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 
-	require.False(t, db.HasPromotableReindexState("C", "descr", "searchable"))
+	require.False(t, db.anyPromotableReindexState("C", "descr", "searchable", nil))
 }

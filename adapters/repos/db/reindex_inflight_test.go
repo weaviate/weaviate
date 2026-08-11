@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -165,6 +166,11 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
+//
+// The gate cannot see the task's status, so the cancel it names has to
+// carry the condition under which the API accepts one. Without it the
+// message points an operator whose task carries a status this build
+// cannot classify at a cancel that answers 409 on every node.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1", false)
 	require.Error(t, err)
@@ -181,6 +187,21 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.NotContains(t, err.Error(), "<class>")
 	require.NotContains(t, err.Error(), "<prop>")
 	require.NotContains(t, err.Error(), "<indexType>")
+
+	// This gate is shard-keyed and never sees the task, so it cannot drop
+	// the cancel advice past STARTED the way ReindexGateRemedy does. It has
+	// to state the restriction instead, or it sends an operator whose task
+	// is already coordinating into a 409.
+	require.Contains(t, err.Error(), "only while it is still in status STARTED")
+	require.Contains(t, err.Error(), "409 Conflict")
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	} {
+		require.False(t, status.IsCancellable(),
+			"the message names %s as uncancellable, so the API has to agree", status)
+		require.Contains(t, err.Error(), status.String())
+	}
 }
 
 // On a namespace-enabled cluster the class name is stored qualified. The

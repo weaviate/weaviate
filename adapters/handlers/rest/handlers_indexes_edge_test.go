@@ -829,12 +829,18 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 // unknownFutureStatus simulates a status a newer node introduced that this
 // build doesn't recognize. Deliberately not a capitalised present
 // participle, so it can never collide with a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
-// Pins the wire response of every cancel arm: 202 CANCELLED for the
-// cancellable statuses (STARTED and one this build cannot name), 409 for
-// the coordination phases, 202 NO_OP when nothing matches. Each arm's
-// audit line is pinned with it.
+// Pins the wire response of every cancel arm: the apply is reached for
+// STARTED alone, 409 for the coordination phases and for a status this
+// build cannot name, 202 NO_OP when nothing matches. Each arm's audit
+// line is pinned with it, and the two 409 conditions are held apart:
+// they need different bodies because only one of them can honestly tell
+// the operator to wait.
 func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -847,21 +853,33 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 		status     distributedtask.TaskStatus
 		properties []string
 		wantCode   int
+		wantReason string
 	}{
-		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0},
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0, ""},
 		// Refused, not proposed: only a build that can name the status
 		// knows whether stopping is safe, so the FSM refuses it on every
 		// node and REST must not spend a RAFT apply finding that out.
-		{"unrecognized", unknownFutureStatus, payload.Properties, http.StatusConflict},
-		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, http.StatusConflict},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict},
-		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted},
-		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted},
-		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted},
+		// "Wait for it to reach a terminal state" is the wrong advice
+		// here — nothing on this node advances a status it cannot name.
+		{
+			"unrecognized", unknownFutureStatus, payload.Properties,
+			http.StatusConflict, "cannot classify that status",
+		},
+		{
+			"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		{
+			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
 		// Empty Properties is the reserved whole-collection form; it has
 		// to match the queried property or the operator gets no cancel
 		// target for a task that blocks their mutation.
-		{"empty properties", distributedtask.TaskStatusStarted, nil, 0},
+		{"empty properties", distributedtask.TaskStatusStarted, nil, 0, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
@@ -896,9 +914,12 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			body := rec.Body.String()
 			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
 			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
-			// False for PREPARING: no node has swapped yet, and PREP runs
-			// for minutes at billion-scale where SWAP runs for tens of ms.
-			require.NotContains(t, body, "swap is in progress")
+			require.Contains(t, body, tc.wantReason)
+			// Nothing on this node advances a status it cannot name, so
+			// the coordination-phase advice must not leak onto that arm.
+			if !tc.status.IsRecognized() {
+				require.NotContains(t, body, "wait for it to reach a terminal state")
+			}
 			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
 		})
 	}
@@ -918,10 +939,10 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 	return events[0]
 }
 
-// Pins: a cancel refused at apply time answers the same way the pre-flight
-// would have. The status can flip between the list read and the apply, and
-// the 500 that used to result rendered the sentinel's internal marker into
-// the response body.
+// Pins: a cancel refused at apply time answers at the same status code the
+// pre-flight would have used. The status can flip between the list read and
+// the apply, and the 500 that used to result rendered the sentinel's
+// internal marker into the response body.
 func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -941,7 +962,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			name:      "task is no longer running",
 			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
 			wantCode:  http.StatusConflict,
-			wantAudit: "reindex_task_cancel_refused",
+			wantAudit: "reindex_task_cancel_raced",
 			wantBody:  "T1",
 		},
 		{
@@ -976,6 +997,49 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
 		})
 	}
+}
+
+// Pins: the apply-race 409 names no status. Reaching the apply required the
+// target to be STARTED, so the status this handler still holds is stale by
+// definition — [distributedtask.ErrTaskNotRunning] covers a move into a
+// coordination phase and a move into a terminal state alike. Rendering the
+// stale STARTED told an operator whose task had already FINISHED to wait
+// for a terminal state it was already in.
+func TestCancelApplyFailureResponder_ApplyRaceNamesNoStatus(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}, nil)
+
+	rec := httptest.NewRecorder()
+	h.cancelApplyFailureResponder(
+		fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+		target, "C", "foo", "filterable", nil,
+	).WriteResponse(rec, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		require.NotContains(t, body, status.String(),
+			"this arm cannot tell which status the task moved to, so it must name none")
+	}
+
+	require.Equal(t, "reindex_task_cancel_raced", auditEvent(t, hook))
+	require.Equal(t, "STARTED", hook.LastEntry().Data["status_at_read"],
+		"the audit line keeps the status the read saw, under a name that says it is stale")
 }
 
 // Pins: an in-flight task whose payload will not decode is logged rather
