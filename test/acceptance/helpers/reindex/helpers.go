@@ -90,11 +90,10 @@ type IndexUpdateErrorResponse struct {
 	Body       string
 }
 
-// SubmitIndexUpdateExpectRefusal submits a PUT /indexes request and returns
-// the response status and body. Despite the name, 202 also passes — gate-probing
-// callers poll until the refusal window opens; only a 5xx fails here, so every
-// caller must assert the exact status it expects.
-func SubmitIndexUpdateExpectRefusal(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
+// SubmitIndexUpdateExpect4xx submits a PUT /indexes request expected to
+// fail at validation and returns the response status and body. The caller
+// asserts the exact status code.
+func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
 	t.Helper()
 	o := applyOptions(opts)
 
@@ -110,12 +109,6 @@ func SubmitIndexUpdateExpectRefusal(t *testing.T, restURI, collection, property,
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
-	if resp.StatusCode != http.StatusAccepted {
-		require.GreaterOrEqualf(t, resp.StatusCode, 400,
-			"expected a refusal or an admission, got %d: %s", resp.StatusCode, string(body))
-		require.Lessf(t, resp.StatusCode, 500,
-			"expected a refusal, got a server error %d: %s", resp.StatusCode, string(body))
-	}
 	return IndexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
 
@@ -494,25 +487,17 @@ func WithEnv(
 	body()
 }
 
-// WithReindexEnv applies the env every runtime-reindex suite needs, whatever
-// topology or backend it builds on: the feature flag on (the server default is
-// off, so a suite that bypasses this silently tests nothing), the legacy
-// searchable path off, and a 1s scheduler tick so task transitions land inside
-// test timeouts.
-//
-// Take this rather than repeating the three lines: a suite that composes its own
-// cluster and pastes only two of them still starts, and then tests nothing while
-// looking green. Callers keep chaining their own env before Start.
-func WithReindexEnv(c *docker.Compose) *docker.Compose {
-	return c.
+// SingleNodeCompose is the single-node configuration the runtime-reindex
+// suites share: the feature flag on (the server default is off, so a suite
+// that bypasses this silently tests nothing), the legacy searchable path
+// off, and a 1s scheduler tick so task transitions land inside test
+// timeouts. Callers needing extra env keep chaining before Start.
+func SingleNodeCompose() *docker.Compose {
+	return docker.New().
+		WithWeaviate().
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
-}
-
-// SingleNodeCompose is [WithReindexEnv] on a single-node cluster.
-func SingleNodeCompose() *docker.Compose {
-	return WithReindexEnv(docker.New().WithWeaviate())
 }
 
 // StartSingleNode starts [SingleNodeCompose] with no further tuning.

@@ -1409,22 +1409,6 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 	return nil
 }
 
-// cancelApplyFailureResponder maps an FSM rejection from the cancel apply
-// onto the answer the pre-flight would have given for the same condition.
-// The status can flip between the list read and the apply, which on a
-// small collection is an ordinary race; rendering that as a 500 also
-// leaks the sentinel's internal marker into the response body.
-func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	switch {
-	case errors.Is(err, distributedtask.ErrTaskNotRunning):
-		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
-	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
-		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
-	}
-	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
-		fmt.Sprintf("cancelling task: %v", err)))
-}
-
 // cancelNoOpResponder answers a cancel that has nothing to cancel.
 //
 // Idempotent cancel: the caller's (collection, property) is known to exist
@@ -1445,15 +1429,17 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 }
 
 // cancelRefusedResponder answers a cancel DTM will not accept because the
-// task is past its units. Both the pre-flight
-// ([distributedtask.TaskStatus.IsCancellable]) and the apply's
-// [distributedtask.ErrTaskNotRunning] land here, so which side of the list
-// read the status flipped on cannot change the answer.
+// task is past its units. Two conditions land here and they need different
+// bodies: a coordination phase, where this build knows what the task is
+// doing and knows that stopping it is unsafe, and a status it cannot name,
+// where it knows neither. Telling an operator to "wait for a terminal
+// state" is honest advice for the first and a dead end for the second —
+// the status has to terminate on the nodes that recognize it.
 //
-// The body has to hold for PREPARING as well as SWAPPING: in PREPARING no
-// node has swapped yet, so naming the swap as under way would have an
-// operator sizing the wait in seconds when PREP runs for minutes at
-// billion-scale.
+// Both the pre-flight ([distributedtask.TaskStatus.IsCancellable]) and the
+// apply's re-listing ([indexesHandlers.answerCancelThatRacedTheCommit])
+// land here, so which side of the list read the status flipped on cannot
+// change the answer. Both pass a status they have just read.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -1465,10 +1451,26 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		"principal":   principalUsername(principal),
 	}).Info("cancel: task is past the point where cancelling is safe; refusing")
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s is in status %s: nodes may already have written merged "+
-			"state or renamed bucket directories, so stopping it now would leave the cluster serving "+
-			"migrated buckets under the pre-migration schema — wait for it to reach a terminal state",
-			target.ID, collection, propertyName, target.Status)))
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
+			target.ID, collection, propertyName, target.Status,
+			cancelRefusalReason(target.Status))))
+}
+
+// cancelRefusalReason explains a 409 from the cancel verb.
+//
+// The coordination-phase wording has to hold for PREPARING as well as
+// SWAPPING: in PREPARING no node has swapped yet, so naming the swap as
+// under way would have an operator sizing the wait in seconds when PREP
+// runs for minutes at billion-scale.
+func cancelRefusalReason(status distributedtask.TaskStatus) string {
+	if !status.IsRecognized() {
+		return "this build cannot classify that status, so it cannot tell whether stopping the " +
+			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+			"state on the nodes that do recognize it"
+	}
+	return "nodes may already have written merged state or renamed bucket directories, so " +
+		"stopping it now would leave the cluster serving migrated buckets under the " +
+		"pre-migration schema — wait for it to reach a terminal state"
 }
 
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
@@ -1874,18 +1876,25 @@ func firstUnattributableLiveTask(tasks []*distributedtask.Task) *distributedtask
 }
 
 // answerCancelThatRacedTheCommit answers the cancel that DTM refused because
-// the task reached a terminal status between the pre-cancel listing and the
-// cancel itself (DTM cancels every non-terminal status). Returns nil when the
-// caller should keep its 500. A fresh listing decides: FINISHED, FAILED or
+// the task ended between the pre-cancel listing and the cancel itself. Two
+// rejections mean that: [distributedtask.ErrTaskNotRunning] for a task the FSM
+// still holds but will no longer cancel, and [distributedtask.ErrTaskDoesNotExist]
+// for one whose version is gone from the FSM entirely (the task GC removed it,
+// or a newer submission took its ID). Returns nil when the caller should keep
+// its 500.
+//
+// A fresh listing decides, never the sentinel alone. FINISHED, FAILED or
 // CANCELLED gets the same 202 NO_OP the pre-cancel checks give a task that
-// stopped on its own. Anything else (unreachable leader, version mismatch,
-// a status the listing cannot settle) keeps the 500, since the task's state
-// there is unknown and a NO_OP would be a guess.
+// stopped on its own, and so does an ErrTaskDoesNotExist whose ID the listing
+// no longer carries at all. Anything else (unreachable leader, or a listing
+// that contradicts the sentinel by still showing the task live) keeps the 500,
+// since the task's state there is unknown and a NO_OP would be a guess.
 func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, cancelErr error,
 	collection, propertyName, indexType string, target *distributedtask.Task,
 	principal *models.Principal,
 ) middleware.Responder {
-	if !errors.Is(cancelErr, distributedtask.ErrTaskNotRunning) {
+	gone := errors.Is(cancelErr, distributedtask.ErrTaskDoesNotExist)
+	if !gone && !errors.Is(cancelErr, distributedtask.ErrTaskNotRunning) {
 		return nil
 	}
 	fresh, err := h.tasks.ListDistributedTasks(ctx)
@@ -1899,17 +1908,29 @@ func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, ca
 		return nil
 	}
 	tasks := fresh[db.ReindexNamespace]
+	settled := terminalReindexTask(tasks, target.ID)
+	live := reindexTaskByID(tasks, target.ID)
 
-	if settled := terminalReindexTask(tasks, target.ID); settled != nil {
+	// Both readings mean the listing agrees there is nothing left to cancel.
+	// A task the listing still shows live is not one of them: answering NO_OP
+	// there would report a clear gate while a migration is holding it.
+	var noOp, settledStatus string
+	switch {
+	case settled != nil:
+		noOp, settledStatus = "the task stopped on its own before the cancel landed", string(settled.Status)
+	case gone && live == nil:
+		noOp = "the task was already gone from the listing when the cancel landed"
+	}
+	if noOp != "" {
 		h.appState.Logger.WithFields(logrus.Fields{
 			"audit_event": "reindex_task_cancel_noop",
-			"taskID":      settled.ID,
-			"task_status": string(settled.Status),
+			"taskID":      target.ID,
+			"task_status": settledStatus,
 			"collection":  collection,
 			"property":    propertyName,
 			"index_type":  indexType,
 			"principal":   principalUsername(principal),
-		}).Infof("cancel: the task stopped on its own before the cancel landed, so there is nothing left to cancel: %v", cancelErr)
+		}).Infof("cancel: %s, so there is nothing left to cancel: %v", noOp, cancelErr)
 		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
 			Status: reindexCancelStatusNoOp,
 		})
@@ -1919,7 +1940,7 @@ func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, ca
 	// can enter between the pre-flight read and the apply. That is the same
 	// condition the pre-flight answers with 409, so it answers the same way
 	// here rather than a 500 carrying DTM's internal marker.
-	if live := reindexTaskByID(tasks, target.ID); live != nil && !live.Status.IsCancellable() {
+	if live != nil && !live.Status.IsCancellable() {
 		return h.cancelRefusedResponder(live, collection, propertyName, indexType, principal)
 	}
 
@@ -2194,6 +2215,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
+	// No default arm, so the exhaustive linter makes a newly declared
+	// TaskStatus say how the GET should display it rather than inherit
+	// the unrecognized reading below. That reading is a fail-closed
+	// fallback for a status a newer node wrote, not a display rule
+	// anyone should get by not writing one.
 	switch best.Status {
 	case distributedtask.TaskStatusFailed:
 		idx.Status = "failed"
@@ -2253,11 +2279,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Progress = 1.0
 			surfaceSyntheticFields = true
 		}
-	default:
-		// Unrecognized status: other gates already treat it as in-flight
-		// (409 on PUT, counted against the cap, backups refused), so this
-		// reports "indexing" rather than "ready" or "pending" — the units
-		// don't prove no shard has started for a status this build can't name.
+	}
+
+	if !best.Status.IsRecognized() {
+		// Other gates already treat it as in-flight (409 on PUT, counted
+		// against the cap, backups refused), so this reports "indexing"
+		// rather than "ready" or "pending" — the units don't prove no
+		// shard has started for a status this build can't name.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true

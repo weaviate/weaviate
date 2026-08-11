@@ -32,14 +32,15 @@ import (
 // (filterable-only) interact with DELETE /properties/{prop}/index/{idx},
 // enable-*, cancel, and back-to-back retokenizations.
 //
-// The new ReindexTypeChangeTokenizationFilterable migration (commit
-// c98a3477ea) added a body shape that retokenizes ONLY the filterable
-// bucket. The classic ReindexTypeChangeTokenization retokenizes BOTH
-// buckets when both indexes exist. The two share submit-time cleanup
-// (the NewStalePartialReindexSweep call in handlers_indexes.go) but
-// indexTypeFromMigrationType returns ("", false) for the classic both-
-// indexes variant — meaning the submit-time pre-cleanup is SKIPPED for
-// change-tok-both. That's the gap the journeys below probe.
+// ReindexTypeChangeTokenizationFilterable retokenizes ONLY the
+// filterable bucket. The classic ReindexTypeChangeTokenization
+// retokenizes BOTH buckets when both indexes exist. The two share
+// submit-time cleanup (the NewStalePartialReindexSweep call in
+// handlers_indexes.go), which indexTypesFromMigrationType scopes per
+// migration type: filterable for the filterable-only variant,
+// searchable AND filterable for the classic one. The journeys below
+// probe that cleanup against a property whose indexes changed
+// underneath it.
 //
 // Per the "no bug is ever out of scope" rule each journey lands either
 // as PASS (no gap) or RED (regression test pinning a real bug).
@@ -457,14 +458,14 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 // migration must leave the filterable side in a state where the
 // filterable-only retokenize can proceed.
 //
-// Hazard: indexTypeFromMigrationType returns ("", false) for
-// ReindexTypeChangeTokenization, which means the stale-state sweep
-// is NOT called by the submit-time pre-cleanup at handlers_indexes.go:427.
-// The cancel handler at handlers_indexes.go:598 IS called but only with
-// the specific indexType passed in the cancel body. If the change-tok-both
-// cancel happened via {searchable:{cancel:true}} then only the
-// searchable side gets cleaned — the filterable side's stale state
-// persists and may corrupt the subsequent change-tok-filterable.
+// Both cleanups sweep every index type the migration touches:
+// indexTypesFromMigrationType returns "searchable" and "filterable" for
+// ReindexTypeChangeTokenization, so the cancel handler does not stop at
+// the indexType named in the cancel body and the submit-time
+// pre-cleanup runs for both sides. This journey pins that: cancelling
+// change-tok-both via {searchable:{cancel:true}} must leave no
+// filterable-side state behind to corrupt the change-tok-filterable
+// that follows.
 func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string) {
 	const class = "ChangeTokBothCancelThenFilterable"
 	trueVal := true

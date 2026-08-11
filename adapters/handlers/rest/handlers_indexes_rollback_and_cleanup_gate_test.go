@@ -54,6 +54,10 @@ type scriptedRollbackService struct {
 	// refused, reproducing the case the refusal is meant to describe: the task
 	// reached that status between the listing and the cancel.
 	statusAfterFailedCancel distributedtask.TaskStatus
+	// dropAfterFailedCancel empties the listing once a cancel has been refused,
+	// which is what the FSM's own task GC leaves behind for a task that ended
+	// and aged out between the listing and the cancel.
+	dropAfterFailedCancel bool
 }
 
 func (s *scriptedRollbackService) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
@@ -136,6 +140,10 @@ func TestRollbackRacedReindexTaskSurvivesRequestCancellation(t *testing.T) {
 }
 
 func (s *scriptedRollbackService) applyStatusAfterFailedCancel() {
+	if s.dropAfterFailedCancel {
+		s.tasks = nil
+		return
+	}
 	if s.statusAfterFailedCancel == "" {
 		return
 	}

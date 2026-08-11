@@ -217,6 +217,22 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:  "enable_filterable_a_b_1", props: []string{"a_b"},
 			propName: "a", want: false,
 		},
+		// The payload names this property, but the dir name does not rebuild
+		// from that payload's list. Only a writer that skipped
+		// [migrationDirWithProps], which sorts, leaves this shape; a dir this
+		// cleanup cannot account for could be another property's tracker.
+		{
+			name: "a payload naming this property, in a dir name it does not rebuild",
+			dir:  "enable_filterable_b_a_1", props: []string{"a", "b"},
+			propName: "a", want: false,
+		},
+		// An intact payload decides on its own, so the name-token fallback that
+		// preserves this same dir without a payload does not apply here.
+		{
+			name: "a payload naming this property, in a dir name it does not rebuild, in the preserve set",
+			dir:  "enable_filterable_b_a_1", props: []string{"a", "b"},
+			propName: "a", preserve: true, want: false,
+		},
 		{
 			name: "a property whose name extends this one",
 			dir:  "enable_filterable_cat_x_1", props: []string{"cat_x"},
