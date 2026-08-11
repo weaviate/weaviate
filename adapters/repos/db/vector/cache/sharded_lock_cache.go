@@ -171,9 +171,8 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-// emptyToNil collapses an empty vector to nil, so a slot is either nil or holds a
-// usable vector and the two spellings of the occupancy test in this file
-// (`== nil`, `len() == 0`) cannot disagree.
+// emptyToNil collapses an empty vector to nil, so the two spellings of the occupancy
+// test in this file (`== nil`, `len() == 0`) cannot disagree about a slot.
 func emptyToNil[T any](vec []T) []T {
 	if len(vec) == 0 {
 		return nil
@@ -181,8 +180,7 @@ func emptyToNil[T any](vec []T) []T {
 	return vec
 }
 
-// occupancyDelta returns the change in occupied slots when oldVec is replaced by
-// newVec. Both must have passed through emptyToNil.
+// occupancyDelta requires both vectors to have passed through emptyToNil.
 func occupancyDelta[T any](oldVec, newVec []T) int64 {
 	switch {
 	case oldVec == nil && newVec != nil:
@@ -226,9 +224,8 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.storeLocked(id, nil)
 }
 
-// storeLocked writes slot id and moves count with it. count feeds replaceIfFull,
-// which wipes the whole cache once it reaches maxSize, so a write that leaves
-// occupancy unchanged must not move it. Caller holds the stripe lock for id.
+// storeLocked writes slot id, moving count only when occupancy changes: count reaching
+// maxSize makes replaceIfFull wipe the whole cache. Caller holds id's stripe lock.
 func (s *shardedLockCache[T]) storeLocked(id uint64, vec []T) {
 	vec = emptyToNil(vec)
 	if delta := occupancyDelta(s.cache[id], vec); delta != 0 {
@@ -383,7 +380,6 @@ func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) bool {
 	return s.preload(id, vec, true)
 }
 
-// preload stores vec in slot id, growing the cache to cover id if needed.
 func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 	for {
 		s.shardedLocks.Lock(id)
@@ -765,7 +761,7 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.vectorDocID[id] = CacheKeys{}
 }
 
-// storeLocked writes slot id and moves count with it; see shardedLockCache.storeLocked.
+// storeLocked: see shardedLockCache.storeLocked.
 func (s *shardedMultipleLockCache[T]) storeLocked(id uint64, vec []T) {
 	vec = emptyToNil(vec)
 	if delta := occupancyDelta(s.cache[id], vec); delta != 0 {

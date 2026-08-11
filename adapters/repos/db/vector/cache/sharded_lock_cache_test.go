@@ -929,8 +929,7 @@ func TestMultiVectorCacheCountInvariant(t *testing.T) {
 		c.PreloadMulti(100, []uint64{1, 2, 3}, [][]uint64{{10}, {20}, {30}})
 		c.PreloadMulti(101, []uint64{3, 4, 5}, [][]uint64{{31}, {40}, {50}})
 
-		// distinct ids touched: 1, 2, 3, 4, 5
-		assert.Equal(t, int64(5), c.CountVectors())
+		assert.Equal(t, int64(5), c.CountVectors(), "distinct ids touched: 1, 2, 3, 4, 5")
 	})
 
 	t.Run("miss with empty fetch result does not increment count", func(t *testing.T) {
@@ -971,7 +970,7 @@ func TestMultiVectorCacheCountInvariant(t *testing.T) {
 
 	t.Run("same id missed twice via handleMultipleCacheMiss counts once", func(t *testing.T) {
 		// simulates two goroutines that both concluded a cache miss for the same id
-		// and are now racing to store: only the first store may count.
+		// and are now racing to store
 		fetch, _ := countingFetcher[uint64]()
 		vectorCache := NewShardedMultiUInt64LockCache(fetch, 1_000_000, logger, 0, nil)
 		c, ok := vectorCache.(*shardedMultipleLockCache[uint64])
