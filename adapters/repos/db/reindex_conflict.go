@@ -337,11 +337,10 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // the caller's request, or "" when the refusal isn't property-scoped
 // (DeleteClass, tenant mutations).
 //
-// callerDropsTheData is true for the gates whose caller is destroying the
-// shards the migration works on (DeleteClass, tenant mutations). Those
-// callers cannot run the follow-up call the other variants name — the
-// collection or tenant is gone, so the PUT 404s — and the cost it repairs
-// disappears with the data, so they are told to cancel and retry instead.
+// callerDropsTheData is true for gates whose caller destroys the shards the
+// migration works on (DeleteClass, tenant mutations): the follow-up call the
+// other variants name would 404, and the cost it repairs disappears with the
+// data — so these are told to cancel and retry instead.
 //
 // The sentence depends on status and on [IsSemanticMigration]:
 //   - unrecognized status (e.g. a newer node's, or terminal — no caller
@@ -444,10 +443,9 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 // costs: a schema inversion for semantic types, a half-applied rebuild
 // for format-only ones.
 //
-// [IsSemanticMigration] is a positive allowlist, so a newer node's type
-// would otherwise fall into the format-only arm and claim the cheaper of
-// the two costs about semantics this build does not have. Unknown types
-// therefore abstain instead.
+// [IsSemanticMigration] is a positive allowlist: an unrecognized type would
+// otherwise fall into the format-only arm and claim a cost about semantics
+// this build doesn't know. Unknown types abstain instead.
 func abortedMigrationConsequence(mt ReindexMigrationType) string {
 	if firstUnknownMigrationType(mt) != "" {
 		return "have a consequence this build cannot name (it does not know " +

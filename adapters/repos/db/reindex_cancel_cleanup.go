@@ -69,11 +69,10 @@ func (db *DB) CleanStalePartialReindexState(
 // written during PREPARING, so this goes true at the merge, not the swap.
 // Unreadable directories answer true, same as [hasStalePartialReindexState].
 //
-// Over-approximates on purpose, in two steps: it matches any generation under
-// the (property, indexType) prefix, so it may answer true past this task's own
-// generation; and the class-level dir is not property-scoped at all, so one
-// promotable class-level generation answers true for every property of the
-// collection.
+// Over-approximates on purpose: it matches any generation under the
+// (property, indexType) prefix (so it may answer true past this task's own
+// generation), and the class-level dir isn't property-scoped (so one
+// class-level generation answers true for every property).
 //
 // Also answers false once [FinalizeCompletedMigrations] has already
 // promoted and removed the tracker dir. Read false as "nothing awaits
