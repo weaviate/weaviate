@@ -938,6 +938,12 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		classes     = []string{"Class-A"}
 		// One participant always accepts so we can isolate the refusal path.
 		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		// What a current-version participant sends: the sentinel, the DTM
+		// detail, and the two remediation calls.
+		modernRefusal = backup.ErrBackupBlockedByInFlightReindex.Error() +
+			`: collection "Class-A" has an active runtime-reindex task in DTM; retry after the migration finishes, ` +
+			`or cancel it: GET /v1/schema/Class-A/indexes names the property and index type that are still migrating, ` +
+			`and PUT /v1/schema/Class-A/indexes/{that property} with {"{that index type}":{"cancel":true}} cancels the task`
 	)
 
 	tests := []struct {
@@ -947,20 +953,30 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		transportErr    error
 		expectInFlight  bool
 		expectCanCommit bool
-		expectContain   string
+		expectContain   []string
 		// Only the reindex refusal names no node; every other refusal keeps it.
 		expectNodeNamed bool
+		expectLogLevel  logrus.Level
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     backup.ErrBackupBlockedByInFlightReindex.Error() + ": collection \"Class-A\" has an active runtime-reindex task in DTM",
+				Err:     modernRefusal,
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
-			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
+			// A current-version participant's wording is published as-is: it
+			// already names no node and no shard, and the detail and the two
+			// remediation calls are what make the 422 actionable.
+			expectContain: []string{
+				backup.ErrBackupBlockedByInFlightReindex.Error(),
+				"active runtime-reindex task in DTM",
+				"GET /v1/schema/Class-A/indexes",
+				"PUT /v1/schema/Class-A/indexes/{that property}",
+			},
+			expectLogLevel: logrus.WarnLevel,
 		},
 		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
@@ -971,8 +987,9 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				ErrKind: CanCommitErrCannotCommit,
 			},
 			expectCanCommit: true,
-			expectContain:   "some other refusal",
+			expectContain:   []string{"some other refusal"},
 			expectNodeNamed: true,
+			expectLogLevel:  logrus.WarnLevel,
 		},
 		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
@@ -985,14 +1002,18 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectCanCommit: true,
 			expectNodeNamed: true,
+			expectLogLevel:  logrus.WarnLevel,
 		},
 		{
 			// No response to redact on, and "connection refused" alone is unactionable.
 			name:            "a transport error names the node",
 			refusalResp:     &CanCommitResponse{},
 			transportErr:    errors.New("connection refused"),
-			expectContain:   "connection refused",
+			expectContain:   []string{"connection refused"},
 			expectNodeNamed: true,
+			// A participant that cannot be reached is a cluster fault, not a
+			// caller's doing, so this leg is the one that pages.
+			expectLogLevel: logrus.ErrorLevel,
 		},
 	}
 
@@ -1001,6 +1022,9 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			t.Parallel()
 			nodeResolver := newFakeNodeResolver(nodes)
 			fc := newFakeCoordinator(nodeResolver)
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			fc.log = logger
 			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 
 			// N1 (the leader) accepts; N2 refuses with the response shape under test.
@@ -1036,8 +1060,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
 			}
-			if tc.expectContain != "" {
-				assert.Contains(t, err.Error(), tc.expectContain)
+			for _, want := range tc.expectContain {
+				assert.Contains(t, err.Error(), want)
 			}
 			if tc.expectNodeNamed {
 				assert.Contains(t, err.Error(), nodes[1],
@@ -1046,6 +1070,16 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				assert.NotContains(t, err.Error(), nodes[1],
 					"the reindex refusal is node-free by construction; a backup caller has no grant on node names")
 			}
+
+			var logged *logrus.Entry
+			for _, e := range hook.AllEntries() {
+				if e.Data["node"] == nodes[1] && strings.HasPrefix(e.Message, "canCommit ") {
+					logged = e
+				}
+			}
+			require.NotNil(t, logged, "the operator needs one entry naming the participant")
+			assert.Equal(t, tc.expectLogLevel, logged.Level,
+				"only a cluster fault pages; a refusal the caller can act on does not")
 		})
 	}
 }
@@ -1199,6 +1233,26 @@ func TestCanCommitErrFromResponse_DropsAnOlderParticipantsWording(t *testing.T) 
 		"a backup caller is granted nothing on node names")
 	assert.NotContains(t, older.Error(), "s1",
 		"a backup caller is granted nothing on shard names")
+}
+
+// The rebuilt refusal becomes an API error body, so a backup spanning hundreds
+// of collections must not turn into a hundreds-of-names sentence.
+func TestRedactedReindexRefusal_CapsTheClassList(t *testing.T) {
+	t.Parallel()
+
+	classes := make([]string, 0, redactedRefusalClassSample+5)
+	for i := 0; i < cap(classes); i++ {
+		classes = append(classes, fmt.Sprintf("Class-%02d", i))
+	}
+
+	msg := redactedReindexRefusal(classes)
+
+	assert.Equal(t, redactedRefusalClassSample, strings.Count(msg, `"Class-`),
+		"the quoted list is a sample, not the whole request")
+	assert.Contains(t, msg, "Class-00")
+	assert.NotContains(t, msg, "Class-10", "past the cap")
+	assert.Contains(t, msg, fmt.Sprintf("and %d more", len(classes)-redactedRefusalClassSample),
+		"the caller has to be told the list was cut")
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number

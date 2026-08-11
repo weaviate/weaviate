@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -772,4 +773,120 @@ func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, backup.Failed, st.Status)
 	require.Equal(t, reason, st.Err)
+}
+
+// The gate refusal is wrapped in the shard that produced it by the time it
+// reaches the uploader. These are the two places the uploader publishes a
+// reason a backup caller can read, so the shard must be gone at both.
+func TestUploaderPublishesAGateRefusalRedacted(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+		shard    = "zmDMRo4olU4c"
+	)
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article" has an active runtime-reindex task in DTM`,
+	}
+	wrapped := fmt.Errorf("snapshot shard %s: halt for snapshot: %w", shard, refusal)
+	metaErr := errors.New("meta write rejected by object storage")
+
+	cases := []struct {
+		name string
+		// uploadErr arrives on the class descriptor; metaErr from the meta write.
+		uploadErr error
+		metaErr   error
+		// wantErr is the whole published reason; wantIn is used instead when
+		// the backend wraps the meta fault with its own path detail.
+		wantErr string
+		wantIn  []string
+	}{
+		{
+			name:      "a refused upload",
+			uploadErr: wrapped,
+			wantErr:   refusal.Msg,
+		},
+		{
+			name:      "a refused upload whose meta write also failed",
+			uploadErr: wrapped,
+			metaErr:   metaErr,
+			wantIn: []string{
+				refusal.Msg + "; uploading the backup metadata also failed: ",
+				metaErr.Error(),
+			},
+		},
+		{
+			// The files went up; writing the descriptor is what hit the gate.
+			name:    "a refused meta write",
+			metaErr: wrapped,
+			wantErr: refusal.Msg,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- backup.ClassDescriptor{Name: class, Error: tc.uploadErr}
+			close(descriptors)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
+
+			logger, _ := test.NewNullLogger()
+			bp := &backupper{logger: logger}
+			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+			require.Empty(t, prevID)
+
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+			desc := backup.BackupDescriptor{ID: backupID}
+			require.Error(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""))
+
+			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+				&StatusRequest{Method: OpCreate, ID: backupID})
+
+			require.Equal(t, backup.Failed, res.Status)
+			if tc.wantErr != "" {
+				require.Equal(t, tc.wantErr, res.Err)
+			}
+			for _, want := range tc.wantIn {
+				require.Contains(t, res.Err, want)
+			}
+			require.NotContains(t, res.Err, shard,
+				"a backup caller is granted nothing on shard names")
+			require.NotContains(t, desc.Error, shard,
+				"the descriptor is what a poll reads once the slot is gone")
+		})
+	}
+}
+
+// The paths that fail before any descriptor exists publish their reason
+// straight onto the slot, so the redaction has to happen there too.
+func TestBackupperPublishesAGateRefusalRedacted(t *testing.T) {
+	const (
+		backupID = "1"
+		shard    = "zmDMRo4olU4c"
+	)
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article" has an active runtime-reindex task in DTM`,
+	}
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+	require.Empty(t, prevID)
+
+	bp.publishFailure(fmt.Errorf("snapshot shard %s: %w", shard, refusal))
+
+	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpCreate, ID: backupID})
+
+	require.Equal(t, backup.Failed, res.Status)
+	require.Equal(t, refusal.Msg, res.Err,
+		"a backup caller is granted nothing on shard names")
 }

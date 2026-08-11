@@ -541,6 +541,10 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
+		// The sentinel is a prefix of the old wording too, but an old
+		// participant can never open with it: DB.Backupable is the only
+		// canCommit source of a gate refusal, and it used to prefix every
+		// entry with node/class.
 		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
 			// The participant's message already opens with the sentinel; %w
 			// would print the whole condition twice.
@@ -552,6 +556,11 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 }
 
+// redactedRefusalClassSample caps the collection names quoted into one
+// rebuilt refusal. A backup may span hundreds of collections, and this text
+// becomes the body of an API error.
+const redactedRefusalClassSample = 10
+
 // redactedReindexRefusal rebuilds a refusal from the caller's own request,
 // for participants whose wording cannot be published.
 func redactedReindexRefusal(classes []string) string {
@@ -559,12 +568,20 @@ func redactedReindexRefusal(classes []string) string {
 	if len(classes) == 0 {
 		return fmt.Sprintf("%s: retry after the migration finishes", sentinel)
 	}
-	quoted := make([]string, len(classes))
-	for i, c := range classes {
+	sample := classes
+	if len(sample) > redactedRefusalClassSample {
+		sample = sample[:redactedRefusalClassSample]
+	}
+	quoted := make([]string, len(sample))
+	for i, c := range sample {
 		quoted[i] = fmt.Sprintf("%q", c)
 	}
+	listed := strings.Join(quoted, ", ")
+	if len(sample) < len(classes) {
+		listed = fmt.Sprintf("%s and %d more", listed, len(classes)-len(sample))
+	}
 	return fmt.Sprintf("%s: a collection in the backup (%s) has an active runtime-reindex task; "+
-		"retry after the migration finishes", sentinel, strings.Join(quoted, ", "))
+		"retry after the migration finishes", sentinel, listed)
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
