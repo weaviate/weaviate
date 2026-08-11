@@ -697,7 +697,18 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // propertyName, indexType), or nil when none matches. Whether DTM would
 // accept a cancel for it is [distributedtask.TaskStatus.IsCancellable] on
 // the returned task, the same predicate the FSM guard uses.
+//
+// A cancellable match wins over any other, so several matching in-flight
+// tasks cannot cost the operator a cancel that one of them would have
+// accepted. ConflictDetector.CheckConflict is supposed to make that
+// impossible; preferring it here costs one branch and does not rely on
+// that holding. Otherwise the first in-flight match is returned, so the
+// 409 still names a real task.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string, logger logrus.FieldLogger) (*distributedtask.Task, db.ReindexTaskPayload) {
+	var (
+		refusable        *distributedtask.Task
+		refusablePayload db.ReindexTaskPayload
+	)
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
@@ -721,32 +732,16 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
 			continue
 		}
-		return task, payload
+		if task.Status.IsCancellable() {
+			return task, payload
+		}
+		if refusable == nil {
+			refusable, refusablePayload = task, payload
+		}
 	}
-	return nil, db.ReindexTaskPayload{}
+	return refusable, refusablePayload
 }
 
-// cancelReindexTask finds the in-flight reindex task targeting
-// (collection, propertyName, indexType) and asks DTM to cancel it.
-//
-// Idempotent cancel: by the time this runs the caller's (collection,
-// property) tuple has already been verified to exist by [updateIndex] —
-// a missing class or property would have produced a 404 there. So when
-// no task matches the cancel target we return 202 + Status:
-// NO_OP rather than 404. That mirrors how callers think about cancel:
-// "make sure no reindex is running on this property" is the same
-// idempotent intent whether or not a task happened to be in flight at
-// request time. The previous 404 conflated "the cancel target is
-// unknown" with "there is nothing to cancel" — callers couldn't
-// disambiguate without parsing the response body, and scripts that
-// expect "this task is cancelled now" had to special-case 404 as a
-// success.
-//
-// On success: 202 + Status: CANCELLED with the cancelled task's ID. The
-// DTM scheduler picks up the CANCELLED state on its next tick and
-// terminates the local handle; the task's ctx (the provider's per-task
-// ctx via runningHandles) is then cancelled, and the worker goroutine
-// returns.
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
 // nothing to cancel, or DTM would refuse it. Returns nil when the cancel
 // should proceed. [distributedtask.TaskStatus.IsCancellable] is the same
@@ -873,6 +868,32 @@ func cancelRefusalReason(status distributedtask.TaskStatus) string {
 		"pre-migration schema — wait for it to reach a terminal state"
 }
 
+// cancelReindexTask finds the in-flight reindex task targeting
+// (collection, propertyName, indexType) and asks DTM to cancel it.
+//
+// Idempotent cancel: by the time this runs the caller's (collection,
+// property) tuple has already been verified to exist by [updateIndex] —
+// a missing class or property would have produced a 404 there. So when
+// no task matches the cancel target we return 202 + Status:
+// NO_OP rather than 404. That mirrors how callers think about cancel:
+// "make sure no reindex is running on this property" is the same
+// idempotent intent whether or not a task happened to be in flight at
+// request time. The previous 404 conflated "the cancel target is
+// unknown" with "there is nothing to cancel" — callers couldn't
+// disambiguate without parsing the response body, and scripts that
+// expect "this task is cancelled now" had to special-case 404 as a
+// success.
+//
+// On success: 202 + Status: CANCELLED with the cancelled task's ID. The
+// DTM scheduler picks up the CANCELLED state on its next tick and
+// terminates the local handle; the task's ctx (the provider's per-task
+// ctx via runningHandles) is then cancelled, and the worker goroutine
+// returns.
+//
+// A cancel DTM will not accept — a coordination phase, or a status this
+// build cannot classify — answers 409 instead, whether that is decided
+// by [indexesHandlers.cancelPreflight] before the apply or by
+// [indexesHandlers.cancelApplyFailureResponder] after it.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,

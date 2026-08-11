@@ -184,8 +184,23 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				PreparationCompletionAcks: tc.prepAcks,
 			}))
 
-			require.Equal(t, tc.wantGuidance, loggedRepairGuidance(hook),
+			var guided bool
+			var guidance string
+			for _, e := range hook.AllEntries() {
+				if _, ok := e.Data["repair_command"]; ok {
+					guided = true
+					guidance = e.Message
+				}
+			}
+			require.Equal(t, tc.wantGuidance, guided,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
+			if tc.wantGuidance {
+				// The guidance is written so the operator can match it to
+				// the task, which only works if it names the status the
+				// task actually ended in.
+				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+			}
 		})
 	}
 }
@@ -232,6 +247,11 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			migrationType := tc.migrationType
+			if migrationType == "" {
+				migrationType = ReindexTypeChangeTokenization
+			}
+
 			lsmPath := t.TempDir()
 			if tc.tracker != "" {
 				mkTrackerDir(t, lsmPath, tc.tracker, tc.sentinel)
