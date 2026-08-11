@@ -1115,8 +1115,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 // payload naming no collection refuses every backup in the cluster. The
 // commit-time backstop ([db.ReindexOverlapLookup]) must agree on this same
 // scoping, so both read the payload through the same decoder.
+// The DTM list is a leader-forwarded query, so it runs on the caller's
+// context. fallbackCtx (the process-lifetime wiring context) is used only when
+// a caller passes none, so an unanswering leader cannot park a gate probe for
+// the life of the process.
 func newShardReindexActivityBuilder(
-	ctx context.Context,
+	fallbackCtx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
 	logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
@@ -1124,7 +1128,10 @@ func newShardReindexActivityBuilder(
 		collection string
 		shardName  string
 	}
-	return func() db.ShardReindexActivityLookup {
+	return func(ctx context.Context) db.ShardReindexActivityLookup {
+		if ctx == nil {
+			ctx = fallbackCtx
+		}
 		tasksByNamespace, err := listTasks(ctx)
 		if err != nil {
 			logger.WithField("action", "backup_reindex_gate").
@@ -1155,11 +1162,15 @@ func newShardReindexActivityBuilder(
 				continue
 			}
 			for _, shardName := range payload.UnitToShard {
-				live[shardKey{collection, shardName}] = true
+				// Folded like blocked below: the payload carries the collection as
+				// the submitter spelled it and the caller as the schema spells it,
+				// so an unfolded miss would admit a backup of a held shard.
+				live[shardKey{strings.ToLower(collection), shardName}] = true
 			}
 		}
 		return func(collection, shardName string) bool {
-			return blocked[strings.ToLower(collection)] || live[shardKey{collection, shardName}]
+			folded := strings.ToLower(collection)
+			return blocked[folded] || live[shardKey{folded, shardName}]
 		}
 	}
 }
@@ -2990,35 +3001,5 @@ func liveReindexTrackerLookup(tasks []*distributedtask.Task) db.KnownReindexTask
 	}
 	return func(taskID string, taskVersion uint64) bool {
 		return live[taskKey{taskID, taskVersion}]
-	}
-}
-
-// shardReindexActivityLookup answers, for the backup gate, which shards a
-// reindex is currently working on. Same liveness rule as the orphan audit:
-// a status this build cannot prove is done keeps its shards busy, so the
-// backup is refused rather than capturing a half-migrated shard.
-func shardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) db.ShardReindexActivityLookup {
-	type shardKey struct {
-		collection string
-		shardName  string
-	}
-	live := make(map[shardKey]bool)
-	for _, task := range tasks {
-		if !task.Status.IsActive() {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			logger.WithField("action", "backup_reindex_gate").
-				WithField("task_id", task.ID).
-				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-			continue
-		}
-		for _, shardName := range payload.UnitToShard {
-			live[shardKey{payload.Collection, shardName}] = true
-		}
-	}
-	return func(collection, shardName string) bool {
-		return live[shardKey{collection, shardName}]
 	}
 }

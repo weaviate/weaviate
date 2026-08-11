@@ -64,7 +64,7 @@ func TestShardReindexActivityBuilderScopesByCollectionAndShard(t *testing.T) {
 	lookup := newShardReindexActivityBuilder(context.Background(),
 		func(context.Context) (map[string][]*distributedtask.Task, error) {
 			return tasks, nil
-		}, logger)()
+		}, logger)(context.Background())
 
 	tests := []struct {
 		name       string
@@ -95,6 +95,13 @@ func TestShardReindexActivityBuilderScopesByCollectionAndShard(t *testing.T) {
 			collection: "MyClass", shard: "shard7",
 			wantLive: false,
 		},
+		{
+			// The payload carries the collection as the submitter spelled it
+			// and the caller as the schema spells it, so a case-sensitive
+			// compare here would admit a backup of a held shard.
+			name:       "the held tuple spelled with different case",
+			collection: "myclass", shard: "shard1", wantLive: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -113,7 +120,7 @@ func TestShardReindexActivityBuilderRefusesWhenDTMIsUnreachable(t *testing.T) {
 	lookup := newShardReindexActivityBuilder(context.Background(),
 		func(context.Context) (map[string][]*distributedtask.Task, error) {
 			return nil, errors.New("raft: not leader")
-		}, logger)()
+		}, logger)(context.Background())
 
 	assert.True(t, lookup("MyClass", "shard1"),
 		"an unreachable DTM must refuse every backup, not clear them all")
@@ -199,7 +206,7 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 						reindexGateTask(t, "t2", distributedtask.TaskStatusStarted,
 							"SiblingLiveClass", map[string]string{"u1": "shardOK"}),
 					}}, nil
-				}, logger)()
+				}, logger)(context.Background())
 
 			for probe, want := range tc.probes {
 				assert.Equalf(t, want, lookup(probe[0], probe[1]),
