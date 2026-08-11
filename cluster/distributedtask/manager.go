@@ -1001,6 +1001,10 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The FSM contract (see Store.Restore) requires discarding all previous
+	// state: merging would resurrect tasks the snapshot's producer deleted,
+	// and this node alone would then refuse applies its peers accept.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
