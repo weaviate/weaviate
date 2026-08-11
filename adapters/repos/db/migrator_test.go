@@ -14,10 +14,12 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -688,6 +690,246 @@ func TestUpdateIndexDeleteTenants(t *testing.T) {
 	}
 }
 
+// A tenant that fails to load or unload must not stop the tenants behind it in
+// map order, nor the deletes the incoming state asks for.
+func TestUpdateIndexTenantsPartialFailure(t *testing.T) {
+	const (
+		className    = "Abc"
+		removedShard = "removed"
+	)
+
+	shutdownFailed := errors.New("shutdown failed")
+
+	type tenant struct {
+		name   string
+		status string
+		// node defaults to the local node1
+		node string
+		// shutdownErr is what a non-HOT tenant's loaded shard returns from Shutdown
+		shutdownErr error
+		// protected makes a HOT tenant's load fail
+		protected bool
+	}
+
+	tests := []struct {
+		name    string
+		tenants []tenant
+		// extraFailing appends that many more tenants whose unload fails
+		extraFailing int
+		// closed and cancelCtx are the two systemic failures that stop the loop
+		closed    bool
+		cancelCtx bool
+		// wantTenantsNamed is how many tenants the returned error mentions
+		wantTenantsNamed int
+		wantErrContains  []string
+		wantErrIs        error
+		// removedDropErr is what dropping that shard returns
+		removedDropErr error
+		// wantDeletesSkipped says the removed shard survived the reconcile
+		wantDeletesSkipped bool
+	}{
+		{
+			name:             "one failing tenant still deletes the tenants the state dropped",
+			tenants:          []tenant{{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed}},
+			wantTenantsNamed: 1,
+			wantErrContains:  []string{"shutdown tenant shard cold1", "shutdown failed"},
+		},
+		{
+			name: "every failing unload is reported",
+			tenants: []tenant{
+				{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+				{name: "cold2", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+				{name: "cold3", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+			},
+			wantTenantsNamed: 3,
+			wantErrContains:  []string{"shutdown failed"},
+		},
+		{
+			name: "every failing load is reported",
+			tenants: []tenant{
+				{name: "hot1", status: models.TenantActivityStatusHOT, protected: true},
+				{name: "hot2", status: models.TenantActivityStatusHOT, protected: true},
+				{name: "hot3", status: models.TenantActivityStatusHOT, protected: true},
+			},
+			wantTenantsNamed: 3,
+			wantErrContains:  []string{"add missing tenant shard", "activation blocked"},
+		},
+		{
+			name: "a failing load and a failing unload are both reported",
+			tenants: []tenant{
+				{name: "hot1", status: models.TenantActivityStatusHOT, protected: true},
+				{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+			},
+			wantTenantsNamed: 2,
+			wantErrContains:  []string{"add missing tenant shard hot1", "shutdown tenant shard cold1"},
+		},
+		{
+			name: "tenants behind a failing one are still unloaded",
+			tenants: []tenant{
+				{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+				{name: "cold2", status: models.TenantActivityStatusCOLD},
+				{name: "cold3", status: models.TenantActivityStatusCOLD},
+				{name: "cold4", status: models.TenantActivityStatusCOLD},
+			},
+			wantTenantsNamed: 1,
+			wantErrContains:  []string{"shutdown tenant shard cold1"},
+		},
+		{
+			name:    "a tenant that was already shut down is not a failure",
+			tenants: []tenant{{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: errAlreadyShutdown}},
+		},
+		{
+			name: "a closed index stops the loop and drops nothing",
+			tenants: []tenant{
+				{name: "cold1", status: models.TenantActivityStatusCOLD},
+				{name: "cold2", status: models.TenantActivityStatusCOLD},
+				{name: "cold3", status: models.TenantActivityStatusCOLD},
+			},
+			closed:             true,
+			wantTenantsNamed:   1,
+			wantErrIs:          errAlreadyShutdown,
+			wantErrContains:    []string{"stopped reconciling the remaining tenants"},
+			wantDeletesSkipped: true,
+		},
+		{
+			// dropping the local copy without the cloud copy the dead context
+			// cannot reach would orphan the offloaded data for good
+			name: "a dead context stops the loop and skips the deletes",
+			tenants: []tenant{
+				{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+				{name: "cold2", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+				{name: "cold3", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed},
+			},
+			cancelCtx:          true,
+			wantTenantsNamed:   1,
+			wantErrIs:          context.Canceled,
+			wantErrContains:    []string{"shutdown failed", "stopped reconciling the remaining tenants"},
+			wantDeletesSkipped: true,
+		},
+		{
+			name:             "a failing tenant and a failing delete are both reported",
+			tenants:          []tenant{{name: "cold1", status: models.TenantActivityStatusCOLD, shutdownErr: shutdownFailed}},
+			removedDropErr:   errors.New("shard drop failed"),
+			wantTenantsNamed: 1,
+			wantErrContains:  []string{"shutdown tenant shard cold1", "drop tenant shards", "shard drop failed"},
+		},
+		{
+			// a class can hold tens of thousands of tenants, so a failure that
+			// hits all of them must not build one message out of every one
+			name:             "the reported failures are bounded",
+			extraFailing:     15,
+			wantTenantsNamed: maxReportedErrors,
+			wantErrContains:  []string{"(and 5 more)"},
+		},
+		{
+			name:             "a tenant on another node is left alone",
+			tenants:          []tenant{{name: "cold1", status: models.TenantActivityStatusCOLD, node: "node2"}},
+			wantTenantsNamed: 0,
+		},
+		{
+			name:             "no tenant to reconcile",
+			wantTenantsNamed: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tenants := tt.tenants
+			for i := 0; i < tt.extraFailing; i++ {
+				tenants = append(tenants, tenant{
+					name:        fmt.Sprintf("bulk%02d", i),
+					status:      models.TenantActivityStatusCOLD,
+					shutdownErr: shutdownFailed,
+				})
+			}
+
+			idx, _ := newDropTestIndex(t)
+			sg := schemaUC.NewMockSchemaGetter(t)
+			sg.On("NodeName").Return("node1").Maybe()
+			sg.On("ReadOnlyClass", className).Return(&models.Class{Class: className}).Maybe()
+			idx.getSchema = sg
+
+			// the shard the incoming state no longer lists, which the deletes
+			// must reclaim even when a tenant failed
+			if tt.wantDeletesSkipped {
+				idx.shards.Store(removedShard, NewMockShardLike(t))
+			} else {
+				storeDroppableShard(t, idx, removedShard, tt.removedDropErr)
+			}
+
+			physical := make(map[string]sharding.Physical, len(tenants))
+			for _, tn := range tenants {
+				node := tn.node
+				if node == "" {
+					node = "node1"
+				}
+				physical[tn.name] = sharding.Physical{
+					Name:           tn.name,
+					BelongsToNodes: []string{node},
+					Status:         tn.status,
+				}
+				if tn.protected {
+					// a protected shard must stay out of the map, or the load
+					// returns before it reaches the backup guard
+					idx.backupProtectedShards.Store(tn.name, struct{}{})
+					continue
+				}
+				shard := NewMockShardLike(t)
+				if node == "node1" {
+					shard.EXPECT().Shutdown(mock.Anything).Return(tn.shutdownErr).Maybe()
+				}
+				idx.shards.Store(tn.name, shard)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelCtx {
+				cancel()
+			}
+			idx.closed = tt.closed
+
+			err := newDropTestMigrator(idx, className, fakeOffloadCloud{}).
+				updateIndexTenants(ctx, idx, &sharding.State{Physical: physical, PartitioningEnabled: true})
+
+			if len(tt.wantErrContains) == 0 && tt.wantErrIs == nil {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				for _, want := range tt.wantErrContains {
+					require.Contains(t, err.Error(), want)
+				}
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
+			}
+
+			named := 0
+			for _, tn := range tenants {
+				if err != nil && strings.Contains(err.Error(), tn.name) {
+					named++
+				}
+			}
+			require.Equal(t, tt.wantTenantsNamed, named, "tenants named in %v", err)
+
+			if tt.wantDeletesSkipped {
+				require.NotNil(t, idx.shards.Load(removedShard))
+			} else {
+				require.Nil(t, idx.shards.Load(removedShard))
+			}
+
+			// a shard leaves the map as soon as its unload is attempted, so a
+			// shard still there is one the loop never reached
+			if !tt.closed && !tt.cancelCtx {
+				for _, tn := range tenants {
+					if !tn.protected && tn.node == "" {
+						require.Nil(t, idx.shards.Load(tn.name), "tenant %s was never reconciled", tn.name)
+					}
+				}
+			}
+		})
+	}
+}
+
 // storeDroppableShard stores a mock shard under name whose drop returns dropErr.
 func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
 	t.Helper()
@@ -700,7 +942,10 @@ func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
 // newDropTestMigrator returns a migrator serving idx under className, offloading
 // to cloud unless it is nil.
 func newDropTestMigrator(idx *Index, className string, cloud modulecapabilities.OffloadCloud) *Migrator {
-	db := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+	db := &DB{
+		indices:      map[string]*Index{indexID(schema.ClassName(className)): idx},
+		schemaGetter: idx.getSchema,
+	}
 	m := NewMigrator(db, idx.logger, "node1")
 	m.nodeId = "node1"
 	m.cloud = cloud
