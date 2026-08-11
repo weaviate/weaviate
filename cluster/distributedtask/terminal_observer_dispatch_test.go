@@ -642,3 +642,20 @@ func TestTerminalDispatchSkipsUnregisteredNamespaces(t *testing.T) {
 	require.Empty(t, m.terminalDispatch,
 		"a namespace nobody registered for must not queue anything")
 }
+
+// Pins that a registration after Close is dropped whole: no observer is
+// stored and no drainer goroutine is started.
+func TestRegisterTerminalObserverAfterCloseIsDropped(t *testing.T) {
+	defer leaktest.Check(t)()
+	m := newTerminalDispatchManager()
+	m.Close()
+
+	m.RegisterTerminalObserver(observerNamespace, func(*Task) {})
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	require.False(t, m.terminalDrainerRunning,
+		"a post-Close registration must not start a drainer")
+	require.Empty(t, m.terminalObservers,
+		"a post-Close registration must not store the observer")
+}

@@ -296,12 +296,17 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 // RegisterTerminalObserver installs the namespace's [TerminalObserver], which
 // fires on CANCELLED and on FAILED. Last write wins; nil/empty arguments are
 // dropped. Also starts the drainer, so registering is what opens the queue.
+// Registrations after Close are dropped: dispatch is already shut, so a
+// drainer started now would only exit immediately.
 func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
 	if namespace == "" || observer == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.terminalDispatchClosed {
+		return
+	}
 	m.terminalObservers[namespace] = observer
 	m.startTerminalDrainerWithLock()
 }
