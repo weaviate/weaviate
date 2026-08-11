@@ -602,9 +602,7 @@ func (c *countingSchemaManager) RestoreClass(context.Context, *backup.ClassDescr
 }
 
 // Pins that a restore whose slot was handed to a retry stops instead of
-// applying the schema over that retry. The other way the FINALIZING write is
-// refused, a cancel landing in the same gap, is pinned by
-// TestCoordinatorRestoreStopsBeforeSchemaApplyWhenTheCancelLandsAfterStaging.
+// applying the schema over that retry.
 func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	t.Parallel()
 	const (

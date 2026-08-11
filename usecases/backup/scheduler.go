@@ -630,12 +630,10 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	return nil
 }
 
-// claimCancellation writes CANCELLING to the descriptor, the lock coordinators
-// race for. Returns (false, _, nil) if another coordinator won, and
-// (false, _, err) if the write itself failed, since a failed write must not be
-// reported to the caller as a completed cancellation. The reqState is what the
-// node-local slot read when the claim tried to stamp it, so a caller can tell
-// a claim the slot refused from one it took.
+// claimCancellation writes CANCELLING to the descriptor, the lock
+// coordinators race for. won is false if another coordinator already won or
+// the write failed (a failed write must never read as done); held is the
+// slot's state when the claim tried to stamp it.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID, overrideBucket, overridePath string,
 ) (bool, reqState, error) {
