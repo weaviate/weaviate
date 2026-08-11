@@ -279,9 +279,7 @@ func (i *Index) refuseIfReindexInFlightIn(snap reindexGateSnapshot, shardName st
 }
 
 // reindexRefusalShardSample caps the shard names carried in one refusal log
-// line. The count beside it is exact; this only bounds the sample. It does not
-// bound the number of lines: [DB.logReindexRefusals] emits one per blocked
-// collection.
+// line. The count beside it is exact; this only bounds the sample.
 const reindexRefusalShardSample = 10
 
 // logReindexRefusal records the shard and node the refusal body withholds. It
