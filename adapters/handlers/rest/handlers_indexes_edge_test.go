@@ -835,19 +835,27 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		status distributedtask.TaskStatus
-		want   cancelTargetState
+		name       string
+		status     distributedtask.TaskStatus
+		properties []string
+		want       cancelTargetState
 	}{
-		{distributedtask.TaskStatusStarted, cancelTargetCancellable},
-		{unknownFutureStatus, cancelTargetCancellable},
-		{distributedtask.TaskStatusPreparing, cancelTargetCoordinating},
-		{distributedtask.TaskStatusSwapping, cancelTargetCoordinating},
-		{distributedtask.TaskStatusFinished, cancelTargetNone},
-		{distributedtask.TaskStatusFailed, cancelTargetNone},
-		{distributedtask.TaskStatusCancelled, cancelTargetNone},
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, cancelTargetCancellable},
+		{"unrecognized", unknownFutureStatus, payload.Properties, cancelTargetCancellable},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, cancelTargetCoordinating},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, cancelTargetCoordinating},
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, cancelTargetNone},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, cancelTargetNone},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, cancelTargetNone},
+		// Empty Properties is the reserved whole-collection form; it has
+		// to match the queried property or the operator gets no cancel
+		// target for a task that blocks their mutation.
+		{"empty properties", distributedtask.TaskStatusStarted, nil, cancelTargetCancellable},
 	} {
-		t.Run(string(tc.status), func(t *testing.T) {
-			task := buildTask(t, "T1", tc.status, payload, nil)
+		t.Run(tc.name, func(t *testing.T) {
+			tcPayload := payload
+			tcPayload.Properties = tc.properties
+			task := buildTask(t, "T1", tc.status, tcPayload, nil)
 
 			target, gotPayload, state := findCancelTarget(
 				[]*distributedtask.Task{task}, "C", "foo", "filterable")
@@ -861,21 +869,6 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 			require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
 		})
 	}
-}
-
-// Pins: empty Properties (whole-collection task) matches any property name.
-func TestFindCancelTarget_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
-	task := buildTask(t, "T_all", distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-		}, nil)
-
-	target, _, state := findCancelTarget(
-		[]*distributedtask.Task{task}, "C", "any-property", "filterable")
-
-	require.Equal(t, cancelTargetCancellable, state)
-	require.Equal(t, "T_all", target.ID)
 }
 
 // Pins: both lookups treat an unrecognized status as in-flight.
@@ -941,33 +934,32 @@ func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name        string
-		tasks       []*distributedtask.Task
-		queryID     string
-		queryVer    uint64
-		wantInFted  bool
-		description string
+		name         string
+		tasks        []*distributedtask.Task
+		queryID      string
+		queryVer     uint64
+		wantInFlight bool
 	}{
 		{
-			name:       "exact match is live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: true,
+			name:         "exact match is live",
+			tasks:        []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
+			queryID:      "T1",
+			queryVer:     1,
+			wantInFlight: true,
 		},
 		{
-			name:       "version mismatch is not live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 2, distributedtask.TaskStatusStarted)},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: false,
+			name:         "version mismatch is not live",
+			tasks:        []*distributedtask.Task{withVersion("T1", 2, distributedtask.TaskStatusStarted)},
+			queryID:      "T1",
+			queryVer:     1,
+			wantInFlight: false,
 		},
 		{
-			name:       "unknown ID is not live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:    "T2",
-			queryVer:   1,
-			wantInFted: false,
+			name:         "unknown ID is not live",
+			tasks:        []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
+			queryID:      "T2",
+			queryVer:     1,
+			wantInFlight: false,
 		},
 		{
 			name: "two versions of one ID keep separate answers",
@@ -975,9 +967,9 @@ func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 				withVersion("T1", 1, distributedtask.TaskStatusFinished),
 				withVersion("T1", 2, distributedtask.TaskStatusStarted),
 			},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: false,
+			queryID:      "T1",
+			queryVer:     1,
+			wantInFlight: false,
 		},
 		{
 			name: "two versions of one ID keep separate answers (live side)",
@@ -985,13 +977,13 @@ func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
 				withVersion("T1", 1, distributedtask.TaskStatusFinished),
 				withVersion("T1", 2, distributedtask.TaskStatusStarted),
 			},
-			queryID:    "T1",
-			queryVer:   2,
-			wantInFted: true,
+			queryID:      "T1",
+			queryVer:     2,
+			wantInFlight: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.wantInFted,
+			require.Equal(t, tc.wantInFlight,
 				liveReindexTrackerLookup(tc.tasks)(tc.queryID, tc.queryVer))
 		})
 	}

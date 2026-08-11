@@ -144,15 +144,15 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name        string
-		acks        map[string]distributedtask.PostCompletionAck
-		wantGuiance bool
+		name         string
+		acks         map[string]distributedtask.PostCompletionAck
+		wantGuidance bool
 	}{
-		{name: "no node acked a swap", acks: nil, wantGuiance: false},
+		{name: "no node acked a swap", acks: nil, wantGuidance: false},
 		{
-			name:        "one node acked a swap",
-			acks:        map[string]distributedtask.PostCompletionAck{"n1": {Success: true}},
-			wantGuiance: true,
+			name:         "one node acked a swap",
+			acks:         map[string]distributedtask.PostCompletionAck{"n1": {Success: true}},
+			wantGuidance: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 					guided = true
 				}
 			}
-			require.Equal(t, tc.wantGuiance, guided,
+			require.Equal(t, tc.wantGuidance, guided,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
 		})
 	}
