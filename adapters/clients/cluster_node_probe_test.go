@@ -35,8 +35,7 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 		// than a retryable error.
 		terminal   bool
 		wantErrMsg string
-		// notInErrMsg must not appear in the error, e.g. a peer body the error
-		// is expected to truncate.
+		// notInErrMsg must not appear in the error.
 		notInErrMsg string
 	}{
 		{
@@ -85,8 +84,7 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 			wantErrMsg: "unexpected status code 503",
 		},
 		{
-			// This error is headed for a log line, so the peer body it carries
-			// has to be capped the same way the 404 branch caps it.
+			// Peer body must be capped before it reaches the error.
 			name: "a long body is truncated before it reaches the error",
 			respond: func(w http.ResponseWriter) {
 				http.Error(w, strings.Repeat("a", 4096), http.StatusBadGateway)

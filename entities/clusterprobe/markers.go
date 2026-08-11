@@ -10,11 +10,9 @@
 //
 
 // Package clusterprobe holds the wire markers and paths of the read-only
-// cluster-internal probes. It is a leaf so that the handler serving a probe and
-// the client reading it can agree on one value without importing each other. A
-// probe's payload type lives with its domain instead, unless it has no domain
-// package to live in: node activity is a backup concept and its response type
-// stays in usecases/backup, which both sides already import.
+// cluster-internal probes. It is a leaf so that the handler serving a probe
+// and the client reading it can agree on one value without importing each
+// other.
 package clusterprobe
 
 // Each route puts its marker in the "probe" field; its client refuses a 200

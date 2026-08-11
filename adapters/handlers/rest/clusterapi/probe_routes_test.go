@@ -30,11 +30,8 @@ type oneNodeResolver struct{ host string }
 
 func (r oneNodeResolver) NodeHostname(string) (string, bool) { return r.host, true }
 
-// Exercises the real mux registration against the real clients, so a route
-// mounted anywhere other than where its client asks for it fails here rather
-// than 404ing in production, where it would read as "older build" and silently
-// disable the reindex gate. A typo in the shared path constant itself is
-// caught by entities/clusterprobe/markers_test.go.
+// Exercises the real mux registration against the real clients, so a mounted
+// path mismatch fails here rather than 404ing in production as "older build".
 func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 	const (
 		node       = "node1"
