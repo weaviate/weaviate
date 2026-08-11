@@ -759,7 +759,7 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
-		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
 	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
@@ -807,6 +807,33 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
 			target.ID, collection, propertyName, target.Status,
 			cancelRefusalReason(target.Status))))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped accepting
+// one between the list read and the apply.
+//
+// The pre-flight only lets a request reach the apply while the target
+// reads STARTED, so the status on the task here is stale by definition.
+// Rendering it would name a phase the task has left, and the two arms of
+// [cancelRefusalReason] would both be wrong for it: the task may have
+// moved into a coordination phase, or already reached the terminal state
+// that wording tells the operator to wait for. So this body names no
+// status and sends them back to the read instead.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_refused",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
+			"the cancel, and DTM no longer accepts one for it. Nothing was cancelled — re-read "+
+			"GET /v1/schema/%s/indexes and retry only if the task is still in flight",
+			target.ID, collection, propertyName, collection)))
 }
 
 // cancelRefusalReason explains a 409 from the cancel verb.

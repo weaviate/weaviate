@@ -957,6 +957,9 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 		wantCode  int
 		wantAudit string
 		wantBody  string
+		// wantAbsent is text the body must not carry, for the arms
+		// where the obvious wording would be wrong.
+		wantAbsent []string
 	}{
 		{
 			// The FSM stamps the on-wire marker into the message, and it
@@ -970,7 +973,18 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 					distributedtask.ErrTaskNotRunning)),
 			wantCode:  http.StatusConflict,
 			wantAudit: "reindex_task_cancel_refused",
-			wantBody:  "T1",
+			wantBody:  "changed status between",
+			// The target still reads STARTED — the pre-flight would not
+			// have let the request reach the apply otherwise — and the
+			// apply has just proved it is not STARTED any more. Naming
+			// that status is wrong, and so is the coordination-phase
+			// advice: the task may have raced to a terminal state, which
+			// is the very thing that advice tells the operator to wait
+			// for.
+			wantAbsent: []string{
+				string(distributedtask.TaskStatusStarted),
+				"wait for it to reach a terminal state",
+			},
 		},
 		{
 			name: "task does not exist",
@@ -1003,6 +1017,9 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 				"the sentinel's internal marker is not user-facing")
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Contains(t, rec.Body.String(), tc.wantBody)
+			for _, absent := range tc.wantAbsent {
+				require.NotContains(t, rec.Body.String(), absent)
+			}
 			if tc.wantAudit == "" {
 				return
 			}
