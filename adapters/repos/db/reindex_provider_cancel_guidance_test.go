@@ -59,9 +59,12 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			status:            distributedtask.TaskStatusCancelled,
 			wantRepairCommand: false,
 			// Must not claim the buckets are clean; a promoted node also
-			// has no tracker dir left.
+			// has no tracker dir left. "canonical inverted bucket" appears
+			// in both repair-guidance variants (nameable and not), so this
+			// catches the guidance firing without evidence even on the arm
+			// the repair_command counter cannot see.
 			wantInLog: []string{"no promotable generation on this node"},
-			notInLog:  []string{"still pre-migration", "nothing to repair"},
+			notInLog:  []string{"canonical inverted bucket"},
 		},
 		{
 			name:              "cancelled with a started-only generation",
