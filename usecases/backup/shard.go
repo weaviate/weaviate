@@ -231,10 +231,10 @@ func (d *droppedWrite) emit() {
 	d.log.WithFields(d.fields).Info(d.msg)
 }
 
-// droppedWrite describes a write the slot refused, so "status stopped
+// newDroppedWrite describes a write the slot refused, so "status stopped
 // updating" is diagnosable as a refusal rather than silence. Returns nil when
 // the slot has no logger. Must be called with the lock held.
-func (o slotOwner) droppedWrite(st backup.Status) *droppedWrite {
+func (o slotOwner) newDroppedWrite(st backup.Status) *droppedWrite {
 	if o.stat == nil || o.stat.log == nil {
 		return nil
 	}
@@ -268,7 +268,7 @@ func (o slotOwner) set(st backup.Status) bool {
 	}
 	o.stat.Lock()
 	if !o.owns() || !o.stat.canAdvanceTo(st) {
-		dropped := o.droppedWrite(st)
+		dropped := o.newDroppedWrite(st)
 		o.stat.Unlock()
 		dropped.emit()
 		return false
@@ -286,7 +286,7 @@ func (o slotOwner) setFailed(reason string) bool {
 	}
 	o.stat.Lock()
 	if !o.owns() || !o.stat.canAdvanceTo(backup.Failed) {
-		dropped := o.droppedWrite(backup.Failed)
+		dropped := o.newDroppedWrite(backup.Failed)
 		o.stat.Unlock()
 		dropped.emit()
 		return false
@@ -343,6 +343,9 @@ func (o slotOwner) release() bool {
 // from object storage) and matches on id instead, to avoid stamping whichever
 // operation happens to hold the slot. Reports whether it wrote, and the state
 // found, read together so a caller logging both can't pair them across time.
+//
+// id must be non-empty, since a free slot also carries an empty id and would
+// match. Both call sites run validateID first, which rejects it.
 func (s *backupStat) setIfOwned(id string, st backup.Status) (bool, reqState) {
 	s.Lock()
 	defer s.Unlock()
@@ -365,7 +368,10 @@ type shardSyncChan struct {
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
 
-	// lastAsyncError used for debugging when no metadata is created
+	// lastAsyncError used for debugging when no metadata is created. Unlike the
+	// slot, it is written from operation goroutines without a lock or an
+	// ownership check, so an outlived operation can overwrite it. Nothing in
+	// production reads it.
 	lastAsyncError error
 }
 
