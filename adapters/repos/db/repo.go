@@ -420,6 +420,7 @@ type Config struct {
 	EnableLazyLoadShards                *bool
 	LazyLoadShardCountThreshold         int
 	LazyLoadShardSizeThresholdGB        float64
+	LazyLoadShardWarmupDisabled         bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
