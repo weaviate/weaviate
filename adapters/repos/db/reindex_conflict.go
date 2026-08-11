@@ -231,6 +231,10 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 // askedProperty is named when the task carries it, falling back to the
 // first property otherwise — cancel is task-scoped, so which one is named
 // doesn't change what gets cancelled.
+//
+// Exported for handlers_schema_remedy_test.go, which runs the rendered
+// bodies through the real REST validators; no production consumer outside
+// this package. Unexporting it would silently drop that test.
 func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
@@ -252,6 +256,9 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // change-algorithm on an already-promoted shard is an untested corner: the
 // canonical bucket is already inverted while the strategy declares a
 // map-collection source. Tracked at weaviate/weaviate#12575.
+//
+// Exported for the same cross-package test as [ReindexCancelCall], and for
+// the same reason.
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
 }
@@ -342,11 +349,14 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // other variants name would 404, and the cost it repairs disappears with the
 // data — so these are told to cancel and retry instead.
 //
+// Precondition: status is non-terminal per
+// [distributedtask.TaskStatus.IsActive]. That invariant lives in the callers
+// (every gate pre-filters on it), not here — a terminal status would be
+// misreported as one this build doesn't recognize.
+//
 // The sentence depends on status and on [IsSemanticMigration]:
-//   - unrecognized status (e.g. a newer node's, or terminal — no caller
-//     exercises terminal since every gate pre-filters on
-//     [distributedtask.TaskStatus.IsActive]): claims nothing about cancel.
-//   - no cancel call nameable: task can only be waited out.
+//   - unrecognized status (a newer node's): claims nothing about cancel.
+//   - no cancel call nameable: this build can only say to wait it out.
 //   - STARTED on a semantic (barrier) migration: nothing is on disk yet, so
 //     cancel or wait are both safe.
 //   - any status on a format-only migration: PREPARING never exists
@@ -386,7 +396,8 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 	if cancelCall == "" {
 		return "the cancel endpoint is keyed on one collection, property and " +
 			"index type, and this task names none this build can fill in, " +
-			"so it can only be waited out"
+			"so this build can only tell you to wait it out; if a newer node " +
+			"submitted this migration type, read the task there instead"
 	}
 	if !IsSemanticMigration(p.MigrationType) {
 		partial := "cancel it via " + cancelCall + ", or wait for it to finish. " +

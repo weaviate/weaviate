@@ -77,6 +77,10 @@ func (db *DB) CleanStalePartialReindexState(
 // Also answers false once [FinalizeCompletedMigrations] has already
 // promoted and removed the tracker dir. Read false as "nothing awaits
 // promotion", not as "still pre-migration".
+//
+// The one non-fail-closed answer at this layer: no local index (class not
+// in this node's replica set, or already dropped) answers false, because
+// there is no shard here whose restart could promote anything.
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {

@@ -974,7 +974,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	}
 	cancelUnnameable := []string{
 		"the cancel endpoint is keyed on one collection, property and index type",
-		"it can only be waited out",
+		"so this build can only tell you to wait it out",
+		"if a newer node submitted this migration type, read the task there instead",
 	}
 	cancelUnknown := []string{
 		"this build does not know that status",
