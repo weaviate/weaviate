@@ -222,6 +222,31 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"a nil re-registration must be dropped, not stored over the live observer")
 	})
 
+	// The third delivery case from the TerminalObserver contract: endings
+	// that arrive inside an installed snapshot are never announced.
+	t.Run("a task already terminal in an installed snapshot must not fire", func(t *testing.T) {
+		for _, status := range []TaskStatus{TaskStatusCancelled, TaskStatusFailed} {
+			t.Run(string(status), func(t *testing.T) {
+				h, rec := newObserverHarness(t)
+
+				restoreTask(t, h.manager, status, map[string]*Unit{
+					"su-1": {ID: "su-1", NodeID: "node-1", Status: UnitStatusCompleted},
+				})
+
+				// Barrier: once this live cancel lands, a missing event for the
+				// restored task means the contract held, not a slow drainer.
+				const cancelledTaskID = "2"
+				require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, cancelledTaskID), observerVersion))
+				require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, cancelledTaskID), false))
+
+				rec.waitForAtLeast(t, 1, "the live cancel must fire the observer")
+				require.Equal(t, cancelledTaskID, rec.first().ID,
+					"only the live cancel may be announced; a snapshot-installed ending must stay silent")
+				require.Equal(t, 1, rec.count())
+			})
+		}
+	})
+
 	t.Run("a task that fails closed on restore fires the observer", func(t *testing.T) {
 		h, rec := newObserverHarness(t)
 
@@ -680,6 +705,23 @@ func TestTerminalDispatchSkipsUnregisteredNamespaces(t *testing.T) {
 
 	require.Empty(t, m.terminalDispatch,
 		"a namespace nobody registered for must not queue anything")
+}
+
+// Pins the documented "empty arguments are dropped" half of the registration
+// contract: an empty namespace must store nothing and start no drainer.
+func TestRegisterTerminalObserverEmptyNamespaceIsDropped(t *testing.T) {
+	defer leaktest.Check(t)()
+	m := newTerminalDispatchManager()
+	defer m.Close()
+
+	m.RegisterTerminalObserver("", func(*Task) {})
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	require.Empty(t, m.terminalObservers,
+		"an empty-namespace registration must not be stored")
+	require.False(t, m.terminalDrainerRunning,
+		"an empty-namespace registration must not start a drainer")
 }
 
 // Pins that a registration after Close is dropped whole: no observer is
