@@ -56,27 +56,17 @@ func Test_DeleteObject(t *testing.T) {
 	)
 
 	tests := []struct {
-		name       string
-		repoErr    error
-		waitErr    error
-		wantErr    string
-		wantErrAs  any
-		wantDelete bool
+		name      string
+		repoErr   error
+		wantErrAs any
 	}{
 		{
-			name:       "deleted",
-			wantDelete: true,
+			name: "deleted",
 		},
 		{
-			name:       "repo failure is internal",
-			repoErr:    errNotFound,
-			wantErrAs:  &ErrInternal{},
-			wantDelete: true,
-		},
-		{
-			name:    "local schema never catches up",
-			waitErr: errors.New("deadline exceeded"),
-			wantErr: "error waiting for local schema to catch up to version 7",
+			name:      "repo failure is internal",
+			repoErr:   errNotFound,
+			wantErrAs: &ErrInternal{},
 		},
 	}
 
@@ -84,27 +74,18 @@ func Test_DeleteObject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, repo, _, smanager := newDeleteDependency()
 			smanager.ClassVersion = classVersion
-			smanager.WaitForUpdateErr = tt.waitErr
-			if tt.wantDelete {
-				repo.On("DeleteObject", cls, id, mock.Anything).Return(tt.repoErr).Once()
-			}
+			repo.On("DeleteObject", cls, id, mock.Anything).Return(tt.repoErr).Once()
 
 			err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
 
-			switch {
-			case tt.wantErr != "":
-				require.ErrorContains(t, err, tt.wantErr)
-			case tt.wantErrAs != nil:
+			if tt.wantErrAs != nil {
 				require.ErrorAs(t, err, tt.wantErrAs)
-			default:
+			} else {
 				require.NoError(t, err)
 			}
-			if !tt.wantDelete {
-				repo.AssertNotCalled(t, "DeleteObject", cls, id, mock.Anything)
-			}
 			repo.AssertExpectations(t)
-			assert.Equal(t, classVersion, smanager.MaxWaitedSchemaVersion,
-				"local schema must have caught up to the collection's version before the delete")
+			assert.Equal(t, classVersion, repo.CapturedSchemaVersion,
+				"the delete must be made with the collection's schema version")
 		})
 	}
 }

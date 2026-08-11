@@ -71,12 +71,6 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()), maxSchemaVersion)
 	}
 
-	// db.DeleteObject resolves the index by name before honoring the version, so
-	// the delete fails until this node has applied the collection's RAFT entry.
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
-
 	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, maxSchemaVersion); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {

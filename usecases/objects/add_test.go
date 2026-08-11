@@ -267,7 +267,10 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 }
 
-func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
+// The write carries the highest version the request produced, so a collection
+// created by autoSchema or a tenant created by autoTenants is covered by the wait
+// db.PutObject does before it resolves the index.
+func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 	const autoSchemaVersion uint64 = 41
 	const tenantVersion uint64 = 42
 
@@ -276,13 +279,18 @@ func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, AutoTenantCreation: true},
 	}
 
+	plainClass := &models.Class{
+		Class: "Foo", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+	}
+
 	tests := []struct {
-		name        string
-		classes     []*models.Class
-		object      *models.Object
-		waitErr     error
-		wantVersion uint64
-		wantErr     string
+		name         string
+		classes      []*models.Class
+		object       *models.Object
+		classVersion uint64
+		waitErr      error
+		wantVersion  uint64
+		wantErr      string
 	}{
 		{
 			name:        "tenant auto-created for an existing collection",
@@ -296,10 +304,12 @@ func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
 			wantVersion: autoSchemaVersion,
 		},
 		{
-			name:    "local schema never catches up",
-			object:  &models.Object{Class: "FooNew", Properties: map[string]interface{}{"title": "v1"}},
-			waitErr: errors.New("deadline exceeded"),
-			wantErr: "error waiting for local schema to catch up to version 41",
+			name:         "local schema never catches up to the collection",
+			classes:      []*models.Class{plainClass},
+			object:       &models.Object{Class: "Foo"},
+			classVersion: 40,
+			waitErr:      errors.New("deadline exceeded"),
+			wantErr:      "error waiting for local schema to catch up to version 40",
 		},
 	}
 
@@ -312,6 +322,7 @@ func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
 				GetSchemaResponse:       sch,
 				AddTenantsSchemaVersion: tenantVersion,
 				AutoSchemaVersion:       autoSchemaVersion,
+				ClassVersion:            tt.classVersion,
 				WaitForUpdateErr:        tt.waitErr,
 			}
 			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)}}}
@@ -332,9 +343,8 @@ func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantVersion, vectorRepo.CapturedSchemaVersion)
-			assert.GreaterOrEqual(t, schemaManager.MaxWaitedSchemaVersion, tt.wantVersion,
-				"local schema must have caught up to the version the write is made with")
+			assert.Equal(t, tt.wantVersion, vectorRepo.CapturedSchemaVersion,
+				"the write must be made with the highest version the request produced")
 		})
 	}
 }

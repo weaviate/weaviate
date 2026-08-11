@@ -106,13 +106,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
 
-	// autoSchema's AddClass returns once the leader applied it, and db.PutObject
-	// resolves the index by name before honoring the version, so the write fails
-	// until this node has applied the same RAFT entry.
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
-
 	class := fetchedClasses[object.Class].Class
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)

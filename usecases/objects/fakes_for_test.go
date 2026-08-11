@@ -316,6 +316,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }

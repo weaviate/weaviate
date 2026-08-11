@@ -303,13 +303,12 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 }
 
 func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
-	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		// Msg carries the human-readable detail because Err is not
-		// serialised over the wire (json:"-"); without Msg the remote
-		// coordinator would see an empty error and treat it as success.
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		// Err is not serialised over the wire (json:"-"), so Msg is the only
+		// detail the remote coordinator can report.
 		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusPreconditionFailed,
-			Msg:  fmt.Sprintf("waiting for schema version %d: %v", schemaVersion, err),
+			Msg:  err.Error(),
 			Err:  err,
 		}}}
 	}

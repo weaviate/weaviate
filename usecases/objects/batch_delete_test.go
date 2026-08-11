@@ -365,22 +365,16 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 
 // The gRPC entry point is called with pre-validated params, so it resolves the
 // collection's schema version itself instead of through validateBatchDelete.
-func Test_BatchDelete_FromGRPC_Waits_For_SchemaVersion(t *testing.T) {
+func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 	const classVersion uint64 = 9
 
 	tests := []struct {
 		name      string
 		lookupErr error
-		waitErr   error
 		wantErr   string
 	}{
 		{
 			name: "deleted",
-		},
-		{
-			name:    "local schema never catches up",
-			waitErr: errors.New("deadline exceeded"),
-			wantErr: "error waiting for local schema to catch up to version 9",
 		},
 		{
 			name:      "collection lookup fails",
@@ -399,7 +393,6 @@ func Test_BatchDelete_FromGRPC_Waits_For_SchemaVersion(t *testing.T) {
 			schemaManager := &fakeSchemaManager{
 				GetSchemaResponse: sch,
 				ClassVersion:      classVersion,
-				WaitForUpdateErr:  tt.waitErr,
 				GetschemaErr:      tt.lookupErr,
 			}
 			cfg := &config.WeaviateConfig{}

@@ -73,13 +73,6 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	}
 	schemaVersion := fetchedClasses[className].Version
 
-	// db.BatchDeleteObjects resolves the index by name before honoring the
-	// version, so the delete fails until this node has applied the collection's
-	// RAFT entry.
-	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return BatchDeleteResult{}, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
-	}
-
 	deletionTime := time.UnixMilli(b.timeSource.Now())
 	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, schemaVersion)
 }

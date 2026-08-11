@@ -37,6 +37,10 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return err
+	}
+
 	object := storobj.FromObject(obj, vector, vectors, multivectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
@@ -54,6 +58,10 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return err
+	}
+
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
@@ -292,6 +300,10 @@ func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, targ
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return err
+	}
+
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)

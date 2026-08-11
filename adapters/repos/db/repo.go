@@ -465,6 +465,22 @@ type Config struct {
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 
+// waitForSchemaVersion blocks until this node has applied schemaVersion.
+//
+// Write entry points call it before resolving an index by name, because db.indices
+// lags the leader and a name lookup cannot tell a collection this node has not
+// applied yet apart from one that never existed. A satisfied wait is not proof the
+// index exists: the apply advances lastAppliedIndex even when it failed.
+func (db *DB) waitForSchemaVersion(ctx context.Context, schemaVersion uint64) error {
+	if schemaVersion == 0 {
+		return nil
+	}
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+	}
+	return nil
+}
+
 // GetIndex returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.

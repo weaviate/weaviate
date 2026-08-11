@@ -35,6 +35,10 @@ type batchQueue struct {
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchObjects, error) {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return nil, err
+	}
+
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
@@ -122,6 +126,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchReferences, error) {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return nil, err
+	}
+
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
 
@@ -179,6 +187,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return objects.BatchDeleteResult{}, err
+	}
+
 	start := time.Now()
 	// get index for a given class
 	className := params.ClassName
