@@ -559,6 +559,38 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
+// wireGateRefusalIndex points idx at a hooked logger and a lookup that
+// reports every shard as reindexing, so descriptor calls hit the gate.
+// Debug on so a per-shard gate line lands in the hook regardless of level.
+func wireGateRefusalIndex(idx *Index) *tlog.Hook {
+	logger, hook := tlog.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	idx.logger = logger
+	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
+	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	return hook
+}
+
+// collectGateRefusalLog scans the hook for operator-facing gate entries and
+// returns how many there are plus the shard sample and count they report.
+func collectGateRefusalLog(hook *tlog.Hook) (gateLines int, sample []string, reportedCount int) {
+	for _, e := range hook.AllEntries() {
+		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
+			continue
+		}
+		gateLines++
+		if v, ok := e.Data["blocked_shards"].([]string); ok {
+			sample = v
+		}
+		if v, ok := e.Data["blocked_shard_count"].(int); ok {
+			reportedCount = v
+		}
+	}
+	return gateLines, sample, reportedCount
+}
+
 // A whole-collection gate refusal is hit once per shard in the descriptor
 // fan-out; the log must not repeat that O(shards) growth.
 func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
@@ -581,35 +613,14 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 		createColdShardFiles(t, rootDir, className, name)
 	}
 
-	logger, hook := tlog.NewNullLogger()
-	// Debug on so a per-shard gate line lands in the hook regardless of level.
-	logger.SetLevel(logrus.DebugLevel)
-	idx.logger = logger
-	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
-	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
-	})
+	hook := wireGateRefusalIndex(idx)
 
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "wide-refusal", &desc, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 
-	var gateLines int
-	var sample []string
-	var reportedCount int
-	for _, e := range hook.AllEntries() {
-		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
-			continue
-		}
-		gateLines++
-		if v, ok := e.Data["blocked_shards"].([]string); ok {
-			sample = v
-		}
-		if v, ok := e.Data["blocked_shard_count"].(int); ok {
-			reportedCount = v
-		}
-	}
+	gateLines, sample, reportedCount := collectGateRefusalLog(hook)
 
 	require.Equalf(t, 1, gateLines,
 		"a refusal of one collection is one operator-facing entry regardless of width; "+
@@ -639,33 +650,14 @@ func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 	createColdShardFiles(t, rootDir, className, "cold-tenant")
 
-	logger, hook := tlog.NewNullLogger()
-	idx.logger = logger
-	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
-	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return true }
-	})
+	hook := wireGateRefusalIndex(idx)
 
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "no-hardlink-refusal", &desc, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 
-	var gateLines int
-	var sample []string
-	var reportedCount int
-	for _, e := range hook.AllEntries() {
-		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
-			continue
-		}
-		gateLines++
-		if v, ok := e.Data["blocked_shards"].([]string); ok {
-			sample = v
-		}
-		if v, ok := e.Data["blocked_shard_count"].(int); ok {
-			reportedCount = v
-		}
-	}
+	gateLines, sample, reportedCount := collectGateRefusalLog(hook)
 
 	require.Equal(t, 1, gateLines, "one refusal is one operator-facing line")
 	require.Equal(t, 1, reportedCount)

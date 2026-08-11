@@ -155,6 +155,34 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 	})
 }
 
+// newStatusUploaderFixture wires an uploader for one class whose descriptor
+// carries uploadErr and whose meta write returns metaErr, sharing the
+// backupper slot that OnStatus reads from.
+func newStatusUploaderFixture(t *testing.T, backupID, class string, uploadErr, metaErr error) (*backupper, *uploader, *backup.BackupDescriptor) {
+	t.Helper()
+	descriptors := make(chan backup.ClassDescriptor, 1)
+	descriptors <- backup.ClassDescriptor{Name: class, Error: uploadErr}
+	close(descriptors)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(descriptors))
+	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+	backend := newFakeBackend()
+	backend.On("SourceDataPath").Return(t.TempDir())
+	backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(metaErr)
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+	require.Empty(t, prevID)
+
+	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+	return bp, uploader, &backup.BackupDescriptor{ID: backupID}
+}
+
 // The reason must survive out of the uploader, including a failing meta write.
 func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 	const (
@@ -190,27 +218,8 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			descriptors := make(chan backup.ClassDescriptor, 1)
-			descriptors <- backup.ClassDescriptor{Name: class, Error: tc.uploadErr}
-			close(descriptors)
-
-			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
-				Return((<-chan backup.ClassDescriptor)(descriptors))
-			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
-
-			backend := newFakeBackend()
-			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
-
-			logger, _ := test.NewNullLogger()
-			bp := &backupper{logger: logger}
-			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
-			require.Empty(t, prevID)
-
-			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
-			desc := backup.BackupDescriptor{ID: backupID}
-			require.ErrorIs(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""), tc.uploadErr)
+			bp, uploader, desc := newStatusUploaderFixture(t, backupID, class, tc.uploadErr, tc.metaErr)
+			require.ErrorIs(t, uploader.all(context.Background(), []string{class}, desc, nil, "", ""), tc.uploadErr)
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
 				&StatusRequest{Method: OpCreate, ID: backupID})
@@ -256,28 +265,8 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			descriptors := make(chan backup.ClassDescriptor, 1)
-			descriptors <- backup.ClassDescriptor{Name: class}
-			close(descriptors)
-
-			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
-				Return((<-chan backup.ClassDescriptor)(descriptors))
-			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
-
-			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
-			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
-
-			logger, _ := test.NewNullLogger()
-			bp := &backupper{logger: logger}
-			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
-			require.Empty(t, prevID)
-
-			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
-			desc := backup.BackupDescriptor{ID: backupID}
-			err := uploader.all(context.Background(), []string{class}, &desc, nil, "", "")
+			bp, uploader, desc := newStatusUploaderFixture(t, backupID, class, nil, tc.metaErr)
+			err := uploader.all(context.Background(), []string{class}, desc, nil, "", "")
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
 				&StatusRequest{Method: OpCreate, ID: backupID})
@@ -795,28 +784,8 @@ func TestUploaderPublishesAGateRefusalRedacted(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			descriptors := make(chan backup.ClassDescriptor, 1)
-			descriptors <- backup.ClassDescriptor{Name: class, Error: tc.uploadErr}
-			close(descriptors)
-
-			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
-				Return((<-chan backup.ClassDescriptor)(descriptors))
-			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
-
-			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
-			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
-
-			logger, _ := test.NewNullLogger()
-			bp := &backupper{logger: logger}
-			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
-			require.Empty(t, prevID)
-
-			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
-			desc := backup.BackupDescriptor{ID: backupID}
-			require.Error(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""))
+			bp, uploader, desc := newStatusUploaderFixture(t, backupID, class, tc.uploadErr, tc.metaErr)
+			require.Error(t, uploader.all(context.Background(), []string{class}, desc, nil, "", ""))
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
 				&StatusRequest{Method: OpCreate, ID: backupID})
