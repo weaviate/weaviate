@@ -640,12 +640,14 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	return h
 }
 
-// Close shuts down the scheduler and then drains every test provider's
-// in-flight run goroutines. drain must run before the deferred
-// leaktest.Check, so this is wired via a test-body defer (defer h.Close()),
-// never via t.Cleanup which runs after the leaktest deferred check.
+// Close shuts down the scheduler and the manager's terminal-observer drainer,
+// then drains every test provider's in-flight run goroutines. drain must run
+// before the deferred leaktest.Check, so this is wired via a test-body defer
+// (defer h.Close()), never via t.Cleanup which runs after the leaktest
+// deferred check.
 func (h *testHarness) Close() {
 	h.scheduler.Close()
+	h.manager.Close()
 	for _, p := range h.testProviders {
 		p.drain()
 	}
