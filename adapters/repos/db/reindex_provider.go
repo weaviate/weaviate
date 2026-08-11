@@ -1575,8 +1575,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
-		// FAILED additionally logs operator repair guidance.
+		// FAILED/CANCELLED auto-clean partial sidecar state on every node,
+		// and log operator repair guidance when a swap can have run.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:

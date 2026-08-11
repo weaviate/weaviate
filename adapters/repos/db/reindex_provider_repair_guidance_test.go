@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -129,4 +131,60 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 
 	require.Len(t, hook.Entries, 1, "empty Properties → one generic guidance entry")
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
+}
+
+// A cancel from STARTED cannot have torn anything — no node has swapped
+// yet. A cancel from a status this build cannot name can have, because a
+// newer node may have swapped in a phase this binary cannot interpret. A
+// recorded post-completion ack is the evidence, since the scheduler
+// suppresses the ack while STARTED.
+func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
+	payload, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+	})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name        string
+		acks        map[string]distributedtask.PostCompletionAck
+		wantGuiance bool
+	}{
+		{name: "no node acked a swap", acks: nil, wantGuiance: false},
+		{
+			name:        "one node acked a swap",
+			acks:        map[string]distributedtask.PostCompletionAck{"n1": {Success: true}},
+			wantGuiance: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			p := &ReindexProvider{
+				logger:    logger,
+				serverCtx: context.Background(),
+				// The terminal-status cleanup that runs alongside the
+				// guidance needs a DB; an empty one has no matching index
+				// and the cleanup logs and moves on.
+				db: &DB{},
+			}
+
+			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+				Namespace:          ReindexNamespace,
+				TaskDescriptor:     distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
+				Status:             distributedtask.TaskStatusCancelled,
+				Payload:            payload,
+				PostCompletionAcks: tc.acks,
+			}))
+
+			var guided bool
+			for _, e := range hook.AllEntries() {
+				if _, ok := e.Data["repair_command"]; ok {
+					guided = true
+				}
+			}
+			require.Equal(t, tc.wantGuiance, guided,
+				"repair guidance on a CANCELLED task must follow the swap evidence")
+		})
+	}
 }

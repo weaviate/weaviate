@@ -27,7 +27,9 @@ import (
 // and this build has never heard of — what a mixed-version cluster sees
 // during a rolling upgrade. Keep it a string no release will ever declare,
 // or these tests silently start asserting facts about a real status.
-const unknownFutureStatus TaskStatus = "UNKNOWN_FUTURE_STATE"
+// A var, not a const: the exhaustive linter treats every TaskStatus const
+// in the package as an enum member, and this one is not.
+var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
 
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
