@@ -461,6 +461,34 @@ func countingFetcher[T float32 | byte | uint64]() (common.VectorForID[T], *int64
 	}, &calls
 }
 
+// failingFetcher fails the test if the cache falls back to a fetch. The preload
+// tests all expect the slots they wrote to still be filled, so a miss there is the
+// symptom of a store or counting regression rather than a valid path.
+func failingFetcher[T float32 | byte | uint64](t *testing.T) common.VectorForID[T] {
+	return func(_ context.Context, id uint64) ([]T, error) {
+		t.Errorf("unexpected cache miss for id %d", id)
+		return nil, errors.New("unexpected cache miss")
+	}
+}
+
+// slotOf reads the raw backing slot, so a test can tell an empty slot from one
+// that Get would silently refill.
+func slotOf[T float32 | byte | uint64](t *testing.T, c Cache[T], id uint64) []T {
+	t.Helper()
+	s, ok := c.(*shardedLockCache[T])
+	require.True(t, ok, "expected *shardedLockCache")
+	return s.cache[id]
+}
+
+// ifAbsentPreloader exposes PreloadIfAbsent, which lives on a narrower interface
+// than Cache[T] because the multivector cache cannot implement it.
+func ifAbsentPreloader[T float32 | byte | uint64](t *testing.T, c Cache[T]) IfAbsentPreloader[T] {
+	t.Helper()
+	p, ok := c.(IfAbsentPreloader[T])
+	require.True(t, ok, "expected an IfAbsentPreloader")
+	return p
+}
+
 // stripeCountOf gives white-box access to the lock stripe count of a
 // shardedLockCache so tests can assert on lazy allocation and re-striping.
 // It is 0 until the stripes are allocated on first use.
@@ -766,33 +794,126 @@ func TestShardedLockCache_PageSizeOnFreshCache(t *testing.T) {
 }
 
 // TestPreloadCountsOccupiedSlotsOnly: count feeds replaceIfFull's full-cache wipe,
-// so overwrites and if-absent no-ops must not inflate it past true occupancy — and
-// PreloadIfAbsent must never replace a present vector.
+// so it must equal the number of slots that actually hold a vector — across every
+// transition a write can make, in both directions.
 func TestPreloadCountsOccupiedSlotsOnly(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
-	c.Grow(10)
+	const id = 5
 
-	c.Preload(5, []float32{9, 9})
-	c.Preload(5, []float32{1, 2}) // overwrite: no recount
-	assert.Equal(t, int64(1), c.CountVectors())
+	tests := []struct {
+		name      string
+		write     func(t *testing.T, c Cache[float32], p IfAbsentPreloader[float32])
+		wantCount int64
+		wantSlot  []float32
+	}{
+		{
+			name: "first Preload occupies the slot",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{1, 2})
+			},
+			wantCount: 1,
+			wantSlot:  []float32{1, 2},
+		},
+		{
+			name: "overwrite does not recount",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{9, 9})
+				c.Preload(id, []float32{1, 2})
+			},
+			wantCount: 1,
+			wantSlot:  []float32{1, 2},
+		},
+		{
+			name: "Preload nil over an occupied slot frees it",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{1, 2})
+				c.Preload(id, nil)
+			},
+			wantCount: 0,
+			wantSlot:  nil,
+		},
+		{
+			name: "repeated Preload of nil never counts",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				for i := 0; i < 5; i++ {
+					c.Preload(id, nil)
+				}
+			},
+			wantCount: 0,
+			wantSlot:  nil,
+		},
+		{
+			name: "Preload of an empty non-nil vector leaves the slot empty",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{})
+			},
+			wantCount: 0,
+			wantSlot:  nil,
+		},
+		{
+			name: "PreloadIfAbsent fills an empty slot",
+			write: func(t *testing.T, _ Cache[float32], p IfAbsentPreloader[float32]) {
+				assert.True(t, p.PreloadIfAbsent(id, []float32{3, 4}))
+			},
+			wantCount: 1,
+			wantSlot:  []float32{3, 4},
+		},
+		{
+			name: "PreloadIfAbsent leaves an occupied slot alone",
+			write: func(t *testing.T, c Cache[float32], p IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{1, 2})
+				assert.False(t, p.PreloadIfAbsent(id, []float32{9, 9}))
+			},
+			wantCount: 1,
+			wantSlot:  []float32{1, 2},
+		},
+		{
+			name: "repeated PreloadIfAbsent of nil stores nothing and counts nothing",
+			write: func(t *testing.T, _ Cache[float32], p IfAbsentPreloader[float32]) {
+				for i := 0; i < 5; i++ {
+					assert.False(t, p.PreloadIfAbsent(id, nil))
+				}
+			},
+			wantCount: 0,
+			wantSlot:  nil,
+		},
+		{
+			name: "PreloadIfAbsent never empties an occupied slot",
+			write: func(t *testing.T, c Cache[float32], p IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{1, 2})
+				assert.False(t, p.PreloadIfAbsent(id, nil))
+			},
+			wantCount: 1,
+			wantSlot:  []float32{1, 2},
+		},
+		{
+			name: "Delete frees an occupied slot exactly once",
+			write: func(_ *testing.T, c Cache[float32], _ IfAbsentPreloader[float32]) {
+				c.Preload(id, []float32{1, 2})
+				c.Delete(context.Background(), id)
+				c.Delete(context.Background(), id)
+			},
+			wantCount: 0,
+			wantSlot:  nil,
+		},
+	}
 
-	assert.False(t, c.PreloadIfAbsent(5, []float32{9, 9}))
-	assert.True(t, c.PreloadIfAbsent(6, []float32{3, 4}))
-	assert.Equal(t, int64(2), c.CountVectors())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newLazyTestCache(t, failingFetcher[float32](t))
+			c.Grow(10)
 
-	got, err := c.Get(context.Background(), 5)
-	assert.NoError(t, err)
-	assert.Equal(t, []float32{1, 2}, got, "PreloadIfAbsent must not overwrite")
+			tt.write(t, c, ifAbsentPreloader(t, c))
 
-	got, err = c.Get(context.Background(), 6)
-	assert.NoError(t, err)
-	assert.Equal(t, []float32{3, 4}, got)
+			assert.Equal(t, tt.wantCount, c.CountVectors())
+			assert.Equal(t, tt.wantSlot, slotOf(t, c, id))
+		})
+	}
 }
 
-// TestMultiVectorCacheCountInvariant regresses the shardedMultipleLockCache count
-// fix: count must track occupied slots, not calls, or replaceIfFull's full-cache
-// wipe fires while the cache isn't actually full.
+// TestMultiVectorCacheCountInvariant: this cache calls a slot occupied when it
+// holds a non-empty vector — Get and Delete both test len() — so count must move
+// on exactly that transition, or replaceIfFull's full-cache wipe fires while the
+// cache isn't actually full.
 func TestMultiVectorCacheCountInvariant(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -826,6 +947,33 @@ func TestMultiVectorCacheCountInvariant(t *testing.T) {
 		vec, err := c.Get(context.Background(), 9)
 		require.NoError(t, err)
 		assert.Empty(t, vec)
+		assert.Equal(t, int64(0), c.CountVectors())
+	})
+
+	t.Run("an empty passage occupies nothing and stays reclaimable", func(t *testing.T) {
+		c := NewShardedMultiUInt64LockCache(nil, 1_000_000, logger, 0, nil)
+
+		c.PreloadPassage(1, 7, 0, []uint64{})
+		assert.Equal(t, int64(0), c.CountVectors(), "an empty vec leaves the slot unoccupied")
+
+		// Delete tests len(), so a slot counted while empty could never be
+		// reclaimed and the inflation would be permanent
+		c.Delete(context.Background(), 1)
+		assert.Equal(t, int64(0), c.CountVectors())
+	})
+
+	t.Run("filling a slot left empty by a preload counts it once", func(t *testing.T) {
+		fetch, _ := countingFetcher[uint64]()
+		c := NewShardedMultiUInt64LockCache(fetch, 1_000_000, logger, 0, nil)
+
+		c.PreloadPassage(2, 7, 0, nil)
+		vec, err := c.Get(context.Background(), 2)
+		require.NoError(t, err)
+		require.NotEmpty(t, vec, "an empty slot must be a miss, so Get refills it")
+
+		assert.Equal(t, int64(1), c.CountVectors())
+
+		c.Delete(context.Background(), 2)
 		assert.Equal(t, int64(0), c.CountVectors())
 	})
 
@@ -874,7 +1022,9 @@ func TestConcurrentMissSameID_NoDoubleCount(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				vec, err := c.Get(context.Background(), 42)
-				require.NoError(t, err)
+				// assert, not require: FailNow off the test goroutine reports
+				// without the test's stack and skips the rest of this worker
+				assert.NoError(t, err)
 				assert.Equal(t, []float32{42}, vec)
 			}()
 		}
@@ -907,7 +1057,9 @@ func TestConcurrentMissSameID_NoDoubleCount(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				vec, err := c.Get(context.Background(), 42)
-				require.NoError(t, err)
+				// assert, not require: FailNow off the test goroutine reports
+				// without the test's stack and skips the rest of this worker
+				assert.NoError(t, err)
 				assert.Equal(t, []uint64{42}, vec)
 			}()
 		}
@@ -922,13 +1074,12 @@ func TestConcurrentMissSameID_NoDoubleCount(t *testing.T) {
 	})
 }
 
-// TestPreloadIfAbsent_ContentionWithPreload pins the invariant the async prefill's
-// safety argument rests on: PreloadIfAbsent can only win on an empty slot, so once at
-// least one Preload has run for an id, the final stored value can never be a
-// PreloadIfAbsent value, no matter how the two race.
+// TestPreloadIfAbsent_ContentionWithPreload: PreloadIfAbsent can only win on an
+// empty slot, so once at least one Preload has run for an id, the final stored
+// value can never be a PreloadIfAbsent value, no matter how the two race.
 func TestPreloadIfAbsent_ContentionWithPreload(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := newLazyTestCache(t, failingFetcher[float32](t))
+	p := ifAbsentPreloader(t, c)
 
 	const (
 		numIDs       = 200
@@ -945,7 +1096,7 @@ func TestPreloadIfAbsent_ContentionWithPreload(t *testing.T) {
 			}()
 			go func() {
 				defer wg.Done()
-				c.PreloadIfAbsent(id, []float32{2, float32(id)})
+				p.PreloadIfAbsent(id, []float32{2, float32(id)})
 			}()
 		}
 	}
@@ -962,19 +1113,17 @@ func TestPreloadIfAbsent_ContentionWithPreload(t *testing.T) {
 	}
 }
 
-// TestPreloadIfAbsent_GrowRetry covers PreloadIfAbsent's Grow-retry loop (id beyond
-// the current cache length -> unlock -> Grow -> retry), which no production caller
-// reaches: prefillFromScan skips any id beyond the pre-grown node count instead of
-// growing the cache from a scan.
+// TestPreloadIfAbsent_GrowRetry covers PreloadIfAbsent's Grow-retry loop: id beyond
+// the current cache length -> unlock -> Grow -> retry.
 func TestPreloadIfAbsent_GrowRetry(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := newLazyTestCache(t, failingFetcher[float32](t))
+	p := ifAbsentPreloader(t, c)
 
 	c.Grow(10) // establish a small baseline cache, well short of id below
 	require.Less(t, int(c.Len()), 50_000)
 
 	id := uint64(50_000)
-	ok := c.PreloadIfAbsent(id, []float32{7, 8})
+	ok := p.PreloadIfAbsent(id, []float32{7, 8})
 	assert.True(t, ok)
 	assert.Greater(t, c.Len(), int32(id), "PreloadIfAbsent must grow the cache to cover id")
 
@@ -988,8 +1137,8 @@ func TestPreloadIfAbsent_GrowRetry(t *testing.T) {
 // retry loop by forcing many goroutines through concurrent Grow calls for distinct
 // out-of-bounds ids at once.
 func TestPreloadIfAbsent_GrowRetryConcurrent(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := newLazyTestCache(t, failingFetcher[float32](t))
+	p := ifAbsentPreloader(t, c)
 	c.Grow(10)
 
 	const (
@@ -1003,7 +1152,7 @@ func TestPreloadIfAbsent_GrowRetryConcurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			id := baseID + uint64(i)
-			ok := c.PreloadIfAbsent(id, []float32{float32(id)})
+			ok := p.PreloadIfAbsent(id, []float32{float32(id)})
 			assert.True(t, ok)
 		}(i)
 	}

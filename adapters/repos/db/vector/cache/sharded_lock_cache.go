@@ -47,6 +47,12 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	maintenanceLock sync.RWMutex
 }
 
+var (
+	_ IfAbsentPreloader[float32] = (*shardedLockCache[float32])(nil)
+	_ IfAbsentPreloader[byte]    = (*shardedLockCache[byte])(nil)
+	_ IfAbsentPreloader[uint64]  = (*shardedLockCache[uint64])(nil)
+)
+
 const (
 	InitialSize                = 1000
 	RelativeInitialSize        = 100
@@ -165,6 +171,30 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
+// emptyToNil collapses an empty vector to nil so that a slot is either nil or
+// holds a usable vector. Both spellings of the occupancy test in this file
+// (`== nil` and `len() == 0`) then agree on which slots are filled, and count —
+// which is derived from the same test — cannot drift from real occupancy.
+func emptyToNil[T any](vec []T) []T {
+	if len(vec) == 0 {
+		return nil
+	}
+	return vec
+}
+
+// occupancyDelta returns how the occupied-slot count changes when oldVec is
+// replaced by newVec. Both must already have passed through emptyToNil.
+func occupancyDelta[T any](oldVec, newVec []T) int64 {
+	switch {
+	case oldVec == nil && newVec != nil:
+		return 1
+	case oldVec != nil && newVec == nil:
+		return -1
+	default:
+		return 0
+	}
+}
+
 func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }
@@ -194,8 +224,19 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 		return
 	}
 
-	s.cache[id] = nil
-	atomic.AddInt64(&s.count, -1)
+	s.storeLocked(id, nil)
+}
+
+// storeLocked puts vec in slot id and keeps count in step with the number of
+// occupied slots: count feeds replaceIfFull, which wipes the whole cache once it
+// believes the cache is full, so every write must account for both the slot's old
+// and new state. Caller holds the stripe lock for id (LockAll also suffices).
+func (s *shardedLockCache[T]) storeLocked(id uint64, vec []T) {
+	vec = emptyToNil(vec)
+	if delta := occupancyDelta(s.cache[id], vec); delta != 0 {
+		atomic.AddInt64(&s.count, delta)
+	}
+	s.cache[id] = vec
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
@@ -213,7 +254,8 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 				"action": "vector_cache_miss",
 				"event":  "vector_load_skipped_oom",
 				"doc_id": id,
-			}).Warnf("cannot load vector into cache due to memory pressure: %v", err)
+			}).WithError(err).
+				Warnf("cannot load vector into cache due to memory pressure")
 			return nil, err
 		}
 	}
@@ -223,12 +265,9 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 		return nil, err
 	}
 
-	if vec != nil {
+	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		if s.cache[id] == nil {
-			atomic.AddInt64(&s.count, 1)
-		}
-		s.cache[id] = vec
+		s.storeLocked(id, vec)
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -333,6 +372,23 @@ func (s *shardedLockCache[T]) Prefetch(id uint64) {
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
+	s.preload(id, vec, false)
+}
+
+// PreloadIfAbsent writes vec only when the slot is empty, so it cannot clobber a
+// newer vector written concurrently. Reports whether it stored the vector.
+func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) bool {
+	if len(vec) == 0 {
+		// an if-absent write must never empty a slot, and there is nothing to
+		// count either, so refuse rather than grow the cache to cover id
+		return false
+	}
+	return s.preload(id, vec, true)
+}
+
+// preload stores vec in slot id, growing the cache to cover id first if needed.
+// With ifAbsent an occupied slot is left untouched. Reports whether it stored.
+func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 	for {
 		s.shardedLocks.Lock(id)
 		// reading len(s.cache) under a stripe lock is safe: the slice is
@@ -340,14 +396,13 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 		// it here keeps the common case as cheap as before the cache became
 		// lazy: one stripe lock, no maintenanceLock traffic.
 		if int(id) < len(s.cache) {
-			// count tracks occupied slots, not calls; replaceIfFull wipes the
-			// cache when count reaches maxSize, so overwrites must not inflate it.
-			if s.cache[id] == nil {
-				atomic.AddInt64(&s.count, 1)
+			if ifAbsent && s.cache[id] != nil {
+				s.shardedLocks.Unlock(id)
+				return false
 			}
-			s.cache[id] = vec
+			s.storeLocked(id, vec)
 			s.shardedLocks.Unlock(id)
-			return
+			return true
 		}
 		s.shardedLocks.Unlock(id)
 
@@ -358,34 +413,14 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	}
 }
 
-// PreloadIfAbsent writes vec only when the slot is empty, so it cannot clobber a
-// newer vector written concurrently. Reports whether it stored the vector.
-func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) bool {
-	for {
-		s.shardedLocks.Lock(id)
-		if int(id) < len(s.cache) {
-			if s.cache[id] != nil {
-				s.shardedLocks.Unlock(id)
-				return false
-			}
-			atomic.AddInt64(&s.count, 1)
-			s.cache[id] = vec
-			s.shardedLocks.Unlock(id)
-			return true
-		}
-		s.shardedLocks.Unlock(id)
-
-		s.Grow(id)
-	}
-}
-
+// PreloadNoLock stores without taking a stripe lock; the caller holds LockAll.
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
-	s.cache[id] = vec
+	s.storeLocked(id, vec)
 }
 
+// SetSizeAndGrowNoLock grows the cache to cover size; the caller holds LockAll.
+// It does not touch count — PreloadNoLock counts the slots it actually fills.
 func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
-	atomic.StoreInt64(&s.count, int64(size))
-
 	if size < uint64(len(s.cache)) {
 		return
 	}
@@ -733,9 +768,20 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 		return
 	}
 
-	s.cache[id] = nil
+	s.storeLocked(id, nil)
 	s.vectorDocID[id] = CacheKeys{}
-	atomic.AddInt64(&s.count, -1)
+}
+
+// storeLocked puts vec in slot id and keeps count in step with the number of
+// occupied slots: count feeds replaceIfFull, which wipes the whole cache once it
+// believes the cache is full, so every write must account for both the slot's old
+// and new state. Caller holds the stripe lock for id.
+func (s *shardedMultipleLockCache[T]) storeLocked(id uint64, vec []T) {
+	vec = emptyToNil(vec)
+	if delta := occupancyDelta(s.cache[id], vec); delta != 0 {
+		atomic.AddInt64(&s.count, delta)
+	}
+	s.cache[id] = vec
 }
 
 func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, relativeID uint64) ([]T, error) {
@@ -754,7 +800,8 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 				"event":  "vector_load_skipped_oom",
 				"doc_id": docID,
 				"vec_id": relativeID,
-			}).Warnf("cannot load vector into cache due to memory pressure: %v", err)
+			}).WithError(err).
+				Warnf("cannot load vector into cache due to memory pressure")
 			return nil, err
 		}
 	}
@@ -776,13 +823,7 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		// count tracks occupied slots, not calls: concurrent misses on the same id
-		// would otherwise drift it above real occupancy until replaceIfFull wipes
-		// the whole cache
-		if s.cache[id] == nil {
-			atomic.AddInt64(&s.count, 1)
-		}
-		s.cache[id] = vec
+		s.storeLocked(id, vec)
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -807,10 +848,9 @@ func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
 	for i, id := range ids {
 		s.shardedLocks.Lock(id)
-		if s.cache[id] == nil {
-			atomic.AddInt64(&s.count, 1)
-		}
-		s.cache[id] = vecs[i]
+		s.storeLocked(id, vecs[i])
+		// the keys are recorded even for an empty vec: they are what a later miss
+		// on this id needs to fetch it
 		s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: uint64(i)}
 		s.shardedLocks.Unlock(id)
 	}
@@ -820,18 +860,11 @@ func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, re
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	if s.cache[id] == nil {
-		atomic.AddInt64(&s.count, 1)
-	}
-	s.cache[id] = vec
+	s.storeLocked(id, vec)
 	s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
-	panic("not implemented")
-}
-
-func (s *shardedMultipleLockCache[T]) PreloadIfAbsent(docID uint64, vec []T) bool {
 	panic("not implemented")
 }
 

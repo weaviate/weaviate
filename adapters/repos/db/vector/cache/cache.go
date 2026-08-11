@@ -36,7 +36,6 @@ type Cache[T any] interface {
 	CountVectors() int64
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vec []T)
-	PreloadIfAbsent(id uint64, vec []T) bool
 	PreloadNoLock(id uint64, vec []T)
 	SetSizeAndGrowNoLock(id uint64)
 	Prefetch(id uint64)
@@ -47,4 +46,12 @@ type Cache[T any] interface {
 	All() [][]T
 	LockAll()
 	UnlockAll()
+}
+
+// IfAbsentPreloader fills empty cache slots without clobbering a vector written
+// concurrently. Only the single-vector caches implement it: a multivector slot is
+// addressed by (docID, relativeID), for which a single-id write has no meaning.
+// Callers holding a Cache[T] must type-assert.
+type IfAbsentPreloader[T any] interface {
+	PreloadIfAbsent(id uint64, vec []T) bool
 }
