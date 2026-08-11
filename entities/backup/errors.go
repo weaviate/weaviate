@@ -17,21 +17,14 @@ import (
 )
 
 // ErrBackupBlockedByInFlightReindex is the canonical sentinel returned when
-// a backup attempt races a runtime-reindex on the same shard. The DTM unit
-// driving the migration is not part of the backup payload, so a captured
-// tracker dir cannot be safely restored.
+// a backup attempt races a runtime-reindex on the same shard; the DTM unit
+// driving the migration is not part of the backup payload, so the tracker
+// dir cannot be safely restored.
 //
-// This sentinel lives in entities/backup so both the storage layer
-// (adapters/repos/db) and the coordinator layer (usecases/backup) can
-// share a single value without an import cycle. Match it across RPC
-// boundaries with errors.Is, not substring comparison. The operator-visible
-// error text wrapping this sentinel is written by the storage layer in
-// adapters/repos/db/reindex_inflight.go; the coordinator
-// (usecases/backup/coordinator.go) re-wraps a participant's copy of that text
-// when it promotes a canCommit response back to a typed error.
-//
-// Names no shard: the text reaches API response bodies, and backing up a
-// collection grants nothing on shard ids.
+// Lives here so the storage layer (adapters/repos/db) and the coordinator
+// layer (usecases/backup) share one value without an import cycle. Match
+// with errors.Is, not substring comparison. Names no shard: the text
+// reaches API response bodies.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
 
 // ReindexBlockedError is the API-safe form of a backup refused by the reindex

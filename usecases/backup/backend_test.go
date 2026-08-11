@@ -1749,9 +1749,8 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
 }
 
-// The status API serves this text to a backup caller. A gate refusal reaches
-// it wrapped in the shard that produced it, and a backup caller is granted
-// nothing on shard ids.
+// A gate refusal reaches the status API wrapped in the shard that produced
+// it; the shard must not survive into the published message.
 func TestPublishableErrMsg(t *testing.T) {
 	refusal := backup.ReindexBlockedError{
 		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
@@ -1791,9 +1790,8 @@ func TestPublishableErrMsg(t *testing.T) {
 	}
 }
 
-// A gate refusal replaces the whole error chain, so the meta-write fault that
-// happened alongside it has to be re-attached: the status API is the only place
-// a poller can learn that the reason it is reading was never persisted.
+// A gate refusal replaces the whole chain, so a co-occurring meta-write
+// fault must be re-attached or a poller never learns of it.
 func TestPublishableFailureMsg(t *testing.T) {
 	refusal := backup.ReindexBlockedError{
 		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,

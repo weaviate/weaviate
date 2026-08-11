@@ -388,12 +388,8 @@ Loop:
 }
 
 // publishableErrMsg is the failure text safe to serve from the status API,
-// or a stand-in when err has none. Everything else is served verbatim,
-// backend messages and all.
-//
-// A gate refusal arrives wrapped in the shard it came from; backing up a
-// collection grants nothing on shard ids, so the refusal's own message is
-// published rather than the traversal that found it.
+// or a stand-in when err has none. A gate refusal arrives wrapped in the
+// shard it came from, so only its own message is published.
 func publishableErrMsg(err error) string {
 	msg := err.Error()
 	var blocked backup.ReindexBlockedError
@@ -406,11 +402,9 @@ func publishableErrMsg(err error) string {
 	return msg
 }
 
-// publishableFailureMsg is [publishableErrMsg] for the two-fault case, where
-// the backup failed and writing the metadata that carries the reason failed
-// too. A gate refusal replaces the whole chain, which would drop the second
-// fault, so it is re-attached: a poller that sees FAILED has to learn that the
-// metadata write is also gone.
+// publishableFailureMsg is [publishableErrMsg] plus the meta-write fault,
+// which a gate refusal would otherwise drop: a poller reading FAILED needs
+// to know the metadata write failed too.
 func publishableFailureMsg(err, metaErr error) string {
 	msg := publishableErrMsg(err)
 	if metaErr == nil || strings.Contains(msg, metaErr.Error()) {

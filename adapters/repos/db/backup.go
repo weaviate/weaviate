@@ -53,27 +53,13 @@ const (
 const reindexRefusalShardSample = 10
 
 // Backupable returns whether all given classes can be backed up. Refuses if
-// any shard has an in-flight runtime-reindex; this runs in the coordinator's
+// any shard has an in-flight runtime-reindex; runs in the coordinator's
 // canCommit phase so no staging dir is created on rejection.
 //
-// All per-class / per-shard failures are accumulated rather than
-// short-circuiting on the first one, so that when several classes are blocked
-// at once the operator sees the full list in a single canCommit round instead
-// of fixing one, retrying, fixing the next, retrying, and so on.
-//
-// Gate refusals are joined ahead of the other failures so that a caller
-// keying on the leading sentinel (the coordinator's canCommit classifier)
-// still sees it when a refusal and an unrelated failure co-occur. The joined
-// error satisfies errors.Is for any wrapped sentinel (e.g.
-// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
-// underlying error graph.
-//
-// Nothing this precheck adds names a node or a shard, so all of it is safe to
-// serve to a backup caller, who is granted nothing on either. The shards a
-// gate refusal held reach the operator through [DB.logReindexRefusals].
-//
-// Class-missing errors stop aggregation for that class but do not short
-// circuit the whole loop; other classes still get checked.
+// Failures accumulate rather than short-circuit, so the operator sees every
+// blocked class in one round. Gate refusals lead the joined error so
+// errors.Is still matches when they co-occur with other failures, and name
+// no node or shard — those reach the operator via [DB.logReindexRefusals].
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	var errs, gateErrs, missingClassErrs []error
@@ -101,9 +87,8 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			if err == nil {
 				continue
 			}
-			// One entry per distinct refusal, not per shard. The refusal text
-			// names no shard, so per-shard joining returns one byte-identical
-			// sentence per shard, and this pass covers five-figure shard counts.
+			// One entry per distinct refusal: the text names no shard, so
+			// per-shard joining would repeat the same sentence per shard.
 			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
 			blockedShards[c] = append(blockedShards[c], shardName)
 		}
@@ -135,9 +120,8 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 	if db.logger == nil {
 		return
 	}
-	// One line per collection, shard list capped (this pass can cover
-	// five-figure shard counts); count is exact, names are a sample. Sorted
-	// so repeated refusals diff cleanly.
+	// One line per collection, shard list capped; count is exact, names are
+	// a sample, sorted so repeated refusals diff cleanly.
 	collections := make([]string, 0, len(blockedShards))
 	for c := range blockedShards {
 		collections = append(collections, c)

@@ -942,18 +942,13 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// refusalResp is what the refusing participant answers. transportErr,
-		// when set, is the RPC error returned alongside it — the case where no
-		// response was ever produced.
+		// transportErr, when set, is the RPC error returned instead of a response.
 		refusalResp     *CanCommitResponse
 		transportErr    error
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
-		// Only the reindex refusal is composed to name no node, so only it is
-		// safe to serve to a backup caller unprefixed. Every other refusal
-		// keeps the node name: it is an operator-facing failure whose first
-		// question is which node produced it.
+		// Only the reindex refusal names no node; every other refusal keeps it.
 		expectNodeNamed bool
 	}{
 		{
@@ -992,10 +987,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectNodeNamed: true,
 		},
 		{
-			// A participant that cannot be reached never produces a
-			// CanCommitResponse, so there is no ErrKind to redact on.
-			// "connection refused" with no node name is unactionable on a
-			// cluster of any size.
+			// No response to redact on, and "connection refused" alone is unactionable.
 			name:            "a transport error names the node",
 			refusalResp:     &CanCommitResponse{},
 			transportErr:    errors.New("connection refused"),

@@ -130,12 +130,9 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 //
-// It never logs. Every one of those callers is reached once per shard of a
-// whole-collection pass, so a log line here would grow with the shard count —
-// five figures in this repo. The pass logs instead:
-// [DB.logReindexRefusals] for the canCommit precheck,
-// [Index.logReindexRefusalSummary] for the descriptor fan-out, and
-// [Index.logReindexRefusal] for the single-shard replica-snapshot path.
+// It never logs — every caller above is reached once per shard of a
+// whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
+// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal].
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
@@ -206,10 +203,8 @@ func (i *Index) localNodeName() string {
 // that a shard is live — so it points at the GET poll instead of guessing a
 // property/index-type pair that could 202 NO_OP.
 //
-// Names no shard and no node: this text reaches an API response body, and
-// backing up a collection grants nothing on either. The shard and node reach
-// the operator through the log in [Index.logReindexRefusal] and
-// [DB.logReindexRefusals].
+// Names no shard and no node — this reaches an API response body. Those
+// reach the operator via [Index.logReindexRefusal] and [DB.logReindexRefusals].
 //
 // `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
 // stored; canCommit runs synchronously inside coordinator.Backup, so the REST

@@ -559,11 +559,8 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
-// The descriptor path fans out over every shard of the collection, so a gate
-// refusal that holds the whole collection is hit once per shard. Logging there
-// would put the O(shards) growth back that the canCommit precheck bounds one
-// tier up — and this fan-out cannot even stop early, since cancelling the
-// errgroup's context does not unqueue the goroutines already scheduled.
+// A whole-collection gate refusal is hit once per shard in the descriptor
+// fan-out; the log must not repeat that O(shards) growth.
 func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	rootDir := t.TempDir()
 	className := "TestClass"
@@ -585,9 +582,7 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 	}
 
 	logger, hook := tlog.NewNullLogger()
-	// Debug on, so nothing hides behind the level: the per-shard lines in
-	// AnyLiveReindexForShard stay Debug on purpose, and a future edit promoting
-	// one of them to Warn is exactly what this counts.
+	// Debug on so a future promotion of a per-shard line to Warn would show up.
 	logger.SetLevel(logrus.DebugLevel)
 	idx.logger = logger
 	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}

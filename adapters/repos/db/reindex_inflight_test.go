@@ -273,8 +273,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
 	}
 
-	// The check itself runs once per shard of a whole-collection pass, so the
-	// pass owns the log. This is the single-shard form of it.
+	// Single-shard form of the pass-level log.
 	idx.logReindexRefusal(shard, err)
 
 	var logged *logrus.Entry
@@ -301,9 +300,8 @@ func TestLogReindexRefusal_IgnoresUnrelatedErrors(t *testing.T) {
 	assert.Empty(t, hook.AllEntries(), "only a gate refusal produces a gate log line")
 }
 
-// The refusal has to stay reachable under the wrappers the backup path adds on
-// the way out, which name the shard. That copy is what the operator log wants;
-// the status API gets the publishable one.
+// The publishable message must survive wrapping (which adds the shard) so
+// the status API doesn't get the operator-log copy.
 func TestReindexRefusal_SurvivesWrappingAsAPublishableMessage(t *testing.T) {
 	const (
 		collection = "WrappedClass"
@@ -365,9 +363,8 @@ func backupableFixture(t *testing.T, collection, node string, shards ...string) 
 	return db
 }
 
-// Every refusing shard produces the same sentence, because the text names no
-// shard. A per-shard join therefore returns one identical line per shard: 60
-// copies on a 60-shard node, and shard counts in this repo reach five figures.
+// The refusal text names no shard, so per-shard joining must not repeat the
+// same sentence once per shard.
 func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	const (
 		collection = "WideClass"
@@ -395,11 +392,8 @@ func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 		"deduping must not change the sentence itself")
 }
 
-// The log has to consolidate the same way the response body does. A per-shard
-// WARN turns a 1-line body into 61 entries on a 60-shard refusal, which is the
-// same O(shards) growth one tier down. The shard list carried in the aggregate
-// line has the same problem if it is uncapped, since this pass can cover
-// five-figure shard counts.
+// The log must consolidate the same way the response body does: a per-shard
+// WARN would turn a 1-line refusal into O(shards) entries.
 func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	const (
 		collection = "WideClass"
@@ -412,11 +406,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 	}
 
 	logger, hook := logrustest.NewNullLogger()
-	// Debug on, so nothing hides behind the level. The per-shard Debug lines in
-	// AnyLiveReindexForShard are O(shards) and stay that way on purpose: they are
-	// the only per-shard visibility into which side of the gate fired, Debug is
-	// off in production, and the bound that matters is on what an operator
-	// actually sees. That is what the warn-and-above count below pins.
+	// Debug on so per-shard Debug lines don't hide a level bug; the
+	// warn-and-above count below is what an operator actually sees.
 	logger.SetLevel(logrus.DebugLevel)
 	db := backupableFixture(t, collection, node, shards...)
 	db.logger = logger
@@ -426,12 +417,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 
 	require.Error(t, db.Backupable(context.Background(), []string{collection}))
 
-	// Counted by LEVEL, not by message. The per-shard risk is that some future
-	// edit promotes one of the per-shard Debug lines to Warn — a 60-shard
-	// refusal is then 61 operator-facing entries for a 1-line body. Matching a
-	// message string cannot catch that: the only string naming a single shard
-	// at Warn comes from logReindexRefusal, which this path never calls, so
-	// such an assertion is 0 no matter what the code does.
+	// Counted by level, not message: catches a future promotion of a per-shard
+	// Debug line to Warn, which a message-string match would miss.
 	var warnAndAbove, aggregate int
 	var sample []string
 	var reportedCount int
@@ -456,10 +443,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		shardCount, warnAndAbove)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
-	// A literal, not the constant the code caps with: asserting the bound
-	// against itself cannot fail, so raising the constant to 100000 would keep
-	// this green while 60 names went into the field. The number is deliberately
-	// duplicated — that duplication is what makes the assertion able to fail.
+	// A literal, not the constant the code caps with, so raising the constant
+	// alone can't fool this assertion.
 	const wantSampleCap = 10
 	require.LessOrEqualf(t, len(sample), wantSampleCap,
 		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
@@ -467,8 +452,7 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 }
 
 // A gate refusal on one collection must not swallow an unrelated failure on
-// another: the caller is told to retry the backup, and would retry into the
-// same second failure with no idea it is there. Neither message names the node.
+// another, or the caller retries blind into it.
 func TestBackupableReportsNonGateErrorsAlongsideARefusal(t *testing.T) {
 	const (
 		blocked = "BlockedClass"

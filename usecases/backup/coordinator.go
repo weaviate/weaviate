@@ -548,10 +548,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
-// node and no shard, and so can be served to a backup caller as-is. Only the
-// reindex refusal is; everything else is an operator-facing failure whose
-// first question is "which node?", so [coordinator.canCommit] keeps the node
-// prefix on those.
+// node and no shard, so it is safe to serve to a backup caller as-is. Other
+// kinds are operator-facing failures that keep the node prefix.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
 	return kind == CanCommitErrInFlightReindex
 }
@@ -627,13 +625,10 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					WithField("backup_id", req.ID).
 					WithField("node", req.NodeName)
 				if rpcErr != nil {
-					// The participant never answered, so the cause is on the
-					// cluster side and nobody but an operator can act on it.
+					// Unreachable participant: cluster-side cause, operator-only.
 					entry.Errorf("canCommit failed to reach participant: %v", err)
 				} else {
-					// A deliberate refusal. Most are the caller's own input (a
-					// missing class) or a gate the caller can retry past, and
-					// the reason travels back in the response either way.
+					// Deliberate refusal: usually caller-actionable, so Warn not Error.
 					entry.Warnf("canCommit refused by participant: %v", err)
 				}
 				if redactNode {
