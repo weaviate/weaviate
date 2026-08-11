@@ -1716,8 +1716,6 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	require.True(t, errors.As(inflightErr, &unprocessable),
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
 	require.Contains(t, unprocessable.Error(), backup.ErrBackupBlockedByInFlightReindex.Error())
-	require.NotContains(t, unprocessable.Error(), "articles_s1",
-		"the 422 body reaches a backup caller, who is granted nothing on shard names")
 }
 
 // Pins: the TTL sweep skips a task in an unrecognized status, while still

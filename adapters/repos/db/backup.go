@@ -48,20 +48,16 @@ const (
 	tmpExt        = ".tmp"
 )
 
-// reindexRefusalShardSample caps the shard names carried in one refusal log
-// line. The count beside it is exact; this only bounds the sample.
-const reindexRefusalShardSample = 10
-
 // Backupable returns whether all given classes can be backed up. Refuses if
 // any shard has an in-flight runtime-reindex; runs in the coordinator's
 // canCommit phase so no staging dir is created on rejection.
 //
 // Failures accumulate rather than short-circuit, so the operator sees every
-// blocked class in one round. Gate refusals lead the joined error so
-// errors.Is still matches when they co-occur with other failures, and name
-// no node or shard — those reach the operator via [DB.logReindexRefusals].
+// blocked class in one round. Gate refusals lead the joined error because the
+// coordinator recognizes a refusal by the sentinel prefix of the joined text,
+// and name no node or shard — those reach the operator via
+// [DB.logReindexRefusals].
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
-	nodeName := db.localNodeName
 	var errs, gateErrs, missingClassErrs []error
 	gateSeen := map[string]struct{}{}
 	blockedShards := map[string][]string{}
@@ -95,7 +91,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	}
 	errs = append(errs, missingClassErrs...)
 	if len(gateErrs) > 0 {
-		db.logReindexRefusals(nodeName, blockedShards)
+		db.logReindexRefusals(blockedShards)
 		return stderrors.Join(append(gateErrs, errs...)...)
 	}
 	if len(errs) > 0 {
@@ -116,7 +112,7 @@ func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) 
 
 // logReindexRefusals logs the shards and node the refusal bodies withhold.
 // blockedShards maps a collection to the shards the gate held.
-func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]string) {
+func (db *DB) logReindexRefusals(blockedShards map[string][]string) {
 	if db.logger == nil {
 		return
 	}
@@ -136,7 +132,7 @@ func (db *DB) logReindexRefusals(nodeName string, blockedShards map[string][]str
 		}
 		db.logger.WithField("action", "backup_reindex_gate").
 			WithField("collection", c).
-			WithField("node", nodeName).
+			WithField("node", db.localNodeName).
 			WithField("blocked_shards", sample).
 			WithField("blocked_shard_count", len(shardNames)).
 			Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+

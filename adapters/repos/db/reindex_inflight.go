@@ -146,6 +146,12 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(collection, false)
 }
 
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample. It does not
+// bound the number of lines: [DB.logReindexRefusals] emits one per blocked
+// collection.
+const reindexRefusalShardSample = 10
+
 // logReindexRefusal records the shard and node the refusal body withholds. It
 // is a no-op unless err is a gate refusal. Single-shard call sites only; a pass
 // over many shards must use [Index.logReindexRefusalSummary].
@@ -204,7 +210,8 @@ func (i *Index) localNodeName() string {
 // property/index-type pair that could 202 NO_OP.
 //
 // Names no shard and no node — this reaches an API response body. Those
-// reach the operator via [Index.logReindexRefusal] and [DB.logReindexRefusals].
+// reach the operator via [Index.logReindexRefusal],
+// [Index.logReindexRefusalSummary] and [DB.logReindexRefusals].
 //
 // `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
 // stored; canCommit runs synchronously inside coordinator.Backup, so the REST

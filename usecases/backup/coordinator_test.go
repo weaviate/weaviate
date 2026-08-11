@@ -1050,6 +1050,73 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	}
 }
 
+// TestCoordinator_ARefusalDoesNotBlameHealthySiblings pins the log levels of
+// canCommit. All participants share one errgroup context, so the first refusal
+// cancels the calls still in flight; those must not be reported as unreachable
+// nodes, which is the Error level an operator is paged on.
+func TestCoordinator_ARefusalDoesNotBlameHealthySiblings(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "sibling-blame-test"
+		ctx         = context.Background()
+		nodes       = []string{"N1", "N2", "N3"}
+		classes     = []string{"Class-A"}
+	)
+
+	nodeResolver := newFakeNodeResolver(nodes)
+	fc := newFakeCoordinator(nodeResolver)
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	fc.log = logger
+	fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+	// N3 is healthy but slow: like the real client, it returns the context's
+	// error once the refusal cancels it. It reports having started so N2's
+	// refusal cannot land before N3 is in flight.
+	n3Started := make(chan struct{})
+	fc.client.On("CanCommit", any, nodes[0], any).
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).Maybe()
+	fc.client.On("CanCommit", any, nodes[2], any).Run(func(args mock.Arguments) {
+		close(n3Started)
+		<-args.Get(0).(context.Context).Done()
+	}).Return(nil, context.Canceled).Once()
+	fc.client.On("CanCommit", any, nodes[1], any).Run(func(mock.Arguments) {
+		<-n3Started
+	}).Return(&CanCommitResponse{
+		Method:  OpCreate,
+		ID:      backupID,
+		Err:     backup.ErrBackupBlockedByInFlightReindex.Error() + `: collection "Class-A" has an active runtime-reindex task in DTM`,
+		ErrKind: CanCommitErrInFlightReindex,
+	}, nil).Once()
+
+	fc.client.On("Abort", any, any, any).Return(nil).Maybe()
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+	coordinator := *fc.coordinator()
+	req := newReq(classes, backendName, backupID)
+	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+	require.Error(t, coordinator.Backup(ctx, store, &req))
+
+	var refusals, errored int
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "canCommit refused by participant") {
+			refusals++
+			assert.Equal(t, logrus.WarnLevel, e.Level,
+				"a caller-actionable refusal must not page the on-call")
+			assert.Equal(t, nodes[1], e.Data["node"])
+		}
+		if e.Level <= logrus.ErrorLevel {
+			errored++
+			t.Logf("unexpected error entry: node=%v msg=%s", e.Data["node"], e.Message)
+		}
+	}
+	assert.Equal(t, 1, refusals, "one refusal is one operator-facing entry")
+	assert.Zero(t, errored,
+		"the cancellation N3 saw is a consequence of N2's refusal, not a node failure")
+}
+
 // TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
 // is a single value drawn from entities/backup, not duplicated in either
 // the coordinator (usecases/backup) or the storage layer (adapters/repos/db).
@@ -1089,7 +1156,7 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 		Err:     "Node-2/Class-A: shard \"sa\" has 1 active tracker(s)",
 		ErrKind: CanCommitErrInFlightReindex,
 	}
-	err := canCommitErrFromResponse(resp)
+	err := canCommitErrFromResponse(resp, []string{"Class-A"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
@@ -1107,21 +1174,35 @@ func TestCanCommitErrFromResponse_StatesTheConditionOnce(t *testing.T) {
 		ID:      "dedupe-id",
 		Err:     sentinel + `: collection "Class-A" has an active runtime-reindex task in DTM`,
 		ErrKind: CanCommitErrInFlightReindex,
-	})
+	}, []string{"Class-A"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 	assert.Equal(t, 1, strings.Count(err.Error(), sentinel),
 		"the participant already opened with the sentinel; wrapping repeats it")
+}
 
-	// A participant that did not open with it still gets the sentinel attached.
+// A participant older than the redaction words this refusal with its own node
+// and shard names. The coordinator serves this kind without a node prefix, so
+// republishing that text would leak both into the 422 body.
+func TestCanCommitErrFromResponse_DropsAnOlderParticipantsWording(t *testing.T) {
+	t.Parallel()
+
+	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
 	older := canCommitErrFromResponse(&CanCommitResponse{
 		Method:  OpCreate,
-		ID:      "dedupe-id",
-		Err:     "shard has 1 active tracker(s)",
+		ID:      "mixed-version-id",
+		Err:     `Node-1/Class-A: backup blocked: runtime-reindex in flight on this shard: shard "s1" (collection "Class-A")`,
 		ErrKind: CanCommitErrInFlightReindex,
-	})
+	}, []string{"Class-A"})
+
 	require.ErrorIs(t, older, backup.ErrBackupBlockedByInFlightReindex)
 	assert.Contains(t, older.Error(), sentinel)
+	assert.Contains(t, older.Error(), `"Class-A"`,
+		"the collection came from the caller's own request, so it stays")
+	assert.NotContains(t, older.Error(), "Node-1",
+		"a backup caller is granted nothing on node names")
+	assert.NotContains(t, older.Error(), "s1",
+		"a backup caller is granted nothing on shard names")
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number
