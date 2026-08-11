@@ -402,6 +402,62 @@ func TestCancelRestoreRepeatedWhileARetryOfTheSameIdHoldsTheSlot(t *testing.T) {
 	}
 }
 
+// The re-read above decides whether a repeated cancel aborts, and it lands in
+// the window a coordinator writes the descriptor in, so it can come back
+// half-written. Reading it once would treat a torn file as "the cancellation
+// finished", skip the abort, and answer 204 with the descriptor still stuck on
+// CANCELLING — the state that refuses every later restore of this id, which is
+// the state the repeat exists to clear.
+func TestCancelRestoreRepeatedSurvivesATornDescriptorReRead(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "abc"
+	)
+	ctx := context.Background()
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+	fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+	fs.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	stuck := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+		Status: backup.Cancelling,
+		ID:     backupID,
+		Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Class1"}}},
+	})
+	// The read this cancel acts on, then a descriptor caught mid-write, then
+	// the same stuck descriptor once the write has landed.
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(stuck, nil).Once()
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).
+		Return(stuck[:len(stuck)/2], nil).Once()
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(stuck, nil)
+	writes := recordRestoreMetaWrites(t, fs, backupID, nil)
+
+	s := fs.scheduler()
+	prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Cancelled))
+
+	// A retry takes the id over between the descriptor read and the abort, so
+	// the slot alone cannot say whether the cancellation finished.
+	var once sync.Once
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil).
+		Run(func(mock.Arguments) {
+			once.Do(func() {
+				freeSlot(t, &s.restorer.lastOp, backupID)
+				retryID, _ := s.restorer.lastOp.renew(backupID, "path", "", "")
+				require.Empty(t, retryID, "the retry could not claim the freed slot")
+			})
+		})
+
+	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
+
+	fs.client.AssertCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	require.Equal(t, []backup.Status{backup.Cancelled}, writes.recorded(),
+		"a torn re-read is not evidence that the cancellation finished")
+}
+
 // Pins that the cancel's CANCELLING stamp goes through the claim it took next
 // to its descriptor read, not through the id: a retry that claims the slot
 // before the stamp is a restore this cancel never read.

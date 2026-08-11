@@ -671,10 +671,16 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 // A read that fails reports false, i.e. finished. The one caller uses this to
 // decide whether to abort a restore, and a cancel must not stop a restore on a
 // guess.
+//
+// Through [metaWithRetry], like every other descriptor read on this path: this
+// one lands in the window a coordinator writes the descriptor in, so a torn
+// read here is the ordinary case rather than the rare one. Reading it once
+// would report "finished" on a half-written file and answer 204 with the
+// descriptor still stuck on CANCELLING.
 func (s *Scheduler) descriptorStillCancelling(ctx context.Context, store coordStore,
 	backupID, overrideBucket, overridePath string,
 ) bool {
-	meta, err := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	meta, err := metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath)
 	if err != nil {
 		s.logger.WithFields(logrus.Fields{
 			"action":    "cancel_restore",
