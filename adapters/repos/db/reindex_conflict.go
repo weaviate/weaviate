@@ -143,9 +143,9 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 }
 
 // TypesConflictReason is the package-public alias for typesConflictReason,
-// used by the REST handlers' pre-flight conflict check. Inline so the
-// internal caller (CheckConflict) continues to use the lowercase symbol
-// without indirection.
+// used by the REST handlers' pre-flight conflict check. A separate
+// exported name rather than a rename, so the in-package callers keep
+// using the lowercase symbol.
 func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -403,9 +403,12 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"one by one rather than at a single point: cancelling leaves the " +
 			"ones that already finished rebuilt and the rest untouched. "
 		if callerDropsTheData {
-			return partial + "The rebuilt shards go with the data you are " +
-				"removing, so there is nothing to finish afterwards: cancel " +
-				"it, then re-issue this request."
+			// Wording note: no literal "go " on this line —
+			// tools/linter_go_routines.sh greps for it and would report this
+			// file as using bare goroutines.
+			return partial + "The rebuilt shards are dropped along with the " +
+				"data you are removing, so there is nothing to finish " +
+				"afterwards: cancel it, then re-issue this request."
 		}
 		if p.MigrationType == ReindexTypeEnableRangeable {
 			return partial + "To finish the job later, re-submit it via " +
@@ -449,8 +452,10 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 }
 
 // abortedMigrationConsequence names what killing an in-flight migration
-// costs: a schema inversion for semantic types, a half-applied rebuild
-// for format-only ones.
+// costs the data that survives it: a schema inversion for semantic
+// types, a half-applied rebuild for format-only ones. Only
+// [ReindexProvider.CheckTenantMutation] uses it — see
+// [ReindexProvider.CheckClassMutation] for why DeleteClass does not.
 //
 // [IsSemanticMigration] is a positive allowlist: an unrecognized type would
 // otherwise fall into the format-only arm and claim a cost about semantics
@@ -552,10 +557,12 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
 //
-// Class-wide blast radius: DeleteClass arriving mid-reindex destroys
-// every property's bucket state at once. On a semantic migration that
-// is the catastrophic extension of the per-property bucket↔schema
-// inversion; see [abortedMigrationConsequence] for the format-only case.
+// The rejection message does not use [abortedMigrationConsequence]:
+// that names a cost the surviving data carries, and DeleteClass leaves
+// no data behind. Whatever the migration had half-written disappears
+// with the class, so the cost is the aborted work, not a repairable
+// state. The tenant gate is the one that keeps the inversion wording,
+// because tenants outside the mutation keep the state it describes.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
@@ -591,10 +598,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 		}
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
-				"deleting this class would destroy the migration's "+
-				"working state on every replica and %s — %s",
+				"deleting this class would abort the migration on every "+
+				"replica, and the interrupted migration's partial state is "+
+				"removed with the class, so nothing is left to repair — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			abortedMigrationConsequence(existP.MigrationType),
 			ReindexGateRemedy(task.Status, existP, "", true))
 	}
 	return nil
