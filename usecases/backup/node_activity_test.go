@@ -146,9 +146,8 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 
 	busy, idle := true, false
 	tests := []struct {
-		name string
-		resp NodeActivityResponse
-		// wantErrContains, when set, pins part of the error text.
+		name            string
+		resp            NodeActivityResponse
 		wantErrContains string
 	}{
 		{
