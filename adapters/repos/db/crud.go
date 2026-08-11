@@ -37,7 +37,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return err
 	}
 
@@ -58,7 +58,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return err
 	}
 
@@ -300,7 +300,7 @@ func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, targ
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return err
 	}
 

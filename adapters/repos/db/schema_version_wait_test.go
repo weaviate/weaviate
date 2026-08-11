@@ -32,8 +32,8 @@ import (
 
 // Test_DB_WaitsForSchemaVersion_BeforeIndexLookup pins the order of the two steps
 // these entry points take: honour the schema version, then resolve the index by
-// name. Waiting after the lookup turns a slow local apply into a failed write; see
-// waitForSchemaVersion.
+// name. Resolving first cannot tell a collection this node has not applied yet
+// apart from one that never existed, so a slow local apply becomes a failed write.
 func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 	const version uint64 = 7
 
@@ -124,27 +124,24 @@ func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		version    uint64
-		waitErr    error
-		wantWaited bool
+		name    string
+		version uint64
+		waitErr error
 		// wantErr defaults to the entry point's notFound when empty.
 		wantErr string
 	}{
 		{
-			name:       "local schema never catches up",
-			version:    version,
-			waitErr:    errors.New("deadline exceeded"),
-			wantWaited: true,
-			wantErr:    "wait for schema version 7",
+			name:    "local schema never catches up",
+			version: version,
+			waitErr: errors.New("deadline exceeded"),
+			wantErr: "deadline exceeded",
 		},
 		{
-			name:       "collection absent once the local schema caught up",
-			version:    version,
-			wantWaited: true,
+			name:    "collection absent once the local schema caught up",
+			version: version,
 		},
 		{
-			name:    "unversioned write skips the wait",
+			name:    "unversioned write reaches the index lookup",
 			version: 0,
 		},
 	}
@@ -153,13 +150,9 @@ func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(ep.name+"/"+tt.name, func(t *testing.T) {
 				logger, _ := test.NewNullLogger()
-				// An unexpected WaitForUpdate call fails the test, which is what
-				// pins the version-0 case.
 				schemaReader := schemaUC.NewMockSchemaReader(t)
-				if tt.wantWaited {
-					schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
-						Return(tt.waitErr).Once()
-				}
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
+					Return(tt.waitErr).Once()
 				db := &DB{
 					logger:       logger,
 					indices:      map[string]*Index{},
@@ -198,7 +191,7 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 			name:    "local schema never catches up",
 			version: version,
 			waitErr: errors.New("deadline exceeded"),
-			wantMsg: "wait for schema version 7: deadline exceeded",
+			wantMsg: "deadline exceeded",
 		},
 		{
 			name:    "local schema caught up",
@@ -213,10 +206,8 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schemaReader := schemaUC.NewMockSchemaReader(t)
-			if tt.version > 0 {
-				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
-					Return(tt.waitErr).Once()
-			}
+			schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
+				Return(tt.waitErr).Once()
 			db := &DB{schemaReader: schemaReader}
 
 			resp := db.waitForSchemaVersionForIndexWrite(context.Background(), tt.version)

@@ -303,7 +303,7 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 }
 
 func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 		// Err is not serialised over the wire (json:"-"), so Msg is the only
 		// detail the remote coordinator can report.
 		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
