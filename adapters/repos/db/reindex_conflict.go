@@ -423,6 +423,18 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 		"accept that, cancel it via " + cancelCall
 }
 
+// abortedMigrationConsequence names what killing an in-flight migration's
+// shards costs, for the class- and tenant-level gate messages. Only a
+// semantic migration flips the schema, so only it can leave buckets
+// inverted against one; a format-only migration commits shard by shard and
+// loses nothing but its own progress.
+func abortedMigrationConsequence(mt ReindexMigrationType) string {
+	if IsSemanticMigration(mt) {
+		return "produce a bucket↔schema inversion"
+	}
+	return "leave its index rebuild half-applied"
+}
+
 // CheckPropertyUpdate implements
 // [distributedtask.SchemaMutationDetector] for the reindex namespace.
 // Called from the schema FSM's UpdateProperty apply path under
@@ -509,9 +521,10 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
 //
-// Class-wide blast radius: DeleteClass arriving mid-reindex is the
-// catastrophic extension of the per-property bucket↔schema inversion
-// — it destroys every property's bucket state at once.
+// Class-wide blast radius: DeleteClass arriving mid-reindex destroys
+// every property's bucket state at once. On a semantic migration that
+// is the catastrophic extension of the per-property bucket↔schema
+// inversion; see [abortedMigrationConsequence] for the format-only case.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
@@ -548,9 +561,9 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
-				"working state and produce a bucket↔schema inversion "+
-				"on every replica — %s",
+				"working state and %s on every replica — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			abortedMigrationConsequence(existP.MigrationType),
 			ReindexGateRemedy(task.Status, existP, ""))
 	}
 	return nil
@@ -605,9 +618,10 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — %s",
+				"unavailable and %s — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
+			abortedMigrationConsequence(existP.MigrationType),
 			ReindexGateRemedy(task.Status, existP, ""))
 	}
 	return nil

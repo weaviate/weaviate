@@ -459,7 +459,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// Name a reason: FAILED with an empty Error leaves the operator
 			// nothing to act on. Error is version-dependent FSM state (an
 			// older node may leave it empty, so GET /v1/tasks can differ per
-			// node), but nothing branches on it, so it costs a message only.
+			// node). The two ack paths that read it only pick append-vs-set
+			// on the same field, so a divergent Error costs a message only,
+			// never a status or any other replicated decision.
 			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {

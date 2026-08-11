@@ -1597,7 +1597,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				if !drained || p.promotableReindexStateOnThisNode(payload) {
 					logOperatorRepairGuidanceOnTerminalSemanticMigration(logger, payload, "CANCELLED")
 				} else {
-					logger.Info("reindex provider: cancelled before any generation merged on this node; the buckets and the schema are both still pre-migration here, so there is nothing to repair")
+					logger.Info("reindex provider: cancelled with no promotable generation on this node; the next restart would promote nothing here, so no repair guidance is issued for this node")
 				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
