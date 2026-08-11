@@ -179,7 +179,7 @@ func (s *SchemaManager) TenantLimitEnforced() bool {
 }
 
 // DeleteClassFromDB is the store half of a DELETE_CLASS.
-func (s *SchemaManager) DeleteClassFromDB(class string) error {
+func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
 	if s.replicationFSM == nil {
 		return fmt.Errorf("replication deleter is not set, this should never happen")
 	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
@@ -187,10 +187,10 @@ func (s *SchemaManager) DeleteClassFromDB(class string) error {
 		// delete.
 		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
 	}
-	return s.db.DeleteClass(class, s.HasFrozenTenants(class))
+	return s.db.DeleteClass(class, hasFrozen)
 }
 
-// HasFrozenTenants reports whether the class has tenants on cloud storage, which
+// HasFrozenTenants reports whether the class has tenants on cloud storage
 func (s *SchemaManager) HasFrozenTenants(class string) bool {
 	tenants, err := s.schema.getTenants(class, nil)
 	if err != nil {
@@ -653,6 +653,10 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
+	// Sampled here, not inside updateStore: apply() runs updateSchema (which
+	// drops the class from the schema)
+	hasFrozen := s.HasFrozenTenants(cmd.Class)
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -667,7 +671,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				return s.DeleteClassFromDB(cmd.Class)
+				return s.DeleteClassFromDB(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
