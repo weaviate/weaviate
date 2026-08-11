@@ -608,6 +608,15 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+
+	// Plain field so pre-existing restore tests pass without a mock.On call.
+	reindexInFlightErr error
+	// reindexCollections records what each gate call was scoped to, so an arm
+	// that passes the wrong class list cannot pass silently.
+	reindexCollections [][]string
+	// reindexInFlightFor, when set, answers per scope, which is what tells a
+	// cluster-wide question apart from one scoped to the caller's classes.
+	reindexInFlightFor func(collections []string) error
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -623,6 +632,14 @@ func (s *fakeSelector) ListClasses(ctx context.Context) []string {
 func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 	args := s.Called(ctx, classes)
 	return args.Error(0)
+}
+
+func (s *fakeSelector) RefuseIfAnyReindexInFlight(_ context.Context, collections []string) error {
+	s.reindexCollections = append(s.reindexCollections, collections)
+	if s.reindexInFlightFor != nil {
+		return s.reindexInFlightFor(collections)
+	}
+	return s.reindexInFlightErr
 }
 
 type fakeCoordinator struct {
@@ -950,8 +967,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
-		// Only the reindex refusal is composed to name no node, so only it is
-		// safe to serve to a backup caller unprefixed. Every other refusal
+		// Only the reindex refusals are composed to name no node, so only they
+		// are safe to serve to a backup caller unprefixed. Every other refusal
 		// keeps the node name: it is an operator-facing failure whose first
 		// question is which node produced it.
 		expectNodeNamed bool
@@ -1049,10 +1066,13 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			}
 			if tc.expectNodeNamed {
 				assert.Contains(t, err.Error(), nodes[1],
-					"an operator-facing refusal must say which participant produced it")
+					"a refusal that is not node-free by construction must say which node refused")
 			} else {
+				// The offending node reaches the operator through the log; this
+				// error becomes the backup's failure reason, and a backup caller
+				// is granted nothing on node names.
 				assert.NotContains(t, err.Error(), nodes[1],
-					"the reindex refusal is node-free by construction; a backup caller has no grant on node names")
+					"the refusal leaked the participant's node name")
 			}
 		})
 	}
@@ -1072,6 +1092,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 //     public coordinator path that consumes a remote CanCommitResponse.
 //  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
 //     (the entities/backup symbol).
+//  3. Asserting the promoter states the condition once, not once per wrap,
+//     when the participant's message already opens with the sentinel.
 //
 // Identity from the adapters/repos/db side is enforced by
 // reindex_inflight_test.go, which calls errors.Is against the same shared
@@ -1102,6 +1124,14 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+
+	// A participant message that already opens with the sentinel must not
+	// have it stated a second time by the promoter's wrap.
+	resp.Err = backup.ErrBackupBlockedByInFlightReindex.Error() + `: collection "Movies" is migrating`
+	err = canCommitErrFromResponse(resp)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t, 1, strings.Count(err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error()),
+		"the condition must be stated once, not once per wrap")
 }
 
 // The participant composes its refusal to open with the sentinel, so wrapping

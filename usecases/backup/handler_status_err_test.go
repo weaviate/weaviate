@@ -671,6 +671,52 @@ func TestCoordinatorOnStatusServesTheFailureTheGlobalDescriptorNeverGot(t *testi
 	require.Equal(t, reason, st.Err)
 }
 
+// The coordinator's remembered failure is a fallback, not an override. A
+// descriptor that already carries the operation's last word is the durable
+// record and outranks anything left in memory — including on a node that
+// failed one attempt and then served a poll for a later, successful one.
+func TestCoordinatorOnStatusPrefersAFinalDescriptorOverARememberedFailure(t *testing.T) {
+	const (
+		backupID    = "final-descriptor-wins"
+		backendName = "s3"
+	)
+	ctx := context.Background()
+
+	cases := []struct {
+		name   string
+		stored backup.Status
+	}{
+		{name: "success", stored: backup.Success},
+		{name: "failed", stored: backup.Failed},
+		{name: "cancelled", stored: backup.Cancelled},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1"}))
+			fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			fc.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).
+				Return(marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+					ID: backupID, Status: tc.stored,
+				}), nil)
+
+			c := fc.coordinator()
+			prevID, _ := c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", "")
+			require.Empty(t, prevID)
+			c.lastOp.setFailed("object storage unreachable")
+			c.lastOp.reset()
+
+			store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+			st, err := c.OnStatus(ctx, store, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName})
+
+			require.NoError(t, err)
+			require.Equal(t, tc.stored, st.Status)
+			require.NotEqual(t, "object storage unreachable", st.Err,
+				"the descriptor has the last word, so the remembered failure must not be served")
+		})
+	}
+}
+
 // Same hole on the restore side, where the descriptor left behind is the one
 // written when staging began.
 func TestCoordinatorOnStatusServesTheFailureTheGlobalRestoreDescriptorNeverGot(t *testing.T) {

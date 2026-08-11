@@ -74,6 +74,15 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	// RefuseIfAnyReindexInFlight refuses when a runtime-reindex task is live
+	// anywhere in the cluster on any of collections. Used for restore
+	// admission, since Backupable can't answer for a class absent from this
+	// node. collections must be resolved class names, never wildcard
+	// patterns; empty asks about every collection. Fails closed: a task whose
+	// payload cannot be read refuses the collection the payload still names,
+	// and one naming no collection at all refuses every restore.
+	RefuseIfAnyReindexInFlight(ctx context.Context, collections []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified
@@ -311,7 +320,7 @@ func (c *coordinator) Restore(
 
 	// Set status to Transferring now that staging has begun
 	c.descriptor.Status = backup.Transferring
-	c.lastOp.set(backup.Transferring)
+	c.lastOp.setIfOwned(desc.ID, backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
@@ -345,7 +354,7 @@ func (c *coordinator) Restore(
 				if c.descriptor.Error == "" {
 					c.descriptor.Error = errCancelled.Error()
 				}
-				c.lastOp.set(backup.Cancelled)
+				c.lastOp.setIfOwned(desc.ID, backup.Cancelled)
 				return true
 			}
 			return false
@@ -374,7 +383,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Error = errCancelled.Error()
 			} else {
 				c.descriptor.Status = backup.Finalizing
-				c.lastOp.set(backup.Finalizing)
+				c.lastOp.setIfOwned(desc.ID, backup.Finalizing)
 				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 				}
@@ -523,13 +532,24 @@ func isFinalStatus(st backup.Status) bool {
 	return st == backup.Success || st == backup.Failed || st == backup.Cancelled
 }
 
-// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
-// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
-// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
-// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
-// [CanCommitErrCannotCommit] kinds (including responses from older nodes
-// that don't set the field) keep the legacy [errCannotCommit] wrapping so
-// existing callers and tests continue to match.
+// remoteReindexInFlightErr carries [backup.ErrReindexInFlight] for errors.Is
+// without restating it; plain %w wrapping would print the sentinel twice.
+type remoteReindexInFlightErr struct{ msg string }
+
+func (e remoteReindexInFlightErr) Error() string { return e.msg }
+
+func (e remoteReindexInFlightErr) Unwrap() error { return backup.ErrReindexInFlight }
+
+// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a typed
+// error, one arm per [CanCommitErrorKind], so upstream `errors.Is` checks
+// survive the RPC boundary:
+//
+//   - [CanCommitErrInFlightReindex] carries [backup.ErrBackupBlockedByInFlightReindex].
+//   - [CanCommitErrRestoreBlockedByReindex] carries [backup.ErrReindexInFlight],
+//     not [errCannotCommit] — mapping it to that would answer 500 for what the
+//     scheduler answers 422.
+//   - everything else, including the empty kind older nodes send, stays wrapped
+//     in [errCannotCommit] (none of it is retryable).
 func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	if resp == nil {
 		return errCannotCommit
@@ -542,6 +562,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 			return backup.ReindexBlockedError{Msg: resp.Err}
 		}
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	case CanCommitErrRestoreBlockedByReindex:
+		return remoteReindexInFlightErr{msg: resp.Err}
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
@@ -549,11 +571,16 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
 // node and no shard, and so can be served to a backup caller as-is. Only the
-// reindex refusal is; everything else is an operator-facing failure whose
-// first question is "which node?", so [coordinator.canCommit] keeps the node
-// prefix on those.
+// two reindex refusals are; everything else is an operator-facing failure
+// whose first question is "which node?", so [coordinator.canCommit] keeps
+// the node prefix on those.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
-	return kind == CanCommitErrInFlightReindex
+	switch kind {
+	case CanCommitErrInFlightReindex, CanCommitErrRestoreBlockedByReindex:
+		return true
+	default:
+		return false
+	}
 }
 
 // canCommit asks candidates if they agree to participate in DBRO

@@ -32,6 +32,23 @@ import (
 // collection grants nothing on shard ids.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
 
+// ErrBackupSpannedReindex marks a backup whose capture overlapped a
+// runtime-reindex. Separate from [ErrBackupBlockedByInFlightReindex] because
+// the migration has usually finished by the time this is raised, and calling it
+// in-flight sends the operator after a task that is gone.
+var ErrBackupSpannedReindex = errors.New("backup spanned a runtime-reindex")
+
+// ErrReindexOverlapUndetermined accompanies [ErrBackupSpannedReindex] on the
+// refusals that never observed an overlap and only failed to rule one out: a
+// task list that could not be fetched, a payload that would not decode, a
+// backup that outlived the window finished tasks are kept for.
+//
+// Both refusals fail the backup, so the sentinel is not about the outcome. It
+// is about what the operator is told: "a migration ran during your backup"
+// sends them looking for a task, and for three of the four ways this refusal is
+// raised there is none to find.
+var ErrReindexOverlapUndetermined = errors.New("runtime-reindex overlap could not be determined")
+
 // ReindexBlockedError is the API-safe form of a backup refused by the reindex
 // gate. Wrappers on the way out add the shard and node an operator wants and a
 // backup caller is not granted, so the publishable message travels alongside
@@ -41,6 +58,11 @@ type ReindexBlockedError struct{ Msg string }
 func (e ReindexBlockedError) Error() string { return e.Msg }
 
 func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
+
+// ErrReindexInFlight is the cluster-wide counterpart of
+// [ErrBackupBlockedByInFlightReindex]. It names neither shard nor operation,
+// so callers can frame it themselves (e.g. "restore blocked: ...").
+var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,
