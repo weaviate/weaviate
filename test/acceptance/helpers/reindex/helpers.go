@@ -92,8 +92,11 @@ type IndexUpdateErrorResponse struct {
 
 // SubmitIndexUpdateExpectRefusal submits a PUT /indexes request expected to be
 // refused, and returns the response status and body so the caller can assert
-// the exact status code. Anything but a 4xx refusal or the 202 admission that
-// gate-probing callers poll for fails here.
+// the exact status code. Despite the name it does not guarantee a refusal:
+// 202 is let through too, because gate-probing callers poll a submit until the
+// refusal window opens and need the admissions before it in-band. Only a 5xx
+// (or a non-4xx, non-202 status) fails here — every caller must assert the
+// exact status it expects on the returned response.
 func SubmitIndexUpdateExpectRefusal(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
 	t.Helper()
 	o := applyOptions(opts)
