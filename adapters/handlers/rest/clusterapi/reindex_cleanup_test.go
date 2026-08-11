@@ -69,6 +69,12 @@ func TestInternalReindexCleanupActivityRefusesAProberItCannotCall(t *testing.T) 
 			name:    "nothing at all, but reported as wired",
 			resolve: func() (clusterapi.ReindexCleanupProber, bool) { return nil, true },
 		},
+		{
+			// The case the seam exists for: a non-nil interface with a nil
+			// pointer inside it, reported as usable.
+			name:    "nil pointer behind the interface, reported as wired",
+			resolve: func() (clusterapi.ReindexCleanupProber, bool) { return typedNil, true },
+		},
 	}
 
 	for _, tt := range tests {
@@ -90,8 +96,8 @@ func TestInternalReindexCleanupActivityRefusesAProberItCannotCall(t *testing.T) 
 	}
 }
 
-// App state does not always carry a logger by the time the internal server is
-// built, and the probe must not take the process down over it.
+// The integration fakes build these handlers without a logger, so a missing
+// one has to answer rather than panic.
 func TestInternalReindexCleanupActivityToleratesANilLogger(t *testing.T) {
 	handler := clusterapi.NewReindexCleanup(
 		func() (clusterapi.ReindexCleanupProber, bool) { return &stubCleanupProber{cleaningUp: true}, true },
@@ -279,6 +285,13 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			collection: "a" + strings.Repeat("é", 300),
 			wantLogged: `"a` + strings.Repeat("é", 63) + `…(truncated)"`,
 		},
+		{
+			// The longest line one request can write: the cap is on the input,
+			// and quoting turns each of these bytes into four characters.
+			name:       "control bytes, four characters each once quoted",
+			collection: strings.Repeat("\x01", 200),
+			wantLogged: `"` + strings.Repeat(`\x01`, 128) + `…(truncated)"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -310,7 +323,9 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			assert.NotContains(t, logged, "\n",
 				"a raw newline ends the line and forges the next one")
 			assert.NotContains(t, logged, "\r")
-			assert.LessOrEqual(t, len(logged), 160,
+			// Not the 128-byte cap: that caps the input, and quoting expands a
+			// control byte to four characters on top of it.
+			assert.LessOrEqual(t, len(logged), 4*128+len(`"…(truncated)"`),
 				"one request must not be able to write an unbounded log line")
 		})
 	}

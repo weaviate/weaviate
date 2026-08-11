@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 
 	"github.com/sirupsen/logrus"
 
@@ -33,9 +34,9 @@ type ReindexCleanup struct {
 	// resolve is called per request: the internal server is built before the
 	// reindex provider exists, so capturing it once would freeze a nil.
 	//
-	// The bool backs up the interface check: a nil *T handed back as
-	// ReindexCleanupProber is a non-nil interface and would otherwise slip
-	// past a nil check into a call on a nil receiver.
+	// The bool is the resolver's own answer to "is there one", which no
+	// comparison here can give: a nil *T handed back as ReindexCleanupProber
+	// is a non-nil interface value.
 	resolve func() (ReindexCleanupProber, bool)
 	auth    auth
 	logger  logrus.FieldLogger
@@ -43,13 +44,24 @@ type ReindexCleanup struct {
 
 func NewReindexCleanup(resolve func() (ReindexCleanupProber, bool), auth auth, logger logrus.FieldLogger) *ReindexCleanup {
 	if logger == nil {
-		// Callers wire this from app state, which is not populated yet on every
-		// path that builds the internal server.
+		// Production always passes app state's logger; the integration fakes
+		// and the tolerance tests do not, and a probe must not die over it.
 		discard := logrus.New()
 		discard.Out = io.Discard
 		logger = discard
 	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
+}
+
+// isNilProber reports whether there is nothing behind the interface. A plain
+// prober == nil misses a nil *T, which is a non-nil interface value and panics
+// on the method call rather than answering.
+func isNilProber(prober ReindexCleanupProber) bool {
+	if prober == nil {
+		return true
+	}
+	value := reflect.ValueOf(prober)
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // Activity handles GET /reindex/cleanup-activity?collection=<name>.
@@ -92,7 +104,7 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 		}
 		// The nil check backs up the flag: a provider that reports wired while
 		// handing back nothing must still not reach a method call.
-		if !wired || prober == nil {
+		if !wired || isNilProber(prober) {
 			// The sentinel body lets the caller tell this permanent 503 apart
 			// from a transient one; see [clusterprobe.ProbeNotWiredMarker].
 			log.Debug("reindex cleanup probe answered: not wired on this node")

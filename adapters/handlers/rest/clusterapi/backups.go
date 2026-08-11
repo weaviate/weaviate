@@ -42,8 +42,8 @@ func NewBackups(manager backupManager, activity *backup.NodeActivityProbe, auth 
 	logger logrus.FieldLogger,
 ) *backups {
 	if logger == nil {
-		// Callers wire this from app state, which is not populated yet on every
-		// path that builds the internal server.
+		// Production always passes app state's logger; the integration fakes
+		// and the tolerance tests do not, and a probe must not die over it.
 		discard := logrus.New()
 		discard.Out = io.Discard
 		logger = discard

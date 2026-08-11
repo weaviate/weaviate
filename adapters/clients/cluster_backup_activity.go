@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-// ErrNodeActivityUnsupported means the node runs a build without the
-// node-activity route (e.g. mid rolling-upgrade), so callers stop asking
-// rather than retry forever.
+// ErrNodeActivityUnsupported means the node can never answer: either it runs a
+// build without the route (mid rolling-upgrade), or it serves the route with no
+// probe behind it. Callers stop asking rather than retry forever.
 var ErrNodeActivityUnsupported = errors.New("node does not serve the backup node-activity route")
 
 // ClusterBackupActivity probes whether a node is currently part of a backup or restore.

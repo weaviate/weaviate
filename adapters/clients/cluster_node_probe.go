@@ -36,6 +36,8 @@ const nodeNotFoundBody = "404 page not found"
 //
 // client must be appState.ClusterHttpClient, or basic auth (if enabled) 401s
 // and fails the caller's gate closed instead of reporting every node clear.
+// That client sets a dial timeout but no request timeout, so the caller's ctx
+// is the only bound on a peer that accepts the connection and then stalls.
 type nodeProbe struct {
 	client   *http.Client
 	resolver nodeResolver
