@@ -191,7 +191,7 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 			name:    "local schema never catches up",
 			version: version,
 			waitErr: errors.New("deadline exceeded"),
-			wantMsg: "deadline exceeded",
+			wantMsg: "waiting for schema version 7: deadline exceeded",
 		},
 		{
 			name:    "local schema caught up",
