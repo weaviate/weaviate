@@ -56,7 +56,8 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 			return
 		}
 
-		// Never silently report "not busy": reindex depends on this answer.
+		// nil here means a fault, not an unwired build (this probe is always
+		// wired), so a plain 503 is worth retrying.
 		if b.activity == nil {
 			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
 			return

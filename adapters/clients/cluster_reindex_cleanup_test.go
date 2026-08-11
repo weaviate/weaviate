@@ -28,9 +28,10 @@ func TestClusterReindexCleanup(t *testing.T) {
 		body       string
 		// notFound answers the way a node's catch-all handler does, which is
 		// the only 404 the client reads as "older build".
-		notFound  bool
-		want      bool
-		wantErrIs error
+		notFound   bool
+		want       bool
+		wantErrIs  error
+		wantErrMsg string
 	}{
 		{
 			name:      "older build does not serve the route",
@@ -47,6 +48,18 @@ func TestClusterReindexCleanup(t *testing.T) {
 			name:       "node has nothing to confirm",
 			statusCode: http.StatusOK,
 			body:       `{"probe":"weaviate/reindex-cleanup-activity","cleaningUp":false}`,
+		},
+		{
+			name:       "200 from something that is not a node",
+			statusCode: http.StatusOK,
+			body:       `{"probe":"nginx","cleaningUp":false}`,
+			wantErrMsg: "did not come from a Weaviate node",
+		},
+		{
+			name:       "200 that never mentions cleaningUp",
+			statusCode: http.StatusOK,
+			body:       `{"probe":"weaviate/reindex-cleanup-activity"}`,
+			wantErrMsg: `has no "cleaningUp" field`,
 		},
 	}
 
@@ -74,6 +87,12 @@ func TestClusterReindexCleanup(t *testing.T) {
 
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
+				return
+			}
+			if tt.wantErrMsg != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+				assert.False(t, got, "a rejected answer must not read as free")
 				return
 			}
 			require.NoError(t, err)

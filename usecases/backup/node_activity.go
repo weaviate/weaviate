@@ -64,17 +64,23 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
 	}
 	// A busy answer's kind is formatted verbatim into the 409 a caller sees, so
-	// only the kinds this package emits are accepted. An idle answer names none.
+	// only the kinds this package emits are accepted.
 	if *r.Busy && r.Kind != NodeActivityKindBackup && r.Kind != NodeActivityKindRestore {
 		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q, want %q or %q",
 			r.Kind, NodeActivityKindBackup, NodeActivityKindRestore)
+	}
+	// Only a held slot has a kind or an ID, so an idle answer naming either did
+	// not come from this package and its "not busy" cannot be trusted.
+	if !*r.Busy && (r.Kind != "" || r.ID != "") {
+		return NodeActivity{}, fmt.Errorf("answer is not busy but names kind %q and id %q",
+			r.Kind, r.ID)
 	}
 	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
 }
 
 // NodeActivityProbe answers whether this node is part of a backup or restore
-// right now. It owns no state: it reads slots the backup subsystem already
-// manages, so nothing here can leak or go stale on a crash.
+// right now. It keeps no backup state of its own: it reads slots the backup
+// subsystem already manages, so nothing here can leak or go stale on a crash.
 type NodeActivityProbe struct {
 	participant *Handler
 

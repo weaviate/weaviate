@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -49,7 +50,9 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 		query      string
 		wantStatus int
 		wantBody   string
-		wantAsked  string
+		// wantPlainBody is the whole non-JSON body, trimmed.
+		wantPlainBody string
+		wantAsked     string
 	}{
 		{
 			name:       "cancel seen or teardown running",
@@ -75,10 +78,13 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 		},
 		{
 			// Must not answer "not cleaning up" from a node that cannot tell.
-			name:       "probe not wired",
-			prober:     nil,
-			query:      "?collection=Movies",
-			wantStatus: http.StatusServiceUnavailable,
+			// The sentinel body is what tells the caller this 503 is permanent
+			// rather than transient, so it is part of the wire contract.
+			name:          "probe not wired",
+			prober:        nil,
+			query:         "?collection=Movies",
+			wantStatus:    http.StatusServiceUnavailable,
+			wantPlainBody: clusterprobe.ProbeNotWiredMarker,
 		},
 	}
 
@@ -97,6 +103,14 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			defer res.Body.Close()
 
 			require.Equal(t, tt.wantStatus, res.StatusCode)
+			if tt.wantPlainBody != "" {
+				body, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPlainBody, strings.TrimSpace(string(body)))
+				assert.Equal(t, "nosniff", res.Header.Get("X-Content-Type-Options"),
+					"the client only trusts a sentinel a node marked as its own")
+				return
+			}
 			if tt.wantBody == "" {
 				return
 			}

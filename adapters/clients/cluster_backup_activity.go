@@ -23,8 +23,9 @@ import (
 
 const pathBackupNodeActivity = clusterprobe.BackupNodeActivityPath
 
-// ErrNodeActivityUnsupported marks a node that doesn't serve the node-activity
-// route (e.g. mid rolling-upgrade); callers treat it as not busy.
+// ErrNodeActivityUnsupported means the node runs a build without the
+// node-activity route (e.g. mid rolling-upgrade), so callers stop asking
+// rather than retry forever.
 var ErrNodeActivityUnsupported = errors.New("node does not serve the backup node-activity route")
 
 // ClusterBackupActivity probes whether a node is currently part of a backup or restore.

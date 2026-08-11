@@ -13,13 +13,10 @@ package clusterprobe
 
 import "fmt"
 
-// ReindexCleanupActivity is the answer to "have you processed the cancel yet".
-// One type for both ends of the wire: the handler marshals it and the client
-// unmarshals it, so a tag change cannot land on one side only.
-//
-// CleaningUp is a pointer so a payload that never mentions it is rejected
-// rather than read as "no cleanup here". Probe is what tells the caller the
-// answer came from a node at all; see [ReindexCleanupMarker].
+// ReindexCleanupActivity is the wire answer to "have you processed the
+// cancel yet", shared by handler and client so a tag change can't land on
+// one side only. CleaningUp is a pointer so a payload omitting it is
+// rejected rather than read as "no cleanup here"; see [ReindexCleanupMarker].
 type ReindexCleanupActivity struct {
 	Probe      string `json:"probe"`
 	CleaningUp *bool  `json:"cleaningUp"`

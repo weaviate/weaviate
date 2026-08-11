@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -40,6 +41,11 @@ type ReindexCleanup struct {
 }
 
 func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+	if logger == nil {
+		discard := logrus.New()
+		discard.Out = io.Discard
+		logger = discard
+	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
@@ -67,12 +73,9 @@ func NewReindexCleanupFromState(appState *state.State, auth auth) *ReindexCleanu
 
 // Activity handles GET /reindex/cleanup-activity?collection=<name>.
 //
-// Deliberately its own route rather than a mode on /backups/node-activity: a
-// node running an older build has to be distinguishable from one that answers
-// "no cleanup". A new query parameter on an existing route would be ignored by
-// the old build, which would then return a perfectly valid backup-activity
-// answer that the caller would misread. A separate path 404s instead, and the
-// caller can treat that as "cannot ask" rather than as "nothing running".
+// Its own route rather than a query param on /backups/node-activity: an older
+// build would ignore an unknown param and answer a misleading "not busy"
+// instead of 404ing.
 func (rc *ReindexCleanup) Activity() http.Handler {
 	return rc.auth.handleFunc(rc.activityHandler())
 }
@@ -115,19 +118,19 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			prober = rc.resolve()
 		}
 		if prober == nil {
-			http.Error(w, "reindex cleanup probe is not wired on this node", http.StatusServiceUnavailable)
+			// The sentinel body lets the caller tell this permanent 503 apart
+			// from a transient one; see [clusterprobe.ProbeNotWiredMarker].
+			http.Error(w, clusterprobe.ProbeNotWiredMarker, http.StatusServiceUnavailable)
 			return
 		}
 
 		cleaningUp := prober.AnyCleanupInProgressForCollection(collection)
-		if rc.logger != nil {
-			// The cancelling node waits on this answer, so an operator tracing a
-			// slow cancel needs to see that the question arrived and what it got.
-			rc.logger.WithField("action", "reindex_cleanup_probe").
-				WithField("collection", loggableCollection(collection)).
-				WithField("cleaning_up", cleaningUp).
-				Debug("reindex cleanup probe answered")
-		}
+		// The cancelling node waits on this answer, so an operator tracing a
+		// slow cancel needs to see that the question arrived and what it got.
+		rc.logger.WithField("action", "reindex_cleanup_probe").
+			WithField("collection", loggableCollection(collection)).
+			WithField("cleaning_up", cleaningUp).
+			Debug("reindex cleanup probe answered")
 		data, err := json.Marshal(clusterprobe.NewReindexCleanupActivity(cleaningUp))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)

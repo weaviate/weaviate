@@ -19,16 +19,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
 // maxProbeResponseBytes bounds what a peer can make this node buffer. Every
 // probe answer is a handful of JSON fields, so anything near this is not one.
 const maxProbeResponseBytes = 64 << 10
 
-// A node that does not serve a route falls through to the cluster API's
-// catch-all handler, which calls http.NotFound. That gives a body and a
-// nosniff header fixed by the standard library, and those two together are
-// what a 404 has to carry before it counts as "this build is older".
+// nodeNotFoundBody is the body http.NotFound sends, i.e. what a node's own
+// catch-all handler answers for an unserved route.
 const nodeNotFoundBody = "404 page not found"
 
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
@@ -41,13 +42,12 @@ type nodeProbe struct {
 // getJSON GETs path on nodeName and decodes the body into out; what names the
 // route in errors, e.g. "node activity".
 //
-// A 404 shaped like a node's own catch-all answer returns notFound unwrapped,
-// so callers can tell an older build that doesn't serve the route (rolling
-// upgrade) from a transport failure. Any other 404 is an error, since an
-// intermediary answering in a node's stead (proxy, misrouted ingress) would
-// otherwise 404 everything and report every node as clear.
+// Returns unanswerable, unwrapped, for a 404 shaped like a node's own
+// catch-all (older build) or a 503 carrying the not-wired sentinel. Any other
+// 404 is a plain error, since an intermediary answering in a node's stead
+// would otherwise report every node as clear.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
-	query url.Values, notFound error, what string, out any,
+	query url.Values, unanswerable error, what string, out any,
 ) error {
 	host, found := p.resolver.NodeHostname(nodeName)
 	if !found {
@@ -80,10 +80,13 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 				"mean the route is unserved; check for an HTTP proxy on the cluster port (body: %s)",
 				what, snippet(body))
 		}
-		return notFound
+		return unanswerable
+	}
+	if res.StatusCode == http.StatusServiceUnavailable && isProbeNotWired(res, body) {
+		return unanswerable
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: unexpected status code %d (%s)", what, res.StatusCode, body)
+		return fmt.Errorf("%s: unexpected status code %d (%s)", what, res.StatusCode, snippet(body))
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {
@@ -95,14 +98,32 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 // isNodeNotFound reports whether a 404 has the shape of a node's own catch-all
 // answer; see nodeNotFoundBody.
 func isNodeNotFound(res *http.Response, body []byte) bool {
+	return isNodeAnswer(res, body, nodeNotFoundBody)
+}
+
+// isProbeNotWired reports whether a 503 is a node saying it can never answer;
+// see [clusterprobe.ProbeNotWiredMarker].
+func isProbeNotWired(res *http.Response, body []byte) bool {
+	return isNodeAnswer(res, body, clusterprobe.ProbeNotWiredMarker)
+}
+
+// isNodeAnswer reports whether body is want and carries the nosniff header
+// http.Error sets, which an intermediary answering in a node's stead has no
+// reason to send.
+func isNodeAnswer(res *http.Response, body []byte, want string) bool {
 	return res.Header.Get("X-Content-Type-Options") == "nosniff" &&
-		strings.TrimSpace(string(body)) == nodeNotFoundBody
+		strings.TrimSpace(string(body)) == want
 }
 
 func snippet(body []byte) string {
 	const max = 120
-	if len(body) > max {
-		return string(body[:max]) + "..."
+	if len(body) <= max {
+		return string(body)
 	}
-	return string(body)
+	// Cut on a rune boundary so the snippet stays printable.
+	cut := max
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	return string(body[:cut]) + "..."
 }

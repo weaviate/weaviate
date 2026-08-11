@@ -9,22 +9,25 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package clusterprobe holds the wire markers of the read-only
+// Package clusterprobe holds the wire markers and paths of the read-only
 // cluster-internal probes. It is a leaf so that the handler serving a probe
 // and the client reading it can agree on one value without importing each
 // other.
 package clusterprobe
 
-// Each probe's "nothing running here" answer is what lets the reindex gate
-// admit a migration, so only an answer proven to come from a node may say
-// it: without a marker, a proxy or misrouted ingress answering in a node's
-// stead would decode to the permissive value and clear the whole cluster.
 // Each route puts its marker in the "probe" field; its client refuses a 200
-// carrying anything else.
+// carrying anything else, so a proxy or misrouted ingress can't be misread
+// as a node's permissive "nothing running here".
 const (
 	BackupNodeActivityMarker = "weaviate/backup-node-activity"
 	ReindexCleanupMarker     = "weaviate/reindex-cleanup-activity"
 )
+
+// ProbeNotWiredMarker is the whole body of the 503 a node sends when it serves
+// a probe route but the subsystem behind it doesn't exist on this build,
+// telling the client to stop retrying. Only routes where that's safe to treat
+// as terminal send it; others stay a plain, retryable 503.
+const ProbeNotWiredMarker = "weaviate/probe-not-wired"
 
 // The route each probe is served on, defined once for both the mux and the
 // client. A path mismatch would 404, which clients read as "older build" and
