@@ -531,6 +531,14 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			tracker:     "enable_filterable_a_x_1",
 			wantTracker: true, wantSidecar: true,
 		},
+		// This property as a middle "_"-token of the payload-less name: the
+		// tracker's gens must still feed the preserve set, else the live
+		// sidecar is swept (#10675 shape).
+		{
+			name:        "a completed tracker naming this property mid-list, payload gone",
+			tracker:     "enable_filterable_x_a_y_1",
+			wantTracker: true, wantSidecar: true,
+		},
 	}
 
 	for _, tc := range tests {

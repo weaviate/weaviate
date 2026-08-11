@@ -326,13 +326,16 @@ func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) 
 // produces the identical dir name, so this also reports true for a property
 // whose own name merely extends propName across "_". See [migrationDirScope]
 // for why over-matching is the safe direction here.
+//
+// The single-token shape (props == propName) is not checked here: the exact
+// single-property equality in [migrationDirScope.match] answers it before
+// this is consulted.
 func namesPropertyToken(base, prefix, propName string) bool {
 	props, ok := strings.CutPrefix(base, prefix+"_")
 	if !ok {
 		return false
 	}
-	return props == propName ||
-		strings.HasPrefix(props, propName+"_") ||
+	return strings.HasPrefix(props, propName+"_") ||
 		strings.HasSuffix(props, "_"+propName) ||
 		strings.Contains(props, "_"+propName+"_")
 }

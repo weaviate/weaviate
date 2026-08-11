@@ -258,6 +258,14 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_b_a_1",
 			propName: "a", preserve: true, want: true,
 		},
+		// The swept property as a middle "_"-token of a payload-less name (a
+		// dir from before property sorting could also carry it unsorted); only
+		// the middle-token clause of namesPropertyToken catches this shape.
+		{
+			name:     "a three-property task naming this property mid-list, with no payload, in the preserve set",
+			dir:      "enable_filterable_x_a_y_1",
+			propName: "a", preserve: true, want: true,
+		},
 		// An empty payload decides nothing, so falls back to the name like a
 		// missing payload does.
 		{
