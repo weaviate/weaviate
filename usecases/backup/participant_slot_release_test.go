@@ -133,15 +133,20 @@ func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T)
 		slotID     string
 		slotStatus backup.Status
 		wantErr    string
+		// wantLog is the refusal the node records for itself, since the caller
+		// only ever sees it through the CanCommit response.
+		wantLog string
 	}{
 		{name: "no restore holds the slot"},
 		{
 			name: "this restore is being cancelled", slotID: backupID,
 			slotStatus: backup.Cancelling, wantErr: "cancellation in progress",
+			wantLog: "refused restore: a cancellation of the same restore is still in progress",
 		},
 		{
 			name: "this restore is cancelled", slotID: backupID,
 			slotStatus: backup.Cancelled, wantErr: "cancellation in progress",
+			wantLog: "refused restore: a cancellation of the same restore is still in progress",
 		},
 		{
 			name: "this restore is still staging", slotID: backupID,
@@ -160,7 +165,7 @@ func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T)
 			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 
-			logger, _ := test.NewNullLogger()
+			logger, logs := test.NewNullLogger()
 			r := newRestorer("node1", logger, &fakeSourcer{}, &hookSnapshotter{fn: func() {}}, nil,
 				&fakeBackupBackendProvider{backend: backend}, false)
 
@@ -183,6 +188,9 @@ func TestRestorerRestoreRefusesWhileItsOwnCancellationIsInProgress(t *testing.T)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				require.Equal(t, tc.slotID, r.lastOp.get().ID, "a refused restore must not take the slot")
+				if tc.wantLog != "" {
+					awaitLog(t, logs, tc.wantLog)
+				}
 				return
 			}
 			require.NoError(t, err)
