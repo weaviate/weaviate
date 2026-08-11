@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -260,7 +261,11 @@ func NewManager(params ManagerParameters) *Manager {
 		params.Clock = clockwork.NewRealClock()
 	}
 	if params.Logger == nil {
-		params.Logger = logrus.New()
+		// Discards rather than writing to stderr: production always passes a
+		// logger, so a nil one means a test that never wanted the output.
+		discarding := logrus.New()
+		discarding.Out = io.Discard
+		params.Logger = discarding
 	}
 
 	return &Manager{
@@ -386,8 +391,11 @@ func (m *Manager) runTerminalObserver(task *Task) {
 //
 // catchingUp comes from the FSM's RAFT-replay flag: entries already in the
 // local log are skipped so a startup replay doesn't reannounce old endings
-// as live. Endings missed while the node was down replicate later at a
-// higher index and fire normally.
+// as live. Endings missed while the node was down fire normally if they
+// replicate as log entries afterwards, but never fire if they arrive inside
+// an installed snapshot, which lands in [Manager.Restore] and merges without
+// dispatching. Consumers must reconcile on registration instead of relying on
+// delivery.
 //
 // Observers run off the apply path because they take locks also held by
 // HTTP/admission code; running inline could stall the whole FSM behind a
@@ -650,8 +658,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		} else {
 			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
+		// FinishedAt = when units completed. Scheduler's TTL cleanup skips
+		// every non-terminal status so a stale FinishedAt won't clean a task
+		// mid-coordination.
 		task.FinishedAt = finishedAt
 
 		// Dispatch after FinishedAt is stamped so the observer's copy carries it.
@@ -1216,6 +1225,10 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // Restore replaces the Manager's in-memory state from a Raft snapshot produced by
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
+//
+// Tasks that are already terminal in the snapshot do not fire their
+// [TerminalObserver]; whether that should change is the consumer's call, see
+// weaviate/weaviate#12582.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
