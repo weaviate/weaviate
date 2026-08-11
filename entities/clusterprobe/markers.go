@@ -26,6 +26,16 @@ const (
 	ReindexCleanupMarker     = "weaviate/reindex-cleanup-activity"
 )
 
+// ProbeNotWiredMarker is the whole body of the 503 a node sends when it serves
+// a probe route but the subsystem behind it does not exist on this build. No
+// amount of retrying turns that into an answer, so a client that sees it stops
+// asking instead of spending its budget on a node that can never reply.
+//
+// Only a route whose "cannot answer" is safe to treat as terminal sends it. A
+// route where stopping would make the caller proceed on an assumption sends a
+// plain 503, which stays a retryable error.
+const ProbeNotWiredMarker = "weaviate/probe-not-wired"
+
 // The route each probe is served on, defined once for both the mux and the
 // client. A path mismatch would 404, which clients read as "older build" and
 // let through — a typo would silently disable the gate rather than break it.

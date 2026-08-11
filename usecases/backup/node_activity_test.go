@@ -163,6 +163,15 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 			name: "busy without a kind",
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
 		},
+		{
+			// Only a held slot has a kind, so this did not come from a node.
+			name: "idle but names a kind",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, Kind: NodeActivityKindRestore},
+		},
+		{
+			name: "idle but names an id",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, ID: "backup-1"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -92,7 +92,12 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 			prober = rc.resolve()
 		}
 		if prober == nil {
-			http.Error(w, "reindex cleanup probe is not wired on this node", http.StatusServiceUnavailable)
+			// A build that serves this route without the cleanup side behind it
+			// answers 503 forever, which every node on the older minor does for
+			// the length of a rolling upgrade. The sentinel body lets the caller
+			// tell that apart from a transient 503 and stop asking; see
+			// [clusterprobe.ProbeNotWiredMarker].
+			http.Error(w, clusterprobe.ProbeNotWiredMarker, http.StatusServiceUnavailable)
 			return
 		}
 
