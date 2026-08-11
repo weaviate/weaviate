@@ -269,6 +269,44 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"the observer's copy must carry the stamp written by the same apply")
 	})
 
+	// The fourth delivery case from the TerminalObserver contract: a
+	// non-terminal task removed by the DELETE_CLASS cascade never goes
+	// CANCELLED or FAILED, so it never fires.
+	t.Run("a task removed by the DELETE_CLASS cascade must not fire", func(t *testing.T) {
+		h, rec := newObserverHarness(t)
+		h.manager.RegisterCollectionExtractor(observerNamespace, func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, true
+		})
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+
+		removed := h.manager.DeleteTasksForCollection("Movies")
+		require.Len(t, removed, 1)
+		require.Equal(t, observerTaskID, removed[0].ID)
+
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, tasks[observerNamespace],
+			"the cascade must remove the task from the listing")
+
+		// Barrier: once this live cancel lands, a missing event for the removed
+		// task means the contract held, not a slow drainer.
+		const cancelledTaskID = "2"
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, cancelledTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, cancelledTaskID), false))
+
+		rec.waitForAtLeast(t, 1, "the live cancel must fire the observer")
+		require.Equal(t, cancelledTaskID, rec.first().ID,
+			"only the live cancel may be announced; the cascade removal must stay silent")
+		require.Equal(t, 1, rec.count())
+	})
+
 	// Only CANCELLED and FAILED fire the observer; MarkTaskFinalized (FINISHED)
 	// must stay silent.
 	t.Run("reaching FINISHED must not fire the observer", func(t *testing.T) {
