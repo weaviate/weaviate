@@ -286,35 +286,77 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
-// ErrorDetail renders the server-side message carried by a swagger client
-// error. The generated error types format models.ErrorResponse with %+v, and
-// because its Error field is a slice of pointers that renders as
+// ErrorDetail renders the server-side messages carried by a swagger client
+// error. The generated error types format their payload with %+v, and the
+// payload's message list is a slice of pointers, so it renders as
 // "&{Error:[0xc000acd5a0]}" -- the address, not the reason the server rejected
 // the request. Use it in assertion messages so a failure is diagnosable from
-// the test log alone. When there is no message to add it returns err.Error()
-// unchanged, so the output never ends in a bare separator.
+// the test log alone.
+//
+// It returns the messages on their own, because testify already prints
+// err.Error() on a line of its own. With no messages to show it falls back to
+// err.Error(), and for a nil error it returns the literal "<nil>". An item that
+// carries no message renders as "<empty>" rather than disappearing, since an
+// empty message is itself an anomaly worth seeing.
+//
+// Two payload shapes carry a message list: models.ErrorResponse and the schema
+// routes' models.RestrictionViolationResponse. Others, such as the 429
+// models.UsageLimitExceededResponse, take the err.Error() fallback -- which
+// stays readable there because every field they carry is a scalar that %+v
+// prints in full.
 func ErrorDetail(err error) string {
 	if err == nil {
 		return "<nil>"
 	}
-	var carrier interface{ GetPayload() *models.ErrorResponse }
-	if !errors.As(err, &carrier) {
-		return err.Error()
-	}
-	payload := carrier.GetPayload()
-	if payload == nil {
-		return err.Error()
-	}
-	msgs := make([]string, 0, len(payload.Error))
-	for _, item := range payload.Error {
-		if item != nil && item.Message != "" {
-			msgs = append(msgs, item.Message)
-		}
-	}
+	msgs := serverMessages(err)
 	if len(msgs) == 0 {
 		return err.Error()
 	}
-	return fmt.Sprintf("%s: %s", err.Error(), strings.Join(msgs, "; "))
+	return strings.Join(msgs, "; ")
+}
+
+// serverMessages returns the message list carried by err's payload, or nil if
+// err carries neither payload shape. A type has at most one GetPayload method,
+// so the two cases cannot both match.
+func serverMessages(err error) []string {
+	var plain interface {
+		GetPayload() *models.ErrorResponse
+	}
+	var restricted interface {
+		GetPayload() *models.RestrictionViolationResponse
+	}
+	switch {
+	case errors.As(err, &plain):
+		if payload := plain.GetPayload(); payload != nil {
+			return itemMessages(payload.Error, func(item *models.ErrorResponseErrorItems0) string {
+				return item.Message
+			})
+		}
+	case errors.As(err, &restricted):
+		if payload := restricted.GetPayload(); payload != nil {
+			return itemMessages(payload.Error, func(item *models.RestrictionViolationResponseErrorItems0) string {
+				return item.Message
+			})
+		}
+	}
+	return nil
+}
+
+// itemMessages reads a message off every non-nil item, substituting "<empty>"
+// for an item that carries none so it stays visible in the joined output.
+func itemMessages[T any](items []*T, message func(*T) string) []string {
+	msgs := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		msg := message(item)
+		if msg == "" {
+			msg = "<empty>"
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs
 }
 
 func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
