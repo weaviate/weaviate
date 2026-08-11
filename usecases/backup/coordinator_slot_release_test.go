@@ -597,7 +597,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStor
 	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
 	// The takeover only opens the window; wait for the goroutine to reach the
 	// decision itself, otherwise the absence of a write below proves nothing.
-	awaitLog(t, fc.logs, "restore cancelled (detected from storage after commit)")
+	awaitLog(t, fc.logs, restoreCancelledInStorage)
 	require.Never(t, func() bool {
 		st := c.lastOp.get()
 		return st.ID != newID || st.Status != backup.Started || schemaManager.applies.Load() != 0
@@ -821,7 +821,10 @@ func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
 }
 
 // Pins that the restore stops on both CANCELLING and CANCELLED read from
-// storage.
+// storage, and that it leaves the slot as it found it on the way out. The
+// deferred release clears the slot immediately after, so a poll landing in
+// that window is answered TRANSFERRED and then, once the slot is gone, from
+// the descriptor — which already reads the cancellation.
 func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 	t.Parallel()
 	const (
@@ -835,6 +838,9 @@ func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 			t.Parallel()
 			schemaManager := &countingSchemaManager{}
 			c, fc := newStagingRestore(node, backupID, schemaManager)
+			// The decision to stop is logged just before the release, which is
+			// the only moment the slot state below is observable.
+			atStop := watchSlotAt(fc.log, &c.lastOp, restoreCancelledInStorage)
 			// The cancel lands in storage while the participants are still
 			// staging, which is where another coordinator's does, and the
 			// restore reads it once staging is done.
@@ -849,6 +855,12 @@ func TestCoordinatorRestoreStopsOnACancellationInStorage(t *testing.T) {
 				})
 
 			startRestore(t, c, backend, backendName, backupID, node)
+
+			held := atStop.await(t)
+			require.Equal(t, backupID, held.ID)
+			require.Equal(t, backup.Transferred, held.Status,
+				"a restore reading its own cancellation back stamped the slot on its way out, "+
+					"which the release right after makes pointless")
 
 			require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
 				10*time.Second, 10*time.Millisecond, "the restore goroutine never released its slot")

@@ -628,7 +628,7 @@ type fakeCoordinator struct {
 	client   fakeClient
 	schema   fakeSchemaManger
 	backend  *fakeBackend
-	log      logrus.FieldLogger
+	log      *logrus.Logger
 	// logs lets a test wait for a goroutine whose decision leaves no other trace.
 	logs         *test.Hook
 	nodeResolver NodeResolver
