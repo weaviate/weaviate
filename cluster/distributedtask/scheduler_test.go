@@ -2064,3 +2064,40 @@ func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
 	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
 }
+
+// The warn fires for exactly the task set the FSM will not cancel, so an
+// exit that names a cancel sends the operator at a verb every node
+// answers with an error. Both halves are asserted together — what the
+// FSM does with such a task, and what the line tells the operator to do
+// about it — so the advice cannot drift away from the guard again.
+func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)
+
+	require.ErrorContains(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             ns,
+		Id:                    id,
+		Version:               version,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})), "no longer running",
+		"the cancel has to be refused for the advice to be wrong")
+
+	task := h.manager.tasks[ns][id]
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		ns: {task.TaskDescriptor: task},
+	})
+
+	var warned string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warned = e.Message
+		}
+	}
+	require.NotEmpty(t, warned, "the fixture has to reach the warn for the rest to mean anything")
+	require.NotContains(t, warned, "is cancelled",
+		"the cancel offered as an exit is the one the FSM refused a moment ago")
+	require.Contains(t, warned, "A cancel will not help",
+		"the operator has to be told the verb is refused, not left to find out")
+	require.Contains(t, warned, "the nodes that do recognize the status",
+		"the only exit is a terminal state written by a node that can classify the status")
+}
