@@ -423,9 +423,10 @@ func (t TaskStatus) String() string {
 // rule: declare the constant and its classification in release N, start
 // emitting it in release N+1, so no supported pair of peers ever
 // disagrees. The predicates here are the backstop. A node that cannot
-// name a status reads it as in-flight ([TaskStatus.IsActive]), so it
+// name a status reads it as in flight ([TaskStatus.IsActive]), so it
 // drops schema mutations the rest of the cluster committed, refuses
-// backups on the collection, and reports the index as "indexing".
+// backups on the collection, and reports the index as "indexing". See
+// docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -456,8 +457,8 @@ func (t TaskStatus) IsActive() bool {
 //
 // A status this build does not recognize returns false here, where
 // [TaskStatus.IsActive] returns true: this method reports which phase a
-// task is in, IsActive reports whether this build can rule out that the
-// task is still running.
+// task is in, IsActive reports whether this build has to assume the task
+// is still running.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
@@ -486,8 +487,11 @@ func (t TaskStatus) IsRecognized() bool {
 	return false
 }
 
-// IsCancellable reports whether [Manager.CancelTask] accepts a cancel for
-// this status.
+// IsCancellable is true for the one status [Manager.CancelTask] accepts:
+// STARTED. A terminal task has nothing left to stop, and a task in a
+// coordination phase may already have written merged state or renamed
+// bucket directories on some nodes, so stopping the rest would leave the
+// cluster serving migrated buckets under the pre-migration schema.
 //
 // A literal comparison, not a classification: the FSM apply that reads it
 // has to reach the same verdict on every binary that will ever replay the

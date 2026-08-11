@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -32,18 +31,6 @@ func gateWithTasks(tasks ...*distributedtask.Task) *schemaHandlers {
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 			db.ReindexNamespace: tasks,
 		}},
-	}
-}
-
-func reindexTask(t *testing.T, id string, status distributedtask.TaskStatus, payload db.ReindexTaskPayload) *distributedtask.Task {
-	t.Helper()
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	return &distributedtask.Task{
-		Namespace:      db.ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
-		Status:         status,
-		Payload:        raw,
 	}
 }
 
@@ -69,7 +56,7 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 		{distributedtask.TaskStatusCancelled, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
-			h := gateWithTasks(reindexTask(t, "T1", tc.status, payload))
+			h := gateWithTasks(buildTask(t, "T1", tc.status, payload, nil))
 			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
 			if !tc.blocked {
 				require.Empty(t, conflict, "a task this build knows is done must not block")
@@ -126,11 +113,11 @@ func TestCheckReindexConflictForPropertyMutation_UndecodablePayloadIsScopedToIts
 
 // Pins: an empty Properties list means "all properties".
 func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
-	h := gateWithTasks(reindexTask(t, "T_all", distributedtask.TaskStatusStarted,
+	h := gateWithTasks(buildTask(t, "T_all", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
 			Collection:    "C",
-		}))
+		}, nil))
 
 	require.Contains(t,
 		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property"),
@@ -139,12 +126,12 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 
 // Pins: a task on a different property does not block the mutation.
 func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *testing.T) {
-	h := gateWithTasks(reindexTask(t, "T1", distributedtask.TaskStatusStarted,
+	h := gateWithTasks(buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
 			Collection:    "C",
 			Properties:    []string{"other"},
-		}))
+		}, nil))
 
 	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title"))
 }

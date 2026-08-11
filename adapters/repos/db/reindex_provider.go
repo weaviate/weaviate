@@ -1580,7 +1580,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
+				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// A cancel from STARTED can't have torn anything (no node has
@@ -1591,7 +1591,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// under-reports rather than over-reports — acks against an
 				// already-CANCELLED task are dropped on the apply path.
 				if len(task.PostCompletionAcks) > 0 {
-					logOperatorRepairGuidanceOnTornSemanticMigration(logger, payload, task.Status)
+					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusStarted,
@@ -1842,17 +1842,16 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-// logOperatorRepairGuidanceOnTornSemanticMigration logs the exact REST
-// command an operator should issue to recover from a semantic migration
-// that stopped after some shards had already swapped. The failure mode it
-// targets: sub-tasks that swapped BEFORE the task stopped left their
-// bucket NEW-tokenized while the cluster-wide schema flip was correctly
-// skipped — every query against the affected inverted index returns 0
-// until the index is rebuilt against the current schema.
+// logOperatorRepairGuidanceOnPartialSwap logs the exact REST command an
+// operator should issue to recover from a semantic migration that stopped
+// after some shards had already swapped. Those shards' buckets are
+// NEW-tokenized while the cluster-wide schema flip was correctly skipped,
+// so every query against the affected inverted index returns 0 until the
+// index is rebuilt against the current schema.
 //
-// outcome is the terminal status that produced the tear (FAILED or
+// outcome is the terminal status that produced the split state (FAILED or
 // CANCELLED), logged so the operator can match it to the task.
-func logOperatorRepairGuidanceOnTornSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
+func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -2259,7 +2258,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 // than letting partially-flipped buckets misroute against the OLD
 // schema tokenization. The partial-success case surfaces through the
 // FAILED-task repair_command log line in
-// [logOperatorRepairGuidanceOnTornSemanticMigration].
+// [logOperatorRepairGuidanceOnPartialSwap].
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).

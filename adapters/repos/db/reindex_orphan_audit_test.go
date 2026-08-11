@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
@@ -797,29 +796,4 @@ func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, 
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
-}
-
-// Pins the status-to-ownership matrix the audit's knownTask closure and
-// the backup gate both read: the three in-flight statuses own their
-// tracker dirs, the three terminal ones release them, and a status this
-// build cannot name keeps ownership so nothing deletes live state.
-func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
-	cases := []struct {
-		status distributedtask.TaskStatus
-		live   bool
-	}{
-		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
-		{distributedtask.TaskStatusFinished, false},
-		{distributedtask.TaskStatusFailed, false},
-		{distributedtask.TaskStatusCancelled, false},
-		{unknownFutureStatus, true},
-		{distributedtask.TaskStatus(""), true},
-	}
-	for _, c := range cases {
-		t.Run(string(c.status), func(t *testing.T) {
-			assert.Equal(t, c.live, IsLiveReindexTaskStatus(c.status))
-		})
-	}
 }

@@ -19,12 +19,18 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -825,10 +831,11 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 // participle, so it can never collide with a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
-// Pins cancel eligibility per [distributedtask.Manager.CancelTask]: open
-// for STARTED only, so REST never proposes a cancel the FSM refuses. The
-// two refusal states differ only in the message the operator gets.
-func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
+// Pins the wire response of every cancel arm: 202 CANCELLED for the
+// cancellable statuses (STARTED and one this build cannot name), 409 for
+// the coordination phases, 202 NO_OP when nothing matches. Each arm's
+// audit line is pinned with it.
+func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
 		Collection:    "C",
@@ -836,194 +843,155 @@ func TestFindCancelTarget_MatchesTheCancellableStatuses(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		status distributedtask.TaskStatus
-		want   cancelTargetState
+		name       string
+		status     distributedtask.TaskStatus
+		properties []string
+		wantCode   int
 	}{
-		{distributedtask.TaskStatusStarted, cancelTargetCancellable},
-		{unknownFutureStatus, cancelTargetUnknownStatus},
-		{distributedtask.TaskStatusPreparing, cancelTargetCoordinating},
-		{distributedtask.TaskStatusSwapping, cancelTargetCoordinating},
-		{distributedtask.TaskStatusFinished, cancelTargetNone},
-		{distributedtask.TaskStatusFailed, cancelTargetNone},
-		{distributedtask.TaskStatusCancelled, cancelTargetNone},
-	} {
-		t.Run(string(tc.status), func(t *testing.T) {
-			task := buildTask(t, "T1", tc.status, payload, nil)
-
-			target, gotPayload, state := findCancelTarget(
-				[]*distributedtask.Task{task}, "C", "foo", "filterable")
-
-			require.Equal(t, tc.want, state,
-				"%q must resolve to state %v", tc.status, tc.want)
-			if tc.want == cancelTargetNone {
-				return
-			}
-			require.Equal(t, "T1", target.ID)
-			require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
-		})
-	}
-}
-
-// Pins: empty Properties (whole-collection task) matches any property name.
-func TestFindCancelTarget_EmptyPropertiesMatchesAnyProperty(t *testing.T) {
-	task := buildTask(t, "T_all", distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-		}, nil)
-
-	target, _, state := findCancelTarget(
-		[]*distributedtask.Task{task}, "C", "any-property", "filterable")
-
-	require.Equal(t, cancelTargetCancellable, state)
-	require.Equal(t, "T_all", target.ID)
-}
-
-// Pins: both lookups treat an unrecognized status as in-flight.
-func TestReindexLookups_LivenessRule(t *testing.T) {
-	payload := db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeEnableFilterable,
-		Collection:    "C",
-		Properties:    []string{"foo"},
-		UnitToShard:   map[string]string{"u1": "shard-1"},
-	}
-
-	logger, _ := logrustest.NewNullLogger()
-
-	lookups := []struct {
-		name string
-		// inFlight reports whether the lookup considers the task live.
-		inFlight func(task *distributedtask.Task) bool
-	}{
-		{"backup gate", func(task *distributedtask.Task) bool {
-			return shardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
-		}},
-		{"orphan audit", func(task *distributedtask.Task) bool {
-			return liveReindexTrackerLookup([]*distributedtask.Task{task})("T1", 1)
-		}},
-	}
-
-	statuses := []struct {
-		status   distributedtask.TaskStatus
-		inFlight bool
-	}{
-		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
-		{unknownFutureStatus, true},
-		{distributedtask.TaskStatusFinished, false},
-		{distributedtask.TaskStatusFailed, false},
-		{distributedtask.TaskStatusCancelled, false},
-	}
-
-	for _, l := range lookups {
-		for _, s := range statuses {
-			t.Run(l.name+"/"+string(s.status), func(t *testing.T) {
-				task := buildTask(t, "T1", s.status, payload, nil)
-				require.Equal(t, s.inFlight, l.inFlight(task),
-					"%s must read %q as in-flight=%v", l.name, s.status, s.inFlight)
-			})
-		}
-	}
-}
-
-// Pins: the lookup key includes TaskVersion, so two versions of one ID
-// (e.g. a dead v1 and a live v2) don't collide.
-func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
-	payload := db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeEnableFilterable,
-		Collection:    "C",
-		Properties:    []string{"foo"},
-	}
-	withVersion := func(id string, version uint64, status distributedtask.TaskStatus) *distributedtask.Task {
-		task := buildTask(t, id, status, payload, nil)
-		task.Version = version
-		return task
-	}
-
-	for _, tc := range []struct {
-		name        string
-		tasks       []*distributedtask.Task
-		queryID     string
-		queryVer    uint64
-		wantInFted  bool
-		description string
-	}{
-		{
-			name:       "exact match is live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: true,
-		},
-		{
-			name:       "version mismatch is not live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 2, distributedtask.TaskStatusStarted)},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: false,
-		},
-		{
-			name:       "unknown ID is not live",
-			tasks:      []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:    "T2",
-			queryVer:   1,
-			wantInFted: false,
-		},
-		{
-			name: "two versions of one ID keep separate answers",
-			tasks: []*distributedtask.Task{
-				withVersion("T1", 1, distributedtask.TaskStatusFinished),
-				withVersion("T1", 2, distributedtask.TaskStatusStarted),
-			},
-			queryID:    "T1",
-			queryVer:   1,
-			wantInFted: false,
-		},
-		{
-			name: "two versions of one ID keep separate answers (live side)",
-			tasks: []*distributedtask.Task{
-				withVersion("T1", 1, distributedtask.TaskStatusFinished),
-				withVersion("T1", 2, distributedtask.TaskStatusStarted),
-			},
-			queryID:    "T1",
-			queryVer:   2,
-			wantInFted: true,
-		},
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0},
+		// Refused, not proposed: only a build that can name the status
+		// knows whether stopping is safe, so the FSM refuses it on every
+		// node and REST must not spend a RAFT apply finding that out.
+		{"unrecognized", unknownFutureStatus, payload.Properties, http.StatusConflict},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, http.StatusConflict},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict},
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted},
+		// Empty Properties is the reserved whole-collection form; it has
+		// to match the queried property or the operator gets no cancel
+		// target for a task that blocks their mutation.
+		{"empty properties", distributedtask.TaskStatusStarted, nil, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.wantInFted,
-				liveReindexTrackerLookup(tc.tasks)(tc.queryID, tc.queryVer))
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			tcPayload := payload
+			tcPayload.Properties = tc.properties
+			task := buildTask(t, "T1", tc.status, tcPayload, nil)
+
+			target, gotPayload := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "foo", "filterable", logger)
+			resp := h.cancelPreflight(target, "C", "foo", "filterable", nil)
+
+			if tc.wantCode == 0 {
+				require.Nil(t, resp, "%q must reach the cancel apply", tc.status)
+				require.Equal(t, "T1", target.ID)
+				require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
+				return
+			}
+
+			require.NotNil(t, resp, "%q must be answered before the cancel apply", tc.status)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantCode == http.StatusAccepted {
+				require.Contains(t, rec.Body.String(), reindexCancelStatusNoOp)
+				require.Equal(t, "reindex_task_cancel_noop", auditEvent(t, hook))
+				return
+			}
+
+			body := rec.Body.String()
+			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
+			// False for PREPARING: no node has swapped yet, and PREP runs
+			// for minutes at billion-scale where SWAP runs for tens of ms.
+			require.NotContains(t, body, "swap is in progress")
+			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
 		})
 	}
 }
 
-// Pins: the lookup key includes collection, so a shared shard name
-// doesn't falsely flag an unrelated collection as busy.
-func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
+// auditEvent returns the audit_event field of the single audit line the
+// hook captured.
+func auditEvent(t *testing.T, hook *logrustest.Hook) string {
+	t.Helper()
+	var events []string
+	for _, e := range hook.AllEntries() {
+		if v, ok := e.Data["audit_event"]; ok {
+			events = append(events, v.(string))
+		}
+	}
+	require.Len(t, events, 1, "the cancel arm must emit exactly one audit line")
+	return events[0]
+}
 
-	task := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+// Pins: a cancel refused at apply time answers the same way the pre-flight
+// would have. The status can flip between the list read and the apply, and
+// the 500 that used to result rendered the sentinel's internal marker into
+// the response body.
+func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
+	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
-			UnitToShard:   map[string]string{"u1": "shard-1"},
 		}, nil)
 
 	for _, tc := range []struct {
-		name       string
-		collection string
-		shard      string
-		want       bool
+		name      string
+		err       error
+		wantCode  int
+		wantAudit string
+		wantBody  string
 	}{
-		{"migrating collection and shard", "C", "shard-1", true},
-		{"same shard name under another collection", "Other", "shard-1", false},
-		{"migrating collection, other shard", "C", "shard-2", false},
+		{
+			name:      "task is no longer running",
+			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			wantCode:  http.StatusConflict,
+			wantAudit: "reindex_task_cancel_refused",
+			wantBody:  "T1",
+		},
+		{
+			name:      "task does not exist",
+			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskDoesNotExist),
+			wantCode:  http.StatusAccepted,
+			wantAudit: "reindex_task_cancel_noop",
+			wantBody:  reindexCancelStatusNoOp,
+		},
+		{
+			name:     "anything else",
+			err:      errors.New("raft unavailable"),
+			wantCode: http.StatusInternalServerError,
+			wantBody: "raft unavailable",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want,
-				shardReindexActivityLookup([]*distributedtask.Task{task}, logger)(tc.collection, tc.shard))
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			rec := httptest.NewRecorder()
+			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
+				WriteResponse(rec, runtime.JSONProducer())
+
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
+			require.NotContains(t, rec.Body.String(), "dtm-perm/",
+				"the sentinel's internal marker is not user-facing")
+			if tc.wantAudit == "" {
+				return
+			}
+			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
 		})
 	}
+}
+
+// Pins: an in-flight task whose payload will not decode is logged rather
+// than skipped in silence. It may be the very task the operator is trying
+// to cancel, and the answer they get is a NO_OP.
+func TestFindCancelTarget_LogsUndecodablePayload(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	target, _ := findCancelTarget([]*distributedtask.Task{{
+		Namespace:      db.ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bad", Version: 1},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        []byte("not json"),
+	}}, "C", "foo", "filterable", logger)
+
+	require.Nil(t, target)
+	require.Len(t, hook.AllEntries(), 1)
+	require.Equal(t, "T_bad", hook.AllEntries()[0].Data["task_id"])
 }

@@ -823,12 +823,12 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	// replays this entry writes CANCELLED under exactly the same
 	// condition. Classifying instead would let a node that has never
 	// heard of the status cancel a migration a newer node is still
-	// coordinating, and follower apply errors are discarded — the
+	// coordinating, and follower apply errors are discarded, so the
 	// divergence would be silent.
 	//
-	// The operator-facing "this task is past the point of no return"
-	// message for the coordination phases lives in the REST layer, which
-	// is free to classify because nothing downstream replays its answer.
+	// The operator-facing message for the coordination phases lives in
+	// the REST layer, which is free to classify because nothing
+	// downstream replays its answer.
 	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}

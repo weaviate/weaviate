@@ -169,13 +169,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
@@ -376,13 +370,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_change_tok", Version: 1},
@@ -570,13 +558,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties: []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
@@ -640,13 +622,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
@@ -727,3 +703,12 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// blockingStatuses are the non-terminal statuses every reindex conflict
+// guard must refuse a mutation for, the unrecognized one included.
+var blockingStatuses = []distributedtask.TaskStatus{
+	distributedtask.TaskStatusStarted,
+	distributedtask.TaskStatusPreparing,
+	distributedtask.TaskStatusSwapping,
+	unknownFutureStatus,
+}

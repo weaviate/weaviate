@@ -31,8 +31,9 @@ typical journeys it unlocks:
 - Repair a bucket suspected of corruption: `repair-filterable`,
   `repair-searchable` (which is also the Map → Blockmax format
   upgrade), `repair-rangeable`.
-- Cancel an in-flight migration; the cluster cleans up the partial
-  state and the property is back to its pre-submit on-disk shape.
+- Cancel a migration that has not yet entered its cluster-wide
+  coordination phase; the cluster cleans up the partial state and the
+  property is back to its pre-submit on-disk shape.
 
 The whole feature is built on top of three substrates:
 
@@ -59,8 +60,9 @@ together into one user-visible verb on `PUT
 > a migration returns `400 Bad Request` with
 > `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
 > The cancel verb and `GET .../indexes` keep working, so a task that was
-> already running stays observable and stoppable. Everything below
-> describes behavior with the flag on.
+> already running stays observable and, until it enters a coordination
+> phase, cancellable (§12). Everything below describes behavior with the
+> flag on.
 >
 > **With the flag off, a replica move can kill a running migration.** The
 > backup path's reindex check is skipped, so a replica move — or any other
@@ -86,7 +88,7 @@ Submit a migration. Body shape selects which one:
 | `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
+| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a cancellable task is cancelled (`STARTED`, or a status this build does not recognize), 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled), 409 when the task has already entered a coordination phase (`PREPARING` / `SWAPPING`). See §12. |
 
 Query parameters:
 
@@ -100,15 +102,19 @@ Response shapes:
 
 - `202 Accepted` — for submit, body contains the new task ID. For the
   cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
-  + `taskId` when a STARTED task was cancelled, or `Status: NO_OP` (no
-  `taskId`) when nothing matched. The cancel verb is idempotent and
+  + `taskId` when a cancellable task was cancelled, or `Status: NO_OP`
+  (no `taskId`) when nothing matched. The cancel verb is idempotent and
   never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with a structured next-step
   hint (e.g. "property X has no searchable index; use
   `{filterable:{tokenization:...}}` to retokenize the filterable bucket").
 - `404 Not Found` — class or property doesn't exist.
-- `409 Conflict` — an in-flight task already touches this property.
-  The error names the offending task ID and migration type.
+- `409 Conflict` — two distinct meanings on this operation. On a submit,
+  an in-flight task already touches this property; the error names the
+  offending task ID and migration type. On the cancel verb, the target
+  task is in a coordination phase (`PREPARING` / `SWAPPING`) and is past
+  the point where cancelling is safe; the error names the task ID and its
+  status, and the caller has to wait for a terminal state.
 - `429 / 503` — per-collection in-flight cap reached (default 32) or
   cluster-service unavailable.
 
@@ -472,8 +478,9 @@ Key types & contracts:
   (`UpdateProperty`/`DeleteClass`/`DeleteTenants`/`UpdateTenants`)
   while a reindex is in flight. Implementation:
   `ReindexProvider.CheckPropertyUpdate` / `CheckClassMutation` /
-  `CheckTenantMutation`. Uses `TaskStatus.IsActive()` so PREPARING,
-  SWAPPING, and STARTED all count as "in flight" for mutation gating.
+  `CheckTenantMutation`. Uses `TaskStatus.IsActive()`, so every
+  non-terminal status counts as "in flight" for mutation gating (see
+  **Task status classification** below).
 - **`TaskStatusPreparing` and `TaskStatusSwapping`** — the post-units,
   pre-FINISHED coordination states that split per-node PREP from
   per-node SWAP with a cluster-wide PreparationCompleteAck barrier in between.
@@ -512,6 +519,61 @@ Key types & contracts:
   phrasing; the classifier substring-matches as a fallback). See
   [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go).
 
+#### Task status classification
+
+`TaskStatus` is classified by four predicates in
+[`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go):
+
+| Predicate | True for |
+|---|---|
+| `IsTerminal()` | `FINISHED`, `FAILED`, `CANCELLED` |
+| `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
+| `IsCoordinationPhase()` | `PREPARING`, `SWAPPING` |
+| `IsRecognized()` | any status this build declares |
+
+Because `IsActive()` is the negation of `IsTerminal()` rather than a list
+of known in-flight statuses, **a status this build does not recognize
+counts as in flight**. That is the case an older node hits when a newer
+release introduces a status and the cluster is mid rolling-upgrade.
+`IsRecognized()` deliberately has no `default` case, so the `exhaustive`
+linter fails until a newly added status is classified here.
+
+The default is fail-closed on purpose: reading an unknown status as
+"done" would admit a second migration onto a property a newer node is
+still migrating, and would let the orphan audit and the TTL sweep delete
+live state. It costs availability instead. Until such a task reaches a
+terminal status or is cancelled, the node:
+
+- rejects schema mutations overlapping the task's properties, and rejects
+  new reindex submits that overlap them (`CheckPropertyUpdate`,
+  `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
+- refuses backups on the shards the task lists
+  (`shardReindexActivityLookup` feeding `DB.AnyLiveReindexForShard`);
+- reports the property's index as `indexing` on `GET .../indexes` rather
+  than `ready` or `pending`, since the per-unit progress does not prove
+  that no shard has started;
+- keeps the task's on-disk tracker dirs, because the orphan audit reads
+  the task as live (`liveReindexTrackerLookup`);
+- never TTL-cleans the task: both the `Scheduler` sweep and
+  `Manager.CleanUpTask` skip non-terminal tasks, and the age check alone
+  would not stop them.
+
+`Scheduler.warnOnUnrecognizedStatuses` emits one sampled warn line per
+tick naming every task in an unrecognized status, and exports
+`weaviate_distributed_tasks_unrecognized_status` per namespace, so the
+state is diagnosable and alertable rather than visible only through its
+symptoms.
+
+The cost of the two directions is asymmetric, which is what governs how
+new statuses get introduced. Adding a new **terminal** status is only
+safe once every version in the supported upgrade and rollback range
+recognizes it: a node that does not will read a finished task as in
+flight indefinitely, dropping schema mutations the rest of the cluster
+has already committed. Adding a new **non-terminal** status is cheaper,
+because the fail-closed reading is the correct one, but it is not free:
+such a node still refuses backups on the collection and reports the index
+as `indexing`.
+
 ### 4.3 Schema FSM — `cluster/schema/` + `cluster/proto/api/`
 
 Three changes here serve the reindex feature:
@@ -539,10 +601,10 @@ explicit opt-out signal that's set only by the provider's
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
 `DeleteClass`, `UpdateTenants(FROZEN)`, `DeleteTenants` apply.
-`ReindexProvider`'s implementation rejects any mutation overlapping an
-in-flight reindex task's properties on the (`STARTED`, `PREPARING`,
-or `SWAPPING`; admitted via `TaskStatus.IsActive()`)
-same collection. The motivating failure mode is documented verbatim on
+`ReindexProvider`'s implementation rejects any mutation overlapping the
+properties of an in-flight reindex task on the same collection. In flight
+means any non-terminal status, admitted via `TaskStatus.IsActive()` (see
+§4.2). The motivating failure mode is documented verbatim on
 `CheckPropertyUpdate`'s godoc: a `change-tokenization` migration spawns
 separate per-shard sub-tasks for searchable and filterable; a DELETE
 arrives mid-flight; `cleanStaleMigrationDirs` wipes the searchable
@@ -920,8 +982,9 @@ the FSM apply path then ran `cleanStaleMigrationDirs` for every index
 whose flag was now false — wiping the in-flight migration's working
 directory. The closure happens at submit time: reject any new task
 whose property set overlaps an in-flight task's, so the caller gets a
-clean conflict error and can serialize. `PREPARING` and `SWAPPING`
-both count as in-flight (via `TaskStatus.IsActive()`).
+clean conflict error and can serialize. Every non-terminal status counts
+as in-flight (via `TaskStatus.IsActive()`), `PREPARING` and `SWAPPING`
+included; see §4.2.
 
 **Cluster-wide FSM schema-mutation check**
 (`SchemaMutationDetector`). See §4.3. Blanket reject any external
@@ -1170,20 +1233,31 @@ phases of different concerns and don't share state.
 
 **Cancel** (`{"<type>":{"cancel":true}}`):
 
-1. Find the STARTED task targeting `(collection, prop, indexType)`.
+1. Find the non-terminal task targeting `(collection, prop, indexType)`.
    If none matches (already finished, never submitted, or already
    cancelled), return 202 with `Status: NO_OP` and no `taskId`. The
    verb is idempotent: caller's `(collection, property)` was already
    verified to exist by the outer handler, so "nothing to cancel" is
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
-2. RAFT `CancelDistributedTask`.
-3. Wait for the local reindex goroutine to drain
+2. If that task is in a coordination phase (`PREPARING` / `SWAPPING`),
+   return 409 and stop. Some nodes may already have swapped their bucket
+   directories; stopping the rest would leave the cluster serving
+   migrated buckets under the pre-migration schema, repairable only by
+   an operator following the guidance the provider logs. The task has to
+   run through to `FINISHED` or `FAILED`. The REST
+   handler and `Manager.CancelTask` apply the same rule, so a cancel that
+   loses the race to a phase transition is refused at the FSM too.
+   Everything else is cancellable: `STARTED`, and any status this build
+   does not recognize (§4.2), which the same conflict guards are already
+   blocking mutations on with cancel named as the remedy.
+3. RAFT `CancelDistributedTask`.
+4. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
-4. `CleanStalePartialReindexState` — wipe sidecars + migration dir
+5. `CleanStalePartialReindexState` — wipe sidecars + migration dir
    so the next submit starts from a clean slate.
-5. 202 with `Status: CANCELLED` + the cancelled task ID.
+6. 202 with `Status: CANCELLED` + the cancelled task ID.
 
 If the drain times out, return 202 anyway — the next submit's
 defense-in-depth cleanup will pick up the work. If the node crashes
@@ -1251,7 +1325,7 @@ while running v1.38 Preview.
 **DTM**
 
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
-- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, `TaskStatus.IsActive()` / `IsCoordinationPhase()` helpers.
+- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, and the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCoordinationPhase()` / `IsRecognized()` classification helpers (§4.2).
 - [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `RecordPostCompletionAck`, `MarkTaskFinalized` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.
 - [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go) — permanent-rejection sentinels + gRPC wire encoding.
