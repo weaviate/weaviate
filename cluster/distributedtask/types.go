@@ -53,19 +53,46 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // serialized: under overflow the same observer can run on several goroutines
 // at once, so it must be safe for concurrent invocation.
 //
-// Delivery is best-effort, so an observer must reconcile against
-// [Manager.ListDistributedTasks] on registration and must not treat "no event"
-// as "not terminal". Four cases:
-//   - Endings already in the local RAFT log at startup are skipped.
-//   - Endings replicated as log entries after startup fire, even when old, so
-//     observers must be idempotent and must not assume the ending is recent.
-//   - Endings that arrive inside an installed snapshot never fire: a follower
-//     far enough behind for the leader to have compacted its log gets the state
-//     through [Manager.Restore], which merges tasks without dispatching.
-//   - A non-terminal task removed by the DELETE_CLASS cascade
-//     ([Manager.DeleteTasksForCollection]) never goes CANCELLED or FAILED, so it
-//     never fires — and afterwards it is gone from ListDistributedTasks too, so
-//     observers must not wait indefinitely for an ending on any one task.
+// One queue and one drainer serve every registered namespace, and the event
+// dropped when both fill up is the arriving one. So an observer that blocks
+// delays — and eventually loses — every other namespace's endings, and the
+// endings lost are the freshest ones. Return promptly.
+//
+// # Delivery is best-effort
+//
+// Never read "no event" as "not terminal". These endings do not fire:
+//
+//   - Endings already in this node's local RAFT log when it opened are skipped
+//     as replay. Most finished long ago. The tail of that log can also hold
+//     entries the node persisted but never applied before an unclean shutdown;
+//     those end for the first time on the replay and are skipped anyway,
+//     because the flag cannot tell the two apart.
+//   - Endings inside an installed snapshot: a follower far enough behind for
+//     the leader to have compacted its log gets the state through
+//     [Manager.Restore], which merges tasks without dispatching.
+//   - Endings applied while the namespace has no observer registered. They are
+//     dropped on the spot, never queued for a later registrant.
+//   - Endings dropped because the queue and the overflow bound are both full.
+//     Both drop arms log at error level with the namespace, task ID and version.
+//
+// Endings replicated as log entries after startup do fire, even when old, so
+// observers must be idempotent and must not assume the ending is recent.
+//
+// # Recovering an ending that did not fire
+//
+// Reconcile against the task list — but not at registration time. Registration
+// has to happen before the store opens (see
+// cluster.Raft.RegisterDistributedTaskTerminalObserver), and at that point this
+// node's task map is still empty and the list surface a consumer holds,
+// cluster.Raft.ListDistributedTasks, is leader-routed with no leader to reach.
+// Reconcile once the node has caught up, after cluster.Service.Open returns,
+// and again on whatever period a missed ending is still worth catching: a
+// snapshot installed later in the node's life announces nothing either.
+//
+// Reconciling cannot recover one case. A non-terminal task removed by the
+// DELETE_CLASS cascade ([Manager.DeleteTasksForCollection]) never goes
+// CANCELLED or FAILED and is gone from the listing afterwards, so nothing ever
+// reports it. Observers must not wait indefinitely on any one task.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.

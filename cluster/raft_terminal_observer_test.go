@@ -119,6 +119,84 @@ func TestRaftTerminalObserverWiring(t *testing.T) {
 		"Store.Close on the opened path must stop terminal dispatch")
 }
 
+// Pins the reconcile half of the delivery contract. An observer that misses an
+// ending has exactly one remedy — the leader-routed task list — and the
+// contract has to say when it can be called, because the registration point it
+// mandates is not it.
+func TestTerminalObserverReconcileNeedsACaughtUpNode(t *testing.T) {
+	const namespace = "terminal-observer-reconcile-test"
+
+	t.Run("at registration time the list has no leader to reach", func(t *testing.T) {
+		m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+		srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+		t.Cleanup(m.store.distributedTasksManager.Close)
+
+		var probe terminalObserverProbe
+		srv.RegisterDistributedTaskTerminalObserver(namespace, func(task *distributedtask.Task) {
+			probe.record(task.ID, string(task.Status))
+		})
+
+		// Bounded: without a deadline the query backs off for ten election
+		// timeouts before giving up.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		_, err := srv.ListDistributedTasks(ctx)
+		require.Error(t, err,
+			"registration happens before Open, where this node is not the leader and knows of none, "+
+				"so reconciling here cannot be what the contract asks for")
+	})
+
+	t.Run("once the node is caught up the list reports an ending nobody announced", func(t *testing.T) {
+		ctx := context.Background()
+		m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+		addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+		srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+
+		var probe terminalObserverProbe
+		srv.RegisterDistributedTaskTerminalObserver(namespace, func(task *distributedtask.Task) {
+			probe.record(task.ID, string(task.Status))
+		})
+
+		m.indexer.On("Open", Anything).Return(nil)
+		m.indexer.On("Close", Anything).Return(nil)
+		require.NoError(t, srv.Open(ctx, m.indexer))
+		t.Cleanup(func() { require.NoError(t, srv.Close(ctx)) })
+		require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+		require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
+		require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
+		require.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+
+		require.NoError(t, srv.AddDistributedTask(ctx, namespace, "task-1", map[string]string{"k": "v"}, []string{"u1"}))
+
+		// Apply the ending with catchingUp set, the way Store.Apply does for a
+		// log entry that was already on disk when the node opened. That is the
+		// case the contract sends a consumer to the list for.
+		cancelBytes, err := json.Marshal(&cmd.CancelDistributedTaskRequest{
+			Namespace: namespace, Id: "task-1",
+			Version:               taskVersion(t, srv.store, namespace, "task-1"),
+			CancelledAtUnixMillis: time.Now().UnixMilli(),
+		})
+		require.NoError(t, err)
+		require.NoError(t, srv.store.distributedTasksManager.CancelTask(
+			&cmd.ApplyRequest{SubCommand: cancelBytes}, true))
+
+		require.Never(t, func() bool { return len(probe.snapshot()) > 0 },
+			300*time.Millisecond, 25*time.Millisecond,
+			"a replayed ending must stay silent; that silence is what reconciling exists to cover")
+
+		listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		tasks, err := srv.ListDistributedTasks(listCtx)
+		require.NoError(t, err,
+			"once the node is caught up the remedy the contract names must actually run")
+		require.Len(t, tasks[namespace], 1)
+		require.Equal(t, "task-1", tasks[namespace][0].ID)
+		require.Equal(t, distributedtask.TaskStatusCancelled, tasks[namespace][0].Status,
+			"reconciling must show the terminal status the observer was never told about")
+	})
+}
+
 // Pins that Store.Close on a never-opened store still shuts the task
 // manager's dispatch down: its drainer starts at observer registration, in
 // New, before Open ever runs.

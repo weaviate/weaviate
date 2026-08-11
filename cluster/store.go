@@ -455,9 +455,15 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 
 // RegisterDistributedTaskTerminalObserver installs a namespace's
 // [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
-// see that type for the apply-path contract. Register before [Store.Open],
-// like collection extractors: endings applied with no observer registered
-// are not queued for later registrants and are missed.
+// see that type for the apply-path contract. Register before [Store.Open]:
+// endings applied with no observer registered are dropped on the spot, not
+// queued for a later registrant.
+//
+// Registration is not where a consumer reconciles the endings that never
+// fire. Before Open this node's task map is still empty, and
+// [Raft.ListDistributedTasks] is leader-routed, so it has no leader to reach
+// and returns an error after backing off. Reconcile once the node has caught
+// up, after [Service.Open] returns.
 func (st *Store) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
 	st.distributedTasksManager.RegisterTerminalObserver(namespace, observer)
 }
