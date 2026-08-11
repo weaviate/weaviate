@@ -178,6 +178,12 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "reaches a terminal state")
+	// A STARTED task with no working unit and no progress reads as
+	// "pending" on the GET while the gate is already refusing, so naming
+	// only "indexing" leaves an operator watching a pill that never
+	// showed up.
+	require.Contains(t, err.Error(), `status="pending"`)
+	require.Contains(t, err.Error(), `status="indexing"`)
 	require.Contains(t, err.Error(), "accepted only while the task is STARTED")
 	require.Contains(t, err.Error(), "409")
 }

@@ -1600,15 +1600,19 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// merged/tidied generations by design, and both sides read
 				// the same completedMigrationGens
 				// (TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads).
-				// Probing first anyway keeps the answer independent of that.
-				// Only here: the FAILED arm logs the guidance
-				// unconditionally, so the probe's shard loads would buy it
-				// nothing.
-				tornLocally := p.probeLocalPostMergeState(payload)
+				// Probing before it anyway keeps the answer independent of
+				// that. Only after the ack maps, though: they decide the
+				// same boolean, and the probe force-loads every shard the
+				// payload names, inline on the scheduler tick. The FAILED
+				// arm makes the same argument one level up, where the
+				// guidance is unconditional.
+				tornLocally := len(task.PostCompletionAcks) > 0 ||
+					len(task.PreparationCompletionAcks) > 0
+				if !tornLocally {
+					tornLocally = p.probeLocalPostMergeState(payload)
+				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
-				if tornLocally ||
-					len(task.PostCompletionAcks) > 0 ||
-					len(task.PreparationCompletionAcks) > 0 {
+				if tornLocally {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
 			case distributedtask.TaskStatusStarted,
@@ -1688,9 +1692,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
-	drainErr := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor)
-	if drainErr != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, drainErr)
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)

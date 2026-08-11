@@ -873,6 +873,9 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
 			http.StatusConflict, "wait for it to reach a terminal state",
 		},
+		// The three terminal rows never reach the refusal logic: they
+		// are filtered out as cancel targets, so what they pin is that a
+		// finished task is a NO_OP rather than a 409.
 		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
 		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
 		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
@@ -957,17 +960,40 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 		wantCode  int
 		wantAudit string
 		wantBody  string
+		// wantAbsent is text the body must not carry, for the arms
+		// where the obvious wording would be wrong.
+		wantAbsent []string
 	}{
 		{
-			name:      "task is no longer running",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			// The FSM stamps the on-wire marker into the message, and it
+			// survives the gRPC round trip, so the error this arm really
+			// receives carries one. Built with it here, otherwise the
+			// "no marker in the body" assertion below has nothing to
+			// leak.
+			name: "task is no longer running",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-running] task reindex/T1/1 is no longer running: %w",
+					distributedtask.ErrTaskNotRunning)),
 			wantCode:  http.StatusConflict,
 			wantAudit: "reindex_task_cancel_refused",
-			wantBody:  "T1",
+			wantBody:  "changed status between",
+			// The target still reads STARTED — the pre-flight would not
+			// have let the request reach the apply otherwise — and the
+			// apply has just proved it is not STARTED any more. Naming
+			// that status is wrong, and so is the coordination-phase
+			// advice: the task may have raced to a terminal state, which
+			// is the very thing that advice tells the operator to wait
+			// for.
+			wantAbsent: []string{
+				string(distributedtask.TaskStatusStarted),
+				"wait for it to reach a terminal state",
+			},
 		},
 		{
-			name:      "task does not exist",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskDoesNotExist),
+			name: "task does not exist",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-exist] task reindex/T1/1 does not exist: %w",
+					distributedtask.ErrTaskDoesNotExist)),
 			wantCode:  http.StatusAccepted,
 			wantAudit: "reindex_task_cancel_noop",
 			wantBody:  reindexCancelStatusNoOp,
@@ -987,14 +1013,66 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
 				WriteResponse(rec, runtime.JSONProducer())
 
-			require.Equal(t, tc.wantCode, rec.Code)
-			require.Contains(t, rec.Body.String(), tc.wantBody)
+			// Asserted first on purpose: a status assertion failing
+			// ahead of it would abort the subtest and leave the marker
+			// unchecked on exactly the arm that leaked it.
 			require.NotContains(t, rec.Body.String(), "dtm-perm/",
 				"the sentinel's internal marker is not user-facing")
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
+			for _, absent := range tc.wantAbsent {
+				require.NotContains(t, rec.Body.String(), absent)
+			}
 			if tc.wantAudit == "" {
 				return
 			}
 			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
+		})
+	}
+}
+
+// Pins the selection policy when several in-flight tasks match: a
+// cancellable one wins, so the operator never gets a 409 while a task
+// the FSM would have cancelled sits further down the list. With none
+// cancellable the first match is reported, so the refusal names a task
+// they can look up.
+func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+	task := func(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+		return buildTask(t, id, status, payload, nil)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		tasks  []*distributedtask.Task
+		wantID string
+	}{
+		{
+			name: "a cancellable task behind a coordination phase",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("started", distributedtask.TaskStatusStarted),
+			},
+			wantID: "started",
+		},
+		{
+			name: "none cancellable, so the first match is refused",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("preparing", distributedtask.TaskStatusPreparing),
+			},
+			wantID: "swapping",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, _ := findCancelTarget(tc.tasks, "C", "foo", "filterable", logger)
+			require.NotNil(t, target)
+			require.Equal(t, tc.wantID, target.ID)
 		})
 	}
 }

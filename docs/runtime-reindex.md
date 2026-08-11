@@ -557,12 +557,12 @@ it to, since this one refuses the cancel too — the node:
   new reindex submits that overlap them (`CheckPropertyUpdate`,
   `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
 - refuses backups on the shards the task lists
-  (`shardReindexActivityLookup` feeding `DB.AnyLiveReindexForShard`);
+  (`NewShardReindexActivityLookup` feeding `DB.AnyLiveReindexForShard`);
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
 - keeps the task's on-disk tracker dirs, because the orphan audit reads
-  the task as live (`liveReindexTrackerLookup`);
+  the task as live (`NewLiveReindexTrackerLookup`);
 - refuses to cancel it — `IsCancellable()` is `== STARTED`, so the REST
   verb answers `409` and `Manager.CancelTask` refuses the apply (§12);
 - never proposes a TTL clean-up for it: the `Scheduler` sweep skips every
@@ -578,18 +578,28 @@ reads the leader's view, so a clean-up for such a task exists only once
 the cluster already considers it done
 (`TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer`).
 
-`Scheduler.warnOnUnrecognizedStatuses` emits one sampled warn line per
-tick naming every task in an unrecognized status, and exports
-`weaviate_distributed_tasks_unrecognized_status` per namespace, so the
-state is diagnosable and alertable rather than visible only through its
-symptoms.
+`Scheduler.warnOnUnrecognizedStatuses` names every task in an
+unrecognized status on one aggregated warn line, sampled at three lines
+an hour. The condition holds until an operator acts on it, so the log is
+the diagnostic and not the signal: the per-namespace gauge
+`weaviate_distributed_tasks_unrecognized_status` is written on every
+tick, which is what makes the state alertable. The line does not offer a
+cancel — the FSM refuses one for exactly this task set.
 
 The cost of the two directions is asymmetric, which is what governs how
 new statuses get introduced. Adding a new **terminal** status is only
 safe once every version in the supported upgrade and rollback range
-recognizes it: a node that does not will read a finished task as in
-flight indefinitely, dropping schema mutations the rest of the cluster
-has already committed. Adding a new **non-terminal** status is cheaper,
+recognizes it: a node that does not reads a finished task as in flight,
+dropping schema mutations the rest of the cluster has already committed.
+That window normally closes at `completedTaskTTL` — a node that does
+recognize the status proposes the clean-up, the entry replicates, and
+the unrecognized arm of `CleanUpTask` above deletes the old node's copy.
+Two cases have no such bound: a **full rollback**, where no node
+recognizes the status so nothing ever proposes a clean-up, and a node
+that misses the clean-up entry and is caught up by a snapshot instead,
+because `Manager.Restore` merges into the existing task map rather than
+replacing it (weaviate/0-weaviate-issues#245, fixed by #11416).
+Adding a new **non-terminal** status is cheaper,
 because the fail-closed reading is the correct one, but it is not free:
 such a node still refuses backups on the collection and reports the index
 as `indexing`.
