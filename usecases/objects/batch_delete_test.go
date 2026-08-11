@@ -363,6 +363,66 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 	})
 }
 
+// The gRPC entry point is called with pre-validated params, so it resolves the
+// collection's schema version itself instead of through validateBatchDelete.
+func Test_BatchDelete_FromGRPC_Waits_For_SchemaVersion(t *testing.T) {
+	const classVersion uint64 = 9
+
+	tests := []struct {
+		name      string
+		lookupErr error
+		waitErr   error
+		wantErr   string
+	}{
+		{
+			name: "deleted",
+		},
+		{
+			name:    "local schema never catches up",
+			waitErr: errors.New("deadline exceeded"),
+			wantErr: "error waiting for local schema to catch up to version 9",
+		},
+		{
+			name:      "collection lookup fails",
+			lookupErr: errors.New("leader unreachable"),
+			wantErr:   "could not get class Foo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class: "Foo", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+			}}}}
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Once()
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: sch,
+				ClassVersion:      classVersion,
+				WaitForUpdateErr:  tt.waitErr,
+				GetschemaErr:      tt.lookupErr,
+			}
+			cfg := &config.WeaviateConfig{}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			_, err := manager.DeleteObjectsFromGRPCAfterAuth(context.Background(), &models.Principal{},
+				BatchDeleteParams{ClassName: "Foo"}, nil, "")
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				vectorRepo.AssertNotCalled(t, "BatchDeleteObjects", mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, classVersion, vectorRepo.CapturedSchemaVersion,
+				"the delete must be made with the collection's schema version")
+		})
+	}
+}
+
 func ptBool(b bool) *bool {
 	return &b
 }

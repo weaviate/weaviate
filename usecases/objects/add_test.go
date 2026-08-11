@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -266,32 +267,76 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 }
 
-func Test_Add_Object_Uses_Max_SchemaVersion_For_Write_With_AutoTenant(t *testing.T) {
+func Test_Add_Object_Waits_For_Max_SchemaVersion_Before_Write(t *testing.T) {
 	const autoSchemaVersion uint64 = 41
 	const tenantVersion uint64 = 42
 
-	sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+	mtClass := &models.Class{
 		Class: "FooMT", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, AutoTenantCreation: true},
-	}}}}
+	}
 
-	vectorRepo := &fakeVectorRepo{}
-	vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
-	schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, AddTenantsSchemaVersion: tenantVersion, AutoSchemaVersion: autoSchemaVersion}
-	cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)}}}
-	authorizer := mocks.NewMockAuthorizer()
-	logger, _ := test.NewNullLogger()
-	modulesProvider := getFakeModulesProvider()
-	metrics := &fakeMetrics{}
-	manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
-		NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+	tests := []struct {
+		name        string
+		classes     []*models.Class
+		object      *models.Object
+		waitErr     error
+		wantVersion uint64
+		wantErr     string
+	}{
+		{
+			name:        "tenant auto-created for an existing collection",
+			classes:     []*models.Class{mtClass},
+			object:      &models.Object{Class: "FooMT", Tenant: "t1"},
+			wantVersion: tenantVersion,
+		},
+		{
+			name:        "collection auto-created on first insert",
+			object:      &models.Object{Class: "FooNew", Properties: map[string]interface{}{"title": "v1"}},
+			wantVersion: autoSchemaVersion,
+		},
+		{
+			name:    "local schema never catches up",
+			object:  &models.Object{Class: "FooNew", Properties: map[string]interface{}{"title": "v1"}},
+			waitErr: errors.New("deadline exceeded"),
+			wantErr: "error waiting for local schema to catch up to version 41",
+		},
+	}
 
-	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: tt.classes}}
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse:       sch,
+				AddTenantsSchemaVersion: tenantVersion,
+				AutoSchemaVersion:       autoSchemaVersion,
+				WaitForUpdateErr:        tt.waitErr,
+			}
+			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)}}}
+			authorizer := mocks.NewMockAuthorizer()
+			logger, _ := test.NewNullLogger()
+			modulesProvider := getFakeModulesProvider()
+			metrics := &fakeMetrics{}
+			manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
-	_, err := manager.AddObject(context.Background(), nil, &models.Object{Class: "FooMT", Tenant: "t1"}, nil)
-	require.NoError(t, err)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
 
-	assert.Equal(t, tenantVersion, vectorRepo.CapturedSchemaVersion)
+			_, err := manager.AddObject(context.Background(), nil, tt.object, nil)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				vectorRepo.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantVersion, vectorRepo.CapturedSchemaVersion)
+			assert.GreaterOrEqual(t, schemaManager.MaxWaitedSchemaVersion, tt.wantVersion,
+				"local schema must have caught up to the version the write is made with")
+		})
+	}
 }
 
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {

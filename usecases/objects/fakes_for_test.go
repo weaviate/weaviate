@@ -54,7 +54,9 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	ClassVersion            uint64
 	AddClassPropertyErr     error
+	WaitForUpdateErr        error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
@@ -118,7 +120,7 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 		if err != nil {
 			return res, err
 		}
-		res[name] = versioned.Class{Class: cls}
+		res[name] = versioned.Class{Class: cls, Version: f.ClassVersion}
 	}
 	return res, nil
 }
@@ -209,6 +211,11 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 		f.MaxWaitedSchemaVersion = schemaVersion
 	}
 	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
+	// The real WaitForUpdate returns nil for version 0 without consulting RAFT,
+	// so the fake must not fail there either.
+	if schemaVersion > 0 {
+		return f.WaitForUpdateErr
+	}
 	return nil
 }
 
@@ -288,6 +295,7 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
@@ -295,6 +303,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }

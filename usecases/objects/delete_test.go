@@ -47,26 +47,66 @@ func Test_DeleteObjectsWithSameId(t *testing.T) {
 }
 
 func Test_DeleteObject(t *testing.T) {
+	const classVersion uint64 = 7
+
 	var (
 		cls         = "MyClass"
 		id          = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 		errNotFound = errors.New("object not found")
 	)
 
-	manager, repo, _, _ := newDeleteDependency()
-
-	repo.On("DeleteObject", cls, id, mock.Anything).Return(nil).Once()
-	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	assert.Nil(t, err)
-	repo.AssertExpectations(t)
-
-	// return internal error if deleteObject() fails
-	repo.On("DeleteObject", cls, id, mock.Anything).Return(errNotFound).Once()
-	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	if !errors.As(err, &ErrInternal{}) {
-		t.Errorf("error type got: %T want: ErrInternal", err)
+	tests := []struct {
+		name       string
+		repoErr    error
+		waitErr    error
+		wantErr    string
+		wantErrAs  any
+		wantDelete bool
+	}{
+		{
+			name:       "deleted",
+			wantDelete: true,
+		},
+		{
+			name:       "repo failure is internal",
+			repoErr:    errNotFound,
+			wantErrAs:  &ErrInternal{},
+			wantDelete: true,
+		},
+		{
+			name:    "local schema never catches up",
+			waitErr: errors.New("deadline exceeded"),
+			wantErr: "error waiting for local schema to catch up to version 7",
+		},
 	}
-	repo.AssertExpectations(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager, repo, _, smanager := newDeleteDependency()
+			smanager.ClassVersion = classVersion
+			smanager.WaitForUpdateErr = tt.waitErr
+			if tt.wantDelete {
+				repo.On("DeleteObject", cls, id, mock.Anything).Return(tt.repoErr).Once()
+			}
+
+			err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
+
+			switch {
+			case tt.wantErr != "":
+				require.ErrorContains(t, err, tt.wantErr)
+			case tt.wantErrAs != nil:
+				require.ErrorAs(t, err, tt.wantErrAs)
+			default:
+				require.NoError(t, err)
+			}
+			if !tt.wantDelete {
+				repo.AssertNotCalled(t, "DeleteObject", cls, id, mock.Anything)
+			}
+			repo.AssertExpectations(t)
+			assert.Equal(t, classVersion, smanager.MaxWaitedSchemaVersion,
+				"local schema must have caught up to the collection's version before the delete")
+		})
+	}
 }
 
 // TestDeleteObject_RbacResolveAlias is to make sure alias is resolved to correct

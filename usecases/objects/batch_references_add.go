@@ -119,7 +119,13 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		Shard string
 	}
 	uniqueClassShard := map[string]classAndShard{}
+	// db.AddBatchReferences reports a source class it cannot resolve as a per-ref
+	// error behind a 200, so the refs drop silently unless the wait below covers
+	// the versions they were validated against.
 	var schemaVersion uint64
+	for _, vc := range fetchedClasses {
+		schemaVersion = max(schemaVersion, vc.Version)
+	}
 	for i, ref := range refs {
 		if ref.Err != nil {
 			continue
