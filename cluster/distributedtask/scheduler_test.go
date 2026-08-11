@@ -1709,8 +1709,6 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	// (ErrBackupBlockedByInFlightReindex) inside backup.ErrUnprocessable;
 	// upstream callers select on the ErrUnprocessable shape so the
 	// envelope itself is the load-bearing contract.
-	// The condition comes from the production sentinel, not a literal copied
-	// from it: a rewording of the sentinel has to reach this assertion.
 	inflightErr := backup.NewErrUnprocessable(
 		fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
 			backup.ErrBackupBlockedByInFlightReindex, "Articles"),
@@ -1718,7 +1716,8 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	var unprocessable backup.ErrUnprocessable
 	require.True(t, errors.As(inflightErr, &unprocessable),
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
-	require.Contains(t, unprocessable.Error(), backup.ErrBackupBlockedByInFlightReindex.Error())
+	// Literal, not the sentinel, so a rewording trips this assertion.
+	require.Contains(t, unprocessable.Error(), "backup blocked: runtime-reindex in flight")
 }
 
 // Pins: the TTL sweep skips a task in an unrecognized status, while still
