@@ -340,7 +340,9 @@ type shardSyncChan struct {
 }
 
 // setSlotLogger wires the operation slot to a logger, so the writes it refuses
-// leave something behind.
+// leave something behind. Constructors only: it writes a field that the slot's
+// own lock guards everywhere else, so wiring a logger once the slot is reachable
+// from another goroutine is a data race.
 func (c *shardSyncChan) setSlotLogger(log logrus.FieldLogger) {
 	c.lastOp.log = log
 }

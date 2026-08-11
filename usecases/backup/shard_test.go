@@ -291,9 +291,9 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 		require.True(t, slot.set(backup.Cancelled))
 
 		var (
-			wg       sync.WaitGroup
-			gate     atomic.Bool
-			renewErr string
+			wg          sync.WaitGroup
+			gate        atomic.Bool
+			freshPrevID string
 		)
 		wg.Add(2)
 		go func() {
@@ -308,12 +308,12 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 			}
 			// Whichever of the two frees the slot, the fresh claim follows it.
 			slot.release()
-			renewErr, _ = s.renew(fresh, "path", "", "")
+			freshPrevID, _ = s.renew(fresh, "path", "", "")
 		}()
 		gate.Store(true)
 		wg.Wait()
 
-		require.Empty(t, renewErr)
+		require.Empty(t, freshPrevID)
 		require.Equal(t, fresh, s.get().ID,
 			"iteration %d: the fresh restore's claim was cleared by a stale release", i)
 	}

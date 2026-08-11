@@ -217,7 +217,9 @@ func (o *overlappingRestores) finish(t *testing.T) {
 }
 
 // Pins that a cancelled restore's goroutine and the retry that took its slot
-// share no operation state (race-detected; requires `go test -race`).
+// share no operation state. The race detector, not the assertion below, is what
+// checks that: the assertion only drives the two into overlapping, so this test
+// proves nothing unless it runs under `go test -race` (which CI does).
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()
 	const (

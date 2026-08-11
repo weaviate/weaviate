@@ -95,7 +95,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // only that its metadata is missing.
 //
 // A refused write is not acted on: the caller is on its way out either way, and
-// lastAsyncError keeps the reason for debugging.
+// the slot logs what it dropped.
 func (b *backupper) publishFailure(slot slotOwner, err error) {
 	b.lastAsyncError = err
 	slot.setFailed(err.Error())

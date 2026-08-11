@@ -600,7 +600,10 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
 	// Update the slot to prevent stale reads from OnStatus(), but only if it
-	// is still held by the restore being cancelled.
+	// still reads this backup id. That is weaker than ownership: a retry of the
+	// same id that claimed the slot in between gets stamped too. It stays narrow
+	// because Restore refuses to start while the descriptor reads CANCELLING, so
+	// such a retry has to have read the descriptor before that write landed.
 	stamped, held := s.restorer.lastOp.setIfOwned(backupID, backup.Cancelled)
 	logCancelStamp(s.logger, backupID, backup.Cancelled, stamped, held)
 	// The restore reached schema apply after the pre-check above. Stamping

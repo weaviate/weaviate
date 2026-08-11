@@ -57,7 +57,9 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			bp := &backupper{}
+			logger, _ := test.NewNullLogger()
+			bp := &backupper{logger: logger}
+			bp.setSlotLogger(logger)
 			prevID, slot := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
 			require.Empty(t, prevID)
 			tc.stamp(slot)
@@ -212,6 +214,7 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 
 			logger, _ := test.NewNullLogger()
 			bp := &backupper{logger: logger}
+			bp.setSlotLogger(logger)
 			prevID, slot := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
 			require.Empty(t, prevID)
 
@@ -280,6 +283,7 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 
 			logger, _ := test.NewNullLogger()
 			bp := &backupper{logger: logger}
+			bp.setSlotLogger(logger)
 			prevID, slot := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
 			require.Empty(t, prevID)
 
@@ -327,6 +331,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	bp := &backupper{logger: logger}
+	bp.setSlotLogger(logger)
 	prevID, slot := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
 	require.Empty(t, prevID)
 
