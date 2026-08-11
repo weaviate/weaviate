@@ -155,9 +155,8 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 	})
 }
 
-// newStatusUploaderFixture wires an uploader for one class whose descriptor
-// carries uploadErr and whose meta write returns metaErr, sharing the
-// backupper slot that OnStatus reads from.
+// newStatusUploaderFixture wires an uploader sharing the backupper slot
+// that OnStatus reads from.
 func newStatusUploaderFixture(t *testing.T, backupID, class string, uploadErr, metaErr error) (*backupper, *uploader, *backup.BackupDescriptor) {
 	t.Helper()
 	descriptors := make(chan backup.ClassDescriptor, 1)

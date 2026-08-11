@@ -1713,8 +1713,7 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	var unprocessable backup.ErrUnprocessable
 	require.True(t, errors.As(inflightErr, &unprocessable),
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
-	// Independent literal, deliberately not derived from the sentinel: a
-	// rewording of the sentinel text trips this assertion.
+	// Literal, not the sentinel, so a rewording trips this assertion.
 	require.Contains(t, unprocessable.Error(), "backup blocked: runtime-reindex in flight")
 }
 

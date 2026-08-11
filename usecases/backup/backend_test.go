@@ -1816,8 +1816,6 @@ func TestPublishableFailureMsg(t *testing.T) {
 			want:    refusal.Msg + "; uploading the backup metadata also failed: " + metaErr.Error(),
 		},
 		{
-			// Contains of "" is always true; without a guard the empty
-			// meta fault would look "already present" and vanish.
 			name:    "a meta fault with no text is still attached",
 			err:     fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
 			metaErr: errors.New(""),

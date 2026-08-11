@@ -410,8 +410,8 @@ func publishableFailureMsg(err, metaErr error) string {
 	if metaErr == nil {
 		return msg
 	}
-	// Contains of "" is always true, so a meta fault with no text must not
-	// count as already present.
+	// strings.Contains(msg, "") is always true; guard against an empty
+	// meta fault looking "already present".
 	if metaMsg := metaErr.Error(); metaMsg != "" && strings.Contains(msg, metaMsg) {
 		return msg
 	}

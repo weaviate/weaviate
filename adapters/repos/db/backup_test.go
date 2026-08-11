@@ -559,9 +559,8 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
-// wireGateRefusalIndex points idx at a hooked logger and a lookup that
-// reports every shard as reindexing, so descriptor calls hit the gate.
-// Debug on so a per-shard gate line lands in the hook regardless of level.
+// wireGateRefusalIndex makes every shard report as reindexing so descriptor
+// calls hit the gate.
 func wireGateRefusalIndex(idx *Index) *tlog.Hook {
 	logger, hook := tlog.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -573,8 +572,6 @@ func wireGateRefusalIndex(idx *Index) *tlog.Hook {
 	return hook
 }
 
-// collectGateRefusalLog scans the hook for operator-facing gate entries and
-// returns how many there are plus the shard sample and count they report.
 func collectGateRefusalLog(hook *tlog.Hook) (gateLines int, sample []string, reportedCount int) {
 	for _, e := range hook.AllEntries() {
 		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {

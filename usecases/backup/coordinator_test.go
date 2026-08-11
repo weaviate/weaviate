@@ -954,9 +954,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectCanCommit bool
 		expectContain   []string
 		// Only the reindex refusal names no node; every other refusal keeps it.
-		expectNodeNamed bool
-		expectLogLevel  logrus.Level
-		// expectLogContain, when set, must appear in the logged message body.
+		expectNodeNamed  bool
+		expectLogLevel   logrus.Level
 		expectLogContain string
 	}{
 		{
@@ -1002,8 +1001,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectCanCommit: true,
 			expectNodeNamed: true,
 			expectLogLevel:  logrus.WarnLevel,
-			// resp.Err is empty, so the Warn line falls back to the typed
-			// error's text instead of logging an empty refusal.
+			// Empty resp.Err falls back to the typed error's text.
 			expectLogContain: errCannotCommit.Error(),
 		},
 		{
