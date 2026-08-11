@@ -109,6 +109,15 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 			raw:         `{"migrationType":"change-tokenization","properties":["title"]}`,
 			wantBlocked: true,
 		},
+		{
+			// Decodes cleanly and names another collection, so every
+			// later arm would wave it through — but half a payload is
+			// not enough to prove the task is unrelated, so both guards
+			// refuse on every collection.
+			name:        "decodes without a migration type, names another collection",
+			raw:         `{"collection":"Other","properties":["title"]}`,
+			wantBlocked: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			task := &distributedtask.Task{

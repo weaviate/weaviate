@@ -1798,6 +1798,9 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 		name string
 		// tasks are seeded before the first tick.
 		tasks []taskSpec
+		// localTasks are this node's own FSM copies, which the
+		// scheduler reads on top of the leader-routed list.
+		localTasks []taskSpec
 		// wantNamed is the task list the single warn line must carry;
 		// empty means no warn line at all.
 		wantNamed string
@@ -1834,12 +1837,33 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				"tasks-namespace/zeta@10=UNKNOWN_FUTURE_STATE",
 			wantGauges: map[string]float64{"tasks-namespace": 2, otherNamespace: 1},
 		},
+		{
+			// The ordinary case, not an edge case: production always
+			// wires the inspector, so a wedged task sits in the
+			// leader-routed list and in this node's own FSM at once.
+			name:       "the same task in both sources",
+			tasks:      []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
+			localTasks: []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
+			wantNamed:  "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE",
+			wantGauges: map[string]float64{"tasks-namespace": 1},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer leaktest.Check(t)()
 
 			h := newTestHarness(t)
 			h.registeredProviders[otherNamespace] = newTestTaskProvider(t, nil)
+			if len(tc.localTasks) > 0 {
+				inspector := localTaskInspectorStub{}
+				for _, spec := range tc.localTasks {
+					inspector[spec.namespace] = append(inspector[spec.namespace], &Task{
+						Namespace:      spec.namespace,
+						TaskDescriptor: TaskDescriptor{ID: spec.id, Version: spec.version},
+						Status:         spec.status,
+					})
+				}
+				h.localTaskInspector = inspector
+			}
 			h = h.init(t)
 
 			for _, spec := range tc.tasks {
@@ -1862,8 +1886,8 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				require.Empty(t, warns, "a recognized status must not warn")
 			} else {
 				require.Len(t, warns, 1, "every affected task must share one line")
-				require.Contains(t, warns[0], tc.wantNamed,
-					"every unrecognized task must be named, in a stable order")
+				require.Equal(t, 1, strings.Count(warns[0], tc.wantNamed),
+					"every unrecognized task must be named once, in a stable order")
 				require.NotContains(t, warns[0], "still-started",
 					"a recognized status must not be named")
 			}
