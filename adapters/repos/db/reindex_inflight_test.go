@@ -221,16 +221,20 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
-	// This reason covers PREPARING and SWAPPING too, and DTM accepts a cancel in
-	// both: it refuses one only for a task that already reached a terminal
-	// status, and such a task does not hold this gate. So the advice offers
-	// cancel without conditions, and must not send the operator to a restart.
+	// This reason covers PREPARING and SWAPPING too, where the cancel it names
+	// is refused ([distributedtask.TaskStatus.IsCancellable] is a literal
+	// == STARTED). The advice has to say so, or it promises a remedy the API
+	// answers with 409. It must still not send the operator to a restart.
 	require.Contains(t, err.Error(), "or lift this refusal now by cancelling it via")
 	require.Contains(t, err.Error(), `{"cancel":true}`)
-	require.Contains(t, err.Error(), "Cancel is accepted at every stage of a migration")
+	require.Contains(t, err.Error(), "accepted while the task is still STARTED",
+		"the advice must name the one status the cancel is accepted in")
+	require.Contains(t, err.Error(), "from PREPARING or SWAPPING on it is refused with 409",
+		"an operator told to cancel in a coordination phase gets a 409 and no next step")
+	require.NotContains(t, err.Error(), "Cancel is accepted at every stage",
+		"IsCancellable is == STARTED, so an unconditional promise is wrong")
 	require.NotContains(t, err.Error(), "RUNTIME_REINDEX_ENABLED",
 		"a wedged gate clears with a cancel; a cluster restart is not the escape hatch")
-	require.NotContains(t, err.Error(), "can only be waited out")
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
