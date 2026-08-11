@@ -55,6 +55,16 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			wantSlotID: "op-1",
 		},
 		{
+			// This release has no claim to key on, so the status is what keeps
+			// it off a retry: a fresh claim reads Started, never Cancelled.
+			name:       "retry of the same id holding the slot",
+			claimedID:  "op-1",
+			status:     backup.Started,
+			resetID:    "op-1",
+			wantOK:     false,
+			wantSlotID: "op-1",
+		},
+		{
 			name:       "cancelled op under a different id",
 			claimedID:  "op-2",
 			status:     backup.Cancelled,
