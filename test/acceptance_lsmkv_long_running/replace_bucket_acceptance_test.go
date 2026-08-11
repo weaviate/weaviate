@@ -228,14 +228,35 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 
 	i := 0
 	totalAsserted := 0
+
+	// deferred so that a worker returning early still reports what it measured.
+	// The caller sums every entry of results and calls Len() on the two queues,
+	// which panics on the zero value. Registered after wg.Done() so it runs
+	// before it.
+	defer func() {
+		results[workerID] = result{
+			workerID:        workerID,
+			worstPutQueries: worstPutQueries,
+			worstGetQueries: worstGetQueries,
+			ingested:        i,
+			getSpotChecks:   totalAsserted,
+		}
+
+		logger.WithField("imported", i).WithField("get_spot_checks", totalAsserted).Infof("completed worker")
+	}()
+
 	for ctx.Err() == nil {
 		if mode.isWrite() {
 			before := time.Now()
-			bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)), []byte(fmt.Sprintf("value-%d", i)))
+			if err := bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)),
+				[]byte(fmt.Sprintf("value-%d", i))); err != nil {
+				t.Errorf("failed to put key-%d: %s", i, err)
+				return
+			}
 			took := time.Since(before)
 			trackWorstQuery(worstPutQueries, i, took, trackWorstQueries)
 			if took > putThreshold {
-				logger.Warnf("put took too long: %s", time.Since(before))
+				logger.Warnf("put took too long: %s", took)
 			}
 
 			if i%100_000 == 0 {
@@ -261,7 +282,7 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 			}
 			took := time.Since(before)
 			if took > getThreshold {
-				logger.Warnf("get took too long: %s", time.Since(before))
+				logger.Warnf("get took too long: %s", took)
 			}
 
 			if string(val) != fmt.Sprintf("value-%d", j) {
@@ -275,16 +296,6 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 		}
 
 	}
-
-	results[workerID] = result{
-		workerID:        workerID,
-		worstPutQueries: worstPutQueries,
-		worstGetQueries: worstGetQueries,
-		ingested:        i,
-		getSpotChecks:   totalAsserted,
-	}
-
-	logger.WithField("imported", i).WithField("get_spot_checks", totalAsserted).Infof("completed worker")
 }
 
 func trackWorstQuery(heap *priorityqueue.Queue[float32], i int, took time.Duration, trackWorstQueries int) {
