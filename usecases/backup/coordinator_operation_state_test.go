@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -159,12 +160,16 @@ type overlappingRestores struct {
 	store    coordStore
 	client   *fakeClient
 	finished *atomic.Bool
+	// logs is how a test waits for a restore goroutine that stops without
+	// touching storage: the decision to stop is only observable as a log line.
+	logs *test.Hook
 }
 
 func newOverlappingRestores(t *testing.T, backupID, node string) *overlappingRestores {
 	t.Helper()
 	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil)
+	logger, hook := test.NewNullLogger()
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, logger, fc.nodeResolver, nil)
 	c.timeoutNextRound = time.Millisecond
 
 	backend := &restoreMetaBackend{}
@@ -178,7 +183,21 @@ func newOverlappingRestores(t *testing.T, backupID, node string) *overlappingRes
 		store:    coordStore{objectStore{backend, backupID, "", "", ""}},
 		client:   &fc.client,
 		finished: &atomic.Bool{},
+		logs:     hook,
 	}
+}
+
+// awaitLog waits for a restore goroutine to log msg.
+func (o *overlappingRestores) awaitLog(t *testing.T, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, e := range o.logs.AllEntries() {
+			if e.Message == msg {
+				return true
+			}
+		}
+		return false
+	}, 20*time.Second, 10*time.Millisecond, "no restore goroutine logged %q", msg)
 }
 
 // restore starts one restore and returns once its synchronous part is done.
@@ -300,6 +319,9 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 	require.Equal(t, backup.Transferring, o.backend.storedStatus(t))
 	close(resumed)
 
+	// Wait for the stale goroutine to actually reach its publish decision,
+	// otherwise "no write observed" would only mean "not yet".
+	o.awaitLog(t, "restore no longer holds the slot, stopping without publishing")
 	require.Never(t, func() bool { return o.backend.storedStatus(t) != backup.Transferring },
 		200*time.Millisecond, 10*time.Millisecond,
 		"the cancelled restore persisted its own outcome as the retry's")

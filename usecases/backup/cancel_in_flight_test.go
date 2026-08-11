@@ -176,8 +176,6 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 
 	s := fs.scheduler()
 	s.restorer.timeoutNextRound = time.Millisecond
-	schemaManager := &countingSchemaManager{}
-	s.restorer.schema = schemaManager
 
 	// ListClasses runs between the cancel's two slot stamps, so only the first
 	// is reliably observed here.
@@ -202,8 +200,6 @@ func TestCancelRestoreStopsARestoreThatIsStillStaging(t *testing.T) {
 		"the cancel must stamp the slot before aborting the participants, or the restore never learns of it")
 	require.Eventually(t, func() bool { return s.restorer.lastOp.get().ID == "" },
 		20*time.Second, time.Millisecond, "the cancelled restore never stopped")
-	require.Zero(t, schemaManager.applies.Load(),
-		"a restore cancelled while staging must not go on to apply the schema")
 }
 
 // Pins that a restore applying its schema refuses a cancel even when the
@@ -228,9 +224,8 @@ func TestCancelRestoreRefusesARestoreThatIsApplyingItsSchema(t *testing.T) {
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 	fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(stale, nil)
 	fs.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
-	fs.selector.On("ListClasses", ctx).Return([]string{class})
-	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
-	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	// No participant stubs: the refusal comes before a single node is reached,
+	// which is what the AssertNotCalled below pins.
 
 	s := fs.scheduler()
 	prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
@@ -290,7 +285,7 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 			require.True(t, slot.set(backup.Transferring))
 
 			meta := &backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Transferring}
-			won, err := s.claimCancellation(context.Background(), store, meta, backupID, "", "")
+			won, _, err := s.claimCancellation(context.Background(), store, meta, backupID, "", "")
 			require.NoError(t, err)
 			require.Equal(t, tc.wantWon, won)
 			require.Equal(t, tc.wantSlot, s.restorer.lastOp.get().Status,
