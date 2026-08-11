@@ -441,6 +441,72 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	}
 }
 
+// A completed two-property migration owns a live ingest sidecar per property.
+// The sweep of one of those properties must leave both the tracker and that
+// sidecar alone, whether or not the tracker still carries its payload — a
+// tracker written before payload.mig existed points at live data just the same,
+// and sidecar deletion never consulted the payload.
+func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTracker(t *testing.T) {
+	const sidecar = "property_a__enable_filterable_ingest_1"
+	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
+
+	tests := []struct {
+		name    string
+		tracker string
+		// payload is what the task recorded; empty writes no payload.mig.
+		payload      []string
+		wantTracker  bool
+		wantSidecar  bool
+		wantGateHold bool
+	}{
+		{
+			name:    "the completed tracker names this property",
+			tracker: "enable_filterable_a_b_1", payload: []string{"a", "b"},
+			wantTracker: true, wantSidecar: true,
+		},
+		{
+			name:        "the completed tracker names this property, payload gone",
+			tracker:     "enable_filterable_a_b_1",
+			wantTracker: true, wantSidecar: true,
+		},
+		// The widened preserve match stays inside this property: a completed
+		// tracker of another property must not shield this one's stale sidecar.
+		{
+			name:        "a completed tracker of another property, payload gone",
+			tracker:     "enable_filterable_other_1",
+			wantTracker: true, wantGateHold: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("UnloadedSweepMultiPropDone_"+uuid.NewString()[:8],
+				[]string{"a", "b", "other"})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			lsm := shard.pathLSM()
+
+			mkTrackerDir(t, lsm, tc.tracker, completed...)
+			if len(tc.payload) > 0 {
+				mkRecoveryPayload(t, lsm, tc.tracker, tc.payload...)
+			}
+			mkSidecarDir(t, lsm, sidecar)
+
+			require.Equal(t, tc.wantGateHold,
+				hasStalePartialReindexState(lsm, "a", "filterable", nil),
+				"the gate has to load the shard for exactly the sweeps that would clean it")
+			require.NoError(t, shard.CleanStalePartialReindexState(ctx, "a", "filterable"))
+
+			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tc.tracker))
+			require.Equal(t, tc.wantSidecar, dirExistsAt(t, lsm, sidecar),
+				"the bucket the in-memory pointer is on")
+		})
+	}
+}
+
 // A loaded shard is swept unconditionally, without consulting the gate, even
 // with a stale directory listing on hand.
 func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *testing.T) {

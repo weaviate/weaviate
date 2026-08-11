@@ -162,6 +162,9 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 		// props is what the task recorded in payload.mig. Empty writes no
 		// payload, which is what a tracker from before payload.mig looks like.
 		props []string
+		// emptyPayload writes a payload.mig that parses but names no property,
+		// which a truncated recovery record looks like.
+		emptyPayload bool
 		// propName is the property being swept; "cat" unless set.
 		propName  string
 		indexType string
@@ -229,6 +232,29 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_a_b_1",
 			propName: "a", want: false,
 		},
+		// Deletion refuses this dir, so nothing removes the tracker; sidecar
+		// deletion is not payload-gated, so refusing it here too would let the
+		// sweep take the live bucket the tracker points at.
+		{
+			name:     "a two-property task with no payload, in the preserve set",
+			dir:      "enable_filterable_a_b_1",
+			propName: "a", preserve: true, want: true,
+		},
+		// The preserve set guesses, but only within this property: matching on
+		// the strategy prefix alone would let any completed tracker shield any
+		// property's sidecar.
+		{
+			name:     "another property's task with no payload, in the preserve set",
+			dir:      "enable_filterable_other_1",
+			propName: "cat", preserve: true, want: false,
+		},
+		// A payload that parses but names nothing decides nothing, so the name
+		// answers — as it does for a tracker written before payload.mig existed.
+		{
+			name:         "a payload that names no property at all",
+			dir:          "enable_filterable_cat_1",
+			emptyPayload: true, want: true,
+		},
 		{
 			name: "a property whose name this one extends",
 			dir:  "enable_filterable_ca_1", props: []string{"ca"},
@@ -274,7 +300,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			lsm := t.TempDir()
 			dir := filepath.Join(lsm, ".migrations", tc.dir)
 			require.NoError(t, os.MkdirAll(dir, 0o755))
-			if len(tc.props) > 0 {
+			if len(tc.props) > 0 || tc.emptyPayload {
 				payload, err := json.Marshal(map[string]any{
 					"payload": map[string]any{"properties": tc.props},
 				})

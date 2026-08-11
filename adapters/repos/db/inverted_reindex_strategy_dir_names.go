@@ -193,13 +193,17 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //
 // The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
 // two-property tracker for "a" and "b" and a single-property tracker for
-// "a_b" — so payload.mig, written before anything else, decides. Falling back
-// to the name (no readable payload) answers only for the single-property
-// shape; a multi-property tracker with no payload is left to the
-// next-restart finalizer rather than matched on a guess.
+// "a_b" — so payload.mig, written before anything else, decides. With no
+// readable payload the two directions answer differently, because their
+// wrong answers cost differently:
 //
-// This guess-refusal is asymmetric with sidecar deletion, which is not
-// payload-gated; see weaviate/weaviate#12574.
+//   - Deletion (the plain scope) answers only for the single-property shape.
+//     Guessing wider would remove another property's tracker.
+//   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
+//     property-list segment carries this property as a whole "_"-delimited
+//     run of tokens. Guessing wider only keeps a sidecar dir alive one restart
+//     longer, while refusing to guess lets sidecar deletion — which is not
+//     payload-gated — remove the live bucket the in-memory pointer is on.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache
@@ -209,6 +213,10 @@ type migrationDirScope struct {
 	// classDirs are whole tracker dir names matched as they are. Only the
 	// preserve set carries them; see [migrationDirScope.preserving].
 	classDirs []string
+	// preserve marks a scope asked which dirs to keep rather than which to
+	// remove, which widens the no-payload fallback in
+	// [migrationDirScope.matches].
+	preserve bool
 }
 
 // migrationDirsOf returns the tracker dirs a (propName, indexType) cleanup
@@ -228,15 +236,21 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 	return migrationDirScope{lsmPath: lsmPath, classDirs: []string{classDir}}
 }
 
-// preserving widens the scope to include the class-level tracker for
-// indexType: excluded from deletion, but a completed one owns live sidecars
-// of every property, so it must still be in the preserve set (else
-// #10675-shape data loss). Used identically by the unloaded-shard gate and the
-// sweep so the two can't drift apart.
+// preserving widens the scope in two ways, both to keep live data out of the
+// sweep's reach (else #10675-shape data loss):
+//
+//   - the class-level tracker for indexType joins it. It is excluded from
+//     deletion, but a completed one owns live sidecars of every property.
+//   - a tracker with no readable payload matches on its name alone; see
+//     [migrationDirScope].
+//
+// Used identically by the unloaded-shard gate and the sweep so the two can't
+// drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
+	s.preserve = true
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		// Cloned because the receiver is a value: appending into the caller's
-		// backing array would widen its scope too if it ever had spare capacity.
+		// Cloned because two preserving() results derived from the same base
+		// scope would otherwise share a backing array.
 		s.classDirs = append(slices.Clone(s.classDirs), classDir)
 	}
 	return s
@@ -278,8 +292,28 @@ func (s migrationDirScope) matches(name string) bool {
 		if base == migrationDirWithProps(prefix, []string{s.propName}) {
 			return true
 		}
+		if s.preserve && namesPropertyToken(base, prefix, s.propName) {
+			return true
+		}
 	}
 	return false
+}
+
+// namesPropertyToken reports whether base is prefix + "_" + a property list
+// that carries propName as one whole "_"-delimited run of tokens. Used only by
+// the preserve direction of [migrationDirScope.matches]: it reads
+// "enable_filterable_a_b" as naming "a", which the property list of a
+// two-property task looks like, while still rejecting an unrelated property's
+// tracker.
+func namesPropertyToken(base, prefix, propName string) bool {
+	props, ok := strings.CutPrefix(base, prefix+"_")
+	if !ok {
+		return false
+	}
+	return props == propName ||
+		strings.HasPrefix(props, propName+"_") ||
+		strings.HasSuffix(props, "_"+propName) ||
+		strings.Contains(props, "_"+propName+"_")
 }
 
 // hasStrategyPrefix reports whether a tracker dir's base could belong to one of

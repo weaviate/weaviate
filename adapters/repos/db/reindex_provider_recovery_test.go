@@ -31,6 +31,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 		prefixes []string
 		// tracker dir name → sentinels in it.
 		trackers map[string][]string
+		// payloads is the property list a tracker's task recorded, which is what
+		// says a dir named after several properties belongs to this one.
+		payloads map[string][]string
 		want     bool
 	}{
 		{
@@ -111,6 +114,30 @@ func TestHasUntidiedTracker(t *testing.T) {
 			},
 			want: true,
 		},
+		// A task over several properties writes one tracker for all of them, so
+		// each property's callbacks have to stay registered until it is tidied.
+		{
+			name:     "a two-property task, started only → recovery NEEDED",
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
+			trackers: map[string][]string{
+				"searchable_retokenize_other_text_1": {"started.mig"},
+			},
+			payloads: map[string][]string{
+				"searchable_retokenize_other_text_1": {"other", "text"},
+			},
+			want: true,
+		},
+		{
+			name:     "a two-property task this property is not part of",
+			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
+			trackers: map[string][]string{
+				"searchable_retokenize_other_third_1": {"started.mig"},
+			},
+			payloads: map[string][]string{
+				"searchable_retokenize_other_third_1": {"other", "third"},
+			},
+			want: false,
+		},
 		{
 			name: "two matching prefixes, one tidied + one started → recovery NEEDED",
 			prefixes: []string{
@@ -149,6 +176,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 					for _, s := range sentinels {
 						require.NoError(t,
 							os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+					}
+					if props, ok := tc.payloads[trackerName]; ok {
+						mkRecoveryPayload(t, tmp, trackerName, props...)
 					}
 				}
 			}

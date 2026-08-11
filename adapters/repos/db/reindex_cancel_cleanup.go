@@ -213,7 +213,10 @@ func (i *Index) cleanStalePartialReindexState(
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
 // one caught mid-transition reads a directory being emptied and skips it,
-// which the offload is about to make true anyway.
+// which the offload is about to make true anyway. Read the other way round —
+// a directory not emptied yet — the shard is loaded for a sweep that then
+// fails against its vanishing files, which costs a spurious
+// [ErrCleanupShardFailed] rather than any on-disk damage.
 //
 // A deactivated (COLD) tenant is absent from the map too; its on-disk state
 // is untouched until reactivation (OnAfterLsmInitAsync's stale-sentinel

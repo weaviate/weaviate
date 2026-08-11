@@ -783,6 +783,10 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // nil-safe (unlike calling Err on closingCtx directly), and lets callers tell
 // a collection delete (on-disk state gone) from a shutdown (state persists);
 // an unsignalled close reads as [errIndexClosed].
+//
+// The nil-safety is deliberate and does cost a signal: an Index whose contexts
+// were never wired reads as open, so [Index.ForEachShard] walks it instead of
+// panicking on the missing context.
 func (i *Index) closeCause() error {
 	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
