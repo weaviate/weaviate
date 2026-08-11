@@ -829,6 +829,10 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 // unknownFutureStatus simulates a status a newer node introduced that this
 // build doesn't recognize. Deliberately not a capitalised present
 // participle, so it can never collide with a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // Pins the wire response of every cancel arm: the apply is reached for

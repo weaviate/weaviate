@@ -1222,6 +1222,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
+	// No default arm, so the exhaustive linter makes a newly declared
+	// TaskStatus say how the GET should display it rather than inherit
+	// the unrecognized reading below. That reading is a fail-closed
+	// fallback for a status a newer node wrote, not a display rule
+	// anyone should get by not writing one.
 	switch best.Status {
 	case distributedtask.TaskStatusFailed:
 		idx.Status = "failed"
@@ -1281,11 +1286,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Progress = 1.0
 			surfaceSyntheticFields = true
 		}
-	default:
-		// Unrecognized status: other gates already treat it as in-flight
-		// (409 on PUT, counted against the cap, backups refused), so this
-		// reports "indexing" rather than "ready" or "pending" — the units
-		// don't prove no shard has started for a status this build can't name.
+	}
+
+	if !best.Status.IsRecognized() {
+		// Other gates already treat it as in-flight (409 on PUT, counted
+		// against the cap, backups refused), so this reports "indexing"
+		// rather than "ready" or "pending" — the units don't prove no
+		// shard has started for a status this build can't name.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true

@@ -702,6 +702,10 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // blockingStatuses are the non-terminal statuses every reindex conflict

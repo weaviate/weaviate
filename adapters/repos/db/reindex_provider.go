@@ -1947,6 +1947,13 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 //
 // outcome is the terminal status that produced the split state (FAILED or
 // CANCELLED), logged so the operator can match it to the task.
+//
+// Only the CANCELLED caller gates this on evidence that a swap can have
+// run. FAILED calls it for every semantic migration, because a failed
+// task stopped its units mid-flight by definition and the rebuild is the
+// right move whether or not a swap landed on this node. So on the FAILED
+// path the guidance describes a state the task may be in, not one it is
+// known to be in.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
