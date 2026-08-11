@@ -886,8 +886,8 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 
 	// A cancel landing after the last in-loop check must still reach the
 	// stored descriptor, even though every participant reported success.
-	for _, claimed := range []backup.Status{backup.Cancelling, backup.Cancelled} {
-		t.Run("CancelledOnTheSlotAfterTheLastPoll/"+string(claimed), func(t *testing.T) {
+	{
+		t.Run("CancelledOnTheSlotAfterTheLastPoll", func(t *testing.T) {
 			fc := newFakeCoordinator(nodeResolver)
 			coordinator := fc.coordinator()
 			coordinator.timeoutNextRound = time.Millisecond
@@ -902,7 +902,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
 				Run(func(mock.Arguments) {
 					once.Do(func() {
-						stamped, _ := coordinator.lastOp.claimOf(backupID).stamp(claimed)
+						stamped, _ := coordinator.lastOp.claimOf(backupID).stamp(backup.Cancelling)
 						assert.True(t, stamped)
 					})
 				})

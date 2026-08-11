@@ -272,8 +272,12 @@ func (o *overlappingRestores) finish(t *testing.T) {
 		20*time.Second, 10*time.Millisecond, "a restore goroutine never released its slot")
 }
 
-// Pins that a cancelled restore's goroutine and the retry that took its slot
-// share no operation state; only `go test -race` catches a violation (CI runs with it).
+// Runs a cancelled restore's goroutine and the retry that took its slot at the
+// same time, so the detectors can prove they share no operation state. There is
+// no assertion for that by design: a violation surfaces as a data race under
+// `go test -race` (CI runs with it), or as the runtime's "concurrent map
+// writes" fatal without it. What the assertions below pin is that the two
+// really did overlap, without which the run proves nothing.
 func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T) {
 	t.Parallel()
 	const (

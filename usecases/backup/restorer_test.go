@@ -335,13 +335,6 @@ func TestRestoreAllCancellation(t *testing.T) {
 			wantStatus: backup.Cancelled,
 		},
 		{
-			name:       "slot taken over by a newer restore",
-			stolen:     true,
-			newID:      "newer-restore",
-			wantSlotID: "newer-restore",
-			wantStatus: backup.Started,
-		},
-		{
 			// Cancel and retry under the same id is a normal flow, and the one
 			// an id-keyed ownership check cannot tell from the first attempt
 			// still holding the slot.

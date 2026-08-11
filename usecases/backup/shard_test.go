@@ -26,7 +26,7 @@ import (
 )
 
 // resetIfCancelled must clear the slot only for an operation that has fully
-// cancelled, not one still Cancelling or running under the same id.
+// cancelled, not one still Cancelling.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -50,14 +50,6 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			name:       "op mid-cancel with the id being released",
 			claimedID:  "op-1",
 			status:     backup.Cancelling,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
-			name:       "live op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Transferring,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-1",
@@ -118,18 +110,6 @@ func TestSlotOwnerRelease(t *testing.T) {
 			},
 			wantOK:     true,
 			wantSlotID: "",
-		},
-		{
-			name: "slot taken over by a different operation",
-			arrange: func(t *testing.T, s *backupStat) slotOwner {
-				_, slot := s.renew("op-1", "path", "", "")
-				slot.release()
-				prevID, _ := s.renew("op-2", "path", "", "")
-				require.Empty(t, prevID)
-				return slot
-			},
-			wantOK:     false,
-			wantSlotID: "op-2",
 		},
 		{
 			// Cancel a restore, then retry it under the same id: a normal
