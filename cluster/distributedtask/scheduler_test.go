@@ -24,6 +24,7 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/jonboulle/clockwork"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -570,6 +571,7 @@ type testHarness struct {
 	loggerHook            *logrustest.Hook
 	completionRecorder    *MockTaskCompletionRecorder
 	cleaner               *MockTaskCleaner
+	ackRecorder           PostCompletionAckRecorder
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 	testProviders         []*testTaskProvider
@@ -629,6 +631,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		AckRecorder:        h.ackRecorder,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -1807,6 +1810,62 @@ func TestSchedulerTick_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
 	}
 }
 
+// Pins: one warn line per tick naming every unrecognized task across every
+// listed namespace, in a stable order, plus the matching gauge. Naming them
+// one at a time let the sampler pick an arbitrary subset.
+func TestSchedulerTick_UnrecognizedStatusWarnNamesEveryTask(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	otherNamespace := "other-namespace"
+	otherProvider := newTestTaskProvider(t, nil)
+
+	h := newTestHarness(t)
+	h.registeredProviders[otherNamespace] = otherProvider
+	h = h.init(t)
+
+	for _, spec := range []struct {
+		namespace string
+		id        string
+		version   uint64
+		status    TaskStatus
+	}{
+		{h.tasksNamespace, "zeta", 10, unknownFutureStatus},
+		{h.tasksNamespace, "alpha", 11, unknownFutureStatus},
+		{h.tasksNamespace, "still-started", 12, TaskStatusStarted},
+		// A namespace this node hosts no unrecognized task in still has
+		// to be walked: the warn is not scoped to local providers.
+		{otherNamespace, "beta", 13, unknownFutureStatus},
+	} {
+		addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
+		h.manager.tasks[spec.namespace][spec.id].Status = spec.status
+	}
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	var warns []string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warns = append(warns, e.Message)
+		}
+	}
+	require.Len(t, warns, 1, "three unrecognized tasks must produce one aggregated line")
+	require.Contains(t, warns[0],
+		"other-namespace/beta@13=UNKNOWN_FUTURE_STATE, "+
+			"tasks-namespace/alpha@11=UNKNOWN_FUTURE_STATE, "+
+			"tasks-namespace/zeta@10=UNKNOWN_FUTURE_STATE",
+		"every unrecognized task must be named, in a stable order")
+	require.NotContains(t, warns[0], "still-started",
+		"a recognized status must not be named")
+
+	require.InDelta(t, 2.0,
+		testutil.ToFloat64(h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)), 0)
+	require.InDelta(t, 1.0,
+		testutil.ToFloat64(h.scheduler.tasksUnrecognizedStatus.WithLabelValues(otherNamespace)), 0)
+}
+
 // Pins: the unrecognized-status warn uses its own sampler, so a persistent
 // cleanup error still gets the shared budget's full slots.
 func TestSchedulerTick_UnrecognizedStatusWarnDoesNotStarveErrorLogging(t *testing.T) {
@@ -1846,6 +1905,73 @@ func TestSchedulerTick_UnrecognizedStatusWarnDoesNotStarveErrorLogging(t *testin
 	}
 
 	require.Positive(t, warns, "the stuck task must still be reported")
+	require.Equal(t, 5, cleanupErrors,
+		"the persistent cleanup failure must get the shared sampler's whole budget")
+}
+
+// alwaysFailingAckRecorder makes the post-completion ack fail on every
+// attempt, which is what keeps a SWAPPING task retrying it each tick.
+type alwaysFailingAckRecorder struct{}
+
+func (alwaysFailingAckRecorder) RecordDistributedTaskPostCompletionAck(
+	context.Context, string, string, uint64, string, bool, string,
+) error {
+	return errors.New("raft unavailable")
+}
+
+func (alwaysFailingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
+	context.Context, string, string, uint64, string, bool, string,
+) error {
+	return errors.New("raft unavailable")
+}
+
+// Pins: the post-completion ack warn uses its own sampler. It retries every
+// tick until RAFT accepts it, so on the shared budget it crowds out the
+// unrelated errors that budget exists for.
+func TestSchedulerTick_AckFailureWarnDoesNotStarveErrorLogging(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	prov := newUnitAwareTestProvider(t)
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+	h.provider = prov.testTaskProvider
+	h.ackRecorder = alwaysFailingAckRecorder{}
+	h = h.init(t)
+
+	// A SWAPPING task whose ack never lands: the swap phase re-emits it
+	// every tick, and the missing ack keeps the task out of finalize.
+	addTaskWithUnits(t, h, h.tasksNamespace, "swapping", 10, []string{"u-1"})
+	completeUnit(t, h, h.tasksNamespace, "swapping", 10, h.localNodeID, "u-1")
+	require.Equal(t, TaskStatusSwapping, h.manager.tasks[h.tasksNamespace]["swapping"].Status)
+
+	// A terminal, TTL-expired task whose cleanup keeps failing.
+	addTaskWithUnits(t, h, h.tasksNamespace, "control", 11, []string{"u-2"})
+	control := h.manager.tasks[h.tasksNamespace]["control"]
+	control.Status = TaskStatusFinished
+	control.FinishedAt = h.clock.Now()
+
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(errors.New("cleanup keeps failing"))
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.completedTaskTTL)
+	for i := 0; i < 8; i++ {
+		h.advanceClock(h.schedulerTickInterval)
+	}
+
+	var ackWarns, cleanupErrors int
+	for _, e := range h.loggerHook.AllEntries() {
+		switch {
+		case e.Level == logrus.WarnLevel && strings.Contains(e.Message, "post-completion ack"):
+			ackWarns++
+		case e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "failed to clean up distributed task"):
+			cleanupErrors++
+		}
+	}
+
+	require.Positive(t, ackWarns, "the failing ack must still be reported")
 	require.Equal(t, 5, cleanupErrors,
 		"the persistent cleanup failure must get the shared sampler's whole budget")
 }
