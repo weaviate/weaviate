@@ -72,6 +72,9 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 		{distributedtask.TaskStatusPreparing, true},
 		{distributedtask.TaskStatusSwapping, true},
 		{unknownFutureStatus, true},
+		// The zero value: a task whose status field never got written.
+		// Unrecognized like any other, so it is read as in flight.
+		{distributedtask.TaskStatus(""), true},
 		{distributedtask.TaskStatusFinished, false},
 		{distributedtask.TaskStatusFailed, false},
 		{distributedtask.TaskStatusCancelled, false},
@@ -79,7 +82,11 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 
 	for _, l := range lookups {
 		for _, s := range statuses {
-			t.Run(l.name+"/"+string(s.status), func(t *testing.T) {
+			name := string(s.status)
+			if name == "" {
+				name = "empty"
+			}
+			t.Run(l.name+"/"+name, func(t *testing.T) {
 				task := lookupTask(t, "T1", s.status, payload)
 				require.Equal(t, s.inFlight, l.inFlight(task),
 					"%s must read %q as in-flight=%v", l.name, s.status, s.inFlight)
