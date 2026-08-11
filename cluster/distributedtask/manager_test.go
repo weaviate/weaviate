@@ -2070,6 +2070,8 @@ func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, s
 			Version:               version,
 			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
+	default:
+		require.Failf(t, "no production path to this status", "%q is not terminal", status)
 	}
 
 	require.Equal(t, status, h.manager.tasks[ns][id].Status,
