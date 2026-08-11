@@ -233,11 +233,9 @@ var (
 	errIndexShutdown = stderrors.New("node is shutting down")
 )
 
-// errShardsSkipped reports a walk that did not reach every shard that was in
-// the map when it started. The skipped shards were neither visited nor
-// explained, so what is on them is unknown rather than done; the message
-// names at most [maxReportedErrors] of them plus a count. Not a cause of
-// Index.closeRequestedCtx — it describes a walk, not the index.
+// errShardsSkipped reports a walk that did not reach every shard in the map
+// when it started; what is on those shards is unknown rather than done. Not a
+// cause of Index.closeRequestedCtx — it describes a walk, not the index.
 var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
 
 // Index is the logical unit which contains all the data for one particular

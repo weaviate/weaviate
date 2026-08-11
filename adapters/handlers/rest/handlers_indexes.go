@@ -936,9 +936,9 @@ func (f staleSweepFailure) Error() string {
 func (f staleSweepFailure) Unwrap() error { return f.err }
 
 // sweepStaleReindexState runs sweep once per index type and returns only the
-// failures an operator must act on; [db.IsCleanupCollectionDropped] errors are
-// skipped since the collection's own delete removes the state itself,
-// in-flight or not.
+// failures an operator must act on — a dropped collection
+// ([db.IsCleanupCollectionDropped]) is not one, since the delete already
+// removed the state.
 func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
 	var failures []staleSweepFailure
 	for _, indexType := range indexTypes {
