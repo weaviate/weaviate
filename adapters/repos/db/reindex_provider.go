@@ -1594,10 +1594,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// the next restart to promote the target-tokenization ingest
 				// dir to the canonical bucket name. No ack records that —
 				// the late ack hits an already-CANCELLED task and is dropped
-				// — so the only witness is this node's disk. Read it before
-				// the cleanup below wipes it, and only here: the FAILED arm
-				// logs the guidance unconditionally, so the probe's shard
-				// loads would buy it nothing.
+				// — so the only witness is this node's disk.
+				//
+				// The cleanup below leaves that witness alone: it preserves
+				// merged/tidied generations by design, and both sides read
+				// the same completedMigrationGens
+				// (TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads).
+				// Probing first anyway keeps the answer independent of that.
+				// Only here: the FAILED arm logs the guidance
+				// unconditionally, so the probe's shard loads would buy it
+				// nothing.
 				tornLocally := p.probeLocalPostMergeState(payload)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally ||
