@@ -574,6 +574,10 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 }
 
+// redactedRefusalClassSample caps the class names quoted into a rebuilt
+// refusal; the text becomes the body of an API error.
+const redactedRefusalClassSample = 10
+
 // redactedReindexRefusal rebuilds a refusal from the caller's own request,
 // for participants whose wording cannot be published.
 func redactedReindexRefusal(classes []string) string {
@@ -581,12 +585,20 @@ func redactedReindexRefusal(classes []string) string {
 	if len(classes) == 0 {
 		return fmt.Sprintf("%s: retry after the migration finishes", sentinel)
 	}
-	quoted := make([]string, len(classes))
-	for i, c := range classes {
+	sample := classes
+	if len(sample) > redactedRefusalClassSample {
+		sample = sample[:redactedRefusalClassSample]
+	}
+	quoted := make([]string, len(sample))
+	for i, c := range sample {
 		quoted[i] = fmt.Sprintf("%q", c)
 	}
+	listed := strings.Join(quoted, ", ")
+	if len(sample) < len(classes) {
+		listed = fmt.Sprintf("%s and %d more", listed, len(classes)-len(sample))
+	}
 	return fmt.Sprintf("%s: a collection in the backup (%s) has an active runtime-reindex task; "+
-		"retry after the migration finishes", sentinel, strings.Join(quoted, ", "))
+		"retry after the migration finishes", sentinel, listed)
 }
 
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no

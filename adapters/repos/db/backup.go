@@ -115,30 +115,14 @@ func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) 
 // logReindexRefusals logs the shards and node the refusal bodies withhold.
 // blockedShards maps a collection to the shards the gate held.
 func (db *DB) logReindexRefusals(blockedShards map[string][]string) {
-	if db.logger == nil {
-		return
-	}
-	// One line per collection, shard list capped; count is exact, names are
-	// a sample, sorted so repeated refusals diff cleanly.
+	// One line per collection, sorted so repeated refusals diff cleanly.
 	collections := make([]string, 0, len(blockedShards))
 	for c := range blockedShards {
 		collections = append(collections, c)
 	}
 	sort.Strings(collections)
 	for _, c := range collections {
-		shardNames := blockedShards[c]
-		sort.Strings(shardNames)
-		sample := shardNames
-		if len(sample) > reindexRefusalShardSample {
-			sample = sample[:reindexRefusalShardSample]
-		}
-		db.logger.WithField("action", "backup_reindex_gate").
-			WithField("collection", c).
-			WithField("node", db.localNodeName).
-			WithField("blocked_shards", sample).
-			WithField("blocked_shard_count", len(shardNames)).
-			Warnf("backup precheck refused: %d shard(s) of %q are held by the reindex gate; "+
-				"blocked_shards lists the first %d", len(shardNames), c, len(sample))
+		logReindexRefusalPass(db.logger, "backup precheck", db.localNodeName, c, blockedShards[c])
 	}
 }
 
@@ -540,8 +524,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	// Same reason as in descriptorWithHardlinks: the gate check runs once per
-	// shard, so the log belongs to the pass.
+	// Sequential loop returns on the first refusal, so this holds at most one name.
 	var blocked []string
 	defer func() { i.logReindexRefusalSummary(blocked) }()
 

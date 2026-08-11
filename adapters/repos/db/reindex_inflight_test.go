@@ -272,7 +272,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, "refused a backup") {
+		if strings.Contains(entry.Message, "refused a replica shard copy") {
 			logged = entry
 		}
 	}
