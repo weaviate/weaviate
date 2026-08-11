@@ -341,7 +341,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
 			propertyName, task.Status,
-			db.ReindexGateRemedy(task.Status, payload, propertyName))
+			db.ReindexGateRemedy(task.Status, payload, propertyName, false))
 	}
 	return ""
 }

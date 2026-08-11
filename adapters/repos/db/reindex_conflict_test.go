@@ -599,17 +599,24 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
 		wantIn        string
-		wantNotIn     string
+		wantNotIn     []string
 	}{
 		{
 			migrationType: ReindexTypeChangeTokenization,
 			wantIn:        "bucket↔schema inversion",
-			wantNotIn:     "half-applied",
+			wantNotIn:     []string{"half-applied", "cannot name"},
 		},
 		{
 			migrationType: ReindexTypeRepairFilterable,
 			wantIn:        "half-applied",
-			wantNotIn:     "bucket↔schema inversion",
+			wantNotIn:     []string{"bucket↔schema inversion", "cannot name"},
+		},
+		{
+			// IsSemanticMigration is a positive allowlist, so without its own
+			// arm a newer node's type would claim the format-only cost.
+			migrationType: "a-type-from-a-newer-node",
+			wantIn:        "have a consequence this build cannot name",
+			wantNotIn:     []string{"half-applied", "bucket↔schema inversion"},
 		},
 	}
 
@@ -630,13 +637,15 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 
 			classErr := provider.CheckClassMutation("C", tasks)
 			require.Error(t, classErr)
-			require.Contains(t, classErr.Error(), tc.wantIn)
-			require.NotContains(t, classErr.Error(), tc.wantNotIn)
-
 			tenantErr := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
 			require.Error(t, tenantErr)
-			require.Contains(t, tenantErr.Error(), tc.wantIn)
-			require.NotContains(t, tenantErr.Error(), tc.wantNotIn)
+
+			for _, err := range []error{classErr, tenantErr} {
+				require.Contains(t, err.Error(), tc.wantIn)
+				for _, unwanted := range tc.wantNotIn {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+			}
 		})
 	}
 }
@@ -971,6 +980,31 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"this build does not know that status",
 		"read the task on a node that knows the status",
 	}
+	// The two data-dropping gates get told to cancel and retry instead of
+	// being handed a follow-up call that would 404 once the collection or
+	// the tenants are gone.
+	noFollowUp := []string{
+		"re-submit it via",
+		"re-running the migration",
+	}
+	cancelPastUnitsDropping := []string{
+		cancelCall,
+		"wait for it to finish",
+		"may already be merged on disk",
+		"goes with the data you are removing",
+		"then re-issue this request",
+	}
+	formatOnlyDropping := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		"its shards commit one by one",
+		"nothing to finish afterwards",
+		"then re-issue this request",
+	}
+	formatOnlyRangeableDropping := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		"its shards commit one by one",
+		"nothing to finish afterwards",
+	}
 
 	statuses := []struct {
 		name      string
@@ -979,20 +1013,65 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		payload   []byte
 		want      []string
 		notWant   []string
+		// wantDropping / notWantDropping replace want / notWant on the gates
+		// whose caller destroys the data (delete class, tenant mutation).
+		// Nil means the remedy does not depend on that.
+		wantDropping    []string
+		notWantDropping []string
 	}{
-		{"STARTED", distributedtask.TaskStatusStarted, "C", payload, cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
-		{"PREPARING", distributedtask.TaskStatusPreparing, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
-		{"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload, repairUnnameable, concat(cancelUnnameable, cancelUnknown)},
-		{"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip)},
+		{
+			"STARTED", distributedtask.TaskStatusStarted, "C", payload,
+			cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly), nil, nil,
+		},
+		{
+			"PREPARING", distributedtask.TaskStatusPreparing, "C", payload,
+			cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+		},
+		{
+			"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload,
+			cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+		},
+		{
+			"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload,
+			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
+			cancelPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+		},
+		{
+			"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload,
+			formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
 		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
 		// gates still see them.
-		{"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip)},
-		{"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload, formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted)},
-		{"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload, formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted)},
-		{"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
-		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
-		{string(unknownFutureStatus), unknownFutureStatus, "C", payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},
+		{
+			"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload,
+			formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload,
+			formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted),
+			formatOnlyRangeableDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload,
+			formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted),
+			formatOnlyRangeableDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+		},
+		{
+			"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+		},
+		{
+			string(unknownFutureStatus), unknownFutureStatus, "C", payload,
+			cancelUnknown, concat([]string{cancelCall}, cancelUnnameable), nil, nil,
+		},
 		// Namespace-qualified: the URL keeps the prefix. A global operator has
 		// to type it, and the REST error path removes it again for the
 		// namespace-confined caller who must not.
@@ -1000,6 +1079,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			"STARTED namespace-qualified", distributedtask.TaskStatusStarted, "customer1:C", qualifiedPayload,
 			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
 			[]string{"/v1/schema/C/"},
+			nil, nil,
 		},
 		{
 			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
@@ -1008,6 +1088,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				`re-running the migration via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"tokenization":"word"}}`,
 			},
 			[]string{"/v1/schema/C/"},
+			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			concat([]string{"/v1/schema/C/"}, noFollowUp),
 		},
 	}
 
@@ -1021,10 +1103,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				}}
 				err := gate.call(st.className, tasks)
 				require.Error(t, err)
-				for _, want := range st.want {
-					require.Contains(t, err.Error(), want)
+				want, notWant := st.want, st.notWant
+				if gate.dropsTheData && st.wantDropping != nil {
+					want, notWant = st.wantDropping, st.notWantDropping
 				}
-				for _, unwanted := range st.notWant {
+				for _, w := range want {
+					require.Contains(t, err.Error(), w)
+				}
+				for _, unwanted := range notWant {
 					require.NotContains(t, err.Error(), unwanted)
 				}
 			})
@@ -1038,6 +1124,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 type schemaMutationGate struct {
 	name string
 	call func(className string, tasks []*distributedtask.Task) error
+	// dropsTheData marks the gates whose caller destroys the shards the
+	// migration works on, which changes the remedy they render.
+	dropsTheData bool
 }
 
 func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
@@ -1053,12 +1142,14 @@ func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
 			call: func(className string, tasks []*distributedtask.Task) error {
 				return provider.CheckClassMutation(className, tasks)
 			},
+			dropsTheData: true,
 		},
 		{
 			name: "tenant mutation",
 			call: func(className string, tasks []*distributedtask.Task) error {
 				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
 			},
+			dropsTheData: true,
 		},
 	}
 }
@@ -1191,7 +1282,9 @@ func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 	require.NoError(t, err)
 	// Also matches the grouped-const form (`ReindexTypeFoo = "foo"`, no
 	// repeated type), or a type declared that way goes uncounted.
-	re := regexp.MustCompile(`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-z-]+)"`)
+	// Value charset kept wide: a narrower one would silently skip a new
+	// constant, and the count guard below would still pass at 9.
+	re := regexp.MustCompile(`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-zA-Z0-9_-]+)"`)
 	var out []ReindexMigrationType
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
@@ -1202,6 +1295,19 @@ func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
 			out = append(out, ReindexMigrationType(m[1]))
 		}
+	}
+	// Each known value asserted by name, not just counted: a regex that
+	// stopped matching one constant and started matching a new one would
+	// keep the count at 9 while covering the wrong set.
+	for _, known := range []ReindexMigrationType{
+		ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable, ReindexTypeEnableFilterable,
+		ReindexTypeRepairFilterable, ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable,
+		ReindexTypeChangeTokenization,
+	} {
+		require.Contains(t, out, known,
+			"the source scan missed %q; the regex no longer matches how it is declared", known)
 	}
 	require.Len(t, out, 9,
 		"expected 9 declared migration types; update this count with the constant")
@@ -1262,7 +1368,7 @@ func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
 				Collection:    "C",
 				MigrationType: mt,
 				Properties:    []string{"name"},
-			}, "name")
+			}, "name", false)
 			require.Contains(t, remedy, "re-submit it via PUT /v1/schema/C/indexes/name {")
 			require.NotContains(t, remedy, "via  ")
 		})

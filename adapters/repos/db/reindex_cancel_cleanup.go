@@ -69,8 +69,11 @@ func (db *DB) CleanStalePartialReindexState(
 // written during PREPARING, so this goes true at the merge, not the swap.
 // Unreadable directories answer true, same as [hasStalePartialReindexState].
 //
-// Over-approximates on purpose: matches any generation under the (property,
-// indexType) prefix, so it may answer true past this task's own generation.
+// Over-approximates on purpose, in two steps: it matches any generation under
+// the (property, indexType) prefix, so it may answer true past this task's own
+// generation; and the class-level dir is not property-scoped at all, so one
+// promotable class-level generation answers true for every property of the
+// collection.
 //
 // Also answers false once [FinalizeCompletedMigrations] has already
 // promoted and removed the tracker dir. Read false as "nothing awaits
@@ -125,10 +128,13 @@ func hasPromotableReindexState(lsmPath, propName, indexType string) bool {
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
 		prefixes = append(prefixes, classDir)
 	}
-	if _, err := os.ReadDir(filepath.Join(lsmPath, ".migrations")); err != nil {
+	var found bool
+	if err := forEachCompletedMigration(lsmPath, prefixes, func(string, int) {
+		found = true
+	}); err != nil {
 		return !os.IsNotExist(err)
 	}
-	return len(completedMigrationGens(lsmPath, prefixes)) > 0
+	return found
 }
 
 // ErrCleanupSweepTruncated marks a sweep that stopped before it had visited
