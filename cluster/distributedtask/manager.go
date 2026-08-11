@@ -263,8 +263,7 @@ func NewManager(params ManagerParameters) *Manager {
 		params.Clock = clockwork.NewRealClock()
 	}
 	if params.Logger == nil {
-		// Discards rather than writing to stderr: production always passes a
-		// logger, so a nil one means a test that never wanted the output.
+		// Only tests leave this nil; production always passes a logger.
 		discarding := logrus.New()
 		discarding.Out = io.Discard
 		params.Logger = discarding
@@ -409,12 +408,11 @@ func (m *Manager) runTerminalObserver(task *Task) {
 
 // dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
 //
-// catchingUp comes from the FSM's RAFT-replay flag: skips reannouncing
-// endings already in the local log at startup. See [TerminalObserver] for
-// full delivery semantics.
+// catchingUp skips reannouncing endings already in the local log at startup;
+// see [TerminalObserver] for full delivery semantics.
 //
-// Observers run off the apply path because they take locks also held by
-// HTTP/admission code; running inline could stall the whole FSM behind a
+// Runs off the apply path because observers take locks also held by
+// HTTP/admission code, and running inline could stall the FSM behind a
 // blocked observer. The task is cloned because m.tasks keeps mutating it.
 func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 	if m.terminalDispatchClosed {
@@ -1257,9 +1255,10 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return bytes, nil
 }
 
-// Restore replaces the Manager's in-memory state from a Raft snapshot produced by
-// [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
-// a snapshot from the leader.
+// Restore merges the tasks from a Raft snapshot produced by [Manager.Snapshot]
+// into the Manager's in-memory state: entries are upserted per (namespace, task
+// ID), none are removed. It is called during Raft leader election or when a
+// follower installs a snapshot from the leader.
 //
 // Tasks already terminal in the snapshot do not fire their [TerminalObserver].
 func (m *Manager) Restore(bytes []byte) error {

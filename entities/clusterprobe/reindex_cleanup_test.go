@@ -13,6 +13,7 @@ package clusterprobe
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,6 +48,12 @@ func TestReindexCleanupActivityInProgress(t *testing.T) {
 			name:       "no marker at all",
 			payload:    `{"cleaningUp":false}`,
 			wantErrMsg: "did not come from a Weaviate node",
+		},
+		{
+			// The peer controls the marker, so the error must not echo it whole.
+			name:       "oversized marker is truncated in the error",
+			payload:    `{"probe":"` + strings.Repeat("x", 300) + `","cleaningUp":false}`,
+			wantErrMsg: loggableTruncationMarker,
 		},
 		{
 			name:       "marker but no cleaningUp field",

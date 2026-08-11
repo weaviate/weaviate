@@ -21,8 +21,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-const pathBackupNodeActivity = clusterprobe.BackupNodeActivityPath
-
 // ErrNodeActivityUnsupported means the node runs a build without the
 // node-activity route (e.g. mid rolling-upgrade), so callers stop asking
 // rather than retry forever.
@@ -41,7 +39,7 @@ func NewClusterBackupActivity(client *http.Client, resolver nodeResolver) *Clust
 
 func (c *ClusterBackupActivity) NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error) {
 	var res backup.NodeActivityResponse
-	if err := c.getJSON(ctx, nodeName, pathBackupNodeActivity, nil,
+	if err := c.getJSON(ctx, nodeName, clusterprobe.BackupNodeActivityPath, nil,
 		ErrNodeActivityUnsupported, "node activity", &res); err != nil {
 		return backup.NodeActivity{}, err
 	}

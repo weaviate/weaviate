@@ -34,25 +34,50 @@ const (
 	observerVersion   = uint64(10)
 )
 
-func observerAddCmd(t *testing.T, h *testHarness) *cmd.ApplyRequest {
+func observerAddCmd(t *testing.T, h *testHarness, id string) *cmd.ApplyRequest {
 	return toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             observerNamespace,
-		Id:                    observerTaskID,
+		Id:                    id,
 		Payload:               []byte(`{"collection":"Movies"}`),
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 		UnitIds:               []string{"su-1"},
 	})
 }
 
-// observerCancelCmd stamps the cancel with a proposer-relative time; dispatch
-// must not key on it.
-func observerCancelCmd(t *testing.T, h *testHarness, cancelledAgo time.Duration) *cmd.ApplyRequest {
+func observerCancelCmd(t *testing.T, h *testHarness, id string) *cmd.ApplyRequest {
 	return toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             observerNamespace,
-		Id:                    observerTaskID,
+		Id:                    id,
 		Version:               observerVersion,
-		CancelledAtUnixMillis: h.clock.Now().Add(-cancelledAgo).UnixMilli(),
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
 	})
+}
+
+// observerUnitCompletionCmd reports unit as done on node; a non-empty unitErr
+// makes it a failure report.
+func observerUnitCompletionCmd(t *testing.T, h *testHarness, node, unit, unitErr string) *cmd.ApplyRequest {
+	return toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            observerNamespace,
+		Id:                   observerTaskID,
+		Version:              observerVersion,
+		NodeId:               node,
+		UnitId:               unit,
+		Error:                unitErr,
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})
+}
+
+// newObserverHarness returns a harness with a recorder already registered for
+// observerNamespace, plus the leak check and shutdown every observer test needs.
+func newObserverHarness(t *testing.T) (*testHarness, *observerRecorder) {
+	t.Helper()
+	h := newTestHarness(t).init(t)
+	t.Cleanup(leaktest.Check(t))
+	t.Cleanup(h.Close)
+
+	rec := &observerRecorder{}
+	h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+	return h, rec
 }
 
 // observerRecorder collects what the observer saw; the observer runs on the
@@ -80,24 +105,41 @@ func (r *observerRecorder) first() *Task {
 	return r.seen[0]
 }
 
+func (r *observerRecorder) waitForCount(t *testing.T, want int, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return r.count() == want },
+		5*time.Second, 5*time.Millisecond, msg)
+}
+
+func (r *observerRecorder) waitForAtLeast(t *testing.T, want int, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return r.count() >= want },
+		5*time.Second, 5*time.Millisecond, msg)
+}
+
+func (r *observerRecorder) requireNeverExceeds(t *testing.T, most int, within time.Duration, msg string) {
+	t.Helper()
+	require.Never(t, func() bool { return r.count() > most },
+		within, 10*time.Millisecond, msg)
+}
+
+func (r *observerRecorder) requireStaysSilent(t *testing.T, msg string) {
+	t.Helper()
+	r.requireNeverExceeds(t, 0, 300*time.Millisecond, msg)
+}
+
 func TestManagerTerminalObserver(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	t.Run("a registered observer sees the cancelled task", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		h, rec := newObserverHarness(t)
 
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
 		require.Zero(t, rec.count(), "adding a task must not fire the cancel observer")
 
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
-		require.Eventually(t, func() bool { return rec.count() == 1 },
-			5*time.Second, 5*time.Millisecond, "the observer must fire for the cancel")
+		rec.waitForCount(t, 1, "the observer must fire for the cancel")
 
 		observed := rec.first()
 		require.Equal(t, observerTaskID, observed.ID)
@@ -111,42 +153,22 @@ func TestManagerTerminalObserver(t *testing.T) {
 
 	// The skip is keyed on the FSM's replay flag, not on the task itself.
 	t.Run("an ending replayed from the RAFT log is skipped", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		h, rec := newObserverHarness(t)
 
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), true))
 
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), true))
-
-		require.Never(t, func() bool { return rec.count() > 0 },
-			300*time.Millisecond, 10*time.Millisecond,
-			"a cancel applied while catching up must not reach the observer")
+		rec.requireStaysSilent(t, "a cancel applied while catching up must not reach the observer")
 	})
 
 	t.Run("a unit failure fires the observer too", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		h, rec := newObserverHarness(t)
 
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.RecordUnitCompletion(
+			observerUnitCompletionCmd(t, h, "node-1", "su-1", "synthetic unit failure"), false))
 
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-			Namespace:            observerNamespace,
-			Id:                   observerTaskID,
-			Version:              observerVersion,
-			NodeId:               "node-1",
-			UnitId:               "su-1",
-			Error:                "synthetic unit failure",
-			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
-
-		require.Eventually(t, func() bool { return rec.count() == 1 },
-			5*time.Second, 5*time.Millisecond, "the observer must fire for the failure")
+		rec.waitForCount(t, 1, "the observer must fire for the failure")
 		require.Equal(t, TaskStatusFailed, rec.first().Status)
 	})
 
@@ -154,19 +176,18 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// that lands in that window is exactly the one the observer exists for.
 	t.Run("an ending applied before registration is delivered on registration", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		t.Cleanup(leaktest.Check(t))
+		t.Cleanup(h.Close)
 
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
-		var rec observerRecorder
+		rec := &observerRecorder{}
 		require.Zero(t, rec.count(), "nothing can have fired before an observer exists")
 
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 
-		require.Eventually(t, func() bool { return rec.count() == 1 },
-			5*time.Second, 5*time.Millisecond,
+		rec.waitForCount(t, 1,
 			"the ending that applied before registration must reach the observer")
 		require.Equal(t, TaskStatusCancelled, rec.first().Status)
 		require.Equal(t, observerTaskID, rec.first().ID)
@@ -176,74 +197,45 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// the pre-registration buffer must not resurrect it.
 	t.Run("a replayed ending applied before registration stays skipped", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		t.Cleanup(leaktest.Check(t))
+		t.Cleanup(h.Close)
 
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), true))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), true))
 
-		var rec observerRecorder
+		rec := &observerRecorder{}
 		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
 
-		require.Never(t, func() bool { return rec.count() > 0 },
-			300*time.Millisecond, 10*time.Millisecond,
+		rec.requireStaysSilent(t,
 			"a replayed cancel must stay skipped even when it applied before registration")
 	})
 
 	// A nil re-registration must not silently overwrite the live observer.
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
-
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+		h, rec := newObserverHarness(t)
 		h.manager.RegisterTerminalObserver(observerNamespace, nil)
 
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
-		require.Eventually(t, func() bool { return rec.count() == 1 },
-			5*time.Second, 5*time.Millisecond,
+		rec.waitForCount(t, 1,
 			"a nil re-registration must be dropped, not stored over the live observer")
 	})
 
-	// The fail-closed restore path must still signal its terminal ending.
 	t.Run("a task that fails closed on restore fires the observer", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
-
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+		h, rec := newObserverHarness(t)
 
 		// AddTask cannot reach a STARTED task with a FAILED unit — the failure
 		// path fails the task itself. Restore is the only way in.
-		snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
-			observerNamespace: {{
-				Namespace:      observerNamespace,
-				TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
-				Status:         TaskStatusStarted,
-				Units: map[string]*Unit{
-					"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom"},
-					"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
-				},
-			}},
-		}})
-		require.NoError(t, err)
-		require.NoError(t, h.manager.Restore(snap))
+		restoreTask(t, h.manager, TaskStatusStarted, map[string]*Unit{
+			"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom"},
+			"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+		})
 
-		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-			Namespace:            observerNamespace,
-			Id:                   observerTaskID,
-			Version:              observerVersion,
-			NodeId:               "node-2",
-			UnitId:               "su-pending",
-			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
+		require.NoError(t, h.manager.RecordUnitCompletion(
+			observerUnitCompletionCmd(t, h, "node-2", "su-pending", ""), false))
 
-		require.Eventually(t, func() bool { return rec.count() == 1 },
-			5*time.Second, 5*time.Millisecond,
+		rec.waitForCount(t, 1,
 			"the fail-closed restore path must signal its ending like every other terminal transition")
 
 		observed := rec.first()
@@ -255,22 +247,11 @@ func TestManagerTerminalObserver(t *testing.T) {
 	// Only CANCELLED and FAILED fire the observer; MarkTaskFinalized (FINISHED)
 	// must stay silent.
 	t.Run("reaching FINISHED must not fire the observer", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		defer leaktest.Check(t)()
-		defer h.Close()
+		h, rec := newObserverHarness(t)
 
-		var rec observerRecorder
-		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
-
-		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-			Namespace:            observerNamespace,
-			Id:                   observerTaskID,
-			Version:              observerVersion,
-			NodeId:               "node-1",
-			UnitId:               "su-1",
-			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+		require.NoError(t, h.manager.RecordUnitCompletion(
+			observerUnitCompletionCmd(t, h, "node-1", "su-1", ""), false))
 		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 			Namespace:         observerNamespace,
 			Id:                observerTaskID,
@@ -293,22 +274,10 @@ func TestManagerTerminalObserver(t *testing.T) {
 		// Barrier: once this second task's cancel event lands, a missing
 		// FINISHED event means the contract held, not a slow drainer.
 		const cancelledTaskID = "2"
-		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             observerNamespace,
-			Id:                    cancelledTaskID,
-			Payload:               []byte(`{"collection":"Movies"}`),
-			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			UnitIds:               []string{"su-1"},
-		}), observerVersion))
-		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-			Namespace:             observerNamespace,
-			Id:                    cancelledTaskID,
-			Version:               observerVersion,
-			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-		}), false))
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, cancelledTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, cancelledTaskID), false))
 
-		require.Eventually(t, func() bool { return rec.count() >= 1 },
-			5*time.Second, 5*time.Millisecond, "the cancel must fire the observer")
+		rec.waitForAtLeast(t, 1, "the cancel must fire the observer")
 		require.Equal(t, cancelledTaskID, rec.first().ID,
 			"only the cancelled task may be announced; FINISHED must stay silent")
 		require.Equal(t, 1, rec.count())
@@ -331,8 +300,8 @@ func TestTerminalObserverCannotMutateFSMState(t *testing.T) {
 		close(scribbled)
 	})
 
-	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 
 	select {
 	case <-scribbled:
@@ -381,13 +350,11 @@ func TestTerminalDispatchRunsOnOneDrainer(t *testing.T) {
 	<-entered
 	dispatchOne("second-namespace")
 
-	require.Never(t, func() bool { return rec.count() > 0 },
-		300*time.Millisecond, 10*time.Millisecond,
+	rec.requireStaysSilent(t,
 		"a second registration must not bring up a second drainer; one wedged observer stalls the queue")
 
 	close(release)
-	require.Eventually(t, func() bool { return rec.count() == 1 },
-		5*time.Second, 5*time.Millisecond,
+	rec.waitForCount(t, 1,
 		"the queued event must be delivered once the wedged observer returns")
 }
 
@@ -400,15 +367,14 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 
 	var rec observerRecorder
 	h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
-	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
 
 	h.manager.Close()
 	h.manager.Close() // idempotent: shutdown runs on paths that may both fire
 
 	// Bypass the apply path's guard to isolate the drainer's own behavior.
 	h.manager.terminalDispatch <- terminalDispatchTask(h.manager)
-	require.Never(t, func() bool { return rec.count() > 0 },
-		300*time.Millisecond, 10*time.Millisecond,
+	rec.requireStaysSilent(t,
 		"a queued event must not reach an observer after Close; the drainer has been told to exit")
 
 	// The drainer is gone by now, so the queue below reads the apply path alone
@@ -416,7 +382,7 @@ func TestManagerCloseStopsTheTerminalDrainer(t *testing.T) {
 	for len(h.manager.terminalDispatch) > 0 {
 		<-h.manager.terminalDispatch
 	}
-	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, 0), false))
+	require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, observerTaskID), false))
 	require.Empty(t, h.manager.terminalDispatch,
 		"the apply path must not hand a cancel over after Close")
 }
@@ -472,24 +438,22 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		pastTheBound = 16
 	)
 
-	m.mu.Lock()
-	for range maxDelivered + pastTheBound {
-		m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
-	}
-	m.mu.Unlock()
+	fillDispatchQueue(m, terminalDispatchTask(m), maxDelivered+pastTheBound)
 
 	require.EqualValues(t, 32, m.terminalOverflowInFlight.Load(),
 		"a wedged observer must not hold more than 32 overflow goroutines")
 
 	close(release)
-	require.Eventually(t, func() bool { return rec.count() >= maxDelivered-1 },
-		5*time.Second, 5*time.Millisecond,
+	rec.waitForAtLeast(t, maxDelivered-1,
 		"every event the queue and the bounded overflow accepted must still reach the observer")
-	require.Never(t, func() bool { return rec.count() > maxDelivered },
-		300*time.Millisecond, 10*time.Millisecond,
+	rec.requireNeverExceeds(t, maxDelivered, 300*time.Millisecond,
 		"events past the overflow bound must be dropped, not fanned out")
-	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
+	require.Eventually(t, func() bool {
+		return m.terminalOverflowInFlight.Load() == 0
+	}, 5*time.Second, 10*time.Millisecond,
 		"every overflow goroutine must have released its slot")
+	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
+		"the in-flight count must settle at exactly zero, never negative")
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
@@ -515,10 +479,13 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 
 	m.mu.Lock()
 	m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
+	// Mark closed only after the dispatch (the latch would short-circuit the
+	// overflow path under test), so a later m.Close() cannot double-close the
+	// channel closed by hand above.
+	m.terminalDispatchClosed = true
 	m.mu.Unlock()
 
-	require.Never(t, func() bool { return rec.count() > 0 },
-		300*time.Millisecond, 10*time.Millisecond,
+	rec.requireStaysSilent(t,
 		"an overflow dispatch must not call an observer once the stop signal is closed")
 }
 
@@ -556,11 +523,9 @@ func TestCloseDropsQueuedCancelsAcrossManyDrainers(t *testing.T) {
 	}
 
 	close(release)
-	require.Eventually(t, func() bool { return rec.count() >= drainers },
-		5*time.Second, 5*time.Millisecond,
+	rec.waitForAtLeast(t, drainers,
 		"the observer call each drainer had in flight before Close must finish")
-	require.Never(t, func() bool { return rec.count() > drainers },
-		500*time.Millisecond, 10*time.Millisecond,
+	rec.requireNeverExceeds(t, drainers, 500*time.Millisecond,
 		"no drainer may deliver a queued cancel after Close")
 }
 
@@ -581,7 +546,7 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 		panic("overflow observer blew up")
 	})
 
-	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h), observerVersion))
+	require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
 
 	// One event parks in the observer, the queue fills, and the rest go down
 	// the overflow arm under test.
@@ -616,18 +581,17 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 			"whose recover the acceptance image disables", contained(), total)
 }
 
-// restoreTaskInStatus reaches PREPARING/SWAPPING directly, without driving a
-// full multi-node scheduler run.
-func restoreTaskInStatus(t *testing.T, m *Manager, status TaskStatus) {
+// restoreTask installs a single task in the given status and unit layout,
+// reaching states no apply sequence can build (PREPARING/SWAPPING, or a STARTED
+// task that already holds a failed unit).
+func restoreTask(t *testing.T, m *Manager, status TaskStatus, units map[string]*Unit) {
 	t.Helper()
 	snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
 		observerNamespace: {{
 			Namespace:      observerNamespace,
 			TaskDescriptor: TaskDescriptor{ID: observerTaskID, Version: observerVersion},
 			Status:         status,
-			Units: map[string]*Unit{
-				"su-1": {ID: "su-1", NodeID: "node-1", Status: UnitStatusCompleted},
-			},
+			Units:          units,
 		}},
 	}})
 	require.NoError(t, err)
@@ -690,18 +654,14 @@ func TestTerminalObserverFiresOnEveryFailedRoute(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			defer leaktest.Check(t)()
-			defer h.Close()
-
-			var rec observerRecorder
-			h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
-			restoreTaskInStatus(t, h.manager, test.status)
+			h, rec := newObserverHarness(t)
+			restoreTask(t, h.manager, test.status, map[string]*Unit{
+				"su-1": {ID: "su-1", NodeID: "node-1", Status: UnitStatusCompleted},
+			})
 
 			require.NoError(t, test.apply(t, h))
 
-			require.Eventually(t, func() bool { return rec.count() == 1 },
-				5*time.Second, 5*time.Millisecond,
+			rec.waitForCount(t, 1,
 				"this route ends the task for good, so it must reach the observer")
 			require.Equal(t, TaskStatusFailed, rec.first().Status)
 		})

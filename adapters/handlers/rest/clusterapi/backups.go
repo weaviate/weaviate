@@ -18,6 +18,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -32,10 +35,20 @@ type backups struct {
 	manager  backupManager
 	activity *backup.NodeActivityProbe
 	auth     auth
+	logger   logrus.FieldLogger
 }
 
-func NewBackups(manager backupManager, activity *backup.NodeActivityProbe, auth auth) *backups {
-	return &backups{manager: manager, activity: activity, auth: auth}
+func NewBackups(manager backupManager, activity *backup.NodeActivityProbe, auth auth,
+	logger logrus.FieldLogger,
+) *backups {
+	if logger == nil {
+		// Callers wire this from app state, which is not populated yet on every
+		// path that builds the internal server.
+		discard := logrus.New()
+		discard.Out = io.Discard
+		logger = discard
+	}
+	return &backups{manager: manager, activity: activity, auth: auth, logger: logger}
 }
 
 func (b *backups) CanCommit() http.Handler {
@@ -56,14 +69,26 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 			return
 		}
 
-		// nil here means a fault, not an unwired build (this probe is always
-		// wired), so a plain 503 is worth retrying.
+		// Built before the fault branch so both of the probe's answers reach
+		// the log, not just the one that carries a verdict.
+		log := b.logger.WithField("action", "backup_node_activity_probe")
+
+		// nil means a fault, not an unwired build (this probe is always wired),
+		// so answer a plain, retryable 503 rather than the other probe's
+		// terminal "not wired" wording.
 		if b.activity == nil {
-			http.Error(w, "backup activity probe is not wired on this node", http.StatusServiceUnavailable)
+			log.Warn("backup node activity probe answered: unavailable on this node")
+			http.Error(w, "backup activity probe unavailable on this node", http.StatusServiceUnavailable)
 			return
 		}
 
-		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Activity()))
+		activity := b.activity.Activity()
+		log.WithField("busy", activity.Busy).
+			WithField("kind", activity.Kind).
+			WithField("id", clusterprobe.Loggable(activity.ID)).
+			Debug("backup node activity probe answered")
+
+		data, err := json.Marshal(backup.NewNodeActivityResponse(activity))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return

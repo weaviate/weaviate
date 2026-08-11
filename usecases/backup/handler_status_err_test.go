@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,9 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// The coordinator latches the first terminal answer a participant gives and
-// stops polling it, so a reason dropped here is the permanent answer the
-// operator gets: FAILED with nothing to act on.
+// A reason dropped here becomes the permanent FAILED answer with nothing to act on.
 func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 	const backupID = "1"
 
@@ -72,9 +71,7 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 	}
 }
 
-// A reason belongs to the failure that produced it. Every path that moves the
-// slot off that failure has to drop it, or the next reader is served a reason
-// for something that did not happen.
+// A reason must not survive the failure that produced it.
 func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 	const reason = "object storage unreachable"
 
@@ -89,9 +86,6 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 		require.Empty(t, s.get().Err)
 	})
 
-	// A restore whose commit failed is then found cancelled in object storage,
-	// and the slot moves to Cancelled a moment after the failure was published
-	// on it.
 	t.Run("a later status drops it", func(t *testing.T) {
 		var s backupStat
 		prevID, _ := s.renew("1", "bucket/backups/1", "", "")
@@ -106,9 +100,8 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 	})
 }
 
-// The slot is released as soon as the operation returns, so what a failure
-// leaves behind has to outlive it: the descriptor is the other place a poll
-// could read, and there is no descriptor when writing it is what failed.
+// A failure must be remembered after the slot is released, since writing the
+// descriptor is what may have failed.
 func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 	const reason = "object storage unreachable"
 
@@ -162,8 +155,7 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 	})
 }
 
-// The reason has to survive the whole way out of the uploader, including the
-// meta write that may itself be what failed.
+// The reason must survive out of the uploader, including a failing meta write.
 func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 	const (
 		backupID = "1"
@@ -235,9 +227,8 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 	}
 }
 
-// The descriptor is the whole backup: with no descriptor there is nothing to
-// restore from. Publishing SUCCESS because the file uploads went fine has the
-// coordinator count the node done and report an unrestorable backup as good.
+// SUCCESS must not be published before the descriptor is written, or the
+// coordinator counts an unrestorable backup as done.
 func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 	const (
 		backupID = "1"
@@ -303,9 +294,8 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 	}
 }
 
-// An operator abort reaches the uploader as a cancelled context, but the error
-// that comes back from the work it interrupted does not always wrap it. The
-// operation's own context is the signal that says which one it was.
+// An abort must be detected via the operation's own cancelled context, since
+// the interrupted work's error doesn't always wrap it.
 func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	const (
 		backupID = "1"
@@ -332,8 +322,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// The abort lands while the roles are being snapshotted, and what comes back
-	// is that step's own error, which says nothing about a cancellation.
+	// Roles snapshot fails with an error unrelated to the cancellation.
 	rbac := &abortingSnapshotter{cancel: cancel, err: errors.New("roles snapshot interrupted")}
 
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
@@ -363,11 +352,8 @@ func (s *abortingSnapshotter) Restore(snapshot []byte, stripNamespaces bool) err
 	return nil
 }
 
-// The goroutine that runs a create owns the slot and releases it on the way
-// out, so the poll that matters is the one landing after that. Here the meta
-// write is what failed, which is the case that leaves nothing else to read: a
-// poll falling through to the backend finds no descriptor and can only report
-// that it is missing.
+// A poll landing after the create goroutine released the slot must still get
+// an answer, even when the meta write itself failed.
 func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T) {
 	const (
 		backupID    = "status-after-release"
@@ -396,8 +382,7 @@ func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T
 	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 	backend.On("SourceDataPath").Return(t.TempDir())
 	backend.On("GetObject", mock.Anything, nodeHome, BackupFile).Return(nil, errNotFound)
-	// What a poll falling through to the backend would find: the descriptor
-	// this operation failed to write.
+	// The descriptor this operation failed to write.
 	backend.On("GetObject", mock.Anything, backupID, BackupFile).Return(nil, errNotFound)
 	backend.On("Initialize", mock.Anything, nodeHome).Return(nil)
 	backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(metaErr)
@@ -423,10 +408,8 @@ func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T
 	require.Contains(t, res.Err, metaErr.Error())
 }
 
-// A create can fail before it ever reaches the upload, and those paths write no
-// descriptor at all. The slot is then the only place the reason can live, and
-// the diagnostics from the base-backup chain are the ones an operator most
-// needs: they say what is wrong with the request.
+// Pre-upload failures write no descriptor, so the slot is the only place the
+// reason can live.
 func TestHandlerOnStatusServesTheReasonACreateFailedWithBeforeUploading(t *testing.T) {
 	const (
 		backupID    = "before-upload"
@@ -522,9 +505,8 @@ func TestHandlerOnStatusServesTheReasonACreateFailedWithBeforeUploading(t *testi
 	}
 }
 
-// The remembered failure is a fallback, not an override. A descriptor on the
-// backend is the durable record of what happened to that backup, and answering
-// a poll from memory instead would report a backup that finished as failed.
+// A descriptor on the backend must win over a remembered failure, which is
+// only a fallback.
 func TestHandlerOnStatusPrefersTheDescriptorOverARememberedFailure(t *testing.T) {
 	const (
 		backupID    = "descriptor-wins"
@@ -557,11 +539,8 @@ func TestHandlerOnStatusPrefersTheDescriptorOverARememberedFailure(t *testing.T)
 	require.Empty(t, res.Err)
 }
 
-// The coordinator publishes the outcome on its slot and only then writes the
-// global descriptor, which is a round trip to object storage. A user polling
-// GET /backups/{backend}/{id} in between is answered from the slot, so a FAILED
-// with no reason there is the same bug one level up, on the path an operator
-// actually hits.
+// Same bug as above, one level up: a poll landing between the slot update and
+// the global-descriptor write must still get the reason.
 func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t *testing.T) {
 	const (
 		backupID    = "coordinated"
@@ -580,8 +559,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 			wantErr:        "no space left on device",
 		},
 		{
-			// A node still running a pre-fix build, which every participant is
-			// for the length of a rolling upgrade.
+			// Simulates an older participant during a rolling upgrade.
 			name:           "a participant that reports no reason still ends as a stated failure",
 			participantErr: "",
 			wantErr:        failureWithoutReason,
@@ -621,11 +599,8 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 	}
 }
 
-// The create goroutine publishes the outcome on the slot, writes the global
-// descriptor, and releases the slot. When that write is what fails, the
-// descriptor left on the backend is the one from before the operation ended,
-// and every later poll of GET /backups/{backend}/{id} reads it: a failed backup
-// reporting STARTED for as long as the node is up.
+// When the global-descriptor write fails, later polls must not keep reading
+// the stale pre-operation descriptor and reporting STARTED forever.
 func TestCoordinatorOnStatusServesTheFailureTheGlobalDescriptorNeverGot(t *testing.T) {
 	const (
 		backupID    = "meta-write-failed"
@@ -768,9 +743,8 @@ func TestCoordinatorOnStatusServesTheFailureTheGlobalRestoreDescriptorNeverGot(t
 	require.Equal(t, reason, st.Err)
 }
 
-// BackupStatus is what the REST layer calls for GET /backups/{backend}/{id},
-// and it copies the reason straight into the response payload. Everything below
-// it is covered a layer down; this is the whole path an operator polls.
+// End-to-end check of the whole path GET /backups/{backend}/{id} hits, down to
+// BackupStatus copying the reason into the response.
 func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
 	const (
 		backupID    = "polled"
@@ -818,4 +792,118 @@ func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, backup.Failed, st.Status)
 	require.Equal(t, reason, st.Err)
+}
+
+// The shard name must be redacted at both places the uploader can publish a reason.
+func TestUploaderPublishesAGateRefusalRedacted(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+		shard    = "zmDMRo4olU4c"
+	)
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article" has an active runtime-reindex task in DTM`,
+	}
+	wrapped := fmt.Errorf("snapshot shard %s: halt for snapshot: %w", shard, refusal)
+	metaErr := errors.New("meta write rejected by object storage")
+
+	cases := []struct {
+		name string
+		// uploadErr arrives on the class descriptor; metaErr from the meta write.
+		uploadErr error
+		metaErr   error
+		// wantErr is the whole published reason; wantIn is used instead when
+		// the backend wraps the meta fault with its own path detail.
+		wantErr string
+		wantIn  []string
+	}{
+		{
+			name:      "a refused upload",
+			uploadErr: wrapped,
+			wantErr:   refusal.Msg,
+		},
+		{
+			name:      "a refused upload whose meta write also failed",
+			uploadErr: wrapped,
+			metaErr:   metaErr,
+			wantIn: []string{
+				refusal.Msg + "; uploading the backup metadata also failed: ",
+				metaErr.Error(),
+			},
+		},
+		{
+			// The files went up; writing the descriptor is what hit the gate.
+			name:    "a refused meta write",
+			metaErr: wrapped,
+			wantErr: refusal.Msg,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- backup.ClassDescriptor{Name: class, Error: tc.uploadErr}
+			close(descriptors)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
+
+			logger, _ := test.NewNullLogger()
+			bp := &backupper{logger: logger}
+			prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+			require.Empty(t, prevID)
+
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+			desc := backup.BackupDescriptor{ID: backupID}
+			require.Error(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""))
+
+			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+				&StatusRequest{Method: OpCreate, ID: backupID})
+
+			require.Equal(t, backup.Failed, res.Status)
+			if tc.wantErr != "" {
+				require.Equal(t, tc.wantErr, res.Err)
+			}
+			for _, want := range tc.wantIn {
+				require.Contains(t, res.Err, want)
+			}
+			require.NotContains(t, res.Err, shard,
+				"a backup caller is granted nothing on shard names")
+			require.NotContains(t, desc.Error, shard,
+				"the descriptor is what a poll reads once the slot is gone")
+		})
+	}
+}
+
+// The paths that fail before any descriptor exists publish their reason
+// straight onto the slot, so the redaction has to happen there too.
+func TestBackupperPublishesAGateRefusalRedacted(t *testing.T) {
+	const (
+		backupID = "1"
+		shard    = "zmDMRo4olU4c"
+	)
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article" has an active runtime-reindex task in DTM`,
+	}
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	prevID, _ := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
+	require.Empty(t, prevID)
+
+	bp.publishFailure(fmt.Errorf("snapshot shard %s: %w", shard, refusal))
+
+	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpCreate, ID: backupID})
+
+	require.Equal(t, backup.Failed, res.Status)
+	require.Equal(t, refusal.Msg, res.Err,
+		"a backup caller is granted nothing on shard names")
 }

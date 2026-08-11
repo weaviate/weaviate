@@ -15,7 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -319,30 +319,37 @@ func (i *Index) logReindexRefusal(shardName string, err error) {
 		WithField("collection", i.Config.ClassName.String()).
 		WithField("shard", shardName).
 		WithField("node", i.localNodeName()).
-		Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
+		Warn("backup-reindex gate: refused a replica shard copy; a runtime-reindex is live on this shard")
 }
 
 // logReindexRefusalSummary is [Index.logReindexRefusal] for a pass over many
 // shards: one line for the whole pass, with an exact count and a capped sample
 // of the names.
 func (i *Index) logReindexRefusalSummary(shardNames []string) {
-	if len(shardNames) == 0 || i.logger == nil {
+	logReindexRefusalPass(i.logger, "backup descriptor", i.localNodeName(),
+		i.Config.ClassName.String(), shardNames)
+}
+
+// logReindexRefusalPass logs one line for a pass over many shards. Shared by
+// [DB.logReindexRefusals] and [Index.logReindexRefusalSummary] so the two can't drift apart.
+func logReindexRefusalPass(logger logrus.FieldLogger, stage, node, collection string, shardNames []string) {
+	if len(shardNames) == 0 || logger == nil {
 		return
 	}
-	// Sorted so repeated refusals diff cleanly.
-	sort.Strings(shardNames)
-	sample := shardNames
+	// Sorted on a copy so repeated refusals diff cleanly without
+	// mutating the caller's slice.
+	sorted := slices.Sorted(slices.Values(shardNames))
+	sample := sorted
 	if len(sample) > reindexRefusalShardSample {
 		sample = sample[:reindexRefusalShardSample]
 	}
-	collection := i.Config.ClassName.String()
-	i.logger.WithField("action", "backup_reindex_gate").
+	logger.WithField("action", "backup_reindex_gate").
 		WithField("collection", collection).
-		WithField("node", i.localNodeName()).
+		WithField("node", node).
 		WithField("blocked_shards", sample).
 		WithField("blocked_shard_count", len(shardNames)).
-		Warnf("backup descriptor refused: %d shard(s) of %q are held by the reindex gate; "+
-			"blocked_shards lists the first %d", len(shardNames), collection, len(sample))
+		Warnf("%s refused: %d shard(s) of %q are held by the reindex gate; "+
+			"blocked_shards lists the first %d", stage, len(shardNames), collection, len(sample))
 }
 
 // localNodeName is empty when the Index was built without its DB

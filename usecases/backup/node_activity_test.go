@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -145,12 +146,19 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 
 	busy, idle := true, false
 	tests := []struct {
-		name string
-		resp NodeActivityResponse
+		name            string
+		resp            NodeActivityResponse
+		wantErrContains string
 	}{
 		{
 			name: "wrong marker",
 			resp: NodeActivityResponse{Probe: "something-else", Busy: &idle},
+		},
+		{
+			// The peer controls the marker, so the error must not echo it whole.
+			name:            "oversized marker is truncated in the error",
+			resp:            NodeActivityResponse{Probe: strings.Repeat("x", 300), Busy: &idle},
+			wantErrContains: "…(truncated)",
 		},
 		{
 			name: "no busy field",
@@ -181,6 +189,9 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 
 			got, err := tt.resp.Activity()
 			require.Error(t, err)
+			if tt.wantErrContains != "" {
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+			}
 			assert.Equal(t, NodeActivity{}, got)
 		})
 	}
