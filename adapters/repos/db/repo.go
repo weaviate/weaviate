@@ -470,7 +470,9 @@ type Config struct {
 // Write entry points call it before resolving an index by name, because db.indices
 // lags the leader and a name lookup cannot tell a collection this node has not
 // applied yet apart from one that never existed. A satisfied wait is not proof the
-// index exists: the apply advances lastAppliedIndex even when it failed.
+// index exists: the apply advances lastAppliedIndex even when it failed. They place
+// it as late as that allows: a write a cheaper check already rejects should fail
+// right away, not after blocking for the apply.
 func (db *DB) waitForSchemaVersion(ctx context.Context, schemaVersion uint64) error {
 	if schemaVersion == 0 {
 		return nil

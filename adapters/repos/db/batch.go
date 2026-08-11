@@ -35,10 +35,6 @@ type batchQueue struct {
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchObjects, error) {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
-		return nil, err
-	}
-
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
@@ -67,6 +63,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
+	}
+
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return nil, err
 	}
 
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
@@ -126,10 +126,6 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchReferences, error) {
-	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
-		return nil, err
-	}
-
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
 
@@ -139,6 +135,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 			continue
 		}
 		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
+	}
+
+	if err := db.waitForSchemaVersion(ctx, schemaVersion); err != nil {
+		return nil, err
 	}
 
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
