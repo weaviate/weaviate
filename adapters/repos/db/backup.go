@@ -521,8 +521,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	// The loop below is sequential and returns on the first refusal, so this
-	// holds at most one name. Kept so both descriptor paths log the same shape.
+	// Sequential loop returns on the first refusal, so this holds at most one name.
 	var blocked []string
 	defer func() { i.logReindexRefusalSummary(blocked) }()
 

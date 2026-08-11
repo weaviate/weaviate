@@ -175,10 +175,8 @@ func (i *Index) logReindexRefusalSummary(shardNames []string) {
 		i.Config.ClassName.String(), shardNames)
 }
 
-// logReindexRefusalPass emits the one gate line a pass over many shards leaves
-// behind. stage names the pass ("backup precheck", "backup descriptor"). Shared
-// by [DB.logReindexRefusals] and [Index.logReindexRefusalSummary] so the cap,
-// the field names and the sort order cannot drift apart.
+// logReindexRefusalPass logs one line for a pass over many shards. Shared by
+// [DB.logReindexRefusals] and [Index.logReindexRefusalSummary] so the two can't drift apart.
 func logReindexRefusalPass(logger logrus.FieldLogger, stage, node, collection string, shardNames []string) {
 	if len(shardNames) == 0 || logger == nil {
 		return

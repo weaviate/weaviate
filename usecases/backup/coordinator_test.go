@@ -938,8 +938,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		classes     = []string{"Class-A"}
 		// One participant always accepts so we can isolate the refusal path.
 		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		// What a current-version participant sends: the sentinel, the DTM
-		// detail, and the two remediation calls.
+		// What a current-version participant sends.
 		modernRefusal = backup.ErrBackupBlockedByInFlightReindex.Error() +
 			`: collection "Class-A" has an active runtime-reindex task in DTM; retry after the migration finishes, ` +
 			`or cancel it: GET /v1/schema/Class-A/indexes names the property and index type that are still migrating, ` +
@@ -967,9 +966,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
-			// A current-version participant's wording is published as-is: it
-			// already names no node and no shard, and the detail and the two
-			// remediation calls are what make the 422 actionable.
+			// Current-version wording is published as-is, node/shard-free.
 			expectContain: []string{
 				backup.ErrBackupBlockedByInFlightReindex.Error(),
 				"active runtime-reindex task in DTM",
@@ -1011,8 +1008,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			transportErr:    errors.New("connection refused"),
 			expectContain:   []string{"connection refused"},
 			expectNodeNamed: true,
-			// A participant that cannot be reached is a cluster fault, not a
-			// caller's doing, so this leg is the one that pages.
+			// Unreachable participant is a cluster fault, so this leg pages.
 			expectLogLevel: logrus.ErrorLevel,
 		},
 	}

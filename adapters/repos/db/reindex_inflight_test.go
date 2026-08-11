@@ -273,8 +273,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
 	}
 
-	// Single-shard form of the pass-level log. Its only call site is the
-	// replica-move path, so it must name that and not a backup job.
+	// Single-shard form of the pass-level log.
 	idx.logReindexRefusal(shard, err)
 
 	var logged *logrus.Entry

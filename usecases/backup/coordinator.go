@@ -541,10 +541,6 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
-		// The sentinel is a prefix of the old wording too, but an old
-		// participant can never open with it: DB.Backupable is the only
-		// canCommit source of a gate refusal, and it used to prefix every
-		// entry with node/class.
 		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
 			// The participant's message already opens with the sentinel; %w
 			// would print the whole condition twice.
@@ -556,9 +552,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	}
 }
 
-// redactedRefusalClassSample caps the collection names quoted into one
-// rebuilt refusal. A backup may span hundreds of collections, and this text
-// becomes the body of an API error.
+// redactedRefusalClassSample caps the class names quoted into a rebuilt
+// refusal; the text becomes the body of an API error.
 const redactedRefusalClassSample = 10
 
 // redactedReindexRefusal rebuilds a refusal from the caller's own request,
