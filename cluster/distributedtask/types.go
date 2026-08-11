@@ -74,6 +74,9 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 //     dropped on the spot, never queued for a later registrant.
 //   - Endings dropped because the queue and the overflow bound are both full.
 //     Both drop arms log at error level with the namespace, task ID and version.
+//   - Endings applied after [Manager.Close]. Dropped with no log at all, since
+//     by then the node is on its way down. Production never reaches this:
+//     cluster.Store.Close shuts RAFT down before closing the Manager.
 //
 // Endings replicated as log entries after startup do fire, even when old, so
 // observers must be idempotent and must not assume the ending is recent.
@@ -85,14 +88,23 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // cluster.Raft.RegisterDistributedTaskTerminalObserver), and at that point this
 // node's task map is still empty and the list surface a consumer holds,
 // cluster.Raft.ListDistributedTasks, is leader-routed with no leader to reach.
-// Reconcile once the node has caught up, after cluster.Service.Open returns,
-// and again on whatever period a missed ending is still worth catching: a
-// snapshot installed later in the node's life announces nothing either.
+// Reconcile once the node has caught up, after cluster.Service.Open returns.
 //
-// Reconciling cannot recover one case. A non-terminal task removed by the
-// DELETE_CLASS cascade ([Manager.DeleteTasksForCollection]) never goes
-// CANCELLED or FAILED and is gone from the listing afterwards, so nothing ever
-// reports it. Observers must not wait indefinitely on any one task.
+// Reconciling once is not enough, and the period is not free to choose. A
+// snapshot installed later in the node's life announces nothing either, and
+// every missed ending stops being recoverable when the scheduler's TTL sweep
+// removes the task — completedTaskTTL after it ended
+// (DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS, five days by default). That TTL
+// is the deadline for every gap above, not just the last one. Reconcile well
+// inside it.
+//
+// The DELETE_CLASS cascade is the one ending no reconcile can catch, and that
+// is a choice rather than a limit. [Manager.DeleteTasksForCollection] holds the
+// task while removing it and could announce it in one line, but the task never
+// went CANCELLED or FAILED, so announcing it through this type would break the
+// contract above. Telling a namespace its task is gone needs a separate signal,
+// which is out of scope here. Until there is one, observers must not wait
+// indefinitely on any one task.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
@@ -603,9 +615,19 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt varies by route (cancel instant, failing unit's stamp, or the
-	// possibly stale AllUnitsTerminal stamp) and drives TTL cleanup only —
-	// don't trust it as "when did this end".
+	// FinishedAt is when the task's work ended: the cancel instant, the
+	// failing unit's stamp, or the last unit completion to apply. The routes
+	// that turn a task terminal later — a failed PREP or SWAP ack,
+	// [Manager.MarkTaskFailed], [Manager.MarkTaskFinalized] — keep that stamp
+	// instead of the moment the status flipped.
+	//
+	// Four readers, so retiming it moves more than cleanup: the scheduler's
+	// TTL sweep, [Manager.ListDistributedTasks]'s sort key, the REST
+	// finishedAt field, and the reindex progress endpoint's finalize window.
+	//
+	// Written from the clock of whichever node reported the completion, so it
+	// can sit slightly before another unit's own FinishedAt and cannot be
+	// compared against a local monotonic reading.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
