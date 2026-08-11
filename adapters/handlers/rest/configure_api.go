@@ -1025,7 +1025,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
-			return liveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
+			return db.NewLiveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
@@ -1081,7 +1081,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 				return func(string, string) bool { return true }
 			}
-			return shardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
@@ -1137,13 +1137,17 @@ func initReindexAndDistributedTasks(
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder:       appState.ClusterService.Raft,
-		Providers:         providers,
-		Logger:            appState.Logger,
-		MetricsRegisterer: metricsRegisterer,
-		LocalNode:         appState.Cluster.LocalName(),
-		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		AckRecorder: appState.ClusterService.Raft,
+		// Deliberately not leader-routed: a task only this node still
+		// holds is invisible to the query above and is exactly the one
+		// the operator needs named.
+		LocalTaskInspector: appState.ClusterService.Raft,
+		Providers:          providers,
+		Logger:             appState.Logger,
+		MetricsRegisterer:  metricsRegisterer,
+		LocalNode:          appState.Cluster.LocalName(),
+		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		CompletedTaskTTL:   appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
@@ -2801,53 +2805,5 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				appState.Logger.WithField("action", "runtime config manager startup").Fatalf("runtime config manager stopped: %v", err)
 			}
 		}, appState.Logger)
-	}
-}
-
-// liveReindexTrackerLookup reports whether a task still owns its on-disk
-// tracker dirs. Every non-terminal status counts, including one this build
-// cannot name: the other answer deletes the dirs, and that is the one
-// outcome nothing downstream can undo.
-func liveReindexTrackerLookup(tasks []*distributedtask.Task) db.KnownReindexTaskLookup {
-	type taskKey struct {
-		id      string
-		version uint64
-	}
-	live := make(map[taskKey]bool, len(tasks))
-	for _, task := range tasks {
-		live[taskKey{task.ID, task.Version}] = task.Status.IsActive()
-	}
-	return func(taskID string, taskVersion uint64) bool {
-		return live[taskKey{taskID, taskVersion}]
-	}
-}
-
-// shardReindexActivityLookup reports whether a reindex is working on a
-// shard. Same liveness rule as the tracker lookup above, for the same
-// reason: a shard whose migration this build cannot prove is finished
-// would otherwise be captured half-migrated.
-func shardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) db.ShardReindexActivityLookup {
-	type shardKey struct {
-		collection string
-		shardName  string
-	}
-	live := make(map[shardKey]bool)
-	for _, task := range tasks {
-		if !task.Status.IsActive() {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			logger.WithField("action", "backup_reindex_gate").
-				WithField("task_id", task.ID).
-				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-			continue
-		}
-		for _, shardName := range payload.UnitToShard {
-			live[shardKey{payload.Collection, shardName}] = true
-		}
-	}
-	return func(collection, shardName string) bool {
-		return live[shardKey{collection, shardName}]
 	}
 }

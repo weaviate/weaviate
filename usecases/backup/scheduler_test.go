@@ -1593,19 +1593,52 @@ func TestCancellingRestore(t *testing.T) {
 		fs.backend.AssertExpectations(t)
 	})
 
-	t.Run("CancellingAlreadyInCancellingStateFinishesIt", func(t *testing.T) {
-		// A cancel repeated on a stuck CANCELLING descriptor must finish it.
-		fs := newCancelRestoreFixture(t, ctx)
-		storedRestoreMeta(fs, backupID, backup.Cancelling)
-		writes := recordRestoreMetaWrites(t, fs, backupID, nil)
+	// A cancel repeated on a stuck CANCELLING descriptor must finish it,
+	// whatever this node's own slot happens to hold: the descriptor is what
+	// refuses every later restore of the id, and only the repeat clears it.
+	for _, tc := range []struct {
+		name string
+		// slotStatus is what the restore holds this node's slot with, or ""
+		// when no restore does.
+		slotStatus backup.Status
+		wantSlot   backup.Status
+	}{
+		{name: "CancellingAlreadyInCancellingStateFinishesIt", wantSlot: ""},
+		{
+			// Another coordinator claimed the cancellation; this node still
+			// runs the restore, so the repeat is also what stops it.
+			name:       "CancellingRepeatedWhileTheRestoreStillHoldsTheSlot",
+			slotStatus: backup.Transferring,
+			wantSlot:   backup.Cancelled,
+		},
+		{
+			// The first cancel stamped the slot and then failed to record the
+			// completion. Nothing left to stamp, everything left to write.
+			name:       "CancellingRepeatedAfterTheSlotWasAlreadyStamped",
+			slotStatus: backup.Cancelled,
+			wantSlot:   backup.Cancelled,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newCancelRestoreFixture(t, ctx)
+			storedRestoreMeta(fs, backupID, backup.Cancelling)
+			writes := recordRestoreMetaWrites(t, fs, backupID, nil)
 
-		err := fs.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
-		assert.Nil(t, err)
-		fs.backend.AssertExpectations(t)
-		// The claim is not written again, only the completion it was missing.
-		assert.Equal(t, []backup.Status{backup.Cancelled}, writes.recorded())
-		fs.client.AssertCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
-	})
+			s := fs.scheduler()
+			if tc.slotStatus != "" {
+				prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+				require.Empty(t, prevID)
+				require.True(t, slot.set(tc.slotStatus))
+			}
+
+			assert.Nil(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
+			fs.backend.AssertExpectations(t)
+			// The claim is not written again, only the completion it was missing.
+			assert.Equal(t, []backup.Status{backup.Cancelled}, writes.recorded())
+			assert.Equal(t, tc.wantSlot, s.restorer.lastOp.get().Status)
+			fs.client.AssertCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 
 	t.Run("CancellingRefusedWhenTheRestoreFinalizesWhileTheNodesAreAborted", func(t *testing.T) {
 		// Pins that a repeated cancel can race schema apply during abort; the
@@ -2976,7 +3009,7 @@ func TestSchedulerBackupResponseDoesNotReadAStrangersSlot(t *testing.T) {
 				// A freshly claimed slot reads STARTED, which is what the
 				// response falls back to, so the stranger is moved on to a
 				// status only its slot can produce.
-				stamped, _ := s.backupper.lastOp.setIfOwned("another-backup", backup.Transferring)
+				stamped, _ := s.backupper.lastOp.claimOf("another-backup").stamp(backup.Transferring)
 				assert.True(t, stamped)
 			})
 		})

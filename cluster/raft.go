@@ -97,6 +97,14 @@ func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]di
 	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
 }
 
+// LocalUnrecognizedDistributedTasks implements
+// [distributedtask.LocalTaskInspector]. Unlike every other task read on
+// this type it does not route to the leader — the point is to see what
+// only this node still holds.
+func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalUnrecognizedDistributedTasks()
+}
+
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into
 // the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
 // and weaviate/0-weaviate-issues#231.

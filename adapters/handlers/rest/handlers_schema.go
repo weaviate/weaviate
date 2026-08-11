@@ -280,6 +280,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // epistemics as the schema FSM's MutationGuard at apply time, just
 // earlier in the request lifecycle for operator UX.
 //
+// "Same epistemics" is meant literally: it rejects on the same arms as
+// [db.ReindexProvider.CheckPropertyUpdate], in the same order, including
+// the two that do not look at the mutated collection at all — a payload
+// that does not decode, and one that decodes without a Collection. Both
+// block mutations on every collection. That is over-broad on both sides,
+// but identically so, which is what makes the promise below hold.
+//
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
 // the apply-time [MutationGuard] is what closes that multi-node
@@ -317,22 +324,23 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !task.Status.IsActive() {
 			continue
 		}
+		// The arms below run in the FSM guard's order on purpose. Deciding
+		// the collection first looks like it would spare unrelated
+		// collections a garbage payload, but it only works for a type
+		// error: a syntax error leaves Collection empty, and a payload of
+		// literal null decodes with no error at all and leaves it empty
+		// too. Either way this side would allow what the apply then
+		// rejects, which is the "ok-then-FAILED" two-step this pre-flight
+		// exists to prevent.
 		var payload db.ReindexTaskPayload
-		decodeErr := json.Unmarshal(task.Payload, &payload)
-		// Check collection first: json.Unmarshal fills decoded fields before
-		// erroring, so a task naming a different collection is skipped even
-		// with a garbage payload, rather than blocking mutations cluster-wide.
-		if payload.Collection != "" && !strings.EqualFold(payload.Collection, className) {
-			continue
-		}
-		if decodeErr != nil {
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Task ID withheld: an unreadable payload also hides which
 			// namespace the task belongs to.
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
 					"conflict (see GET /v1/tasks): %v",
-				className, propertyName, decodeErr)
+				className, propertyName, err)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
