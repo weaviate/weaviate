@@ -106,9 +106,11 @@ func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extr
 
 // RegisterDistributedTaskTerminalObserver installs a namespace's
 // [distributedtask.TerminalObserver], which fires on CANCELLED and on FAILED;
-// see that type for the apply-path contract. Register before [Store.Open],
-// like collection extractors: endings applied with no observer registered
-// are not queued for later registrants and are missed.
+// see that type for the apply-path contract. Endings applied before the
+// observer registers are buffered per namespace and delivered on
+// registration, oldest first, so the startup window does not swallow them.
+// Two gaps remain: endings replayed from the local log while catching up are
+// skipped, and the buffer drops the oldest entries past its bound.
 func (s *Raft) RegisterDistributedTaskTerminalObserver(namespace string, observer distributedtask.TerminalObserver) {
 	s.store.RegisterDistributedTaskTerminalObserver(namespace, observer)
 }

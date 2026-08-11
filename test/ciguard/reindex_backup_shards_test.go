@@ -230,6 +230,9 @@ func readRunSh(t *testing.T, root string) string {
 // functions. A source scan, not `go test -list`: it needs no toolchain and no
 // compile of an acceptance package, and it still sees a test hidden behind a
 // build tag, which `go test -list` without -tags does not.
+//
+// The one escape left open: the read is non-recursive, so tests in a
+// subpackage of the guarded package are not covered by these guards.
 func declaredTests(t *testing.T, root string) []string {
 	t.Helper()
 
