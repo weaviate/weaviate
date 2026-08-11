@@ -1999,6 +1999,13 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	for _, propName := range payload.Properties {
 		repairCall := ReindexRepairCall(*payload, propName)
 		if repairCall == "" {
+			// No node knows more than this one. The payload is the same
+			// replicated bytes everywhere, so a field missing here is
+			// missing on every node, and the operator has to supply what
+			// it lacks. The one case where another node would know more —
+			// a migration type this build does not recognize — cannot
+			// reach here: IsSemanticMigration is a positive allowlist and
+			// returns above.
 			logger.WithFields(map[string]any{
 				"property":       propName,
 				"migration_type": payload.MigrationType,
@@ -2006,8 +2013,9 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 				"reindex provider: %s on %s.%s %s; the canonical inverted "+
 					"bucket may hold new-format data under the pre-migration "+
 					"schema, and this build cannot name the request that would "+
-					"repair it — re-run the migration from the node that "+
-					"submitted it",
+					"repair it — re-submit the migration for this property "+
+					"against the current schema; any node will do, they all "+
+					"hold the same payload",
 				payload.MigrationType, payload.Collection, propName, outcome)
 			continue
 		}
