@@ -653,7 +653,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 func (s *Shard) objectsBucket() (*lsmkv.Bucket, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, errAlreadyShutdown)
+		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 		s.reportTornStoreAccess(err)
 		return nil, err
 	}
@@ -669,8 +669,7 @@ func (s *Shard) reportTornStoreAccess(err error) {
 		"action": "objects_bucket_missing",
 		"class":  s.index.Config.ClassName.String(),
 		"shard":  s.name,
-	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun "+
-		"(further occurrences on this shard are suppressed): %v", err)
+	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun, %v", err)
 }
 
 // ObjectCount returns the exact count at any moment
