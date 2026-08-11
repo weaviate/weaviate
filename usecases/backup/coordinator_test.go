@@ -825,7 +825,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
-		coordinator.commit(ctx, req, node2Addr, true)
+		coordinator.commit(ctx, req, node2Addr, true, 0)
 
 		// After commit, queryAll should have updated Participants with Cancelled status
 		// Verify that queryAll was called and updated the status
@@ -1417,6 +1417,105 @@ func TestCoordinatorRestoreCancellingReleasesOnlyItsOwnSlot(t *testing.T) {
 			prevID, _ := c.lastOp.renew("intruder", "path", "", "")
 			require.Equal(t, tc.wantSlotID, prevID,
 				"a live restore must still refuse a second claim")
+		})
+	}
+}
+
+// TestCanCommitErrFromResponse pins the promotion of a refused CanCommit
+// response back into a typed error, one row per kind. The kind decides the HTTP
+// status the caller sees, so a row landing on the wrong arm turns a retryable
+// refusal into a 500.
+func TestCanCommitErrFromResponse(t *testing.T) {
+	t.Parallel()
+	const node = "N2"
+	classes := []string{"Movies"}
+
+	tests := []struct {
+		name string
+		resp *CanCommitResponse
+		// wantIs are the sentinels the promoted error must carry.
+		wantIs []error
+		// wantNotIs are the ones it must not, so the arms stay separable.
+		wantNotIs   []error
+		wantContain string
+		// wantNotContain guards the texts served to a backup caller, who is
+		// granted neither node nor shard names.
+		wantNotContain string
+	}{
+		{
+			name:      "no response at all",
+			resp:      nil,
+			wantIs:    []error{errCannotCommit},
+			wantNotIs: []error{backup.ErrBackupBlockedByInFlightReindex, backup.ErrReindexInFlight},
+		},
+		{
+			name: "a backup refusal keeps the participant's wording",
+			resp: &CanCommitResponse{
+				ErrKind: CanCommitErrInFlightReindex,
+				Err: backup.ErrBackupBlockedByInFlightReindex.Error() +
+					`: collection "Movies" has an active runtime-reindex task in DTM`,
+			},
+			wantIs:      []error{backup.ErrBackupBlockedByInFlightReindex},
+			wantNotIs:   []error{errCannotCommit, backup.ErrReindexInFlight},
+			wantContain: "has an active runtime-reindex task in DTM",
+		},
+		{
+			name: "a backup refusal an older node worded with its node name is rebuilt",
+			resp: &CanCommitResponse{
+				ErrKind: CanCommitErrInFlightReindex,
+				Err:     "node " + node + ": shard S1 has an active runtime-reindex task",
+			},
+			wantIs:         []error{backup.ErrBackupBlockedByInFlightReindex},
+			wantNotIs:      []error{errCannotCommit},
+			wantContain:    `"Movies"`,
+			wantNotContain: node,
+		},
+		{
+			// The restore counterpart. It must not land on errCannotCommit:
+			// the scheduler answers 422 for this and 500 for that.
+			name: "a restore refusal carries the cluster-wide sentinel",
+			resp: &CanCommitResponse{
+				ErrKind: CanCommitErrRestoreBlockedByReindex,
+				Err: "restore blocked: " + backup.ErrReindexInFlight.Error() +
+					": retry after the migration finishes",
+			},
+			wantIs:      []error{backup.ErrReindexInFlight},
+			wantNotIs:   []error{errCannotCommit, backup.ErrBackupBlockedByInFlightReindex},
+			wantContain: "retry after the migration finishes",
+		},
+		{
+			name:        "any other refusal stays unretryable",
+			resp:        &CanCommitResponse{ErrKind: CanCommitErrCannotCommit, Err: "no space left on device"},
+			wantIs:      []error{errCannotCommit},
+			wantNotIs:   []error{backup.ErrBackupBlockedByInFlightReindex, backup.ErrReindexInFlight},
+			wantContain: "no space left on device",
+		},
+		{
+			name:        "an older node sends no kind at all",
+			resp:        &CanCommitResponse{Err: "something went wrong"},
+			wantIs:      []error{errCannotCommit},
+			wantNotIs:   []error{backup.ErrBackupBlockedByInFlightReindex, backup.ErrReindexInFlight},
+			wantContain: "something went wrong",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := canCommitErrFromResponse(tc.resp, classes)
+			require.Error(t, err)
+			for _, sentinel := range tc.wantIs {
+				require.ErrorIs(t, err, sentinel)
+			}
+			for _, sentinel := range tc.wantNotIs {
+				require.NotErrorIs(t, err, sentinel)
+			}
+			if tc.wantContain != "" {
+				require.Contains(t, err.Error(), tc.wantContain)
+			}
+			if tc.wantNotContain != "" {
+				require.NotContains(t, err.Error(), tc.wantNotContain)
+			}
 		})
 	}
 }

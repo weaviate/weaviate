@@ -101,31 +101,58 @@ func TestRestoreGateAnswersBeforeExistence(t *testing.T) {
 		require.Equal(t, []string{authorization.CREATE}, authz.verbs)
 	})
 
-	// The arm has no meta, so it cannot know which collections the backup would
-	// have touched — not even for a caller that named its own. The gate is asked
-	// cluster-wide, so a migration anywhere blocks it.
-	t.Run("the unknown-id arm asks the gate cluster-wide", func(t *testing.T) {
-		fs := unknownIDFixture(ctx, unknownID)
-		fs.selector.reindexInFlightFor = func(collections []string) error {
-			if len(collections) == 0 {
-				return errors.New("runtime-reindex in flight")
-			}
-			return nil
+	// The gate's answer is cluster-wide state, so the question has to be as
+	// narrow as what the caller was authorized for. Without an include there is
+	// nothing to narrow by and the broad grant above pays for the broad
+	// question; with one, asking cluster-wide would tell a principal holding
+	// only "Movies" that a migration is running on a collection they cannot see.
+	t.Run("the unknown-id arm asks only about what the caller named", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			include     []string
+			wantAsked   []string
+			wantBlocked bool
+		}{
+			{
+				name:        "no include asks cluster-wide",
+				wantBlocked: true,
+			},
+			{
+				name:      "an explicit include asks about those collections only",
+				include:   []string{"Movies"},
+				wantAsked: []string{"Movies"},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				fs := unknownIDFixture(ctx, unknownID)
+				// A migration nobody asked about: it blocks the cluster-wide
+				// question and nothing else.
+				fs.selector.reindexInFlightFor = func(collections []string) error {
+					if len(collections) == 0 {
+						return errors.New("runtime-reindex in flight")
+					}
+					return nil
+				}
+
+				_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
+					Backend: backendName,
+					ID:      unknownID,
+					Include: tc.include,
+				}, false)
+
+				require.Error(t, err)
+				require.Len(t, fs.selector.reindexCollections, 1,
+					"the gate must run exactly once on this arm")
+				require.ElementsMatch(t, tc.wantAsked, fs.selector.reindexCollections[0])
+				if tc.wantBlocked {
+					assert.IsTypef(t, backup.ErrUnprocessable{}, err,
+						"a migration must block a restore nobody scoped; got %v", err)
+					return
+				}
+				assert.IsTypef(t, backup.ErrNotFound{}, err,
+					"a migration on a collection this caller did not name must not be disclosed; got %v", err)
+			})
 		}
-
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      unknownID,
-			Include: []string{"Movies"},
-		}, false)
-
-		require.Error(t, err)
-		assert.IsTypef(t, backup.ErrUnprocessable{}, err,
-			"a migration outside the caller's classes must still block this restore; got %v", err)
-		require.Len(t, fs.selector.reindexCollections, 1,
-			"the gate must run exactly once on this arm")
-		require.Nil(t, fs.selector.reindexCollections[0],
-			"the question must be cluster-wide: this arm has no resolved class list to scope by")
 	})
 
 	// A caller that names its classes has already been authorized against
@@ -314,6 +341,11 @@ func TestRestoreGateIsScopedPerArm(t *testing.T) {
 					"a migration on Movies must refuse a restore of %v", tc.include)
 				continue
 			}
+			// Without this the arm is green even when Restore returns nil
+			// before ever consulting the gate.
+			require.Lenf(t, fs.selector.reindexCollections, 1,
+				"the gate must be consulted for %v, not skipped", tc.include)
+			require.ElementsMatch(t, []string{"Actors"}, fs.selector.reindexCollections[0])
 			if err != nil {
 				assert.NotContainsf(t, err.Error(), "restore blocked",
 					"a migration on Movies must not refuse a restore of %v", tc.include)

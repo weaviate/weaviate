@@ -253,7 +253,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.resetIfOwned(slotGeneration)
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		c.commit(ctx, &statusReq, nodes, false, slotGeneration)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -362,7 +362,7 @@ func (c *coordinator) Restore(
 
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
-		c.commit(ctx, &statusReq, nodes, true)
+		c.commit(ctx, &statusReq, nodes, true, slotGeneration)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Check storage for cancellation before transitioning to Finalizing.
@@ -403,7 +403,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.publishStatus()
+		c.publishStatus(slotGeneration)
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -715,6 +715,7 @@ func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
 	toleratePartialFailure bool,
+	slotGeneration uint64,
 ) {
 	// create a new copy for commitAll and queryAll to mutate
 	node2Host := make(map[string]string, len(node2Addr))
@@ -844,19 +845,16 @@ func (c *coordinator) commit(ctx context.Context,
 		}
 	}
 	c.descriptor.Error = reason
-	c.publishStatus()
+	c.publishStatus(slotGeneration)
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
 
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a
-// poll reads until the descriptor is written to object storage. A failure goes
-// through setFailed so it is never published without the reason next to it.
-func (c *coordinator) publishStatus() {
-	if c.descriptor.Status == backup.Failed {
-		c.lastOp.setFailed(c.descriptor.Error)
-		return
-	}
-	c.lastOp.set(c.descriptor.Status)
+// poll reads until the descriptor is written to object storage. slotGeneration
+// is the claim this operation holds; see [backupStat.publishIfOwned] for why
+// the write is conditional on it.
+func (c *coordinator) publishStatus(slotGeneration uint64) {
+	c.lastOp.publishIfOwned(slotGeneration, c.descriptor.Status, c.descriptor.Error)
 }
 
 // queryAll queries all participant and store their statuses internally

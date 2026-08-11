@@ -280,6 +280,16 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 				"retry after the migration finishes",
 			wantKind: CanCommitErrRestoreBlockedByReindex,
 		},
+		{
+			// The other side of the same ordering: with the gate open the
+			// restore goes on to read the descriptor, so a row that never
+			// reaches it proves nothing about the row above.
+			name:               "restore admitted by the gate reads the descriptor",
+			method:             OpRestore,
+			wantContain:        "not found",
+			wantKind:           CanCommitErrCannotCommit,
+			wantDescriptorRead: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -317,7 +327,9 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 			}
 			assert.Equal(t, tc.wantKind, resp.ErrKind)
 			assert.Equal(t, time.Duration(0), resp.Timeout)
-			if !tc.wantDescriptorRead {
+			if tc.wantDescriptorRead {
+				backend.AssertCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
+			} else {
 				backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 			}
 		})

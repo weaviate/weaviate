@@ -156,10 +156,9 @@ func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.
 
 	slot := &fakeStatusSlot{}
 
-	ctx := context.Background()
-	err := runOverlapBackup(ctx, backend, sourcer, slot, backupID, nil, time.Now().UTC())
-	require.Error(t, err)
-	require.NoError(t, ctx.Err(), "the backup's own context was never cancelled")
+	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
+	require.ErrorIs(t, err, backup.ErrReindexOverlapUndetermined,
+		"a refusal that never observed an overlap has to stay distinguishable from one that did")
 
 	storedStatus, storedReason := backend.getMetaStatus()
 	require.Equal(t, backup.Failed, storedStatus,
@@ -321,4 +320,71 @@ func runOverlapBackup(ctx context.Context, backend *fakeBackend, sourcer *fakeSo
 	uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, slot, logger)
 	desc := backup.BackupDescriptor{ID: backupID, StartedAt: startedAt}
 	return uploader.all(ctx, classes, &desc, nil, "", "")
+}
+
+// TestOverlapRefusalKeepsItsSentinelsThroughTheUploader pins what the two
+// overlap sentinels are for: telling an operator whether a migration was seen
+// or merely could not be ruled out. Both fail the backup, so only errors.Is on
+// the way out separates "go look at the task that ran" from "there may be no
+// task to find".
+func TestOverlapRefusalKeepsItsSentinelsThroughTheUploader(t *testing.T) {
+	const backupID = "1"
+	any := mock.Anything
+
+	tests := []struct {
+		name string
+		// refusal is what the overlap check answers with.
+		refusal        error
+		wantIs         []error
+		wantNotIs      []error
+		wantStoredHint string
+	}{
+		{
+			name:      "no overlap",
+			wantNotIs: []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined},
+		},
+		{
+			name: "an overlap the check observed",
+			refusal: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+				backup.ErrBackupSpannedReindex, "Movies"),
+			wantIs:         []error{backup.ErrBackupSpannedReindex},
+			wantNotIs:      []error{backup.ErrReindexOverlapUndetermined},
+			wantStoredHint: "was migrated while this backup was being captured",
+		},
+		{
+			name:           "an overlap the check could not rule out",
+			refusal:        undeterminedOverlapErr{},
+			wantIs:         []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined},
+			wantStoredHint: "cannot rule out a runtime-reindex during this backup",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeBackend()
+			backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
+			sourcer.reindexOverlapErr = tc.refusal
+
+			err := runOverlapBackup(context.Background(), backend, sourcer, &fakeStatusSlot{},
+				backupID, nil, time.Now().UTC())
+
+			for _, sentinel := range tc.wantIs {
+				require.ErrorIs(t, err, sentinel)
+			}
+			for _, sentinel := range tc.wantNotIs {
+				require.NotErrorIs(t, err, sentinel)
+			}
+			storedStatus, storedReason := backend.getMetaStatus()
+			if tc.refusal == nil {
+				require.NoError(t, err)
+				require.Equal(t, backup.Success, storedStatus)
+				return
+			}
+			require.Equal(t, backup.Failed, storedStatus)
+			require.Contains(t, storedReason, tc.wantStoredHint,
+				"the stored reason has to say which of the two refusals this was")
+		})
+	}
 }

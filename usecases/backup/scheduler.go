@@ -196,9 +196,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
-		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
-			errors.Is(err, backup.ErrReindexInFlight) {
-			// Retryable, so 422: a 500 would page the on-call.
+		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+			// Retryable, so 422: a 500 would page the on-call. The cluster-wide
+			// backup.ErrReindexInFlight belongs to the restore gate; a backup
+			// is refused per shard, under this sentinel.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
@@ -246,6 +247,12 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			// The gate answers before existence does: a caller who cannot
 			// restore right now should be told that, not sent to fix an id
 			// that was never the problem.
+			// An explicit include scopes the gate to the collections the caller
+			// was authorized for above, so the answer discloses nothing they
+			// cannot already see. There is no descriptor to expand a wildcard
+			// pattern against, and a pattern matches no collection, so such a
+			// request is answered with the 404 instead.
+			gateCollections := req.Include
 			if !explicitInclude {
 				// This path has no classes to authorize against, so a broad
 				// grant stands in — the gate's cluster-wide answer must not
@@ -254,7 +261,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 					return nil, authErr
 				}
 			}
-			if gateErr := s.refuseRestoreDuringReindex(ctx, nil); gateErr != nil {
+			if gateErr := s.refuseRestoreDuringReindex(ctx, gateCollections); gateErr != nil {
 				return nil, gateErr
 			}
 			return nil, backup.NewErrNotFound(err)

@@ -141,6 +141,11 @@ func (s *backupStat) resetIfCancelled(id string) bool {
 func (s *backupStat) setFailed(reason string) {
 	s.Lock()
 	defer s.Unlock()
+	s.setFailedLocked(reason)
+}
+
+// setFailedLocked must be called with the lock held.
+func (s *backupStat) setFailedLocked(reason string) {
 	if s.reqState.Status == backup.Cancelled {
 		return
 	}
@@ -187,6 +192,11 @@ func (s *backupStat) resetIfOwned(generation uint64) bool {
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	defer s.Unlock()
+	s.setLocked(st)
+}
+
+// setLocked must be called with the lock held.
+func (s *backupStat) setLocked(st backup.Status) {
 	// Cancelled is terminal - don't allow overwriting
 	if s.reqState.Status == backup.Cancelled {
 		return
@@ -197,6 +207,33 @@ func (s *backupStat) set(st backup.Status) {
 	// does not belong to. The remembered failure is unaffected: it is what a
 	// poll arriving after the slot is gone reads.
 	s.reqState.Err = ""
+}
+
+// publishIfOwned mirrors an operation's own outcome onto the slot, and only
+// while generation is still the claim holding it. This is the terminal write of
+// the two coordinator goroutines, so it lands after everything else the
+// operation does — long enough for a cancel to have freed the slot and a newer
+// operation to have claimed it. Stamping the newcomer publishes the finished
+// operation's outcome as the running one's: Failed together with the previous
+// error text, or Cancelled, which makes the newer operation abort itself as
+// cancelled externally.
+//
+// Keyed on the generation rather than the id, matching
+// [backupStat.resetIfOwned], because the writer is the claim holder and a newer
+// claim can carry the same id — retrying a cancelled operation under its
+// original id is a normal flow. Reports whether it wrote.
+func (s *backupStat) publishIfOwned(generation uint64, st backup.Status, reason string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.generation != generation || s.reqState.ID == "" {
+		return false
+	}
+	if st == backup.Failed {
+		s.setFailedLocked(reason)
+		return true
+	}
+	s.setLocked(st)
+	return true
 }
 
 // setIfOwned writes the status only if id still holds the slot, the write half

@@ -599,7 +599,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 				Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
 			}
 			c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
-			prevID, _ := c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", "")
+			prevID, slotGeneration := c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", "")
 			require.Empty(t, prevID)
 
 			fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
@@ -609,7 +609,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 			fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
 
 			req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
-			c.commit(ctx, req, map[string]string{"N1": "N1"}, false)
+			c.commit(ctx, req, map[string]string{"N1": "N1"}, false, slotGeneration)
 
 			st, err := c.OnStatus(ctx, coordStore{}, req)
 
