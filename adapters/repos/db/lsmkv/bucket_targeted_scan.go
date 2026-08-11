@@ -15,8 +15,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -370,6 +370,12 @@ func (s *segment) indexNodeSplits(parts int) [][2]int {
 // readRange serves the segment bytes in [offset.start, offset.end). In mmap mode
 // the result is a zero-copy slice of the segment contents; otherwise *buf is
 // grown as needed, filled via a single pread, and the result aliases it.
+//
+// The read goes straight to the file rather than through newNodeReader: that
+// stack exists for callers that stream a segment, where the buffering pays and a
+// section reader keeps them off the shared file offset. This one knows its range
+// and owns its destination, and ReadAt needs neither — it is one pread that
+// touches no shared state, so the scan pays no allocation per row.
 func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
 	// capacity is clamped to the requested range everywhere below: these slices
 	// are windows into the segment or into a reused buffer, and spare capacity
@@ -377,20 +383,25 @@ func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([
 	if s.readFromMemory {
 		return s.contents[offset.start:offset.end:offset.end], nil
 	}
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("targeted scan: nil contentFile for segment at %s", s.path)
+	}
 
 	need := offset.end - offset.start
 	if uint64(cap(*buf)) < need {
 		*buf = make([]byte, need)
 	}
 	b := (*buf)[:need:need]
-	r, err := s.newNodeReader(offset, operation)
+
+	// ReadAt reports an error whenever it returns short, so it carries io.ReadFull's
+	// guarantee without the wrapper
+	observe := readObserver.GetOrCreate(readMetricName(operation), s.metrics)
+	start := time.Now()
+	n, err := s.contentFile.ReadAt(b, int64(offset.start))
 	if err != nil {
-		return nil, err
-	}
-	defer r.Release()
-	if _, err := io.ReadFull(r, b); err != nil {
 		return nil, errors.Wrap(err, "targeted scan: read range")
 	}
+	observe(int64(n), time.Since(start).Nanoseconds())
 	return b, nil
 }
 
