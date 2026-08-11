@@ -55,10 +55,12 @@ func NewNodeActivityResponse(activity NodeActivity) NodeActivityResponse {
 // Activity returns the activity a decoded response carries, or an error if the
 // payload does not identify itself as a node's own answer.
 func (r NodeActivityResponse) Activity() (NodeActivity, error) {
+	// Probe, Kind and ID are peer-controlled, so they go through
+	// [clusterprobe.Loggable] like every other probe byte that can end up in a log.
 	if r.Probe != clusterprobe.BackupNodeActivityMarker {
-		return NodeActivity{}, fmt.Errorf("answer is marked %q, want %q: this 200 did not come "+
+		return NodeActivity{}, fmt.Errorf("answer is marked %s, want %q: this 200 did not come "+
 			"from a Weaviate node, so it cannot mean the node is free; check for an HTTP proxy "+
-			"on the cluster port", r.Probe, clusterprobe.BackupNodeActivityMarker)
+			"on the cluster port", clusterprobe.Loggable(r.Probe), clusterprobe.BackupNodeActivityMarker)
 	}
 	if r.Busy == nil {
 		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
@@ -66,19 +68,20 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 	// A busy answer's kind and ID are formatted verbatim into the 409 a caller
 	// sees, so only the kinds this package emits are accepted.
 	if *r.Busy && r.Kind != NodeActivityKindBackup && r.Kind != NodeActivityKindRestore {
-		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q, want %q or %q",
-			r.Kind, NodeActivityKindBackup, NodeActivityKindRestore)
+		return NodeActivity{}, fmt.Errorf("answer is busy with kind %s, want %q or %q",
+			clusterprobe.Loggable(r.Kind), NodeActivityKindBackup, NodeActivityKindRestore)
 	}
 	// A held slot always carries its ID, so a busy answer without one did not
 	// come from this package and would put an empty backup id in that 409.
 	if *r.Busy && r.ID == "" {
-		return NodeActivity{}, fmt.Errorf("answer is busy with kind %q but names no id", r.Kind)
+		return NodeActivity{}, fmt.Errorf("answer is busy with kind %s but names no id",
+			clusterprobe.Loggable(r.Kind))
 	}
 	// Only a held slot has a kind or an ID, so an idle answer naming either did
 	// not come from this package and its "not busy" cannot be trusted.
 	if !*r.Busy && (r.Kind != "" || r.ID != "") {
-		return NodeActivity{}, fmt.Errorf("answer is not busy but names kind %q and id %q",
-			r.Kind, r.ID)
+		return NodeActivity{}, fmt.Errorf("answer is not busy but names kind %s and id %s",
+			clusterprobe.Loggable(r.Kind), clusterprobe.Loggable(r.ID))
 	}
 	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
 }

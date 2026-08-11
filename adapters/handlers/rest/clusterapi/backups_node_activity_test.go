@@ -149,6 +149,24 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 	}
 }
 
+// App state does not always carry a logger by the time the internal server is
+// built, and the probe must not take the process down over it.
+func TestInternalBackupsNodeActivityToleratesANilLogger(t *testing.T) {
+	handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil),
+		clusterapi.NewNoopAuthHandler(), nil)
+	server := httptest.NewServer(handler.NodeActivity())
+	defer server.Close()
+
+	res, err := server.Client().Get(server.URL + "/backups/node-activity")
+	require.NoError(t, err)
+	defer res.Body.Close()
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"probe":"weaviate/backup-node-activity","busy":false}`, string(body))
+}
+
 // An operator tracing a stalled backup gate has to see what each node
 // answered, including the node that could not answer at all.
 func TestInternalBackupsNodeActivityLogsEveryAnswer(t *testing.T) {

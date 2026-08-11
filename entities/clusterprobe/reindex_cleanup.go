@@ -34,9 +34,11 @@ func NewReindexCleanupActivity(cleaningUp bool) ReindexCleanupActivity {
 // the whole cluster at once.
 func (a ReindexCleanupActivity) InProgress() (bool, error) {
 	if a.Probe != ReindexCleanupMarker {
-		return false, fmt.Errorf("answer is marked %q, want %q: this 200 did not come from a "+
+		// The marker is peer-controlled, so it goes through [Loggable] like every
+		// other probe byte that can end up in a log.
+		return false, fmt.Errorf("answer is marked %s, want %q: this 200 did not come from a "+
 			"Weaviate node, so it cannot mean the node is free; check for an HTTP proxy on the "+
-			"cluster port", a.Probe, ReindexCleanupMarker)
+			"cluster port", Loggable(a.Probe), ReindexCleanupMarker)
 	}
 	if a.CleaningUp == nil {
 		return false, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "cleaningUp")
