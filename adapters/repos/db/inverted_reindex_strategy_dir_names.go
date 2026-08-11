@@ -204,12 +204,11 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //     because refusing to guess lets sidecar deletion — which is not
 //     payload-gated — remove the live bucket the in-memory pointer is on.
 //
-// The preserve direction therefore over-matches: for property "cat" a
-// payload-less "enable_filterable_cat_x" is kept even when it is really the
-// unrelated property "cat_x", and symmetrically "b_a" keeps "a". The name
-// cannot tell the two apart, and this is the cheaper end to be wrong on: an
-// over-kept tracker dir costs a later "rename: file exists" on re-enable,
-// which is recoverable, while an under-kept one deletes live data.
+// The preserve direction therefore over-matches: e.g. "cat" also keeps
+// unrelated "cat_x", and "b_a" keeps "a" — the name can't tell them apart.
+// This is the cheaper failure: an over-kept dir costs a recoverable
+// "rename: file exists" on re-enable, while an under-kept one deletes live
+// data.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache

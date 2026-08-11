@@ -107,9 +107,8 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // sweep it. A delete landing mid-walk after a shard already failed carries
 // both this and [ErrCleanupCollectionDropped].
 //
-// Exported, like [ErrCleanupSweepTruncated], for the REST-side reporting of a
-// truncated sweep, which lands with the parent branch; inside this package
-// only [ReindexProvider] classifies them so far.
+// Exported, like [ErrCleanupSweepTruncated], for REST-side reporting; inside
+// this package only [ReindexProvider] classifies them so far.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the

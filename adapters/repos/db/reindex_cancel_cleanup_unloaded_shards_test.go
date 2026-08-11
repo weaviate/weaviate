@@ -472,9 +472,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			tracker:     "enable_filterable_other_1",
 			wantTracker: true, wantGateHold: true,
 		},
-		// Except when that other property's name carries this one as a token:
-		// the name is equally a two-property task for "a"+"x", so the sidecar
-		// is over-preserved. See [migrationDirScope] for why that direction.
+		// Ambiguous name ("a"+"x" vs "a_x") over-preserves; see [migrationDirScope].
 		{
 			name:        "a completed tracker of a property whose name extends this one, payload gone",
 			tracker:     "enable_filterable_a_x_1",

@@ -245,9 +245,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_other_1",
 			propName: "cat", preserve: true, want: false,
 		},
-		// Over-preserved on purpose: this name is equally a two-property task
-		// for "cat"+"x" and the unrelated property "cat_x", and keeping a
-		// stranger's tracker beats deleting a live bucket.
+		// Over-preserved on purpose: ambiguous between "cat"+"x" and "cat_x".
 		{
 			name:     "a property whose name extends this one, with no payload, in the preserve set",
 			dir:      "enable_filterable_cat_x_1",
