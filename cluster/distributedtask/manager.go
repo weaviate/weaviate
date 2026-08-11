@@ -389,13 +389,9 @@ func (m *Manager) runTerminalObserver(task *Task) {
 
 // dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
 //
-// catchingUp comes from the FSM's RAFT-replay flag: entries already in the
-// local log are skipped so a startup replay doesn't reannounce old endings
-// as live. Endings missed while the node was down fire normally if they
-// replicate as log entries afterwards, but never fire if they arrive inside
-// an installed snapshot, which lands in [Manager.Restore] and merges without
-// dispatching. Consumers must reconcile on registration instead of relying on
-// delivery.
+// catchingUp comes from the FSM's RAFT-replay flag: skips reannouncing
+// endings already in the local log at startup. See [TerminalObserver] for
+// full delivery semantics.
 //
 // Observers run off the apply path because they take locks also held by
 // HTTP/admission code; running inline could stall the whole FSM behind a
@@ -1226,9 +1222,7 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
 //
-// Tasks that are already terminal in the snapshot do not fire their
-// [TerminalObserver]; whether that should change is the consumer's call, see
-// weaviate/weaviate#12582.
+// Tasks already terminal in the snapshot do not fire their [TerminalObserver].
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
