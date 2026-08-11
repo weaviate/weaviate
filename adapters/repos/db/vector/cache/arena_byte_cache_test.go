@@ -156,9 +156,13 @@ func TestArenaByteCacheParity(t *testing.T) {
 	}
 }
 
-// TestArenaByteCacheAlignment pins the 64-byte alignment guarantee of every
-// record, including record 0 of every chunk and a random sample. A refactor
-// that loses the alignment slack breaks this test, not production latency.
+// TestArenaByteCacheAlignment pins the alignment invariant: chunk bases are
+// 128-byte aligned (arenaBaseAlign), so every record's address modulo 128
+// equals its in-chunk offset (slot*stride) modulo 128, and every record is
+// at least 64-byte aligned. Checked for record 0 of several chunks and a
+// random sample across record sizes whose strides cover both the
+// 128-multiple and the odd-64 cases. A refactor that loses the alignment
+// slack breaks this test, not production latency.
 func TestArenaByteCacheAlignment(t *testing.T) {
 	ctx := context.Background()
 	for _, recordSize := range []int{40, 64, 112, 208, 784, 1552} {
@@ -169,8 +173,11 @@ func TestArenaByteCacheAlignment(t *testing.T) {
 			require.NoError(t, err)
 			defer c.Drop()
 
+			stride := uintptr((recordSize + arenaAlign - 1) / arenaAlign * arenaAlign)
 			rng := rand.New(rand.NewPCG(7, uint64(recordSize)))
-			ids := []uint64{0, 1, 4095, 4096, 4097, 12288} // chunk boundaries
+			// record 0 of chunks 0..3 (asserts the 128-aligned base directly),
+			// chunk-boundary neighbours, and a random sample
+			ids := []uint64{0, 1, 4095, 4096, 4097, 8192, 12288}
 			for i := 0; i < 50; i++ {
 				ids = append(ids, uint64(rng.IntN(20000)))
 			}
@@ -182,7 +189,17 @@ func TestArenaByteCacheAlignment(t *testing.T) {
 				require.NoError(t, err, "id %d", id)
 				require.Equal(t, recordSize, len(vec))
 				addr := uintptr(unsafe.Pointer(&vec[0]))
+				// floor guarantee: every record on a 64-byte boundary
 				assert.Zerof(t, addr%64, "record %d not 64-byte aligned (addr %x)", id, addr)
+				// base guarantee: address mod 128 is exactly the in-chunk
+				// offset mod 128 — holds only if the chunk base is ≡0 mod 128
+				slot := uintptr(id & arenaChunkMask)
+				assert.Equalf(t, (slot*stride)%arenaBaseAlign, addr%arenaBaseAlign,
+					"record %d: chunk base not %d-byte aligned (addr %x)", id, arenaBaseAlign, addr)
+				if slot == 0 {
+					assert.Zerof(t, addr%arenaBaseAlign,
+						"chunk base for record %d not %d-byte aligned (addr %x)", id, arenaBaseAlign, addr)
+				}
 			}
 		})
 	}

@@ -35,16 +35,27 @@ const (
 	arenaChunkSize  = 1 << arenaChunkShift
 	arenaChunkMask  = arenaChunkSize - 1
 
-	// arenaAlign is the record alignment guarantee. 64 bytes covers the
-	// x86 cache line; Apple M-series lines are 128 bytes, but a 64-byte
-	// aligned record of stride 64k never straddles more lines than its size
-	// requires on either.
-	arenaAlign = 64
+	// arenaAlign is the stride quantum: record strides are rounded up to a
+	// multiple of 64 (the x86 cache line). arenaBaseAlign is the chunk base
+	// alignment: 128 (the Apple M-series line), so a record's address modulo
+	// either line size equals its in-chunk offset modulo that size.
+	//
+	// The resulting invariant: on x86 every record starts exactly on a
+	// 64-byte line. On M-series, strides that are multiples of 128 put every
+	// record at offset 0 mod 128 (fully line-aligned); strides that are odd
+	// multiples of 64 alternate record offsets between 0 and 64 mod 128, and
+	// an offset-64 record spans one extra 128-byte line only when its size
+	// modulo 128 exceeds 64. The current odd-64 strides are the 8-bit RQ
+	// records (784 B and 1552 B, both ≡ 16 mod 128), which pay no extra
+	// line; rounding their strides up to 128 would cost ~4% memory for zero
+	// line savings, so strides deliberately stay 64-quantized.
+	arenaAlign     = 64
+	arenaBaseAlign = 128
 )
 
 // arenaChunk is one fixed-capacity block of records. The data slice is
-// 64-byte aligned and never reallocated, so record views handed out to
-// readers stay valid for the lifetime of the cache. Liveness is a bitmap
+// 128-byte aligned (arenaBaseAlign) and never reallocated, so record views
+// handed out to readers stay valid for the lifetime of the cache. Liveness is a bitmap
 // (one bit per record) accessed atomically: neighbouring records within one
 // bitmap word can belong to different lock stripes, so plain reads/writes
 // would race.
@@ -81,10 +92,12 @@ func (c *arenaChunk) clearLive(slot uint64) bool {
 
 // arenaByteCache is a Cache[byte] that stores fixed-size compressed vector
 // codes in chunked arenas instead of one heap allocation per code. Records
-// are padded to a stride that is a multiple of 64 and start 64-byte aligned,
-// so a scan touching only a record prefix reads the minimum number of cache
-// lines and the garbage collector sees one pointer per 4096 records instead
-// of one per record.
+// are padded to a stride that is a multiple of 64 and chunk bases are
+// 128-byte aligned, so every record is exactly line-aligned on x86 and the
+// per-config M-series line counts follow from the offset invariant on
+// arenaAlign/arenaBaseAlign (no extra line for any current record size).
+// The garbage collector sees one pointer per 4096 records instead of one
+// per record.
 //
 // Semantics mirror shardedLockCache[byte] operation for operation — the
 // same growth targets, the same counting quirks (Preload increments the
@@ -186,17 +199,19 @@ func (s *arenaByteCache) installChunk(ci uint64, ch *arenaChunk) *arenaChunk {
 	return s.chunkAt(ci)
 }
 
-// newArenaChunk allocates one chunk with its record area 64-byte aligned.
-// Go's allocator aligns large allocations to 8 (and in practice often more),
-// but gives no 64-byte guarantee, so the chunk is allocated with alignment
-// slack and sliced at the aligned offset. The full backing array stays
-// reachable through the subslice, so no separate reference is needed.
+// newArenaChunk allocates one chunk with its record area 128-byte aligned
+// (arenaBaseAlign), which pins every record's offset modulo both cache-line
+// sizes — see the invariant on the constants. Go's allocator aligns large
+// allocations to 8 (and in practice often more) but guarantees neither 64
+// nor 128, so the chunk is allocated with alignment slack and sliced at the
+// aligned offset. The full backing array stays reachable through the
+// subslice, so no separate reference is needed.
 func (s *arenaByteCache) newArenaChunk() *arenaChunk {
 	chunkBytes := arenaChunkSize * s.stride
-	raw := make([]byte, chunkBytes+arenaAlign)
+	raw := make([]byte, chunkBytes+arenaBaseAlign)
 	off := 0
-	if rem := uintptr(unsafe.Pointer(&raw[0])) % arenaAlign; rem != 0 {
-		off = arenaAlign - int(rem)
+	if rem := uintptr(unsafe.Pointer(&raw[0])) % arenaBaseAlign; rem != 0 {
+		off = arenaBaseAlign - int(rem)
 	}
 	return &arenaChunk{
 		data: raw[off : off+chunkBytes : off+chunkBytes],
