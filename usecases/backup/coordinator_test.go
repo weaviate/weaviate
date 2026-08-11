@@ -886,33 +886,35 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 
 	// A cancel landing after the last in-loop check must still reach the
 	// stored descriptor, even though every participant reported success.
-	t.Run("CancelledOnTheSlotAfterTheLastPoll", func(t *testing.T) {
-		fc := newFakeCoordinator(nodeResolver)
-		coordinator := fc.coordinator()
-		coordinator.timeoutNextRound = time.Millisecond
-		op := newStagingOperation(backupID, "N1")
+	{
+		t.Run("CancelledOnTheSlotAfterTheLastPoll", func(t *testing.T) {
+			fc := newFakeCoordinator(nodeResolver)
+			coordinator := fc.coordinator()
+			coordinator.timeoutNextRound = time.Millisecond
+			op := newStagingOperation(backupID, "N1")
 
-		_, slot := coordinator.lastOp.renew(backupID, "path", "", "")
-		fc.client.On("Commit", any, "N1", mock.Anything).Return(nil)
-		// The poll that ends staging is the last step before the outcome is
-		// computed, so a cancel staged there lands in exactly that gap.
-		var once sync.Once
-		fc.client.On("Status", any, "N1", mock.Anything).
-			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
-			Run(func(mock.Arguments) {
-				once.Do(func() {
-					stamped, _ := coordinator.lastOp.claimOf(backupID).stamp(backup.Cancelling)
-					assert.True(t, stamped)
+			_, slot := coordinator.lastOp.renew(backupID, "path", "", "")
+			fc.client.On("Commit", any, "N1", mock.Anything).Return(nil)
+			// The poll that ends staging is the last step before the outcome is
+			// computed, so a cancel staged there lands in exactly that gap.
+			var once sync.Once
+			fc.client.On("Status", any, "N1", mock.Anything).
+				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
+				Run(func(mock.Arguments) {
+					once.Do(func() {
+						stamped, _ := coordinator.lastOp.claimOf(backupID).stamp(backup.Cancelling)
+						assert.True(t, stamped)
+					})
 				})
-			})
 
-		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
-		coordinator.commit(ctx, op, req, map[string]string{"N1": "N1"}, true, slot)
+			req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+			coordinator.commit(ctx, op, req, map[string]string{"N1": "N1"}, true, slot)
 
-		assert.Equal(t, backup.Cancelled, op.descriptor.Status,
-			"a restore whose participants all succeeded was stored as staged after it was cancelled")
-		assert.Equal(t, "restore canceled by user", op.descriptor.Error)
-	})
+			assert.Equal(t, backup.Cancelled, op.descriptor.Status,
+				"a restore whose participants all succeeded was stored as staged after it was cancelled")
+			assert.Equal(t, "restore canceled by user", op.descriptor.Error)
+		})
+	}
 }
 
 // TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
