@@ -577,7 +577,6 @@ func TestOperationSlotsAreWiredToALogger(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			logger, hook := test.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
 			stat := tc.slot(logger)
 
 			_, slot := stat.renew("op-1", "path", "", "")

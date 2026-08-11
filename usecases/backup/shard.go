@@ -209,6 +209,9 @@ func (o slotOwner) owns() bool {
 // logDroppedWrite records a write the slot refused, so "status stopped
 // updating" is diagnosable as a refusal rather than silence. Must be called
 // with the lock held.
+//
+// Info, not Debug: the default log level is Info, and a refusal a support
+// case starts from is worth the handful of lines an operation can produce.
 func (o slotOwner) logDroppedWrite(st backup.Status) {
 	if o.stat == nil || o.stat.log == nil {
 		return
@@ -229,7 +232,7 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 		"slot_claim":     o.stat.generation,
 		"slot_holder":    o.stat.reqState.ID,
 		"slot_status":    o.stat.reqState.Status,
-	}).Debug(msg)
+	}).Info(msg)
 }
 
 // set publishes a status on the slot. Reports whether it wrote.
