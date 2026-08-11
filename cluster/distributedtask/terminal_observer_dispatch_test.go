@@ -401,11 +401,7 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		pastTheBound = 16
 	)
 
-	m.mu.Lock()
-	for range maxDelivered + pastTheBound {
-		m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
-	}
-	m.mu.Unlock()
+	fillDispatchQueue(m, terminalDispatchTask(m), maxDelivered+pastTheBound)
 
 	require.EqualValues(t, 32, m.terminalOverflowInFlight.Load(),
 		"a wedged observer must not hold more than 32 overflow goroutines")
@@ -442,6 +438,10 @@ func TestTerminalDispatchOverflowSkipsTheObserverAfterClose(t *testing.T) {
 
 	m.mu.Lock()
 	m.dispatchTerminalWithLock(terminalDispatchTask(m), false)
+	// Mark closed only after the dispatch (the latch would short-circuit the
+	// overflow path under test), so a later m.Close() cannot double-close the
+	// channel closed by hand above.
+	m.terminalDispatchClosed = true
 	m.mu.Unlock()
 
 	rec.requireStaysSilent(t,

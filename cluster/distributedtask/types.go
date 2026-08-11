@@ -49,7 +49,9 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // Receives a [Task.Clone]; Payload still shares the original's backing array
 // and must not be mutated. No ordering vs. the scheduler is guaranteed; under
 // overflow, events run on a bounded number of extra goroutines (see
-// terminalDispatchOverflowLimit) before being dropped.
+// terminalDispatchOverflowLimit) before being dropped. Calls are not
+// serialized: under overflow the same observer can run on several goroutines
+// at once, so it must be safe for concurrent invocation.
 //
 // Delivery is best-effort, so an observer must reconcile against
 // [Manager.ListDistributedTasks] on registration and must not treat "no event"
