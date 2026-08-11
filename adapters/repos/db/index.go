@@ -3169,6 +3169,20 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerTenantProcess, "tenant status applied")
 }
 
+// loadLocalShardForReload opens a shard for the reload replaying committed
+// schema. A namespace that keeps no shards open opens none and returns nil: an
+// error here would skip the tenant drops and property adds the same reload
+// owes, and nothing re-runs a reload. The skip is silent, like
+// initAndStoreShards', since a suspended namespace reaches this once per
+// tenant. mustLoad preserves the eager load each call site did before.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+	if stderrors.Is(err, errShardNamespaceClosed) {
+		return nil
+	}
+	return err
+}
+
 // loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
 // has already committed. A namespace that keeps no shards open loads none and
 // returns nil rather than erroring. The schema change stands either way, and the

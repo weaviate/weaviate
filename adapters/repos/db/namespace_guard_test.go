@@ -27,11 +27,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -281,8 +283,7 @@ func TestDesiredOpen(t *testing.T) {
 func readerForShards(t *testing.T, className string, shards map[string]sharding.Physical) *schemaUC.MockSchemaReader {
 	t.Helper()
 
-	state := &sharding.State{Physical: shards}
-	state.SetLocalName("node1")
+	state := reloadState(false, shards)
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.EXPECT().Read(className, mock.Anything, mock.Anything).
@@ -763,6 +764,27 @@ func dbForSkipTest(t *testing.T, className string, e namespaces.Exister) (*DB, *
 // call itself so a case can point it at an index that is not there.
 type skipLoad func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error)
 
+// shardsShouldBeOpenStates is the state space of the check that decides whether
+// a load is entered at all: two states open shards, three open none. Every
+// entry point deciding on that check owes the same five answers.
+func shardsShouldBeOpenStates() []struct {
+	name     string
+	state    api.NamespaceState
+	wantLoad bool
+} {
+	return []struct {
+		name     string
+		state    api.NamespaceState
+		wantLoad bool
+	}{
+		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
+		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
+		{name: "a suspended namespace loads nothing", state: api.NamespaceStateSuspended},
+		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
+		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
+	}
+}
+
 // assertSkipsWhenNamespaceClosed drives the checks every entry point owes whose
 // closed-namespace refusal yields nil: it loads while the namespace allows one,
 // yields nil while it does not and says so in the log, and still errors on a state
@@ -774,19 +796,7 @@ type skipLoad func(t *testing.T, dbClass, callClass string, e namespaces.Exister
 func assertSkipsWhenNamespaceClosed(t *testing.T, class string, load skipLoad) {
 	t.Helper()
 
-	states := []struct {
-		name     string
-		state    api.NamespaceState
-		wantLoad bool
-	}{
-		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
-		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
-		{name: "a suspended namespace loads nothing", state: api.NamespaceStateSuspended},
-		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
-		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
-	}
-
-	for _, tc := range states {
+	for _, tc := range shardsShouldBeOpenStates() {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, class, class, existerWithState(t, tc.state))
 			if tc.wantLoad {
@@ -1687,6 +1697,195 @@ func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 	})
 }
 
+// migratorForReload builds the Migrator UpdateIndex resolves through. Lazy
+// loading keeps a shard the reload creates off disk, so what a case observes is
+// which shards ended up registered.
+func migratorForReload(t *testing.T, className string, e namespaces.Exister) (*Migrator, *Index) {
+	t.Helper()
+
+	db, idx := dbForReopen(t, className, e)
+	idx.Config.EnableLazyLoadShards = true
+	idx.metrics = &Metrics{}
+	return NewMigrator(db, idx.logger, "node1"), idx
+}
+
+// reloadClass is the class a reload carries: one property, so a shard missing
+// its bucket gives the property step something to do.
+func reloadClass(className string) *models.Class {
+	return &models.Class{Class: className, Properties: []*models.Property{{Name: "title"}}}
+}
+
+func reloadState(partitioned bool, shards map[string]sharding.Physical) *sharding.State {
+	state := &sharding.State{PartitioningEnabled: partitioned, Physical: shards}
+	state.SetLocalName("node1")
+	return state
+}
+
+// seedShardMissingProperty registers a shard the reload finds open and without
+// the class's property bucket: an empty store answers every bucket lookup with
+// nil. The expectations are what say the property step ran at all.
+func seedShardMissingProperty(t *testing.T, idx *Index, name string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	store, err := lsmkv.New(dir, dir, idx.logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Shutdown(context.Background()) })
+
+	shard := NewMockShardLike(t)
+	shard.EXPECT().Store().Return(store)
+	shard.EXPECT().initPropertyBuckets(mock.Anything, mock.Anything, false, mock.Anything)
+	idx.shards.Store(name, shard)
+}
+
+// A reload matches the loaded tenants to the incoming sharding state, then
+// drops the tenants that state no longer lists and adds the properties the
+// class gained. A namespace that is not active must not turn that into an early
+// return: a failed reload is never retried, since ReloadLocalDB's own caller
+// drops its error, and ranging over a map makes what one skipped a different
+// set per node and per run.
+func TestGuardReload(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	// Active is the control the refusing states are read against: dropping the
+	// tenants the schema no longer lists, unloading the ones turned COLD, and
+	// adding the class's new property are owed whatever the state. Only which
+	// shards end up open turns on it, so that is the one column per row.
+	states := []struct {
+		name             string
+		className        string
+		state            api.NamespaceState
+		namespaced       bool
+		wantSingleTenant []string
+	}{
+		{
+			name: "an active namespace", className: class,
+			state: api.NamespaceStateActive, namespaced: true,
+			wantSingleTenant: []string{"s1", "s2", "s3"},
+		},
+		{
+			// Not {"s1"}: a resuming namespace's shards do reopen.
+			name: "a resuming namespace", className: class,
+			state: api.NamespaceStateResuming, namespaced: true,
+			wantSingleTenant: []string{"s1", "s2", "s3"},
+		},
+		{
+			name: "a suspended namespace", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true,
+			wantSingleTenant: []string{"s1"},
+		},
+		{
+			name: "a deleting namespace", className: class,
+			state: api.NamespaceStateDeleting, namespaced: true,
+			wantSingleTenant: []string{"s1"},
+		},
+		{
+			name: "an unknown state", className: class,
+			state: api.NamespaceState("gone"), namespaced: true,
+			wantSingleTenant: []string{"s1"},
+		},
+		{
+			// Every class on a cluster running with namespaces off, so this is
+			// the row that says the reload is unchanged there. The rows above
+			// cannot show it: each one goes through the lookup.
+			name: "an unqualified class", className: "Product",
+			wantSingleTenant: []string{"s1", "s2", "s3"},
+		},
+	}
+
+	for _, tc := range states {
+		exister := func(t *testing.T) namespaces.Exister {
+			t.Helper()
+			if !tc.namespaced {
+				return nil
+			}
+			return existerWithState(t, tc.state)
+		}
+
+		// open1 is HOT and already resident, the shape a movement's target shard
+		// has while its namespace is suspended: the reload reaches it, and the
+		// property step behind the abort is what must still see it. Two tenants
+		// of each kind, because one leaves "the rest of the loop ran" resting on
+		// the order the map happened to yield.
+		t.Run(tc.name+" finishes the multi-tenant reload", func(t *testing.T) {
+			m, idx := migratorForReload(t, tc.className, exister(t))
+			seedShardMissingProperty(t, idx, "open1")
+
+			for _, name := range []string{"cold1", "cold2"} {
+				cold := NewMockShardLike(t)
+				cold.EXPECT().Shutdown(mock.Anything).Return(nil)
+				idx.shards.Store(name, cold)
+			}
+
+			// Absent from the incoming state, so the reload owns removing them.
+			// Left behind, their directories and offloaded copies are orphaned.
+			storeDroppableShard(t, idx, "gone1", nil)
+			storeDroppableShard(t, idx, "gone2", nil)
+
+			state := reloadState(true, map[string]sharding.Physical{
+				"open1": hotPhysical("open1"),
+				"cold1": coldPhysical("cold1"), "cold2": coldPhysical("cold2"),
+			})
+
+			require.NoError(t, m.UpdateIndex(ctx, reloadClass(tc.className), state))
+			assert.Equal(t, []string{"open1"}, registeredShards(t, idx))
+		})
+
+		// s2 and s3 are listed for this node and not resident, so the reload
+		// creates them. The property step sits behind that creation.
+		t.Run(tc.name+" finishes the single-tenant reload", func(t *testing.T) {
+			m, idx := migratorForReload(t, tc.className, exister(t))
+			seedShardMissingProperty(t, idx, "s1")
+
+			state := reloadState(false, map[string]sharding.Physical{
+				"s1": localPhysical("s1"), "s2": localPhysical("s2"), "s3": localPhysical("s3"),
+			})
+
+			require.NoError(t, m.UpdateIndex(ctx, reloadClass(tc.className), state))
+			assert.Equal(t, tc.wantSingleTenant, registeredShards(t, idx))
+		})
+	}
+
+	// Which tenants a reload opens is decided by the check boot uses rather than
+	// the request-path one: a resuming namespace's shards have to reopen for the
+	// resume to finish.
+	t.Run("which tenants the reload opens", func(t *testing.T) {
+		for _, tc := range shardsShouldBeOpenStates() {
+			t.Run(tc.name, func(t *testing.T) {
+				m, idx := migratorForReload(t, class, existerWithState(t, tc.state))
+				idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+
+				state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
+
+				err := m.UpdateIndex(ctx, reloadClass(class), state)
+				if tc.wantLoad {
+					require.ErrorIs(t, err, errInjectedMemoryPressure)
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	// A state that cannot be read is not a namespace keeping its shards closed:
+	// the class may hold data on disk, so the reload must fail rather than carry
+	// on as if it had decided.
+	for _, tc := range namespaceLookupRefusals() {
+		t.Run(tc.name+" fails the reload", func(t *testing.T) {
+			m, idx := migratorForReload(t, class, tc.exister(t))
+			idx.shards.Store("t1", NewMockShardLike(t))
+
+			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
+
+			require.ErrorIs(t, m.UpdateIndex(ctx, reloadClass(class), state), tc.wantErr)
+		})
+	}
+}
+
 // A class whose shards no loading path will open must not count toward startup
 // progress: nothing ever loads them, so the gauge would never complete.
 func TestLocalShardsToLoad(t *testing.T) {
@@ -1745,17 +1944,19 @@ func TestLocalShardsToLoad(t *testing.T) {
 }
 
 // dbForReopen builds the DB shape ReopenShard resolves through: one index,
-// reachable under the key GetIndex looks up.
+// reachable under the key GetIndex looks up, and the node name a tenant loop
+// filters its local shards on.
 func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *Index) {
 	t.Helper()
 
 	idx := indexForGuardTest(t, className, e)
 	sg := schemaUC.NewMockSchemaGetter(t)
 	sg.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className}).Maybe()
+	sg.EXPECT().NodeName().Return("node1").Maybe()
 	idx.getSchema = sg
 
 	logger, _ := logrustest.NewNullLogger()
-	return &DB{logger: logger, indices: map[string]*Index{idx.ID(): idx}}, idx
+	return &DB{logger: logger, schemaGetter: sg, indices: map[string]*Index{idx.ID(): idx}}, idx
 }
 
 // ReopenShard is the entry point a resuming namespace's shards come back
