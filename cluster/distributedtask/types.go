@@ -455,10 +455,9 @@ func (t TaskStatus) String() string {
 // backups on the collection, and reports the index as "indexing". See
 // docs/runtime-reindex.md §4.2.
 //
-// A new terminal status also diverges [Manager.CancelTask] across versions:
-// one log entry can leave an older node writing TaskStatusCancelled while a
-// newer node returns errTaskNotRunning — different FSM state at the same
-// log index (weaviate/weaviate#12575).
+// Cancel is not part of that cost. [TaskStatus.IsCancellable] is a literal
+// `== STARTED`, so an older node and a newer one reach the same verdict on
+// any other status, a new terminal one included.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:

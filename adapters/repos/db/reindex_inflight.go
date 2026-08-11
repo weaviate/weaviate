@@ -361,7 +361,11 @@ func (i *Index) localNodeName() string {
 //
 // Unlike the schema gates, it has no task to key a cancel call on — only
 // that a shard is live — so it points at the GET poll instead of guessing a
-// property/index-type pair that could 202 NO_OP.
+// property/index-type pair that could 202 NO_OP. For the same reason it
+// cannot drop the cancel advice the way [ReindexGateRemedy] does once the
+// task is past STARTED, so it states the STARTED-only restriction instead:
+// TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
+// answers 409 Conflict.
 //
 // Names no shard and no node — this reaches an API response body. Those
 // reach the operator via [Index.logReindexRefusal],

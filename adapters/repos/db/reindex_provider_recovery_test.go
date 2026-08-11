@@ -12,11 +12,18 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestHasUntidiedTracker pins the on-disk recovery-detection signal:
@@ -315,6 +322,103 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := semanticMigrationIndexTypes(tc.mt)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// LocalCallbacksDone runs from the scheduler bootstrap, so it fires at node
+// startup with every tenant of the collection as cold as the restart left
+// it. The tracker dir it reads sits at a path this node can join, and
+// loading a 10k-tenant collection to ask each shard for that path is the
+// one thing the startup path cannot afford.
+func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
+	const (
+		prop   = "title"
+		tenant = "cold-tenant"
+		node   = "n1"
+	)
+
+	for _, tc := range []struct {
+		name string
+		// sentinels are written into the tenant's tracker dir; nil writes
+		// no tracker dir at all.
+		sentinels []string
+		// hostedElsewhere maps the unit to a node that is not this one.
+		hostedElsewhere bool
+		want            bool
+	}{
+		{
+			name:      "a cold tenant whose swap started and never committed",
+			sentinels: []string{"started.mig"},
+			want:      false,
+		},
+		{
+			name:      "a cold tenant whose swap tidied",
+			sentinels: []string{"started.mig", "tidied.mig"},
+			want:      true,
+		},
+		{
+			name: "a cold tenant carrying nothing",
+			want: true,
+		},
+		{
+			name:            "an interrupted swap on another node's unit",
+			sentinels:       []string{"started.mig"},
+			hostedElsewhere: true,
+			want:            true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "LocalCallbacksDone_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{prop})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
+
+			if tc.sentinels != nil {
+				mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
+					postMergeTrackerDir(t, prop), tc.sentinels...)
+			}
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(tenant, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
+
+			owner := node
+			if tc.hostedElsewhere {
+				owner = "n2"
+			}
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    className,
+				MigrationType: ReindexTypeChangeTokenization,
+				Properties:    []string{prop},
+				UnitToShard:   map[string]string{"u1": tenant},
+				UnitToNode:    map[string]string{"u1": owner},
+			})
+			require.NoError(t, err)
+
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, logger, node, nil, ctx)
+
+			got := p.LocalCallbacksDone(&distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bootstrap", Version: 1},
+				Status:         distributedtask.TaskStatusSwapping,
+				Payload:        payload,
+			}, node)
+
+			require.Equal(t, tc.want, got)
+			require.False(t, cold.isLoaded(),
+				"the bootstrap check reads a tracker dir at a path this node joins itself; "+
+					"loading a tenant to ask it for that path is what startup cannot afford")
 		})
 	}
 }

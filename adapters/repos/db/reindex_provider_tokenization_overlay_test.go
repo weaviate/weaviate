@@ -12,10 +12,17 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // Unit coverage for the #216 Gap B overlay set/clear lifecycle without a
@@ -265,4 +272,63 @@ func TestTokenizationOverlay_AnySwapped_EndToEndLifecycle(t *testing.T) {
 	// Overlay stays set; queries tokenize input for the NEW value
 	// (matching the swapped bucket).
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
+}
+
+// The overlay is in-memory state the swap hook set on shards this node
+// loaded to run the migration on. A shard that is not loaded holds none,
+// so reaching into one to clear nothing loads a cold tenant on the success
+// path of every change-tokenization migration.
+func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
+	const (
+		prop   = "title"
+		tenant = "cold-tenant"
+	)
+
+	ctx := testCtx()
+	className := "OverlayClear_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{prop})
+	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	defer hot.Shutdown(context.Background())
+
+	loaded, err := unwrapShard(ctx, hot)
+	require.NoError(t, err)
+	loaded.SetTokenizationOverlay(prop, "field")
+
+	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, cold)
+	defer func() {
+		if cold.isLoaded() {
+			require.NoError(t, cold.Shutdown(context.Background()))
+		}
+	}()
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:         className,
+		MigrationType:      ReindexTypeChangeTokenization,
+		TargetTokenization: "field",
+		Properties:         []string{prop},
+		UnitToShard:        map[string]string{"u1": hot.Name()},
+	})
+	require.NoError(t, err)
+
+	logger, _ := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, logger, "n1", nil, ctx)
+
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_swap", Version: 1},
+		Status:         distributedtask.TaskStatusSwapping,
+		Payload:        payload,
+	}))
+
+	assert.Equal(t, "word", loaded.TokenizationFor(prop, "word"),
+		"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
+	require.False(t, cold.isLoaded(),
+		"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
+			"what the cutover path cannot afford")
 }
