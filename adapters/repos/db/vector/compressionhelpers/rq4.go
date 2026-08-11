@@ -12,7 +12,9 @@
 package compressionhelpers
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"unsafe"
 
@@ -63,15 +65,25 @@ type FourBitRotationalQuantizer struct {
 	// Centering state
 	mean      []float32
 	meanNorm2 float32 // dot(mean, mean), for the compressed-compressed path.
+	metaSize  int
 }
 
 const (
-	// RQ4MetadataSize is the number of metadata bytes at the start of a 4-bit
-	// code: lower, step, codeSum, norm2 as big-endian float32.
+	// Original RQ4 metadata size: lower float32, step float32, codeSum float32, norm2/dmu float32 (all big-endian).
 	RQ4MetadataSize = 16
-	rq4MaxCode      = 15
-	rq4QueryBits    = 8
+	// Packed RQ4 metadata size: step float32, code sum uint16, lower bfloat16, norm2/dmu float32 (all big-endian).
+	RQ4PackedMetadataSize = 12
+	rq4MaxCode            = 15
+	rq4PackedMaxOutputDim = math.MaxUint16 / rq4MaxCode
+	rq4QueryBits          = 8
 )
+
+func rq4MetadataSizeFor(centered bool, outputDim int) int {
+	if centered && outputDim <= rq4PackedMaxOutputDim {
+		return RQ4PackedMetadataSize
+	}
+	return RQ4MetadataSize
+}
 
 func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *FourBitRotationalQuantizer {
 	// Three rotation rounds, same trade-off as the 8-bit quantizer.
@@ -85,6 +97,7 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 		err:       err,
 		cos:       cos,
 		l2:        l2,
+		metaSize:  rq4MetadataSizeFor(false, int(rotation.OutputDim)),
 	}
 	rq.scratch.New = func() any { return newRQ4Scratch(int(rotation.OutputDim), 0) }
 	return rq
@@ -100,6 +113,7 @@ func NewCenteredFourBitRotationalQuantizer(inputDim int, seed uint64, distancer 
 	rq := NewFourBitRotationalQuantizer(inputDim, seed, distancer)
 	rq.mean = mean
 	rq.meanNorm2 = dotProduct(mean, mean)
+	rq.metaSize = rq4MetadataSizeFor(true, rq.OutputDimension())
 	rq.scratch.New = func() any { return newRQ4Scratch(rq.OutputDimension(), len(mean)) }
 	return rq, nil
 }
@@ -122,6 +136,7 @@ func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, 
 		cos:       cos,
 		l2:        l2,
 		mean:      mean,
+		metaSize:  rq4MetadataSizeFor(mean != nil, outputDim),
 	}
 	if mean != nil {
 		rq.meanNorm2 = dotProduct(mean, mean)
@@ -134,8 +149,11 @@ func (rq *FourBitRotationalQuantizer) OutputDimension() int {
 	return int(rq.rotation.OutputDim)
 }
 
-// RQ4Code is the packed 4-bit code of a data vector: 16 bytes of metadata
-// followed by OutputDim/2 bytes holding two 4-bit codes each.
+// RQ4Code is the packed 4-bit code of a data vector: metadata followed by
+// OutputDim/2 bytes holding two 4-bit codes each. The accessor methods read
+// the legacy 16-byte metadata layout; packed-layout (centered) codes must go
+// through the quantizer's header/putHeader instead, which dispatch on the
+// layout the quantizer was constructed with.
 type RQ4Code []byte
 
 func (c RQ4Code) Lower() float32 {
@@ -205,6 +223,68 @@ func (c RQ4Code) String() string {
 	packed := c.Packed()
 	return fmt.Sprintf("RQ4Code{Lower: %.4f, Step: %.4f, CodeSum: %.4f, Norm2: %.4f, Packed[:5]: %v}",
 		c.Lower(), c.Step(), c.CodeSum(), c.Norm2(), packed[:min(5, len(packed))])
+}
+
+func putUint16(b []byte, pos int, x uint16) {
+	binary.BigEndian.PutUint16(b[pos:], x)
+}
+
+func getUint16(b []byte, pos int) uint16 {
+	return binary.BigEndian.Uint16(b[pos:])
+}
+
+func float32ToBFloat16(x float32) uint16 {
+	if x != x {
+		return 0x7FC0
+	}
+	bits := math.Float32bits(x)
+	return uint16((bits + 0x7FFF + ((bits >> 16) & 1)) >> 16)
+}
+
+func bfloat16ToFloat32(b uint16) float32 {
+	return math.Float32frombits(uint32(b) << 16)
+}
+
+// rq4Header is the decoded per-code metadata, independent of the stored
+// layout.
+type rq4Header struct {
+	lower   float32
+	step    float32
+	codeSum float32
+	norm2   float32
+}
+
+func (rq *FourBitRotationalQuantizer) header(c []byte) rq4Header {
+	if rq.metaSize == RQ4PackedMetadataSize {
+		step := getFloat32(c, 0)
+		return rq4Header{
+			lower:   bfloat16ToFloat32(getUint16(c, 6)),
+			step:    step,
+			codeSum: step * float32(getUint16(c, 4)),
+			norm2:   getFloat32(c, 8),
+		}
+	}
+	cx := RQ4Code(c)
+	return rq4Header{lower: cx.Lower(), step: cx.Step(), codeSum: cx.CodeSum(), norm2: cx.Norm2()}
+}
+
+func (rq *FourBitRotationalQuantizer) putHeader(c []byte, lower, step, sumC, norm2 float32) {
+	if rq.metaSize == RQ4PackedMetadataSize {
+		putFloat32(c, 0, step)
+		putUint16(c, 4, uint16(sumC))
+		putUint16(c, 6, float32ToBFloat16(lower))
+		putFloat32(c, 8, norm2)
+		return
+	}
+	cx := RQ4Code(c)
+	cx.setLower(lower)
+	cx.setStep(step)
+	cx.setCodeSum(step * sumC)
+	cx.setNorm2(norm2)
+}
+
+func (rq *FourBitRotationalQuantizer) newCode(d int) []byte {
+	return make([]byte, rq.metaSize+d/2)
 }
 
 // rq4ClipFactors are the candidate shrink factors for the per-vector
@@ -359,7 +439,7 @@ func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, 
 func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	outDim := rq.OutputDimension()
 	if len(x) == 0 {
-		return ZeroRQ4Code(outDim)
+		return rq.newCode(outDim)
 	}
 	if len(x) > outDim {
 		x = x[:outDim]
@@ -373,17 +453,16 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	}
 	rx := rq.rotation.RotateInto(x, scratch.rx)
 	lower, step, t, codeSum := rq4Interval(rx, scratch)
+	code := rq.newCode(outDim)
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
 		// Still record the norm2-slot metadata: the scalar estimator terms
 		// stay exact even when the codes degenerate to zero.
-		code := RQ4Code(ZeroRQ4Code(outDim))
-		code.setNorm2(rq.norm2Slot(x, dmu))
+		rq.putHeader(code, 0, 0, 0, rq.norm2Slot(x, dmu))
 		return code
 	}
 
-	code := NewRQ4Code(outDim)
-	packed := code.Packed()
+	packed := code[rq.metaSize:]
 	half := len(packed)
 	// scratch.ci holds the codes of the winning interval; packing is a pure
 	// byte shuffle.
@@ -394,10 +473,7 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	// Fold the least-squares rescaling factor of the reconstruction into the
 	// affine parameters. The distance computations are linear in (lower, step,
 	// codeSum), so no query-time work is needed.
-	code.setLower(t * lower)
-	code.setStep(t * step)
-	code.setCodeSum(t * step * codeSum)
-	code.setNorm2(rq.norm2Slot(x, dmu))
+	rq.putHeader(code, t*lower, t*step, codeSum, rq.norm2Slot(x, dmu))
 	return code
 }
 
@@ -424,15 +500,13 @@ func (rq *FourBitRotationalQuantizer) UnRotate(x []float32) []float32 {
 
 // Restore returns the rotated-space approximation of the encoded vector.
 func (rq *FourBitRotationalQuantizer) Restore(b []byte) []float32 {
-	c := RQ4Code(b)
-	d := c.Dimension()
-	x := make([]float32, d)
-	lower, step := c.Lower(), c.Step()
-	packed := c.Packed()
+	h := rq.header(b)
+	packed := b[rq.metaSize:]
 	half := len(packed)
+	x := make([]float32, 2*half)
 	for i, v := range packed {
-		x[i] = lower + step*float32(v&0x0F)
-		x[half+i] = lower + step*float32(v>>4)
+		x[i] = h.lower + h.step*float32(v&0x0F)
+		x[half+i] = h.lower + h.step*float32(v>>4)
 	}
 	return x
 }
@@ -585,36 +659,38 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 // The integer dot product <c',c> runs on a fused SIMD kernel that unpacks the
 // data nibbles in registers (see dotByteNibbleImpl).
 func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
-	if len(x) != RQ4MetadataSize+len(d.cq.codes)/2 {
+	metaSize := d.rq.metaSize
+	if len(x) != metaSize+len(d.cq.codes)/2 {
 		return 0, errors.Errorf("4-bit code length doesn't match: %d vs %d",
-			len(x), RQ4MetadataSize+len(d.cq.codes)/2)
+			len(x), metaSize+len(d.cq.codes)/2)
 	}
-	cx := RQ4Code(x)
-	dot := dotByteNibbleImpl(d.cq.codes, cx.Packed())
-	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
-		cx.Step()*d.cq.step*float32(dot)
+	h := d.rq.header(x)
+	dot := dotByteNibbleImpl(d.cq.codes, x[metaSize:])
+	dotEstimate := h.lower*d.a + h.codeSum*d.cq.lower +
+		h.step*d.cq.step*float32(dot)
 	if d.centeredDot {
 		// dot(x, q) = dot(x-mean, q-mean) + dot(x-mean, mean) + dot(mean, q);
 		// the second term rides in the norm2 slot, the third is per-query.
-		return d.cos - (dotEstimate + cx.Norm2() + d.qMeanDot), d.err
+		return d.cos - (dotEstimate + h.norm2 + d.qMeanDot), d.err
 	}
-	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
+	return d.l2*(h.norm2+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
 // distanceScalar is the pure Go fallback using the packed byte-nibble kernel.
 // It exists so benchmarks can compare it against the SIMD-assisted Distance.
 func (d *FourBitRQDistancer) distanceScalar(x []byte) (float32, error) {
-	if len(x) != RQ4MetadataSize+len(d.cq.codes)/2 {
+	metaSize := d.rq.metaSize
+	if len(x) != metaSize+len(d.cq.codes)/2 {
 		return 0, errors.Errorf("4-bit code length doesn't match: %d vs %d",
-			len(x), RQ4MetadataSize+len(d.cq.codes)/2)
+			len(x), metaSize+len(d.cq.codes)/2)
 	}
-	cx := RQ4Code(x)
-	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
-		cx.Step()*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, cx.Packed()))
+	h := d.rq.header(x)
+	dotEstimate := h.lower*d.a + h.codeSum*d.cq.lower +
+		h.step*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, x[metaSize:]))
 	if d.centeredDot {
-		return d.cos - (dotEstimate + cx.Norm2() + d.qMeanDot), d.err
+		return d.cos - (dotEstimate + h.norm2 + d.qMeanDot), d.err
 	}
-	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
+	return d.l2*(h.norm2+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
 func (d *FourBitRQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -626,22 +702,24 @@ func (d *FourBitRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 }
 
 func (rq *FourBitRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
-	if len(x) != len(y) {
-		return 0, errors.Errorf("4-bit code lengths don't match: %d vs %d",
-			len(x), len(y))
+	dim := rq.OutputDimension()
+	expected := rq.metaSize + dim/2
+	if len(x) != expected || len(y) != expected {
+		return 0, errors.Errorf("4-bit code lengths don't match quantizer: %d and %d, want %d",
+			len(x), len(y), expected)
 	}
-	cx, cy := RQ4Code(x), RQ4Code(y)
-	a := float32(cx.Dimension()) * cx.Lower() * cy.Lower()
-	b := cx.Lower() * cy.CodeSum()
-	c := cy.Lower() * cx.CodeSum()
-	d := cx.Step() * cy.Step() * float32(dotNibbleNibbleImpl(cx.Packed(), cy.Packed()))
+	hx, hy := rq.header(x), rq.header(y)
+	a := float32(dim) * hx.lower * hy.lower
+	b := hx.lower * hy.codeSum
+	c := hy.lower * hx.codeSum
+	d := hx.step * hy.step * float32(dotNibbleNibbleImpl(x[rq.metaSize:], y[rq.metaSize:]))
 	dotEstimate := a + b + c + d
 	if rq.mean != nil && rq.l2 == 0 {
 		// dot(x, y) = dot(x', y') + dot(x', mean) + dot(y', mean) + |mean|^2
 		// with x' = x-mean; both cross terms ride in the norm2 slots.
-		return rq.cos - (dotEstimate + cx.Norm2() + cy.Norm2() + rq.meanNorm2), rq.err
+		return rq.cos - (dotEstimate + hx.norm2 + hy.norm2 + rq.meanNorm2), rq.err
 	}
-	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
+	return rq.l2*(hx.norm2+hy.norm2) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
 }
 
 // fourBitRQCompressedDistancer computes distances from a stored 4-bit code,
@@ -707,8 +785,9 @@ func (rq *FourBitRotationalQuantizer) Data() compression.RQData {
 }
 
 type RQ4Stats struct {
-	Bits      uint32 `json:"bits"`
-	Centering bool   `json:"centering"`
+	Bits         uint32 `json:"bits"`
+	Centering    bool   `json:"centering"`
+	MetadataSize int    `json:"metadataSize"`
 }
 
 func (s RQ4Stats) CompressionType() string {
@@ -716,13 +795,17 @@ func (s RQ4Stats) CompressionType() string {
 }
 
 func (s RQ4Stats) CompressionRatio(dimensionality int) float64 {
-	// Original size = dim * 4 bytes (float32). Compressed size = 16 bytes of
-	// metadata + half a byte per dimension.
+	// Original size = dim * 4 bytes (float32). Compressed size = metadata
+	// (16 bytes legacy, 12 packed) + half a byte per dimension.
+	metaSize := s.MetadataSize
+	if metaSize == 0 {
+		metaSize = RQ4MetadataSize
+	}
 	originalSize := dimensionality * 4
-	compressedSize := RQ4MetadataSize + dimensionality/2
+	compressedSize := metaSize + dimensionality/2
 	return float64(originalSize) / float64(compressedSize)
 }
 
 func (rq *FourBitRotationalQuantizer) Stats() CompressionStats {
-	return RQ4Stats{Bits: 4, Centering: rq.mean != nil}
+	return RQ4Stats{Bits: 4, Centering: rq.mean != nil, MetadataSize: rq.metaSize}
 }

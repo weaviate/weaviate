@@ -146,8 +146,11 @@ func TestCenteredRQ4EstimatorAccuracy(t *testing.T) {
 	}
 }
 
-// A zero mean must behave exactly like the stock quantizer: same rotation,
-// same interval, same distances.
+// A zero mean must behave like the stock quantizer: same rotation, same
+// interval, identical integer codes. Distances agree up to the packed
+// header's bfloat16 rounding of lower (centered codes use the 12-byte
+// layout, stock codes the legacy 16-byte one), which shifts estimates by
+// ~2^-9 of their magnitude.
 func TestCenteredRQ4ZeroMeanMatchesStock(t *testing.T) {
 	const (
 		dim  = 64
@@ -166,12 +169,21 @@ func TestCenteredRQ4ZeroMeanMatchesStock(t *testing.T) {
 
 			ds := stock.NewDistancer(q)
 			dc := centered.NewDistancer(q)
+			qNorm := math.Sqrt(float64(dotFloat(q, q)))
 			for _, v := range vectors {
-				a, err := ds.Distance(stock.Encode(v))
+				cs := stock.Encode(v)
+				cc := centered.Encode(v)
+				require.Equal(t, len(cs)-compressionhelpers.RQ4MetadataSize,
+					len(cc)-compressionhelpers.RQ4PackedMetadataSize)
+				assert.Equal(t, cs[compressionhelpers.RQ4MetadataSize:],
+					cc[compressionhelpers.RQ4PackedMetadataSize:],
+					"zero-mean centered codes must quantize identically to stock")
+				a, err := ds.Distance(cs)
 				require.NoError(t, err)
-				b, err := dc.Distance(centered.Encode(v))
+				b, err := dc.Distance(cc)
 				require.NoError(t, err)
-				assert.InDelta(t, a, b, 1e-4)
+				vNorm := math.Sqrt(float64(dotFloat(v, v)))
+				assert.InDelta(t, a, b, 3e-3*(1+qNorm*vNorm))
 			}
 		})
 	}
