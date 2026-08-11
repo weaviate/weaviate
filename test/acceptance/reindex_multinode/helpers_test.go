@@ -15,9 +15,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -696,6 +701,222 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 		}
 		t.Logf("=== Node %d logs (%d migration/reindex lines) ===\n%s", i, len(filtered), strings.Join(filtered, "\n"))
 	}
+}
+
+// forensicCaptureByteBudget caps the bytes one capture may write, so a
+// pathological on-disk state cannot fill the CI runner's disk. It is shared by
+// every node in the capture, not per node.
+const forensicCaptureByteBudget = 512 << 20 // 512 MiB
+
+// forensicFilesPerNodeCap caps how many files a single node contributes, so one
+// node with a runaway directory cannot consume the whole byte budget.
+const forensicFilesPerNodeCap = 4000
+
+// captureAllowance is the decision for one candidate file: whether the capture
+// should stop, and if not, the most bytes that file may consume.
+type captureAllowance struct {
+	stop   bool
+	reason string
+	limit  int64
+}
+
+// allowNextFile applies both bounds before a file is copied. copiedTotal is the
+// running cross-node byte total and filesThisNode the count already taken from
+// the current node, so the byte budget is global while the file cap is per node.
+// A non-stopping allowance always carries a limit above zero, which is what lets
+// the caller pass it straight to io.CopyN.
+func allowNextFile(copiedTotal int64, filesThisNode int) captureAllowance {
+	if filesThisNode >= forensicFilesPerNodeCap {
+		return captureAllowance{
+			stop:   true,
+			reason: fmt.Sprintf("per-node file cap (%d) reached", forensicFilesPerNodeCap),
+		}
+	}
+	remaining := int64(forensicCaptureByteBudget) - copiedTotal
+	if remaining <= 0 {
+		return captureAllowance{
+			stop:   true,
+			reason: fmt.Sprintf("byte budget (%d) exhausted", forensicCaptureByteBudget),
+		}
+	}
+	return captureAllowance{limit: remaining}
+}
+
+// captureRangeableDataDirsOnFailure is a best-effort dump of the rangeable
+// bucket's on-disk state (weaviate/0-weaviate-issues#335), for offline
+// post-mortem on a range-count failure. Capture errors are logged, never fatal.
+func captureRangeableDataDirsOnFailure(t *testing.T, compose *docker.DockerCompose, className, propName, phase string) {
+	t.Helper()
+	// Independent of the test's ctx (which may be cancelling) and bounded, so
+	// capture can never hang CI.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	root := forensicArtifactRoot(t, className, phase)
+	t.Logf("range-count forensic capture [%s]: artifact root = %s", phase, root)
+
+	classDirLower := strings.ToLower(className)
+	// Prefix shared by the canonical bucket dir and all its sidecar generations.
+	bucketMatch := fmt.Sprintf("property_%s_rangeable", propName)
+
+	var copiedBytes int64
+	nodesVisited := 0
+	// Walk until the compose runs out of nodes rather than assuming three, so a
+	// larger cluster cannot be captured only in part.
+	for nodeIdx := 1; ; nodeIdx++ {
+		node := compose.GetWeaviateNode(nodeIdx)
+		if node == nil {
+			break
+		}
+		nodesVisited++
+		container := node.Container()
+
+		// Manifest into the test log so it survives even without the artifact
+		// download; fall back to a full listing if nothing matches.
+		manifestScript := fmt.Sprintf(
+			`for lsm in /data/%s/*/lsm; do [ -d "$lsm" ] || continue; echo "### $lsm"; `+
+				`m=$(find "$lsm" -path "*%s*" 2>/dev/null); `+
+				`if [ -n "$m" ]; then echo "$m" | while IFS= read -r p; do ls -ld "$p"; done; `+
+				`else echo "(no %s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; fi; done`,
+			classDirLower, bucketMatch, bucketMatch)
+		manifest := execCollect(ctx, container, []string{"sh", "-c", manifestScript})
+		t.Logf("range-count forensic capture [%s]: node %d rangeable bucket manifest:\n%s",
+			phase, nodeIdx, strings.TrimSpace(manifest))
+
+		fileList := execCollect(ctx, container, []string{"sh", "-c", fmt.Sprintf(
+			`find /data/%s -path "*%s*" -type f 2>/dev/null`, classDirLower, bucketMatch)})
+		copiedBytes += copyContainerFiles(ctx, t, container, root, nodeIdx, fileList, copiedBytes, phase)
+	}
+	if nodesVisited == 0 {
+		t.Logf("range-count forensic capture [%s]: no weaviate containers found, nothing captured", phase)
+	}
+	t.Logf("range-count forensic capture [%s]: copied ~%d bytes from %d nodes into %s",
+		phase, copiedBytes, nodesVisited, root)
+}
+
+// forensicArtifactRoot returns a unique host dir for one capture: under
+// REINDEX_FORENSICS_DIR in CI, an OS temp dir locally. Unique per
+// test+phase+timestamp so repeated captures in the same run don't collide.
+func forensicArtifactRoot(t *testing.T, className, phase string) string {
+	t.Helper()
+	base := os.Getenv("REINDEX_FORENSICS_DIR")
+	if base == "" {
+		base = filepath.Join(os.TempDir(), "reindex-forensics")
+	}
+	name := strings.ReplaceAll(t.Name(), "/", "_")
+	root := filepath.Join(base, fmt.Sprintf("%s_%s_%s_%d", name, className, phase, time.Now().UnixNano()))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Logf("range-count forensic capture [%s]: mkdir %s failed: %v", phase, root, err)
+	}
+	return root
+}
+
+// execCollect runs cmd in the container and returns combined stdout+stderr.
+// tcexec.Multiplexed strips Docker's stream-framing headers so the output is
+// plain text. Best effort: exec errors are returned as a note, not an error.
+func execCollect(ctx context.Context, container testcontainers.Container, cmd []string) string {
+	_, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return fmt.Sprintf("(exec error: %v)", err)
+	}
+	buf := new(strings.Builder)
+	if reader != nil {
+		_, _ = io.Copy(buf, reader)
+	}
+	return buf.String()
+}
+
+// copyContainerFiles copies each container path to disk. alreadyCopied is the
+// running cross-node total, so the shared byte budget applies across nodes.
+func copyContainerFiles(
+	ctx context.Context, t *testing.T, container testcontainers.Container,
+	root string, nodeIdx int, newlineSeparatedPaths string, alreadyCopied int64, phase string,
+) int64 {
+	t.Helper()
+	var nodeCopied int64
+	files := 0
+	for _, p := range strings.Split(strings.TrimSpace(newlineSeparatedPaths), "\n") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// Once the capture window closes every remaining copy fails instantly,
+		// which would otherwise emit one log line per remaining path.
+		if err := ctx.Err(); err != nil {
+			t.Logf("range-count forensic capture [%s]: node %d capture window closed (%v); remaining files skipped",
+				phase, nodeIdx, err)
+			break
+		}
+		allowance := allowNextFile(alreadyCopied+nodeCopied, files)
+		if allowance.stop {
+			t.Logf("range-count forensic capture [%s]: node %d %s; remaining files skipped",
+				phase, nodeIdx, allowance.reason)
+			break
+		}
+		files++
+		n, truncated, err := copyOneContainerFile(ctx, container, root, nodeIdx, p, allowance.limit)
+		if err != nil {
+			t.Logf("range-count forensic capture [%s]: node %d copy %s failed: %v", phase, nodeIdx, p, err)
+			continue
+		}
+		nodeCopied += n
+		if truncated {
+			t.Logf("range-count forensic capture [%s]: node %d truncated %s at %d bytes to stay inside the budget",
+				phase, nodeIdx, p, n)
+		}
+	}
+	return nodeCopied
+}
+
+// copyOneContainerFile mirrors containerPath's /data-relative path under
+// <root>/node<nodeIdx>/, writing at most limit bytes. It reports how much it
+// wrote and whether the file was cut short by that limit.
+func copyOneContainerFile(
+	ctx context.Context, container testcontainers.Container, root string, nodeIdx int,
+	containerPath string, limit int64,
+) (written int64, truncated bool, err error) {
+	rc, err := container.CopyFileFromContainer(ctx, containerPath)
+	if err != nil {
+		return 0, false, err
+	}
+	defer rc.Close()
+	rel := strings.TrimPrefix(containerPath, "/data/")
+	dest := filepath.Join(root, fmt.Sprintf("node%d", nodeIdx), filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return 0, false, err
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return 0, false, err
+	}
+	defer f.Close()
+	return copyBounded(f, rc, limit)
+}
+
+// copyBounded writes at most limit bytes from src to dst, reporting how much it
+// wrote and whether src still had data left at that point. Bounded rather than
+// io.Copy because the byte budget is only checked between files, so one
+// pathological segment would otherwise carry the capture past it.
+func copyBounded(dst io.Writer, src io.Reader, limit int64) (written int64, truncated bool, err error) {
+	written, err = io.CopyN(dst, src, limit)
+	if errors.Is(err, io.EOF) {
+		return written, false, nil
+	}
+	if err != nil {
+		return written, false, err
+	}
+	// CopyN stops at limit without reading beyond it, so a file of exactly
+	// limit bytes looks the same as a larger one. Probe for one more byte
+	// rather than reporting a truncation that did not happen.
+	var probe [1]byte
+	n, probeErr := src.Read(probe[:])
+	if n > 0 {
+		return written, true, nil
+	}
+	if probeErr != nil && !errors.Is(probeErr, io.EOF) {
+		return written, false, probeErr
+	}
+	return written, false, nil
 }
 
 // probeSample is one observation of a probe function against a node.
