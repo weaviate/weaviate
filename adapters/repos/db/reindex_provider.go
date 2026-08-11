@@ -1591,7 +1591,11 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// rather than trusted mid-write.
 				drained := p.autoCleanupAfterTerminal(task, payload, logger)
 				if !IsSemanticMigration(payload.MigrationType) {
-					// No schema flip to skip, so no inversion either way.
+					// Positive allowlist, so a type only a newer node knows
+					// lands here too. Abstain rather than claim: a
+					// format-only type has no schema flip to skip, and an
+					// unknown one has no consequence this build can name —
+					// and could not have run here to produce one anyway.
 					break
 				}
 				if !drained || p.promotableReindexStateOnThisNode(payload) {

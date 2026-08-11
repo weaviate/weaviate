@@ -335,6 +335,11 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			continue
 		}
 		// Matches the apply gate's wording too, for the same reason.
+		//
+		// callerDropsTheData stays false even though the only caller is a
+		// DELETE of a property index: unlike DeleteClass it removes just the
+		// named index, so a change-tokenization's other index stays inverted
+		// and the repair the remedy names is still meaningful.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
