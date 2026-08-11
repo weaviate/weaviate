@@ -234,8 +234,10 @@ var (
 )
 
 // errShardsSkipped reports a walk that did not reach every shard that was in
-// the map when it started. The shards it names were neither visited nor
-// explained, so what is on them is unknown rather than done.
+// the map when it started. The skipped shards were neither visited nor
+// explained, so what is on them is unknown rather than done; the message
+// names at most [maxReportedErrors] of them plus a count. Not a cause of
+// Index.closeRequestedCtx — it describes a walk, not the index.
 var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
 
 // Index is the logical unit which contains all the data for one particular
@@ -834,7 +836,9 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 }
 
 // shardNameSet is the set of shards in the map right now, bounded by the
-// collection's live shard count.
+// collection's live shard count. The extra Range and the transient map of
+// shared name strings are cheap next to what one missed skip would cost: a
+// sweep falsely reported as having reached every shard.
 func (i *Index) shardNameSet() map[string]struct{} {
 	names := map[string]struct{}{}
 	i.shards.Range(func(name string, _ ShardLike) error {
@@ -846,7 +850,8 @@ func (i *Index) shardNameSet() map[string]struct{} {
 
 // reportedShardNames orders and caps names at [maxReportedErrors] for an
 // operator-facing message; the cap itself is reported as an entry so the
-// count of unaccounted shards isn't lost.
+// count of unaccounted shards isn't lost. Spelled like [errorcompounder]'s
+// ToErrorLimited cap, since one sweep error can carry both.
 func reportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {
@@ -857,7 +862,7 @@ func reportedShardNames(names map[string]struct{}) []string {
 		return sorted
 	}
 	return append(sorted[:maxReportedErrors:maxReportedErrors],
-		fmt.Sprintf("and %d more", len(sorted)-maxReportedErrors))
+		fmt.Sprintf("(and %d more)", len(sorted)-maxReportedErrors))
 }
 
 // ForEachShard applies func f on each shard in the index.

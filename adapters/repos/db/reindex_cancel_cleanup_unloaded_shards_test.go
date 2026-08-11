@@ -174,7 +174,10 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
 		unreadable string
-		wantStale  bool
+		// corruptPayload names a tracker whose payload.mig is written as
+		// garbage bytes instead of a recovery record.
+		corruptPayload string
+		wantStale      bool
 	}{
 		{
 			name:      "a shard with no reindex state at all",
@@ -316,6 +319,25 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			trackers:   map[string][]string{"enable_filterable_category_1": completed},
 			wantStale:  true,
 		},
+		// A payload this sweep can't read could name this property; answering
+		// from the name alone would report a shard this sweep owns as clean.
+		{
+			name:       "a tracker payload the gate cannot read",
+			indexType:  "filterable",
+			unreadable: ".migrations/enable_filterable_category_other_1",
+			trackers:   map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			payloads: map[string][]string{
+				"enable_filterable_category_other_1": {"category", "other"},
+			},
+			wantStale: true,
+		},
+		{
+			name:           "a tracker payload the gate cannot parse",
+			indexType:      "filterable",
+			trackers:       map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			corruptPayload: "enable_filterable_category_other_1",
+			wantStale:      true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -344,6 +366,11 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			}
 			for _, name := range tc.sidecars {
 				mkSidecarDir(t, lsm, name)
+			}
+			if tc.corruptPayload != "" {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(lsm, ".migrations", tc.corruptPayload, reindexRecoveryPayloadFile),
+					[]byte("not a recovery record"), 0o644))
 			}
 			if tc.unreadable != "" {
 				denied := filepath.Join(lsm, tc.unreadable)
@@ -405,16 +432,32 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 // A cancelled two-property task leaves one tracker dir for both properties,
 // and cleanup runs once per property.
 func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testing.T) {
-	const tracker = "enable_filterable_a_b_1"
+	const (
+		tracker = "enable_filterable_a_b_1"
+		sidecar = "property_a__enable_filterable_ingest_1"
+	)
 
 	tests := []struct {
 		name     string
 		propName string
-		want     bool
+		// noPayload leaves payload.mig unwritten: a dir from before the file
+		// existed, or a crash between persistRecoveryRecord's MkdirAll and
+		// its WriteFile.
+		noPayload   bool
+		wantTracker bool
+		wantStale   bool
 	}{
-		{name: "swept by its first property", propName: "a"},
-		{name: "swept by its second property", propName: "b"},
-		{name: "left alone by a property it does not name", propName: "c", want: true},
+		{name: "swept by its first property", propName: "a", wantStale: true},
+		{name: "swept by its second property", propName: "b", wantStale: true},
+		{name: "left alone by a property it does not name", propName: "c", wantTracker: true},
+		// With no payload the name alone can't prove the tracker is this
+		// sweep's, so it survives while its sidecar — whose deletion is not
+		// payload-gated — goes; the orphan audit reclaims the leftover dir.
+		// See [migrationDirScope].
+		{
+			name:     "a payload-less tracker survives while its sidecar goes",
+			propName: "a", noPayload: true, wantTracker: true, wantStale: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -429,14 +472,20 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			lsm := shard.pathLSM()
 
 			mkTrackerDir(t, lsm, tracker, "started.mig")
-			mkRecoveryPayload(t, lsm, tracker, "a", "b")
+			if !tc.noPayload {
+				mkRecoveryPayload(t, lsm, tracker, "a", "b")
+			}
+			mkSidecarDir(t, lsm, sidecar)
 
-			require.Equal(t, !tc.want,
+			require.Equal(t, tc.wantStale,
 				hasStalePartialReindexState(lsm, tc.propName, "filterable", nil),
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable"))
 
-			require.Equal(t, tc.want, dirExistsAt(t, lsm, ".migrations/"+tracker))
+			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tracker))
+			// "a"'s sidecar is only in reach of "a"'s own sweep.
+			wantSidecar := tc.propName != "a"
+			require.Equal(t, wantSidecar, dirExistsAt(t, lsm, sidecar))
 		})
 	}
 }

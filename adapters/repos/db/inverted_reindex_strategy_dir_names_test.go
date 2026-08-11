@@ -165,6 +165,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 		// emptyPayload writes a payload.mig that parses but names no property,
 		// which a truncated recovery record looks like.
 		emptyPayload bool
+		// corruptPayload writes a payload.mig that does not parse at all.
+		corruptPayload bool
 		// propName is the property being swept; "cat" unless set.
 		propName  string
 		indexType string
@@ -263,6 +265,20 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:          "enable_filterable_cat_1",
 			emptyPayload: true, want: true,
 		},
+		// An unparseable payload keeps the narrow fallback for deletion —
+		// deleting on a guess could remove another property's tracker. The
+		// unloaded-shard gate fails open on it instead; see
+		// [migrationDirScope.match].
+		{
+			name:           "a two-property shape with an unparseable payload",
+			dir:            "enable_filterable_a_b_1",
+			corruptPayload: true, propName: "a", want: false,
+		},
+		{
+			name:           "a two-property shape with an unparseable payload, in the preserve set",
+			dir:            "enable_filterable_a_b_1",
+			corruptPayload: true, propName: "a", preserve: true, want: true,
+		},
 		{
 			name: "a property whose name this one extends",
 			dir:  "enable_filterable_ca_1", props: []string{"ca"},
@@ -315,6 +331,11 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile(
 					filepath.Join(dir, reindexRecoveryPayloadFile), payload, 0o644))
+			}
+			if tc.corruptPayload {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, reindexRecoveryPayloadFile),
+					[]byte("not a recovery record"), 0o644))
 			}
 
 			scope := migrationDirsOf(lsm, nil, propName, indexType)

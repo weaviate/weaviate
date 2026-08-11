@@ -1859,8 +1859,8 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 }
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
-// terminal-task cleanup goroutine still inside its
-// CleanStalePartialReindexState loop?" probe. Sibling type to
+// terminal-task cleanup goroutine still inside its [sweepTerminalTuples] run
+// over [DB.NewStalePartialReindexSweep]?" probe. Sibling type to
 // [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
 // "is there a LIVE reindex task on this shard?" probe). The backup
 // gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
@@ -2039,14 +2039,17 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	return nil
 }
 
-// hasUntidiedTracker returns true iff at least one of the named tracker
-// prefixes has a generation directory on disk that has started.mig but
-// neither tidied.mig nor merged.mig — the signature of a swap that
-// began but did not commit. Trackers that have tidied/merged are NOT a
+// hasUntidiedTracker returns true iff at least one tracker dir in scope has
+// started.mig but neither tidied.mig nor merged.mig — the signature of a swap
+// that began but did not commit. Trackers that have tidied/merged are NOT a
 // recovery signal (they are completed migrations waiting for the next
 // restart's FinalizeCompletedMigrations to promote them to canonical).
 // A completely missing tracker dir is also NOT a recovery signal: a
 // prior FinalizeCompletedMigrations already promoted-and-removed it.
+//
+// Generation-less dirs (from before [genSuffix]) count too, matching what
+// [migrationDirScope.matches] — and through it the cleanup sweep — treats as
+// this tuple's trackers.
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -2055,9 +2058,6 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			continue
-		}
-		if _, _, ok := parseMigrationDirName(entry.Name()); !ok {
 			continue
 		}
 		if !scope.matches(entry.Name()) {

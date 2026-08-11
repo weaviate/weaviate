@@ -21,8 +21,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// droppedDuringSweep mirrors what CleanStalePartialReindexState returns when
-// the collection is deleted mid-sweep.
+// droppedDuringSweep mirrors what a db.NewStalePartialReindexSweep sweep
+// returns when the collection is deleted mid-sweep.
 func droppedDuringSweep() error {
 	return fmt.Errorf("%w: %w", db.ErrCleanupCollectionDropped,
 		errors.New("collection is being deleted"))

@@ -330,8 +330,8 @@ func TestTerminalSweepOutcomeOrdering(t *testing.T) {
 // the last tuple must not mask a shard an earlier tuple left state on.
 func TestSweepTerminalTuples(t *testing.T) {
 	diskFull := fmt.Errorf("%w: %w", ErrCleanupShardFailed, errors.New("disk is full"))
-	truncated := classifyCloseCause(errIndexShutdown)
-	dropped := classifyCloseCause(errIndexDropped)
+	truncated := classifyIncompleteWalk(errIndexShutdown)
+	dropped := classifyIncompleteWalk(errIndexDropped)
 
 	tests := []struct {
 		name string
@@ -425,7 +425,7 @@ func TestClassifyTerminalSweep(t *testing.T) {
 		},
 		{
 			name:        "the collection is being deleted",
-			err:         classifyCloseCause(errIndexDropped),
+			err:         classifyIncompleteWalk(errIndexDropped),
 			wantOutcome: terminalSweepDropped,
 		},
 		{
@@ -436,13 +436,13 @@ func TestClassifyTerminalSweep(t *testing.T) {
 		},
 		{
 			name:        "the walk stopped before it reached every shard",
-			err:         classifyCloseCause(errIndexShutdown),
+			err:         classifyIncompleteWalk(errIndexShutdown),
 			wantOutcome: terminalSweepUnknown,
 			wantFailure: errIndexShutdown,
 		},
 		{
 			name:        "the walk skipped a shard nothing explained",
-			err:         classifyCloseCause(fmt.Errorf("%w: shard-b", errShardsSkipped)),
+			err:         classifyIncompleteWalk(fmt.Errorf("%w: shard-b", errShardsSkipped)),
 			wantOutcome: terminalSweepUnknown,
 			wantFailure: errShardsSkipped,
 		},
@@ -455,13 +455,13 @@ func TestClassifyTerminalSweep(t *testing.T) {
 		},
 		{
 			name:        "a shard failed and then the collection was deleted",
-			err:         errors.Join(shardFailed(diskFull), classifyCloseCause(errIndexDropped)),
+			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexDropped)),
 			wantOutcome: terminalSweepFailed,
 			wantFailure: diskFull,
 		},
 		{
 			name:        "a shard failed and the walk was cut short",
-			err:         errors.Join(shardFailed(diskFull), classifyCloseCause(errIndexShutdown)),
+			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexShutdown)),
 			wantOutcome: terminalSweepFailed,
 			wantFailure: diskFull,
 		},

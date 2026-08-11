@@ -58,8 +58,9 @@ import (
 // was actually cleared.
 //
 // The returned sweep shares a directory-listing cache across every call, so a
-// run of sweeps over one collection reads each shard's directories once
-// instead of once per index type. It is therefore not safe for concurrent
+// run of sweeps over one collection reads each skipped shard's directories
+// once instead of once per index type (a hydrated shard's sweep reads the
+// filesystem directly, so it never acts on a snapshot). It is therefore not safe for concurrent
 // use, and must be short-lived: it answers from a filesystem snapshot taken
 // on first read (see [dirNamesCache]).
 func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
@@ -99,8 +100,11 @@ func (db *DB) cleanStalePartialReindexState(
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
-// this node (deleted, or never held here). Nothing was swept and nothing
-// needs to be, since sidecar state lives under the collection's directory.
+// this node (deleted, or never held here), possibly after sweeping some
+// shards before a mid-walk delete. Whatever state remains — including files a
+// backup in flight keeps past the drop ([Index.drop]'s keepFiles) — is
+// harmless: with the class gone from the schema, no later submit can
+// short-circuit on it.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is not on this node")
 
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not
@@ -118,10 +122,11 @@ func IsCleanupCollectionDropped(err error) bool {
 	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
 }
 
-// classifyCloseCause tags a walk that did not reach every shard: a collection
-// delete as [ErrCleanupCollectionDropped], anything else (shutdown, unvisited
-// shards) as [ErrCleanupSweepTruncated]. Other errors pass through untouched.
-func classifyCloseCause(err error) error {
+// classifyIncompleteWalk tags a walk that did not reach every shard: a
+// collection delete as [ErrCleanupCollectionDropped], anything else (shutdown,
+// unvisited shards) as [ErrCleanupSweepTruncated]. Other errors pass through
+// untouched.
+func classifyIncompleteWalk(err error) error {
 	switch {
 	case errors.Is(err, errIndexDropped):
 		return fmt.Errorf("%w: %w", ErrCleanupCollectionDropped, err)
@@ -205,7 +210,7 @@ func (i *Index) cleanStalePartialReindexState(
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
 	}
-	return errors.Join(failedShards, classifyCloseCause(walkErr))
+	return errors.Join(failedShards, classifyIncompleteWalk(walkErr))
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath has
@@ -213,8 +218,9 @@ func (i *Index) cleanStalePartialReindexState(
 // loading the shard.
 //
 // Fails open (returns true) on anything it can't read — an unmappable index
-// type, an unlistable directory — since a false "clean" would leave a stale
-// started.mig for the next task to resume against.
+// type, an unlistable directory, a tracker payload that exists but can't be
+// read or parsed — since a false "clean" would leave a stale started.mig for
+// the next task to resume against.
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
@@ -260,7 +266,13 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
-		if !scope.matches(name) {
+		matched, unreadablePayload := scope.match(name)
+		if unreadablePayload {
+			// A payload this gate can't read could name this property; only
+			// hydrating and re-reading can tell, so this is not "clean".
+			return true
+		}
+		if !matched {
 			continue
 		}
 		if preservedGens == nil {

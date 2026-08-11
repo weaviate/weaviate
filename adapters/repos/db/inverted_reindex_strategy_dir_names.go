@@ -12,6 +12,7 @@
 package db
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -198,7 +199,10 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // guess costs differently:
 //
 //   - Deletion (the plain scope) answers only the single-property shape;
-//     guessing wider would remove another property's tracker.
+//     guessing wider would remove another property's tracker. The refusal
+//     leaves a payload-less multi-property tracker behind while its sidecars
+//     — whose deletion is not payload-gated — are removed; the orphan audit
+//     reclaims the leftover dir.
 //   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
 //     property list carries this property as a whole "_"-delimited token,
 //     because refusing to guess lets sidecar deletion — which is not
@@ -249,8 +253,9 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	s.preserve = true
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		// Cloned because two preserving() results derived from the same base
-		// scope would otherwise share a backing array.
+		// Cloned so two preserving() results can't share a backing array.
+		// Unreachable today (both constructors leave classDirs empty or are
+		// never widened); kept for the constructor that changes that.
 		s.classDirs = append(slices.Clone(s.classDirs), classDir)
 	}
 	return s
@@ -263,6 +268,17 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 // only because [ReindexProvider.createReindexTasks] rejects such a payload
 // unless it carries exactly one property.
 func (s migrationDirScope) matches(name string) bool {
+	matched, _ := s.match(name)
+	return matched
+}
+
+// match additionally reports a payload that exists but could not be read or
+// parsed. Deletion ([migrationDirScope.matches]) ignores that and keeps the
+// no-payload fallback — deleting on a guess could remove another property's
+// tracker — while the unloaded-shard gate fails open on it, since answering
+// from the narrowed fallback could report a shard clean that the payload, once
+// readable again, says this sweep owns.
+func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {
 		// A dir with no generation suffix predates [genSuffix] and carries the
@@ -271,33 +287,34 @@ func (s migrationDirScope) matches(name string) bool {
 	}
 	for _, classDir := range s.classDirs {
 		if base == classDir {
-			return true
+			return true, false
 		}
 	}
 	if !s.hasStrategyPrefix(base) {
 		// Not this cleanup's dir; skip reading its payload.
-		return false
+		return false, false
 	}
-	if props, ok := s.taskProperties(name); ok {
+	props, ok, unreadable := s.taskProperties(name)
+	if ok {
 		if !slices.Contains(props, s.propName) {
-			return false
+			return false, false
 		}
 		for _, prefix := range s.prefixes {
 			if base == migrationDirWithProps(prefix, props) {
-				return true
+				return true, false
 			}
 		}
-		return false
+		return false, false
 	}
 	for _, prefix := range s.prefixes {
 		if base == migrationDirWithProps(prefix, []string{s.propName}) {
-			return true
+			return true, unreadable
 		}
 		if s.preserve && namesPropertyToken(base, prefix, s.propName) {
-			return true
+			return true, unreadable
 		}
 	}
-	return false
+	return false, unreadable
 }
 
 // namesPropertyToken reports whether base is prefix + "_" + a property list
@@ -331,11 +348,17 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 }
 
 // taskProperties returns the property list the task recorded in its tracker
-// dir. Reports ok=false when no payload is readable there.
-func (s migrationDirScope) taskProperties(name string) ([]string, bool) {
-	props, ok := readRecoveryPropertyNames(filepath.Join(s.lsmPath, ".migrations", name))
-	if !ok || len(props) == 0 {
-		return nil, false
+// dir. ok=false with unreadable=false means the task recorded nothing (no
+// payload file, or one naming no property); unreadable=true means a payload
+// is there but its content couldn't be obtained, so "recorded nothing" is not
+// a safe conclusion.
+func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
+	props, err := readRecoveryPropertyNames(filepath.Join(s.lsmPath, ".migrations", name))
+	if err != nil {
+		return nil, false, !os.IsNotExist(err)
 	}
-	return props, true
+	if len(props) == 0 {
+		return nil, false, false
+	}
+	return props, true, false
 }

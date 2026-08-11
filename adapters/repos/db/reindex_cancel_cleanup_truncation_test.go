@@ -298,7 +298,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
-func TestClassifyCloseCause(t *testing.T) {
+func TestClassifyIncompleteWalk(t *testing.T) {
 	unmarked := errors.New("something no close cause covers")
 
 	tests := []struct {
@@ -336,7 +336,7 @@ func TestClassifyCloseCause(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := classifyCloseCause(tc.err)
+			got := classifyIncompleteWalk(tc.err)
 			require.ErrorIs(t, got, tc.err, "the cause must stay readable under the marker")
 			if tc.wantMarker == nil {
 				require.Equal(t, tc.err, got)
@@ -515,7 +515,7 @@ func TestReportedShardNames(t *testing.T) {
 		{
 			name:  "more skipped shards than a message can carry",
 			names: nameSet(tenantShardNames(30)...),
-			want:  append(tenantShardNames(maxReportedErrors), "and 20 more"),
+			want:  append(tenantShardNames(maxReportedErrors), "(and 20 more)"),
 		},
 	}
 

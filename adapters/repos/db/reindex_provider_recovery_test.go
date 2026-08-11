@@ -106,25 +106,36 @@ func TestHasUntidiedTracker(t *testing.T) {
 			want: true,
 		},
 		// One tracker serves both properties; the payload says which.
+		// (enable_searchable, because retokenize payloads are rejected unless
+		// they name exactly one property — see [migrationDirScope.matches].)
 		{
 			name: "a two-property task, started only → recovery NEEDED",
 			trackers: map[string][]string{
-				"searchable_retokenize_other_text_1": {"started.mig"},
+				"enable_searchable_other_text_1": {"started.mig"},
 			},
 			payloads: map[string][]string{
-				"searchable_retokenize_other_text_1": {"other", "text"},
+				"enable_searchable_other_text_1": {"other", "text"},
 			},
 			want: true,
 		},
 		{
 			name: "a two-property task this property is not part of",
 			trackers: map[string][]string{
-				"searchable_retokenize_other_third_1": {"started.mig"},
+				"enable_searchable_other_third_1": {"started.mig"},
 			},
 			payloads: map[string][]string{
-				"searchable_retokenize_other_third_1": {"other", "third"},
+				"enable_searchable_other_third_1": {"other", "third"},
 			},
 			want: false,
+		},
+		// A dir from before [genSuffix]: the sweep deletes it, so the
+		// recovery probe must see it too.
+		{
+			name: "a generation-less tracker, started only → recovery NEEDED",
+			trackers: map[string][]string{
+				"searchable_retokenize_text": {"started.mig"},
+			},
+			want: true,
 		},
 		{
 			name: "two of this index type's prefixes, one tidied + one started → recovery NEEDED",
