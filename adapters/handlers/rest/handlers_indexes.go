@@ -791,10 +791,13 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	})
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept. The body
-// has to hold for PREPARING as well as SWAPPING: in PREPARING no node has
-// swapped yet, so naming the swap as under way would have an operator
-// sizing the wait in seconds when PREP runs for minutes at billion-scale.
+// cancelRefusedResponder answers a cancel DTM will not accept. Two
+// conditions land here and they need different bodies: a coordination
+// phase, where this build knows what the task is doing and knows that
+// stopping it is unsafe, and a status it cannot name, where it knows
+// neither. Telling an operator to "wait for a terminal state" is honest
+// advice for the first and a dead end for the second — the status has to
+// terminate on the nodes that recognize it.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -806,10 +809,26 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		"principal":   principalUsername(principal),
 	}).Info("cancel: task is past the point where cancelling is safe; refusing")
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s is in status %s: nodes may already have written merged "+
-			"state or renamed bucket directories, so stopping it now would leave the cluster serving "+
-			"migrated buckets under the pre-migration schema — wait for it to reach a terminal state",
-			target.ID, collection, propertyName, target.Status)))
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
+			target.ID, collection, propertyName, target.Status,
+			cancelRefusalReason(target.Status))))
+}
+
+// cancelRefusalReason explains a 409 from the cancel verb.
+//
+// The coordination-phase wording has to hold for PREPARING as well as
+// SWAPPING: in PREPARING no node has swapped yet, so naming the swap as
+// under way would have an operator sizing the wait in seconds when PREP
+// runs for minutes at billion-scale.
+func cancelRefusalReason(status distributedtask.TaskStatus) string {
+	if !status.IsRecognized() {
+		return "this build cannot classify that status, so it cannot tell whether stopping the " +
+			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+			"state on the nodes that do recognize it"
+	}
+	return "nodes may already have written merged state or renamed bucket directories, so " +
+		"stopping it now would leave the cluster serving migrated buckets under the " +
+		"pre-migration schema — wait for it to reach a terminal state"
 }
 
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
