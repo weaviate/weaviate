@@ -194,10 +194,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // updateIndex implements PUT /v1/schema/{className}/indexes/{propertyName}.
 //
 // Concurrent non-conflicting reindex tasks are allowed. Two tasks conflict if
-// they would touch the same bucket for the same property. The conflict check
-// rejects same-type same-property tasks, plus cross-type conflicts (e.g.
-// rebuild-searchable blocks change-tokenization on the same property since
-// both write the searchable bucket).
+// their property sets overlap on the same collection, whatever buckets they
+// touch — same-type and cross-type alike (e.g. enable-rangeable blocks
+// change-tokenization on the same property even though they share no bucket).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
 	propertyName := params.PropertyName
 

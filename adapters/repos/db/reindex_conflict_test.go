@@ -887,6 +887,27 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"its shards commit one by one",
 		"re-submit the same request to finish the remainder",
 	}
+	// enable-rangeable is the one format-only type whose own progress
+	// invalidates its submit precondition, so "re-submit the same request" is
+	// not the whole story for it.
+	rangeablePayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeEnableRangeable,
+		Properties:    []string{"name"},
+	})
+	formatOnlyRangeable := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		"its shards commit one by one",
+		"while no shard has finished yet",
+		`{"rangeable":{"rebuild":true}} once one has`,
+		"sets indexRangeFilters on the property",
+	}
+	// The types whose preconditions partial progress leaves alone must not
+	// borrow enable-rangeable's caveat.
+	notPerShardSchemaFlip := []string{
+		"while no shard has finished yet",
+		"sets indexRangeFilters on the property",
+	}
 	cancelUnnameable := []string{
 		"the cancel endpoint is keyed on one collection, property and index type",
 		"it can only be waited out",
@@ -908,10 +929,12 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		{"PREPARING", distributedtask.TaskStatusPreparing, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
 		{"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload, cancelPastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly)},
 		{"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload, repairUnnameable, concat(cancelUnnameable, cancelUnknown)},
-		{"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted)},
+		{"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip)},
 		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
 		// gates still see them.
-		{"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted)},
+		{"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload, formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip)},
+		{"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload, formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted)},
+		{"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload, formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted)},
 		{"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
 		{"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload, cancelUnnameable, concat([]string{cancelCall}, cancelUnknown)},
 		{string(unknownFutureStatus), unknownFutureStatus, "C", payload, cancelUnknown, concat([]string{cancelCall}, cancelUnnameable)},

@@ -338,7 +338,9 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //     but SWAPPING does, and per-shard swaps commit independently in both
 //     STARTED and SWAPPING — cancelling leaves some shards rebuilt, others
 //     not. There is no schema flip to skip, so none of the inversion wording
-//     below applies.
+//     below applies. The follow-up that finishes the remainder is the same
+//     request for every format-only type except enable-rangeable, which
+//     invalidates its own submit precondition as it goes (see there).
 //   - PREPARING/SWAPPING on a semantic migration: steer toward waiting and name the repair cancel
 //     makes necessary ([ReindexRepairCall], not a rebuild — see there).
 //     The window opens at the MERGE, not the swap:
@@ -369,11 +371,23 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"so it can only be waited out"
 	}
 	if !IsSemanticMigration(p.MigrationType) {
-		return "cancel it via " + cancelCall + ", or wait for it to finish; " +
+		partial := "cancel it via " + cancelCall + ", or wait for it to finish; " +
 			"this migration has no cluster-wide cutover, so its shards commit " +
 			"one by one rather than at a single point and cancelling leaves the " +
-			"ones that already finished rebuilt and the rest untouched — " +
-			"re-submit the same request to finish the remainder"
+			"ones that already finished rebuilt and the rest untouched — "
+		if p.MigrationType == ReindexTypeEnableRangeable {
+			// The only format-only type whose submit precondition partial
+			// progress invalidates: the strategy sets indexRangeFilters on the
+			// property (cluster-wide) as its first shard completes, and the
+			// enable validator refuses a property that already carries it.
+			return partial + "re-submit the same request to finish the remainder " +
+				"while no shard has finished yet, or " +
+				`{"rangeable":{"rebuild":true}} once one has: enable-rangeable ` +
+				"sets indexRangeFilters on the property as soon as its first " +
+				"shard commits, and each of the two verbs is rejected in the " +
+				"state the other one covers"
+		}
+		return partial + "re-submit the same request to finish the remainder"
 	}
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"

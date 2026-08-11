@@ -329,16 +329,10 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}
-		// Empty Properties means "all properties" (whole-collection
-		// rebuild, reserved); treat as a match.
-		matches := len(payload.Properties) == 0
-		for _, p := range payload.Properties {
-			if p == propertyName {
-				matches = true
-				break
-			}
-		}
-		if !matches {
+		// The same predicate the apply gate uses, so the two layers cannot
+		// disagree about which tasks are a match. Empty Properties there
+		// means "all properties" (whole-collection rebuild, reserved).
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
 		// Matches the apply gate's wording too, for the same reason.

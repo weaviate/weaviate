@@ -55,7 +55,7 @@ import (
 //
 //   - "Format-only" migrations don't change query semantics — they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, repair-searchable (Map→Blockmax), and the
+//     repair-filterable, rebuild-searchable, and the
 //     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
 //     full lifecycle independently via RunOnShard; there is no cluster-wide
 //     schema flip to coordinate.
@@ -1680,7 +1680,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return false
 	}
-	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	indexTypes := ReindexTargetIndexes(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return true
 	}
@@ -1919,7 +1919,7 @@ func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskP
 	if p.db == nil {
 		return true
 	}
-	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	indexTypes := ReindexTargetIndexes(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return true
 	}

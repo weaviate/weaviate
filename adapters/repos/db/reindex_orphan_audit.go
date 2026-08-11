@@ -492,6 +492,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		if knownTask(rec.TaskID, rec.TaskVersion) {
 			continue
 		}
+		// indexTypes is nil for a type this build does not know; the audit
+		// then falls back to direct tracker-dir removal.
 		orphans = append(orphans, orphanReindexTracker{
 			collection:  collection,
 			shardName:   shardName,
@@ -502,7 +504,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			taskVersion: rec.TaskVersion,
 			unitID:      rec.UnitID,
 			properties:  append([]string(nil), rec.Payload.Properties...),
-			indexTypes:  semanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
+			indexTypes:  ReindexTargetIndexes(rec.Payload.MigrationType),
 		})
 	}
 	return orphans
@@ -847,14 +849,4 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 		return rec, false
 	}
 	return rec, true
-}
-
-// semanticMigrationIndexTypesForAudit returns the indexType fan-out the
-// audit's CleanStalePartialReindexState loop iterates over for a given
-// migration type. Reads [ReindexTargetIndexes] so the two disk-deleting
-// paths (this one and autoCleanupAfterTerminal) cannot drift from the
-// cancel and submit-time-cleanup paths. Returns nil for a type this build
-// does not know; the audit then falls back to direct tracker-dir removal.
-func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
-	return ReindexTargetIndexes(mt)
 }

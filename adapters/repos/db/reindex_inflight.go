@@ -148,7 +148,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // property/index-type pair that could 202 NO_OP.
 //
 // `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
-// stored; same rendering rule as [ReindexCancelCall].
+// stored. The refusal is raised inside canCommit, which runs synchronously
+// within coordinator.Backup, so the REST error path strips a confined
+// caller's own prefix before it is returned. The async backup-status field
+// is not stripped, but it already carried the qualified name before this.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

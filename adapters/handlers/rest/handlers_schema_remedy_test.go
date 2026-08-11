@@ -321,6 +321,9 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 		{
 			migrationType: db.ReindexTypeChangeTokenization,
 			prop:          textProp("name", &enabled, nil, oldTok),
+			// The schema-decidable half of what production runs: the other
+			// half only requires a live searchable bucket, which a cancelled
+			// change-tokenization never drops.
 			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
 				return validateSearchableTokenizationChange(p, b.Searchable.Tokenization)
 			},

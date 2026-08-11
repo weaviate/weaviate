@@ -260,6 +260,71 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 	}
 }
 
+// The CANCELLED repair warning is driven off this predicate, and a cold tenant
+// carries its promotable generation on disk exactly like a loaded one. Walking
+// only the loaded shards would suppress the warning on the multi-tenant
+// collections that have the most cold shards, so the walk covers the
+// registered ones too — without hydrating any of them.
+func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+		coldShard = "cold-tenant"
+	)
+
+	tests := []struct {
+		name string
+		// sentinels are the files in the cold shard's tracker dir; nil leaves
+		// the cold shard with no reindex state at all.
+		sentinels []string
+		want      bool
+	}{
+		{
+			name: "a cold shard with no reindex state at all",
+		},
+		{
+			name:      "a cold shard whose generation only started",
+			sentinels: []string{"started.mig"},
+		},
+		{
+			name:      "a cold shard carrying a generation the next restart promotes",
+			sentinels: []string{"started.mig", "merged.mig"},
+			want:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupCtx := testCtx()
+			className := "ColdPromotable_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+			shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			hot := shd.(*Shard)
+			defer hot.Shutdown(context.Background())
+
+			if len(tc.sentinels) > 0 {
+				mkTrackerDir(t, shardPathLSM(idx.path(), coldShard), tracker, tc.sentinels...)
+			}
+			cold := NewLazyLoadShard(setupCtx, nil, coldShard, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(coldShard, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
+
+			assert.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType),
+				"the only shard carrying the state is not loaded")
+			assert.False(t, cold.isLoaded(),
+				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
+		})
+	}
+}
+
 // TestHasPromotableReindexStateFailsClosed pins that an unrecognized
 // indexType or an unenumerable .migrations dir answers true.
 func TestHasPromotableReindexStateFailsClosed(t *testing.T) {
