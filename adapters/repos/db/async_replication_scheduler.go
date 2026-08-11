@@ -203,6 +203,8 @@ type asyncReplicationSchedulerMetrics struct {
 	reconcileFailures prometheus.Counter
 	// rebuildFailures counts failed rebuild attempts; a retrying shard is out of the repair mesh both directions.
 	rebuildFailures prometheus.Counter
+	// rebuilds counts completed hashtree rebuilds (height changes picked up).
+	rebuilds prometheus.Counter
 	// rootPrefilterSkips counts shard cycles short-circuited as in-sync by the pre-filter.
 	rootPrefilterSkips prometheus.Counter
 	// rootPrefilterBatchSize observes the number of shards per pre-filter batch.
@@ -296,6 +298,18 @@ func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (as
 			Namespace: "weaviate",
 			Name:      "async_replication_rebuild_failures_total",
 			Help:      "Number of failed hashtree rebuild attempts; a growing rate means shards are out of the repair mesh while retrying.",
+		}),
+	)
+	if err != nil {
+		return m, err
+	}
+
+	m.rebuilds, _, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_rebuild_total",
+			Help:      "Number of completed hashtree rebuilds (a shard picked up a changed hashtree height).",
 		}),
 	)
 	if err != nil {
@@ -399,6 +413,12 @@ func (m *asyncReplicationSchedulerMetrics) decWorkersLive() {
 func (m *asyncReplicationSchedulerMetrics) incRebuildFailures() {
 	if m.monitoring {
 		m.rebuildFailures.Inc()
+	}
+}
+
+func (m *asyncReplicationSchedulerMetrics) incRebuilds() {
+	if m.monitoring {
+		m.rebuilds.Inc()
 	}
 }
 
@@ -1619,6 +1639,8 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		return backoff
 	}
 
+	start := time.Now()
+
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		return true, fail("stop", err)
 	}
@@ -1660,6 +1682,17 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}
+		return false, 0
+	}
+
+	sched.metrics.incRebuilds()
+	if sched.logger != nil {
+		sched.logger.
+			WithField("action", "async_replication_rebuild").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			WithField("took", time.Since(start).String()).
+			Info("hashtree rebuild completed")
 	}
 	return false, 0
 }
