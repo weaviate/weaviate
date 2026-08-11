@@ -2021,3 +2021,40 @@ func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
 	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
 }
+
+// The ordinary case, not the edge case: production always wires the
+// inspector, so a task in an unrecognized status sits in the
+// leader-routed list and in this node's own FSM at the same time. Both
+// loops see it, and counting it twice would double the gauge and tag a
+// task the whole cluster still lists as this node's own.
+func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
+	const namespace = "tasks-namespace"
+	wedged := &Task{
+		Namespace:      namespace,
+		TaskDescriptor: TaskDescriptor{ID: "wedged", Version: 7},
+		Status:         unknownFutureStatus,
+	}
+
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{namespace: {wedged.Clone()}}
+	h.init(t)
+
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		namespace: {wedged.TaskDescriptor: wedged},
+	})
+
+	var warned string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warned = e.Message
+		}
+	}
+	require.Equal(t, 1, strings.Count(warned, "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE"),
+		"one task must be named once, not once per list it appears in")
+	require.Contains(t, warned, "1 distributed task(s)",
+		"the count must match the task set, not the number of sightings")
+	require.NotContains(t, warned, "this node only",
+		"a task the leader-routed list still carries is not this node's own leftover")
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
+}

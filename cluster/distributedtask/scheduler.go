@@ -562,8 +562,10 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 		s.logger.
 			WithField("unrecognized_tasks", named).
 			Warnf("%d distributed task(s) in an unrecognized status: %s. Each counts as in flight, "+
-				"so schema mutations and backups stay refused until it reaches a terminal state or "+
-				"is cancelled", len(named), strings.Join(named, ", "))
+				"so schema mutations and backups stay refused until it reaches a terminal state on "+
+				"the nodes that do recognize the status. A cancel will not help: the FSM refuses "+
+				"one for a status this build cannot classify, on every node",
+				len(named), strings.Join(named, ", "))
 	})
 }
 

@@ -803,8 +803,9 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions a running task to CANCELLED. In-flight units are not waited
-// for — the [Scheduler] will terminate their local handles on the next tick.
+// CancelTask transitions a STARTED task to CANCELLED and refuses every other status,
+// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
+// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -839,9 +840,11 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
-// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
-// removal of status information that other nodes may still need to observe.
+// CleanUpTask removes a task from the Manager's state. It refuses tasks in a status this
+// build both declared and calls live, and tasks whose completedTaskTTL has not yet elapsed,
+// preventing premature removal of status information that other nodes may still need to
+// observe. A status this build cannot name is removable — see the guard below, that exit is
+// the only one such a task has.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
