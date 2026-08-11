@@ -942,16 +942,22 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			`: collection "Class-A" has an active runtime-reindex task in DTM; retry after the migration finishes, ` +
 			`or cancel it: GET /v1/schema/Class-A/indexes names the property and index type that are still migrating, ` +
 			`and PUT /v1/schema/Class-A/indexes/{that property} with {"{that index type}":{"cancel":true}} cancels the task`
+		// What a v1.38.0-v1.39.0 participant sends. Its sentinel ends in
+		// "on this shard", so the text opens with the current sentinel too.
+		blockedShard  = "zmDMRo4olU4c"
+		olderRefusal  = backup.ErrBackupBlockedByInFlightReindex.Error() + ` on this shard: shard "` + blockedShard + `" (collection "Class-A") has an active runtime-reindex task in DTM`
+		remediationIn = "active runtime-reindex task in DTM"
 	)
 
 	tests := []struct {
 		name string
 		// transportErr, when set, is the RPC error returned instead of a response.
-		refusalResp     *CanCommitResponse
-		transportErr    error
-		expectInFlight  bool
-		expectCanCommit bool
-		expectContain   []string
+		refusalResp      *CanCommitResponse
+		transportErr     error
+		expectInFlight   bool
+		expectCanCommit  bool
+		expectContain    []string
+		expectNotContain []string
 		// Only the reindex refusal names no node; every other refusal keeps it.
 		expectNodeNamed  bool
 		expectLogLevel   logrus.Level
@@ -969,11 +975,32 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			// Current-version wording is published as-is, node/shard-free.
 			expectContain: []string{
 				backup.ErrBackupBlockedByInFlightReindex.Error(),
-				"active runtime-reindex task in DTM",
+				remediationIn,
 				"GET /v1/schema/Class-A/indexes",
 				"PUT /v1/schema/Class-A/indexes/{that property}",
 			},
-			expectLogLevel: logrus.WarnLevel,
+			expectLogLevel:   logrus.WarnLevel,
+			expectLogContain: remediationIn,
+		},
+		{
+			// Mixed-version cluster: the participant's own wording names a
+			// shard, so the body is rebuilt from the caller's classes. The
+			// log is then the only place the shard survives.
+			name: "an older participant's wording is rebuilt, and its shard kept to the log",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     olderRefusal,
+				ErrKind: CanCommitErrInFlightReindex,
+			},
+			expectInFlight: true,
+			expectContain: []string{
+				backup.ErrBackupBlockedByInFlightReindex.Error(),
+				`"Class-A"`,
+			},
+			expectNotContain: []string{blockedShard, "on this shard"},
+			expectLogLevel:   logrus.WarnLevel,
+			expectLogContain: blockedShard,
 		},
 		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
@@ -1061,6 +1088,10 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			for _, want := range tc.expectContain {
 				assert.Contains(t, err.Error(), want)
 			}
+			for _, unwanted := range tc.expectNotContain {
+				assert.NotContains(t, err.Error(), unwanted,
+					"a backup caller is granted nothing a participant's own wording added")
+			}
 			if tc.expectNodeNamed {
 				assert.Contains(t, err.Error(), nodes[1],
 					"an operator-facing refusal must say which participant produced it")
@@ -1080,7 +1111,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				"only a cluster fault pages; a refusal the caller can act on does not")
 			if tc.expectLogContain != "" {
 				assert.Contains(t, logged.Message, tc.expectLogContain,
-					"the log line must carry the refusal text")
+					"the log must carry the participant's own text, pre-redaction: "+
+						"it is where what the body withholds still reaches the operator")
 			}
 		})
 	}
@@ -1216,25 +1248,67 @@ func TestCanCommitErrFromResponse_StatesTheConditionOnce(t *testing.T) {
 
 // Pins: an older participant's node/shard-bearing wording must not leak into
 // the redacted refusal.
+//
+// The released sentinel ends in "on this shard", so an older participant's
+// text opens with the current sentinel as well. The bare row below is the
+// one that discriminates: matching the sentinel alone republishes it, and
+// the node prefix that hides that today is what this branch removes.
 func TestCanCommitErrFromResponse_DropsAnOlderParticipantsWording(t *testing.T) {
 	t.Parallel()
 
 	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
-	older := canCommitErrFromResponse(&CanCommitResponse{
-		Method:  OpCreate,
-		ID:      "mixed-version-id",
-		Err:     `Node-1/Class-A: backup blocked: runtime-reindex in flight on this shard: shard "s1" (collection "Class-A")`,
-		ErrKind: CanCommitErrInFlightReindex,
-	}, []string{"Class-A"})
+	// What a v1.38.0-v1.39.0 participant words a refusal as, before
+	// DB.Backupable of that era prefixes it with "<node>/<class>: ".
+	olderWording := sentinel + ` on this shard: shard "s1" (collection "Class-A") ` +
+		`has an active runtime-reindex task in DTM; retry after the migration finishes`
 
-	require.ErrorIs(t, older, backup.ErrBackupBlockedByInFlightReindex)
-	assert.Contains(t, older.Error(), sentinel)
-	assert.Contains(t, older.Error(), `"Class-A"`,
-		"the collection came from the caller's own request, so it stays")
-	assert.NotContains(t, older.Error(), "Node-1",
-		"a backup caller is granted nothing on node names")
-	assert.NotContains(t, older.Error(), "s1",
-		"a backup caller is granted nothing on shard names")
+	tests := []struct {
+		name        string
+		respErr     string
+		notContains []string
+	}{
+		{
+			name:        "node-prefixed, as DB.Backupable of that era sent it",
+			respErr:     "Node-1/Class-A: " + olderWording,
+			notContains: []string{"Node-1", `"s1"`, "on this shard"},
+		},
+		{
+			name:        "bare, with no node prefix to fall back on",
+			respErr:     olderWording,
+			notContains: []string{`"s1"`, "on this shard"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			older := canCommitErrFromResponse(&CanCommitResponse{
+				Method:  OpCreate,
+				ID:      "mixed-version-id",
+				Err:     tc.respErr,
+				ErrKind: CanCommitErrInFlightReindex,
+			}, []string{"Class-A"})
+
+			require.ErrorIs(t, older, backup.ErrBackupBlockedByInFlightReindex)
+			assert.Contains(t, older.Error(), sentinel)
+			assert.Contains(t, older.Error(), `"Class-A"`,
+				"the collection came from the caller's own request, so it stays")
+			for _, unwanted := range tc.notContains {
+				assert.NotContainsf(t, older.Error(), unwanted,
+					"a backup caller is granted nothing an older participant added: %q", unwanted)
+			}
+		})
+	}
+}
+
+// canCommit hands over the request's own class list, so the rebuilt refusal
+// has to still read as a sentence when that list is empty.
+func TestRedactedReindexRefusal_WithoutClasses(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		backup.ErrBackupBlockedByInFlightReindex.Error()+": retry after the migration finishes",
+		redactedReindexRefusal(nil))
 }
 
 // The rebuilt refusal becomes an API error body, so a backup spanning hundreds

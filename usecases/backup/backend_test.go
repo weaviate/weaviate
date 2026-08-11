@@ -1781,6 +1781,17 @@ func TestPublishableErrMsg(t *testing.T) {
 			err:  fmt.Errorf("snapshot shard zmDMRo4olU4c: halt for snapshot: %w", refusal),
 			want: refusal.Msg,
 		},
+		{
+			// The whole chain goes, siblings included. A caller with a second,
+			// independent fault has to re-attach it; publishableFailureMsg is
+			// the one that does.
+			name: "a fault joined beside the refusal goes with the chain",
+			err: errors.Join(
+				fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
+				errors.New("meta write rejected by object storage"),
+			),
+			want: refusal.Msg,
+		},
 	}
 
 	for _, tc := range tests {

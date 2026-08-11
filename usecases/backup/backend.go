@@ -391,6 +391,10 @@ Loop:
 // publishableErrMsg is the failure text safe to serve from the status API,
 // or a stand-in when err has none. A gate refusal arrives wrapped in the
 // shard it came from, so only its own message is published.
+//
+// The refusal replaces the whole chain, siblings included: a caller holding a
+// second, independent fault has to re-attach it. [publishableFailureMsg] is
+// that caller for the meta write.
 func publishableErrMsg(err error) string {
 	msg := err.Error()
 	var blocked backup.ReindexBlockedError

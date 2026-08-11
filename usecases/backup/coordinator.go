@@ -587,16 +587,19 @@ func isFinalStatus(st backup.Status) bool {
 // existing callers and tests continue to match.
 //
 // Served to the caller with no node prefix, so this text must name neither
-// node nor shard. Older participants word it with both; recognized by a
-// missing sentinel prefix, their text is dropped and rebuilt from classes
-// instead. The raw string still reaches the operator via the caller's log line.
+// node nor shard. Older participants word it with both, and their sentinel
+// ends in "on this shard", so it opens with the current sentinel too. What
+// tells them apart is the separator: current wording continues ": ", theirs
+// continues " on this shard: ". Their text is dropped and rebuilt from the
+// caller's own classes; the raw string still reaches the operator via the
+// caller's log line.
 func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
-		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
+		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()+": ") {
 			// The participant's message already opens with the sentinel; %w
 			// would print the whole condition twice.
 			return backup.ReindexBlockedError{Msg: resp.Err}
@@ -608,7 +611,10 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 }
 
 // redactedRefusalClassSample caps the class names quoted into a rebuilt
-// refusal; the text becomes the body of an API error.
+// refusal: it lists them in one sentence, and the text becomes the body of an
+// API error. The verbatim path carries no such cap because the participant
+// already emits one sentence per blocked collection, and cutting it would drop
+// the co-occurring failures joined alongside the refusal.
 const redactedRefusalClassSample = 10
 
 // redactedReindexRefusal rebuilds a refusal from the caller's own request,
@@ -637,6 +643,10 @@ func redactedReindexRefusal(classes []string) string {
 // isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
 // node and no shard, so it is safe to serve to a backup caller as-is. Other
 // kinds are operator-facing failures that keep the node prefix.
+//
+// The kind describes the whole response, so a failure on a second collection
+// that happens to arrive beside a refusal loses the node prefix with it. That
+// node is still in the coordinator's WARN line for this participant.
 func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
 	return kind == CanCommitErrInFlightReindex
 }
@@ -713,8 +723,11 @@ func (c *coordinator) canCommit(ctx context.Context, op *operation, req *Request
 					WithField("node", req.NodeName)
 				switch {
 				case rpcErr != nil && errors.Is(rpcErr, context.Canceled):
-					// The group's shared context: a sibling's refusal cancels this
-					// call. Not this node's fault, so Debug, not Error.
+					// The group's shared context: a sibling's refusal, or the
+					// user aborting, cancels this call. Neither is this node's
+					// fault, so Debug, not Error. A transport failure whose own
+					// cause is a cancelled connection reads the same and is
+					// demoted with them.
 					entry.Debugf("canCommit aborted after another participant failed: %v", err)
 				case rpcErr != nil:
 					// Unreachable participant: cluster-side cause, operator-only.
