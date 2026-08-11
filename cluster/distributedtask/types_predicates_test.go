@@ -107,12 +107,10 @@ func TestTaskStatus_IsRecognized(t *testing.T) {
 }
 
 // TestTaskStatus_IsCoordinationPhase pins the PREPARING/SWAPPING
-// classification used by the scheduler's bootstrap pre-mark logic
-// (`preMarkTerminalCallbacksLocked`) — every task in a coordination
-// phase on restart must NOT have its terminal callbacks replayed
-// (because they may not have run yet). Adding a new coordination
-// phase (e.g. a future "VALIDATING") without updating this method
-// would silently regress that protection.
+// classification — the phase question the docs' predicate table
+// answers. The method's switch has no default arm, so a newly declared
+// status fails the build until someone places it; this table pins where
+// each one landed.
 func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 	cases := []struct {
 		status       TaskStatus
