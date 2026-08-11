@@ -630,11 +630,11 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
-// FirstFailedUnit returns the lowest-ID FAILED unit and its recorded error,
+// firstFailedUnit returns the lowest-ID FAILED unit and its recorded error,
 // or ok=false when no unit failed. Lowest ID rather than map order because
 // callers put the result in task.Error on the RAFT apply path, where every
 // node must produce the same string.
-func (t *Task) FirstFailedUnit() (unitID, unitErr string, ok bool) {
+func (t *Task) firstFailedUnit() (unitID, unitErr string, ok bool) {
 	for id, u := range t.Units {
 		if u.Status != UnitStatusFailed {
 			continue

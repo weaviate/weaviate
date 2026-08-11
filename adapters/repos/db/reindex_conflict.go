@@ -183,9 +183,8 @@ func ReindexPropsOverlap(a, b []string) bool {
 // the same constants onto submit bodies; both tables are pinned against the
 // declared set in reindex_conflict_test.go.
 //
-// Not semanticMigrationIndexTypes (reindex_provider.go), which answers a
-// different question — which types cross the swap barrier — and returns
-// nil for format-only types.
+// semanticMigrationIndexTypes (reindex_provider.go) is this table narrowed
+// to the types that cross the swap barrier, and derives from it.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
@@ -254,7 +253,14 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // canonical bucket is already inverted while the strategy declares a
 // map-collection source. Tracked at weaviate/weaviate#12575.
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
-	body := reindexRepairBody(p)
+	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
+}
+
+// reindexSubmitCall renders a submit request against p's collection and
+// named property with the given body, or "" when any part is missing.
+// Shared so every rendered call in this file has the same shape — an
+// operator reading a refusal must be able to paste it as-is.
+func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string {
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
 		return ""
 	}
@@ -345,10 +351,11 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //     but SWAPPING does, and per-shard swaps commit independently in both
 //     STARTED and SWAPPING — cancelling leaves some shards rebuilt, others
 //     not. There is no schema flip to skip, so none of the inversion wording
-//     below applies. The follow-up is the same request for every format-only
-//     type except enable-rangeable, which invalidates its own submit
-//     precondition as it goes (see there). It re-runs every shard, the ones
-//     that already committed included, which is idempotent but not free.
+//     below applies. The follow-up is a re-submit of the original request,
+//     rendered via [ReindexRepairCall] — except for enable-rangeable, which
+//     invalidates its own submit precondition as it goes and therefore needs
+//     both verbs named (see there). Either way it re-runs every shard, the
+//     ones that already committed included, which is idempotent but not free.
 //   - PREPARING/SWAPPING on a semantic migration: steer toward waiting and name the repair cancel
 //     makes necessary ([ReindexRepairCall], not a rebuild — see there).
 //     The window opens at the MERGE, not the swap:
@@ -384,22 +391,29 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"one by one rather than at a single point and cancelling leaves the " +
 			"ones that already finished rebuilt and the rest untouched — "
 		if p.MigrationType == ReindexTypeEnableRangeable {
-			return partial + "re-submit the same request while no shard has " +
-				"finished yet, or " +
-				`{"rangeable":{"rebuild":true}} once one has: enable-rangeable ` +
-				"sets indexRangeFilters on the property as soon as its first " +
-				"shard commits, and each of the two verbs is rejected in the " +
-				"state the other one covers"
+			return partial + "re-submit it via " +
+				reindexSubmitCall(p, askedProperty, `{"rangeable":{"enabled":true}}`) +
+				" while no shard has finished yet, or via " +
+				reindexSubmitCall(p, askedProperty, `{"rangeable":{"rebuild":true}}`) +
+				" once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike " +
+				"cancel): enable-rangeable sets indexRangeFilters on the " +
+				"property as soon as its first shard commits, and each of the " +
+				"two verbs is rejected in the state the other one covers"
 		}
-		return partial + "re-submit the same request, which re-runs every " +
-			"shard, the ones that already finished included"
+		// The re-submit IS the repair here: a format-only type flips no
+		// schema, so its original submit body stays accepted post-cancel.
+		// Every format-only type except enable-rangeable renders one.
+		return partial + "re-submit it via " + ReindexRepairCall(p, askedProperty) +
+			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
+			"re-runs every shard, the ones that already finished included"
 	}
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	inversion := "wait for it to finish: its per-shard work is already merged " +
-		"on disk, so cancelling now skips the schema change but does not drop " +
-		"that data, and the next restart promotes it — which leaves those " +
+	inversion := "wait for it to finish: from this phase on its per-shard work " +
+		"may already be merged on disk, so cancelling now skips the schema " +
+		"change but does not drop that data, and the next restart promotes it " +
+		"— which leaves those " +
 		"buckets holding the new format under the old schema, repairable "
 	repairCall := ReindexRepairCall(p, askedProperty)
 	if repairCall == "" {

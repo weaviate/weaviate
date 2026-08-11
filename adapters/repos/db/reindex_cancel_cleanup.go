@@ -63,9 +63,12 @@ func (db *DB) CleanStalePartialReindexState(
 // [FinalizeCompletedMigrations] would promote on the next restart. Read-only;
 // answers for registered-but-unloaded shards without hydrating them.
 //
-// "Promotable" = a tracker dir with tidied.mig or merged.mig, the same set
-// cancel cleanup preserves. merged.mig alone triggers promotion and is
-// written during PREPARING, so this goes true at the merge, not the swap.
+// "Promotable" = a tracker dir with tidied.mig or merged.mig, which is the
+// set cancel cleanup preserves — though only in effect, not by construction:
+// the prefixes scanned here also cover the class-level dir, which the cleanup
+// sweep never matches at all, so its preserve set has no arm for it.
+// merged.mig alone triggers promotion and is written during PREPARING, so
+// this goes true at the merge, not the swap.
 // Unreadable directories answer true, same as [hasStalePartialReindexState].
 //
 // Over-approximates on purpose: matches any generation under the (property,

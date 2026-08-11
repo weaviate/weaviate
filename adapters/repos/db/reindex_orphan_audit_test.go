@@ -103,6 +103,49 @@ func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType pins that
+// the audit reads the payload's migration type through
+// [ReindexTargetIndexes]. That field decides whether an orphan gets the
+// per-index-type CleanStalePartialReindexState treatment or falls back to
+// removing the tracker dir outright, so a consumer that stopped reading the
+// mapping would silently take the blunt path for every type.
+func TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		wantIndexes   []string
+	}{
+		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}},
+		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}},
+		{ReindexTypeEnableSearchable, []string{"searchable"}},
+		{ReindexTypeEnableFilterable, []string{"filterable"}},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}},
+		{ReindexTypeRepairFilterable, []string{"filterable"}},
+		{ReindexTypeEnableRangeable, []string{"rangeable"}},
+		{ReindexTypeRepairRangeable, []string{"rangeable"}},
+		// A type only a newer node knows: nil drives the tracker-dir
+		// fallback, which is the safe answer when the index is unknown.
+		{"a-type-from-a-newer-node", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			lsmPath := t.TempDir()
+			trackerDir := filepath.Join(lsmPath, ".migrations", "searchable_retokenize_body_1")
+			require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "started.mig"), nil, 0o600))
+			writePayload(t, trackerDir, "task-orphan", 3, "unit-0", "C",
+				tc.migrationType, []string{"body"})
+
+			orphans := collectOrphanTrackers(lsmPath, "C", "shard-0",
+				func(string, uint64) bool { return false }, logrus.New())
+
+			require.Len(t, orphans, 1)
+			assert.Equal(t, tc.wantIndexes, orphans[0].indexTypes)
+		})
+	}
+}
+
 func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditOrphanClass"

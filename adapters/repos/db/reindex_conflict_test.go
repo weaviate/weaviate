@@ -14,7 +14,9 @@ package db
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -843,7 +845,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	// only tell the two apart by refusing its continuations.
 	notFormatOnly := []string{
 		"no cluster-wide cutover",
-		"re-submit the same request",
+		"re-submit it via",
 	}
 	// A format-only migration flips no schema, so nothing it leaves behind
 	// can be inverted against one.
@@ -859,7 +861,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	cancelPastUnits := []string{
 		cancelCall,
 		"wait for it to finish",
-		"already merged on disk",
+		// Hedged on purpose: PREPARING is entered before runtimePrepare
+		// writes merged.mig, so for the first part of it nothing is.
+		"may already be merged on disk",
 		"the next restart promotes it",
 		`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
 	}
@@ -882,9 +886,12 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		MigrationType: ReindexTypeRepairFilterable,
 		Properties:    []string{"name"},
 	})
+	// The re-submit is rendered as a full call, not described: the reader of
+	// a DeleteClass or tenant-mutation refusal is often not the submitter.
 	formatOnly := []string{
 		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
 		"its shards commit one by one",
+		`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
 		"re-runs every shard, the ones that already finished included",
 	}
 	// enable-rangeable is the one format-only type whose own progress
@@ -898,8 +905,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	formatOnlyRangeable := []string{
 		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
 		"its shards commit one by one",
-		"while no shard has finished yet",
-		`{"rangeable":{"rebuild":true}} once one has`,
+		`re-submit it via PUT /v1/schema/C/indexes/name {"rangeable":{"enabled":true}} while no shard has finished yet`,
+		`or via PUT /v1/schema/C/indexes/name {"rangeable":{"rebuild":true}} once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike cancel)`,
 		"sets indexRangeFilters on the property",
 	}
 	// The types whose preconditions partial progress leaves alone must not
@@ -1124,23 +1131,32 @@ func TestTypesConflictReason_UnknownTypeFailsClosed(t *testing.T) {
 }
 
 // allDeclaredReindexMigrationTypes reads the migration types straight out of
-// the file that declares them, so a new type is picked up without anyone
-// remembering to extend a list here. A hand-maintained copy is what let
+// the package source, so a new type is picked up without anyone remembering
+// to extend a list here. A hand-maintained copy is what let
 // rebuild-searchable reach the apply path with no mapping arm.
 func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 	t.Helper()
-	src, err := os.ReadFile("reindex_provider_payload.go")
+	// The whole package, not just the file that holds them today: a
+	// constant declared elsewhere would otherwise go uncounted and the
+	// count below would still match.
+	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
 	// Also matches the grouped-const form (`ReindexTypeFoo = "foo"`, no
 	// repeated type), or a type declared that way goes uncounted.
-	matches := regexp.MustCompile(
-		`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-z-]+)"`).FindAllStringSubmatch(string(src), -1)
-	require.Len(t, matches, 9,
-		"expected 9 declared migration types; update this count with the constant")
-	out := make([]ReindexMigrationType, 0, len(matches))
-	for _, m := range matches {
-		out = append(out, ReindexMigrationType(m[1]))
+	re := regexp.MustCompile(`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-z-]+)"`)
+	var out []ReindexMigrationType
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			out = append(out, ReindexMigrationType(m[1]))
+		}
 	}
+	require.Len(t, out, 9,
+		"expected 9 declared migration types; update this count with the constant")
 	return out
 }
 
@@ -1184,6 +1200,28 @@ func TestReindexTargetIndexes(t *testing.T) {
 	t.Run("a type this build does not know", func(t *testing.T) {
 		require.Nil(t, ReindexTargetIndexes("invent-index"))
 	})
+}
+
+// TestFormatOnlyRemedyAlwaysRendersACall pins that the format-only remedy
+// never prints its re-submit sentence with an empty call in it. It reads
+// [ReindexRepairCall] unconditionally (enable-rangeable aside, which names
+// both of its verbs), so a new format-only type without a repair body would
+// otherwise render "re-submit it via  (which needs...".
+func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
+	for _, mt := range allDeclaredReindexMigrationTypes(t) {
+		if IsSemanticMigration(mt) {
+			continue
+		}
+		t.Run(string(mt), func(t *testing.T) {
+			remedy := ReindexGateRemedy(distributedtask.TaskStatusStarted, ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: mt,
+				Properties:    []string{"name"},
+			}, "name")
+			require.Contains(t, remedy, "re-submit it via PUT /v1/schema/C/indexes/name {")
+			require.NotContains(t, remedy, "via  ")
+		})
+	}
 }
 
 // TestReindexCancelCall_OnlyRendersWhatItCanFillIn pins the rule the gate

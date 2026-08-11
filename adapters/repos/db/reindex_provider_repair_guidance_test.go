@@ -21,9 +21,9 @@ import (
 
 // TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_* pin the
 // operator-actionable-error half of #221: when a semantic-migration
-// task transitions to FAILED, OnTaskCompleted logs the exact REST
-// command an operator should issue to repair the partial-completion
-// bucket↔schema inversion.
+// task reaches a terminal status (FAILED or CANCELLED), OnTaskCompleted
+// logs the exact REST command an operator should issue to repair the
+// partial-completion bucket↔schema inversion.
 //
 // We assert on the log entry's structured fields (so the message text
 // can drift without breaking the test) and on the embedded

@@ -48,6 +48,8 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 		// properties defaults to the single propName when nil.
 		properties        []string
 		wantRepairCommand bool
+		// wantInLog must each appear in some entry the terminal path emits.
+		wantInLog []string
 		// notInLog must appear in no entry the terminal path emits.
 		notInLog []string
 	}{
@@ -102,11 +104,13 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			notInLog:      []string{"nothing to repair", "still pre-migration"},
 		},
 		{
-			// Reserved whole-collection shape: nothing on disk to look at
-			// per property, so the check cannot clear the cancel.
+			// Reserved whole-collection shape: no property to render a
+			// repair call for, so the operator gets the generic runbook
+			// pointer instead of a copy-pasteable command.
 			name:       "cancelled whole-collection migration",
 			status:     distributedtask.TaskStatusCancelled,
 			properties: []string{},
+			wantInLog:  []string{"manual repair guidance not available"},
 			notInLog:   []string{"nothing to repair"},
 		},
 	}
@@ -157,13 +161,18 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			}))
 
 			var repairCommands int
+			var allMessages string
 			for _, entry := range hook.AllEntries() {
 				if _, ok := entry.Data["repair_command"]; ok {
 					repairCommands++
 				}
+				allMessages += entry.Message + "\n"
 				for _, unwanted := range tc.notInLog {
 					require.NotContains(t, entry.Message, unwanted)
 				}
+			}
+			for _, want := range tc.wantInLog {
+				require.Contains(t, allMessages, want)
 			}
 			if tc.wantRepairCommand {
 				require.Equal(t, 1, repairCommands,

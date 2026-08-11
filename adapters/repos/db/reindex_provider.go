@@ -1994,29 +1994,18 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
 // each semantic migration type writes per-property tracker dirs for.
-// Format-only migrations don't appear here because LocalCallbacksDone
-// short-circuits on !IsSemanticMigration before calling this.
+//
+// Derived from [ReindexTargetIndexes] rather than mapped again here: the
+// two answer the same question for semantic types, and a second copy of
+// the table is what let rebuild-searchable reach the apply path with no
+// arm. The nil for a format-only type short-circuits LocalCallbacksDone's
+// recovery check — those don't cross the swap barrier, so there is
+// nothing to recover at this layer.
 func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable:
-		return []string{"filterable"}
-	case ReindexTypeChangeAlgorithm:
-		return []string{"searchable"}
-	case ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		// Format-only migrations. Returning nil short-circuits
-		// LocalCallbacksDone's recovery check — they don't go through
-		// the swap barrier so there's nothing to recover at this layer.
+	if !IsSemanticMigration(mt) {
 		return nil
 	}
-	return nil
+	return ReindexTargetIndexes(mt)
 }
 
 // hasUntidiedTracker returns true iff at least one of the named tracker
