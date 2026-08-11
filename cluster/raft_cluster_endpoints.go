@@ -21,6 +21,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -127,13 +128,21 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 	}
 
 	for _, className := range classNames {
-		var shardingStateCopy *sharding.State
-		schemaReader.Read(className, false, func(c *models.Class, s *sharding.State) error {
-			shardingStateCopy = s
+		// state is the live sharding state, read-locked only for the duration
+		// of this callback — pick the shards out here, not afterwards.
+		var shardsWithRemovedNode []string
+		if err := schemaReader.Read(className, false, func(c *models.Class, state *sharding.State) error {
+			for shardName, shard := range state.Physical {
+				if slices.Contains(shard.BelongsToNodes, removedNode) {
+					shardsWithRemovedNode = append(shardsWithRemovedNode, shardName)
+				}
+			}
 			return nil
-		})
-
-		if shardingStateCopy == nil {
+		}); err != nil {
+			s.log.WithFields(logrus.Fields{
+				"collection":   className,
+				"removed_node": removedNode,
+			}).Warnf("skipping replica rebalance after node departure: %v", err)
 			continue
 		}
 
@@ -144,12 +153,7 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 		desiredRF := int(classInfo.ReplicationFactor)
 
-		// Process each shard that contains the removed node
-		for shardName, shard := range shardingStateCopy.Physical {
-			if !slices.Contains(shard.BelongsToNodes, removedNode) {
-				continue
-			}
-
+		for _, shardName := range shardsWithRemovedNode {
 			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
 				return err
 			}
@@ -187,14 +191,22 @@ func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader sche
 	}
 
 	finalCount := len(finalReplicas)
+	logFields := logrus.Fields{
+		"collection":         className,
+		"shard":              shardName,
+		"removed_node":       removedNode,
+		"replication_factor": desiredRF,
+		"current_replicas":   finalCount,
+	}
+
+	// Deleting the only replica would leave the shard without an owner.
+	if finalCount <= 1 {
+		s.log.WithFields(logFields).Warn("skipping replica removal after node departure: no other replica holds the shard")
+		return nil
+	}
+
 	if finalCount < desiredRF {
-		s.log.WithFields(logrus.Fields{
-			"collection":         className,
-			"shard":              shardName,
-			"removed_node":       removedNode,
-			"replication_factor": desiredRF,
-			"current_replicas":   finalCount,
-		}).Warn("skipping replica removal after node departure: insufficient nodes to maintain replication factor")
+		s.log.WithFields(logFields).Warn("skipping replica removal after node departure: insufficient nodes to maintain replication factor")
 		return nil
 	}
 
@@ -202,54 +214,67 @@ func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader sche
 		return fmt.Errorf("delete replica %q from shard %q in collection %q: %w", removedNode, shardName, className, err)
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"collection":         className,
-		"shard":              shardName,
-		"removed_node":       removedNode,
-		"replication_factor": desiredRF,
-		"current_replicas":   finalCount,
-	}).Info("deleted replica from shard")
+	s.log.WithFields(logFields).Info("deleted replica from shard")
 
 	return nil
 }
 
-// addReplacementReplicas adds replacement replicas to ensure we have at least desiredRF + 1
-// replicas before removing the old one.
+// addReplacementReplicas tops the shard up towards desiredRF + 1 replicas so the
+// departing one can be deleted. Best effort: a namespaced class may only use its
+// home_node, so the shard can stay below that target.
 func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName string, currentReplicas []string, removedNode string, desiredRF int) error {
-	availableNodes := s.StorageCandidates()
-
-	// Build set of available nodes (excluding removed node and existing replicas)
-	availableSet := make(map[string]bool)
-	for _, node := range availableNodes {
-		if node != removedNode {
-			availableSet[node] = true
-		}
-	}
-	for _, replica := range currentReplicas {
-		delete(availableSet, replica)
+	candidates, err := s.replicaCandidates(className)
+	if err != nil {
+		s.log.WithFields(logrus.Fields{
+			"collection":   className,
+			"shard":        shardName,
+			"removed_node": removedNode,
+		}).Warnf("skipping replacement replica after node departure: %v", err)
+		return nil
 	}
 
 	// Always ensure we have at least desiredRF + 1 replicas before deletion
 	targetCount := desiredRF + 1
 	currentCount := len(currentReplicas)
 
-	for currentCount < targetCount && len(availableSet) > 0 {
-		// Pick first available node
-		var newNode string
-		for node := range availableSet {
-			newNode = node
+	for _, newNode := range candidates {
+		if currentCount >= targetCount {
 			break
+		}
+		if newNode == removedNode || slices.Contains(currentReplicas, newNode) {
+			continue
 		}
 
 		if _, err := s.AddReplicaToShard(ctx, className, shardName, newNode); err != nil {
 			return fmt.Errorf("add replica %q to shard %q in collection %q: %w", newNode, shardName, className, err)
 		}
 
-		delete(availableSet, newNode)
 		currentCount++
 	}
 
 	return nil
+}
+
+// replicaCandidates returns the nodes eligible to hold a replica of className.
+// A namespace-qualified class is pinned to its namespace's home_node, so that
+// node is its only candidate.
+func (s *Raft) replicaCandidates(className string) ([]string, error) {
+	storageCandidates := s.StorageCandidates()
+
+	namespace := namespacing.NamespaceFromQualified(className)
+	if namespace == "" {
+		return storageCandidates, nil
+	}
+
+	ns, ok := s.store.namespaceManager.GetNamespace(namespace)
+	if !ok {
+		return nil, fmt.Errorf("namespace %q not found", namespace)
+	}
+	homeNode := ns.Primary()
+	if !slices.Contains(storageCandidates, homeNode) {
+		return nil, fmt.Errorf("namespace %q home_node %q is not a storage candidate", namespace, homeNode)
+	}
+	return []string{homeNode}, nil
 }
 
 func (s *Raft) Stats() map[string]any {
