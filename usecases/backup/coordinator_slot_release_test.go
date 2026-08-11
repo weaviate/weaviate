@@ -225,16 +225,18 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 	tests := []struct {
 		name       string
 		slotHolder string
-		// retry hands the slot to a fresh claim under the id being cancelled,
-		// while the nodes are being aborted.
-		retry      bool
-		wantStatus backup.Status
-		wantWrites []backup.Status
-		reason     string
+		// duringAbort runs while the nodes are being aborted, the last step
+		// before the cancel stamps the slot.
+		duringAbort func(t *testing.T, stat *backupStat)
+		wantHolder  string
+		wantStatus  backup.Status
+		wantWrites  []backup.Status
+		reason      string
 	}{
 		{
 			name:       "the slot is held by the restore being cancelled",
 			slotHolder: beingCancelled,
+			wantHolder: beingCancelled,
 			wantStatus: backup.Cancelled,
 			wantWrites: claimedThenCompleted,
 			reason: "this node coordinates the restore being cancelled; leaving its slot Started " +
@@ -243,6 +245,7 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 		{
 			name:       "the slot is held by a different, live restore",
 			slotHolder: stillRunning,
+			wantHolder: stillRunning,
 			wantStatus: backup.Started,
 			wantWrites: claimedThenCompleted,
 			reason: "a cancel aimed at a different restore stamped this one Cancelled; commit() reads " +
@@ -252,11 +255,25 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			// The id is the same, so only the claim tells the two apart.
 			name:       "the slot is handed to a retry of the same id",
 			slotHolder: beingCancelled,
-			retry:      true,
+			duringAbort: func(t *testing.T, stat *backupStat) {
+				takeOverSlot(t, stat, beingCancelled, beingCancelled)
+			},
+			wantHolder: beingCancelled,
 			wantStatus: backup.Started,
-			wantWrites: []backup.Status{backup.Cancelling},
-			reason: "the cancel stamped a retry that claimed the slot after it started, so the retry " +
-				"reports as cancelled and its descriptor is overwritten with CANCELED",
+			wantWrites: claimedThenCompleted,
+			reason: "the retry was aborted on every node, so leaving its descriptor on CANCELLING " +
+				"answers 204 while refusing every later restore of this id",
+		},
+		{
+			// Nothing left to stamp, everything left to write.
+			name:       "the slot is released while the nodes are aborted",
+			slotHolder: beingCancelled,
+			duringAbort: func(t *testing.T, stat *backupStat) {
+				cancelAndFreeSlot(t, stat, beingCancelled)
+			},
+			wantWrites: claimedThenCompleted,
+			reason: "a released slot carries no cancellation to stamp, which is no reason to leave " +
+				"the descriptor on CANCELLING",
 		},
 	}
 
@@ -281,35 +298,114 @@ func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
 			prevID, _ := s.restorer.lastOp.renew(test.slotHolder, "", "", "")
 			require.Empty(t, prevID)
 
-			// Aborting the nodes is the last step before the cancel stamps the
-			// slot, so a retry staged here lands in exactly that gap.
 			var once sync.Once
 			fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).
 				Run(func(mock.Arguments) {
-					if !test.retry {
+					if test.duringAbort == nil {
 						return
 					}
 					// assert, not require: abortAll fans out, so this runs on a
 					// goroutine where Goexit surfaces as a hang.
-					once.Do(func() { takeOverSlot(t, &s.restorer.lastOp, beingCancelled, beingCancelled) })
+					once.Do(func() { test.duringAbort(t, &s.restorer.lastOp) })
 				})
 
 			require.NoError(t, s.CancelRestore(ctx, nil, backendName, beingCancelled, "", ""))
 
 			held := s.restorer.lastOp.get()
-			require.Equal(t, test.slotHolder, held.ID, "the cancel must never take a slot over")
+			require.Equal(t, test.wantHolder, held.ID, "the cancel must never take a slot over")
 			require.Equal(t, test.wantStatus, held.Status, test.reason)
 			require.Equal(t, test.wantWrites, writes.recorded(), test.reason)
 		})
 	}
 }
 
-// Pins that a cancel repeated on a CANCELLING descriptor leaves a retry of the
-// same id alone: the cancellation it read has finished, and what runs under
-// that id now is a restore nobody asked to stop. The 422 that refuses a
-// restore during a cancellation tells operators to repeat the cancel, so the
-// second cancel and the retry that outlives it are both routine.
-func TestCancelRestoreDoesNotAbortARetryOfTheIdItAlreadyCancelled(t *testing.T) {
+// Pins what a cancel repeated on a CANCELLING descriptor does when a retry of
+// the same id holds the slot: the stored descriptor decides, not the slot. One
+// that has moved on proves the cancellation finished, so the retry is a restore
+// nobody asked to stop. One that still reads CANCELLING is the stuck state the
+// repeat exists to clear, and the 422 that refuses a restore during a
+// cancellation tells operators to repeat the cancel for exactly that.
+func TestCancelRestoreRepeatedWhileARetryOfTheSameIdHoldsTheSlot(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "abc"
+	)
+
+	tests := []struct {
+		name string
+		// reread is what the descriptor reads once the retry has started.
+		reread     backup.Status
+		wantAbort  bool
+		wantWrites []backup.Status
+		reason     string
+	}{
+		{
+			name:   "the descriptor has moved on",
+			reread: backup.Cancelled,
+			reason: "the cancellation this call read has finished, so the id now runs a restore " +
+				"nobody asked to stop",
+		},
+		{
+			name:       "the descriptor still reads CANCELLING",
+			reread:     backup.Cancelling,
+			wantAbort:  true,
+			wantWrites: []backup.Status{backup.Cancelled},
+			reason: "a descriptor stuck on CANCELLING refuses every later restore of this id, and " +
+				"the retry running under it cancels itself off that same descriptor",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fs := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+			fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+			fs.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+			fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			storedRestoreMeta(fs, backupID, backup.Cancelling, test.reread)
+			writes := recordRestoreMetaWrites(t, fs, backupID, nil)
+
+			s := fs.scheduler()
+			// The restore this cancel reads: already cancelled by the first
+			// cancel, still holding the slot it is about to give back.
+			prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+			require.Empty(t, prevID)
+			require.True(t, slot.set(backup.Cancelled))
+
+			// Initialize runs between the descriptor read this cancel acts on
+			// and the abort it drives, which is the window the retry starts in.
+			// It is called on the test's own goroutine, so require is safe here.
+			var once sync.Once
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil).
+				Run(func(mock.Arguments) {
+					once.Do(func() {
+						freeSlot(t, &s.restorer.lastOp, backupID)
+						retryID, _ := s.restorer.lastOp.renew(backupID, "path", "", "")
+						require.Empty(t, retryID, "the retry could not claim the freed slot")
+					})
+				})
+
+			require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
+
+			held := s.restorer.lastOp.get()
+			require.Equal(t, backupID, held.ID)
+			require.Equal(t, backup.Started, held.Status, "the cancel stamped a retry it holds no claim on")
+			require.Equal(t, test.wantWrites, writes.recorded(), test.reason)
+			if test.wantAbort {
+				fs.client.AssertCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// Pins that the cancel's CANCELLING stamp goes through the claim it took next
+// to its descriptor read, not through the id: a retry that claims the slot
+// before the stamp is a restore this cancel never read.
+func TestClaimCancellationDoesNotStampARetryOfTheSameId(t *testing.T) {
 	t.Parallel()
 	const (
 		backendName = "s3"
@@ -321,36 +417,32 @@ func TestCancelRestoreDoesNotAbortARetryOfTheIdItAlreadyCancelled(t *testing.T) 
 	fs.selector.On("ListClasses", ctx).Return([]string{"Class1"})
 	fs.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
 	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	storedRestoreMeta(fs, backupID, backup.Cancelling)
+	storedRestoreMeta(fs, backupID, backup.Transferring)
 	writes := recordRestoreMetaWrites(t, fs, backupID, nil)
 
 	s := fs.scheduler()
-	// The restore this cancel reads: already cancelled by the first cancel,
-	// still holding the slot it is about to give back.
-	prevID, slot := s.restorer.lastOp.renew(backupID, "path", "", "")
+	// The restore this cancel reads, still staging.
+	prevID, _ := s.restorer.lastOp.renew(backupID, "path", "", "")
 	require.Empty(t, prevID)
-	require.True(t, slot.set(backup.Cancelled))
 
-	// Initialize runs between the descriptor read this cancel acts on and the
-	// abort it drives, which is the window the retry starts in. It is called
-	// on the test's own goroutine, so require is safe here.
+	// Initialize runs between the claim this cancel takes and the CANCELLING
+	// it stamps, which is the window the retry takes the slot over in. It is
+	// called on the test's own goroutine, so require is safe here.
 	var once sync.Once
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil).
 		Run(func(mock.Arguments) {
-			once.Do(func() {
-				freeSlot(t, &s.restorer.lastOp, backupID)
-				retryID, _ := s.restorer.lastOp.renew(backupID, "path", "", "")
-				require.Empty(t, retryID, "the retry could not claim the freed slot")
-			})
+			once.Do(func() { takeOverSlot(t, &s.restorer.lastOp, backupID, backupID) })
 		})
 
 	require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
 
 	held := s.restorer.lastOp.get()
 	require.Equal(t, backupID, held.ID)
-	require.Equal(t, backup.Started, held.Status, "the cancel stamped a retry it holds no claim on")
-	require.Empty(t, writes.recorded(), "the cancel wrote CANCELED over the retry's descriptor")
-	fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	require.Equal(t, backup.Started, held.Status,
+		"the cancel stamped CANCELLING on a retry it holds no claim on, so a poll reports a "+
+			"restore nobody cancelled as cancelling")
+	require.Equal(t, []backup.Status{backup.Cancelling, backup.Cancelled}, writes.recorded(),
+		"the abort went out keyed on the id, so the descriptor has to record the outcome")
 }
 
 // Pins that Restore's synchronous error paths release only the slot they

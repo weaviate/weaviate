@@ -307,7 +307,7 @@ func TestClaimCancellationLosesToACancellationAlreadyFinished(t *testing.T) {
 
 // Pins that a cancel does not inherit the reason of the failure it lands on: a
 // restore can fail on disk while the cancel that overtakes it is in flight.
-func TestSetIfOwnedDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
+func TestSlotOwnerStampDropsTheReasonOfTheStatusItReplaces(t *testing.T) {
 	t.Parallel()
 	const (
 		id     = "restore-1"
