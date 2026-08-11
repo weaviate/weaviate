@@ -302,12 +302,18 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 // Endings that applied while the namespace had no observer are delivered here,
 // oldest first, so the startup window between the store accepting applies and
 // the observer being wired does not swallow them.
+//
+// Registrations after Close are dropped: dispatch is already shut, so a
+// drainer started now would only exit immediately.
 func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
 	if namespace == "" || observer == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.terminalDispatchClosed {
+		return
+	}
 	m.terminalObservers[namespace] = observer
 	m.startTerminalDrainerWithLock()
 

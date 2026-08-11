@@ -436,7 +436,12 @@ func publishableErrMsg(err error) string {
 // to know the metadata write failed too.
 func publishableFailureMsg(err, metaErr error) string {
 	msg := publishableErrMsg(err)
-	if metaErr == nil || strings.Contains(msg, metaErr.Error()) {
+	if metaErr == nil {
+		return msg
+	}
+	// strings.Contains(msg, "") is always true; guard against an empty
+	// meta fault looking "already present".
+	if metaMsg := metaErr.Error(); metaMsg != "" && strings.Contains(msg, metaMsg) {
 		return msg
 	}
 	return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", msg, metaErr)

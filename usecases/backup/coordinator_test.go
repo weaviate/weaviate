@@ -974,8 +974,9 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		// are safe to serve to a backup caller unprefixed. Every other refusal
 		// keeps the node name: it is an operator-facing failure whose first
 		// question is which node produced it.
-		expectNodeNamed bool
-		expectLogLevel  logrus.Level
+		expectNodeNamed  bool
+		expectLogLevel   logrus.Level
+		expectLogContain string
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
@@ -1020,6 +1021,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectCanCommit: true,
 			expectNodeNamed: true,
 			expectLogLevel:  logrus.WarnLevel,
+			// Empty resp.Err falls back to the typed error's text.
+			expectLogContain: errCannotCommit.Error(),
 		},
 		{
 			// No response to redact on, and "connection refused" alone is unactionable.
@@ -1099,6 +1102,10 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			require.NotNil(t, logged, "the operator needs one entry naming the participant")
 			assert.Equal(t, tc.expectLogLevel, logged.Level,
 				"only a cluster fault pages; a refusal the caller can act on does not")
+			if tc.expectLogContain != "" {
+				assert.Contains(t, logged.Message, tc.expectLogContain,
+					"the log line must carry the refusal text")
+			}
 		})
 	}
 }

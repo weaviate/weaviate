@@ -746,6 +746,87 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
+// TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved pins that
+// neither dispatch arm (deactivate or delete) claims the migration's
+// on-disk state is gone (weaviate/weaviate#12575).
+func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
+	semanticPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:         "C",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
+	})
+	formatOnlyPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeRepairFilterable,
+		Properties:    []string{"name"},
+	})
+
+	// Every claim a data-dropping remedy would make; none may appear.
+	dataRemovalClaims := []string{
+		"nothing is left to repair",
+		"nothing left to repair",
+		"goes with the data you are removing",
+		"dropped along with the data you are removing",
+		"nothing to finish afterwards",
+		"then re-issue this request",
+	}
+
+	cases := []struct {
+		name    string
+		status  distributedtask.TaskStatus
+		payload []byte
+		want    []string
+	}{
+		{
+			name:    "semantic at PREPARING names the repair",
+			status:  distributedtask.TaskStatusPreparing,
+			payload: semanticPayload,
+			want: []string{
+				"The migration's on-disk state is not removed by this mutation",
+				"a deactivated shard promotes it on reactivation",
+				"a delete leaves every remaining tenant's shard carrying it",
+				`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
+			},
+		},
+		{
+			name:    "format-only names the re-submit",
+			status:  distributedtask.TaskStatusStarted,
+			payload: formatOnlyPayload,
+			want: []string{
+				"The migration's on-disk state is not removed by this mutation",
+				`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
+			},
+		},
+	}
+
+	provider := &ReindexProvider{}
+
+	// Run for both arms: the gate can't tell them apart, so it must hold either way.
+	for _, arm := range []string{
+		"deactivation (UpdateTenants away from ACTIVE)",
+		"delete (DeleteTenants)",
+	} {
+		for _, tc := range cases {
+			t.Run(arm+"/"+tc.name, func(t *testing.T) {
+				tasks := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant_arm", Version: 1},
+					Status:         tc.status,
+					Payload:        tc.payload,
+				}}
+				err := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+				require.Error(t, err)
+				for _, w := range tc.want {
+					require.Contains(t, err.Error(), w)
+				}
+				for _, unwanted := range dataRemovalClaims {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+			})
+		}
+	}
+}
+
 // TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects pins
 // that informationally-empty payloads (Collection or MigrationType
 // missing post-unmarshal) trigger the same hard-reject as unparseable
@@ -991,8 +1072,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"this build does not know that status",
 		"read the task on a node that knows the status",
 	}
-	// Data-dropping gates get told to cancel and retry, not a follow-up
-	// call that would 404 once the collection/tenants are gone.
+	// The data-dropping gate (DeleteClass) gets told to cancel and retry,
+	// not a follow-up call that would 404 once the collection is gone.
 	noFollowUp := []string{
 		"re-submit it via",
 		"re-running the migration",
@@ -1133,8 +1214,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 type schemaMutationGate struct {
 	name string
 	call func(className string, tasks []*distributedtask.Task) error
-	// dropsTheData marks gates whose caller destroys the shards the
-	// migration works on, changing the remedy rendered.
+	// dropsTheData marks gates whose caller destroys ALL the shards the
+	// migration works on. Only DeleteClass qualifies — a tenant mutation
+	// leaves the migration's state behind.
 	dropsTheData bool
 }
 
@@ -1158,7 +1240,6 @@ func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
 			call: func(className string, tasks []*distributedtask.Task) error {
 				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
 			},
-			dropsTheData: true,
 		},
 	}
 }

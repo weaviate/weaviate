@@ -269,6 +269,9 @@ func reindexRepairBody(p ReindexTaskPayload) string {
 	case ReindexTypeRebuildSearchable:
 		return `{"searchable":{"rebuild":true}}`
 	case ReindexTypeChangeAlgorithm:
+		// blockmax hardcoded: it is the only target algorithm
+		// validateChangeAlgorithmProperty accepts, and the payload carries
+		// no target field. A second algorithm must extend both places.
 		return `{"searchable":{"algorithm":"blockmax"}}`
 	case ReindexTypeChangeTokenization:
 		if p.TargetTokenization == "" {
@@ -311,10 +314,10 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 //
 // p is the offending task's payload; askedProperty is the property named in
 // the caller's request, or "" when the refusal isn't property-scoped.
-// callerDropsTheData is true when the caller's own action (DeleteClass,
-// tenant mutation) destroys the shards the migration works on, so the
-// follow-up the other variants name would 404 — these are told to cancel
-// and retry instead.
+// callerDropsTheData is true only when the caller's action destroys ALL the
+// shards the migration works on (today only DeleteClass): those get told to
+// cancel and retry, since a follow-up call would 404. Tenant mutations pass
+// false — the migration's on-disk state survives them.
 //
 // Precondition: status is non-terminal ([distributedtask.TaskStatus.IsActive]);
 // callers pre-filter on it, so a terminal status here would be misreported
@@ -569,6 +572,12 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
+//
+// Unlike [ReindexProvider.CheckClassMutation], the remedy must not claim the
+// migration's state disappears: a deactivated shard promotes its merged
+// generation on reactivation (weaviate/weaviate#12575), and a delete leaves it on
+// every surviving shard. The guard can't tell the two apart, so both render
+// callerDropsTheData=false.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
@@ -601,11 +610,14 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and %s — %s",
+				"unavailable and %s. The migration's on-disk state is not "+
+				"removed by this mutation: a deactivated shard promotes it "+
+				"on reactivation, and a delete leaves every remaining "+
+				"tenant's shard carrying it — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
 			abortedMigrationConsequence(existP.MigrationType),
-			ReindexGateRemedy(task.Status, existP, "", true))
+			ReindexGateRemedy(task.Status, existP, "", false))
 	}
 	return nil
 }
