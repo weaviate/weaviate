@@ -253,10 +253,24 @@ func structuralInvariantSeedTask(
 // already considers it done. A second proposer reading local state would
 // let one node delete a task the rest still considers live, so adding one
 // has to fail here rather than in production.
+//
+// Two spellings count as proposing: calling the service method, and
+// building the command directly. The second is how the first one is
+// implemented, so a scan for the method name alone would miss a caller
+// that skipped it.
 func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 	root := filepath.Join("..", "..")
 	require.FileExists(t, filepath.Join(root, "go.mod"),
 		"expected the repo root two levels up; this test scans the whole tree")
+
+	// The leading dot on the first is what separates a call from the
+	// interface method and from the Raft method that implements it. The
+	// second is the command that method builds, which is what makes it a
+	// proposal in the first place.
+	proposes := func(line string) bool {
+		return strings.Contains(line, ".CleanUpDistributedTask(") ||
+			strings.Contains(line, "ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP")
+	}
 
 	var callSites []string
 	require.NoError(t, filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -264,7 +278,10 @@ func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "vendor" || d.Name() == ".git" {
+			// Dot-directories are skipped wholesale: this repo keeps git
+			// worktrees under .claude/worktrees/, and a nested checkout
+			// would report every call site once per checkout.
+			if path != root && (d.Name() == "vendor" || strings.HasPrefix(d.Name(), ".")) {
 				return fs.SkipDir
 			}
 			return nil
@@ -272,6 +289,7 @@ func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 		name := d.Name()
 		if !strings.HasSuffix(name, ".go") ||
 			strings.HasSuffix(name, "_test.go") ||
+			strings.HasSuffix(name, ".pb.go") ||
 			strings.HasPrefix(name, "mock_") {
 			return nil
 		}
@@ -280,17 +298,25 @@ func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 			return err
 		}
 		for i, line := range strings.Split(string(src), "\n") {
-			// The leading dot is what separates a call from the interface
-			// method and from the Raft method that implements it.
-			if strings.Contains(line, ".CleanUpDistributedTask(") {
+			if proposes(line) {
 				callSites = append(callSites, fmt.Sprintf("%s:%d", filepath.ToSlash(path), i+1))
 			}
 		}
 		return nil
 	}))
 
-	require.Len(t, callSites, 1,
+	// The one proposer, plus the two sites it goes through. Naming the
+	// command is not proposing it: the endpoint builds what the sweep
+	// asked for, and the apply is the receiving end.
+	wantFiles := []string{
+		"cluster/distributedtask/scheduler.go",
+		"cluster/raft_distributed_tasks_apply_endpoints.go",
+		"cluster/store_apply.go",
+	}
+	require.Len(t, callSites, len(wantFiles),
 		"CLEAN_UP must have exactly one proposer, found: %v", callSites)
-	require.Contains(t, callSites[0], "cluster/distributedtask/scheduler.go",
-		"the one proposer must be the scheduler's TTL sweep")
+	for i, want := range wantFiles {
+		require.Contains(t, callSites[i], want,
+			"unexpected CLEAN_UP site; only the TTL sweep may propose one (found: %v)", callSites)
+	}
 }

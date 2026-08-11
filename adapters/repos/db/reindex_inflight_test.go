@@ -166,6 +166,11 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
+//
+// The gate cannot see the task's status, so the cancel it names has to
+// carry the condition under which the API accepts one. Without it the
+// message points an operator whose task carries a status this build
+// cannot classify at a cancel that answers 409 on every node.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1", false)
 	require.Error(t, err)

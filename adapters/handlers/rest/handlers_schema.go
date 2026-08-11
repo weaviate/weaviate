@@ -287,6 +287,11 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // block mutations on every collection. That is over-broad on both sides,
 // but identically so, which is what makes the promise below hold.
 //
+// It also ends on the same remedy, from [db.ReindexGateRemedy]. This is
+// the message an operator on the DELETE-property-index journey actually
+// reads: a non-empty conflict here short-circuits to 422 before the
+// request reaches RAFT, so the FSM guard's wording never gets rendered.
+//
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
 // the apply-time [MutationGuard] is what closes that multi-node

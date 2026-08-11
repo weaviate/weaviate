@@ -48,7 +48,7 @@ import (
 //
 // Caller MUST ensure no local reindex goroutine is touching this
 // (collection, prop, indexType) when this fires; the cancel handler does
-// that via [ReindexProvider.WaitForLocalDrain]. Without the wait, the
+// that via [ReindexProvider.WaitForLocalTaskDrain]. Without the wait, the
 // cleanup races against the in-flight worker which is still writing to the
 // __reindex / __ingest buckets — the shutdown would tear those buckets out
 // from under the writer.
