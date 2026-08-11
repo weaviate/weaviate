@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -30,6 +29,7 @@ import (
 // observed mid-flight, without depending on scan timing.
 type blockingPreloadCache struct {
 	cache.Cache[float32]
+	inner       cache.IfAbsentPreloader[float32]
 	entered     chan struct{}
 	enterOnce   sync.Once
 	release     chan struct{}
@@ -42,6 +42,7 @@ type blockingPreloadCache struct {
 func newBlockingPreloadCache(t *testing.T, inner cache.Cache[float32]) *blockingPreloadCache {
 	b := &blockingPreloadCache{
 		Cache:   inner,
+		inner:   mustIfAbsentPreloader(t, inner),
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
 	}
@@ -56,30 +57,15 @@ func (b *blockingPreloadCache) Release() {
 func (b *blockingPreloadCache) PreloadIfAbsent(id uint64, vec []float32) bool {
 	b.enterOnce.Do(func() { close(b.entered) })
 	<-b.release
-	return b.Cache.PreloadIfAbsent(id, vec)
+	return b.inner.PreloadIfAbsent(id, vec)
 }
 
 func newLifecycleTestIndex(t *testing.T, c cache.Cache[float32], nodesLen int) *hnsw {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	nodes := make([]*vertex, nodesLen)
-	for i := range nodes {
-		nodes[i] = &vertex{level: 0}
-	}
-	return &hnsw{
-		cache:               c,
-		nodes:               nodes,
-		id:                  "main",
-		logger:              logger,
-		distancerProvider:   distancer.NewDotProductProvider(),
-		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
-		tombstoneLock:       &sync.RWMutex{},
-		tombstones:          map[uint64]struct{}{},
-		currentMaximumLayer: 0,
-	}
+	return newPrefillTestIndex("main", nil, c, nodesLen, distancer.NewDotProductProvider(), logger)
 }
 
-// waitFor fails the test if done has not fired within timeout.
 func waitFor(t *testing.T, done <-chan struct{}, timeout time.Duration, msg string) {
 	t.Helper()
 	select {
@@ -89,8 +75,6 @@ func waitFor(t *testing.T, done <-chan struct{}, timeout time.Duration, msg stri
 	}
 }
 
-// stopPrefillAsync runs stopPrefill on its own goroutine so the test can assert on
-// whether it blocks.
 func stopPrefillAsync(h *hnsw) <-chan struct{} {
 	returned := make(chan struct{})
 	enterrors.GoWrapper(func() {
@@ -145,8 +129,8 @@ func TestStopPrefillWaitsForInFlightScan(t *testing.T) {
 // WaitGroup join into the goroutine passes every other test here but lets stopPrefill
 // return while the prefill is about to touch lsmkv segments.
 //
-// prefillCacheFunc sets cachePrefilled as its last statement, before the deferred Done,
-// so "cachePrefilled is set once stopPrefill returns" is exactly the wait guarantee.
+// prefillCacheFunc defers cachePrefilled ahead of the deferred Done, so LIFO runs it
+// first and "cachePrefilled is set once stopPrefill returns" is exactly the guarantee.
 func TestStopPrefillWaitsForPrefillRegisteredBeforeReturn(t *testing.T) {
 	const n = 200
 	store := newTestObjectsStore(t)

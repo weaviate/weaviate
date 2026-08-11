@@ -15,9 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -26,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -56,21 +53,13 @@ func newTargetedTestIndex(store *lsmkv.Store, c cache.Cache[float32], id string,
 	liveNodes map[uint64]bool, nodesLen int,
 ) *hnsw {
 	logger, _ := test.NewNullLogger()
-	nodes := make([]*vertex, nodesLen)
-	for id := range liveNodes {
-		nodes[id] = &vertex{level: 0}
+	h := newPrefillTestIndex(id, store, c, nodesLen, distancer.NewDotProductProvider(), logger)
+	for i := range h.nodes {
+		if !liveNodes[uint64(i)] {
+			h.nodes[i] = nil // never indexed
+		}
 	}
-	return &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             nodes,
-		id:                id,
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-		shardedNodeLocks:  common.NewDefaultShardedRWLocks(),
-		tombstoneLock:     &sync.RWMutex{},
-		tombstones:        map[uint64]struct{}{},
-	}
+	return h
 }
 
 // prefillTargeted runs the targeted scan directly, bypassing the avg-entry-size
@@ -181,51 +170,89 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 	}
 }
 
-// TestPrefillTargetedHNSWExclusions covers the deliberate divergences from the
-// cursor scan: rows whose doc is not indexed, or whose node is HNSW-tombstoned
-// while the bucket row is still live, must not be prefilled.
-func TestPrefillTargetedHNSWExclusions(t *testing.T) {
-	store := newTestObjectsStore(t)
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-
-	exp := map[uint64][]float32{}
-	live := map[uint64]bool{}
-	for i := uint64(0); i < 10; i++ {
-		vec := []float32{float32(i), float32(i) + 0.5}
-		putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
-		exp[i] = vec
-		live[i] = true
+// TestPrefillHNSWExclusions: a row whose doc is not indexed, and one whose node is
+// HNSW-tombstoned while its bucket row is still live, must not be prefilled. Both
+// scans are driven, because which nodes are worth caching is index policy — the read
+// strategy must not change what ends up resident.
+func TestPrefillHNSWExclusions(t *testing.T) {
+	cases := []struct {
+		name    string
+		prefill func(t *testing.T, h *hnsw) error
+	}{
+		{"targeted scan", func(t *testing.T, h *hnsw) error {
+			return prefillTargeted(t, h, "custom")
+		}},
+		{"cursor scan", func(t *testing.T, h *hnsw) error {
+			t.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+			return h.prefillCacheParallel(context.Background())
+		}},
 	}
-	// doc 20: in the bucket, never indexed; doc 5: indexed but HNSW-tombstoned
-	putTargetedObject(t, bucket, 20, 20, 16<<10, nil, map[string][]float32{"custom": {5, 5}})
-	require.NoError(t, bucket.FlushAndSwitch())
-	delete(exp, 5)
 
-	logger, _ := test.NewNullLogger()
-	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
-	c.Grow(21)
-	h := newTargetedTestIndex(store, c, "vectors_custom", live, 21)
-	h.tombstones[5] = struct{}{}
-	require.NoError(t, prefillTargeted(t, h, "custom"))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newTestObjectsStore(t)
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-	requireCacheContains(t, c, exp)
+			exp := map[uint64][]float32{}
+			live := map[uint64]bool{}
+			for i := uint64(0); i < 10; i++ {
+				vec := []float32{float32(i), float32(i) + 0.5}
+				putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
+				exp[i] = vec
+				live[i] = true
+			}
+			// doc 20: in the bucket, never indexed; doc 5: indexed but HNSW-tombstoned
+			putTargetedObject(t, bucket, 20, 20, 16<<10, nil, map[string][]float32{"custom": {5, 5}})
+			require.NoError(t, bucket.FlushAndSwitch())
+			delete(exp, 5)
+
+			logger, _ := test.NewNullLogger()
+			c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+			c.Grow(21)
+			h := newTargetedTestIndex(store, c, "vectors_custom", live, 21)
+			h.tombstones[5] = struct{}{}
+			require.NoError(t, tc.prefill(t, h))
+
+			requireCacheContains(t, c, exp)
+		})
+	}
+}
+
+// putMismatchedRow writes a row under one key while its object carries another's
+// uuid. Only the targeted scan can detect this: it navigates by index offset and so
+// must verify it landed on the row it asked for, where the cursor scan reads rows in
+// order and never consults the key.
+func putMismatchedRow(t *testing.T, bucket *lsmkv.Bucket, keyID, uuidID, docID uint64,
+	payloadBytes int, named map[string][]float32,
+) {
+	t.Helper()
+	obj := storobj.New(docID)
+	obj.Object = models.Object{
+		ID:         strfmt.UUID(testObjectUUID(uuidID)),
+		Class:      "Test",
+		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
+	}
+	obj.Vectors = named
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	require.NoError(t, bucket.Put(keyForDocID(keyID), data))
 }
 
 // TestPrefillCacheParallelRoutesToTargetedScan exercises the routing glue itself:
-// every other targeted test calls the scan directly, so nothing covers the branch
-// in prefillCacheParallel, the gate's polarity, or the target vector it forwards.
+// every other targeted test calls the scan directly, so nothing covers the branch in
+// prefillCacheParallel, the gate's polarity, or the target vector it forwards.
 //
-// The discriminator is the targeted scan's HNSW-side filter — a doc with no live
-// node and an HNSW-tombstoned doc are both served by the bucket but must not be
-// cached. The cursor path has no such filter, so the flag-off case caching them is
-// what proves this test is sensitive to the routing decision and not merely to the
-// prefill being correct.
+// The discriminator is the one divergence the read strategy legitimately owns — the
+// key/uuid cross-check. The liveness filter is deliberately not usable here: it is
+// index policy and both scans share it, which is what the excluded ids below assert.
 func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 	const (
 		indexedCount = 10 // docs 0..9
 		tombstonedID = 5
 		unindexedID  = 20
-		nodesLen     = unindexedID + 1
+		foreignKeyID = 21 // holds a row whose uuid says 22
+		foreignDocID = 11 // indexed and live, so only the key check can exclude it
+		nodesLen     = 23
 	)
 
 	cases := []struct {
@@ -244,26 +271,28 @@ func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-			served := map[uint64][]float32{} // everything the bucket hands to a scan
-			live := map[uint64]bool{}
+			want := map[uint64][]float32{}
+			live := map[uint64]bool{foreignDocID: true}
 			for i := uint64(0); i < indexedCount; i++ {
 				vec := []float32{float32(i), float32(i) + 0.5}
 				putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
-				served[i] = vec
+				want[i] = vec
 				live[i] = true
 			}
+			// served by the bucket, excluded by both scans: never indexed, tombstoned
 			putTargetedObject(t, bucket, unindexedID, unindexedID, 16<<10, nil,
 				map[string][]float32{"custom": {5, 5}})
-			served[unindexedID] = []float32{5, 5}
+			delete(want, tombstonedID)
+
+			foreignVec := []float32{7, 7}
+			putMismatchedRow(t, bucket, foreignKeyID, foreignKeyID+1, foreignDocID, 16<<10,
+				map[string][]float32{"custom": foreignVec})
+			if !tc.targeted {
+				want[foreignDocID] = foreignVec
+			}
 			// only flushed segments count towards EstimatedEntrySize, and the 16KB
 			// payloads are what carry it past the gate's minimum
 			require.NoError(t, bucket.FlushAndSwitch())
-
-			want := maps.Clone(served)
-			if tc.targeted {
-				delete(want, tombstonedID)
-				delete(want, unindexedID)
-			}
 
 			logger, _ := test.NewNullLogger()
 			c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)

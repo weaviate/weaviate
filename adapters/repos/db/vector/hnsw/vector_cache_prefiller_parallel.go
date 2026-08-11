@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -58,9 +59,12 @@ func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
 	nodeCount := int64(len(h.nodes))
 	h.RUnlock()
 
+	_, ifAbsent := h.cache.(cache.IfAbsentPreloader[float32])
+
 	return parallelPrefillInputs{
 		multivector:  h.multivector.Load(),
 		muvera:       h.muvera.Load(),
+		ifAbsent:     ifAbsent,
 		cacheMaxSize: h.cache.CopyMaxSize(),
 		nodeCount:    nodeCount,
 	}
@@ -69,6 +73,7 @@ func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
 type parallelPrefillInputs struct {
 	multivector  bool
 	muvera       bool
+	ifAbsent     bool
 	cacheMaxSize int64
 	nodeCount    int64
 }
@@ -78,6 +83,12 @@ type parallelPrefillInputs struct {
 // the cache must be unbounded relative to the node count.
 func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if in.multivector || in.muvera {
+		return false
+	}
+	// the scan runs concurrently with live writes, so it may only fill empty slots:
+	// an overwriting Preload could clobber a newer inserted vector with the snapshot
+	// value the cursor is holding
+	if !in.ifAbsent {
 		return false
 	}
 	return cacheFitsNodes(in)
@@ -122,32 +133,34 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 ) error {
 	before := time.Now()
 
-	h.RLock()
-	preGrown := uint64(len(h.nodes))
-	h.RUnlock()
+	// PreloadIfAbsent is not on Cache[T] — only the single-vector caches offer it, and
+	// it is the whole reason this scan may run alongside live writes
+	preloader, ok := h.cache.(cache.IfAbsentPreloader[float32])
+	if !ok {
+		return fmt.Errorf("prefill cache: %T cannot preload if-absent", h.cache)
+	}
 
 	var loaded atomic.Int64
 	onVector := func(id uint64, vec []float32) error {
 		if h.compressed.Load() {
 			return errPrefillCompressionActive
 		}
-		// advisory: racing workers can overshoot by their in-flight rows, but
-		// crossing maxSize is the cache's own full behavior (replaceIfFull) and
-		// reachable through inserts regardless
-		if h.cache.CountVectors() >= h.cache.CopyMaxSize() {
+		// stop one short of maxSize: landing on it is what replaceIfFull reads as a
+		// full cache and wipes on, discarding the scan. Racing workers can still
+		// overshoot by their in-flight rows, but only once concurrent inserts have
+		// consumed the headroom the scan was admitted with — a state whose wipe the
+		// cache would reach through those inserts anyway.
+		if h.cache.CountVectors()+1 >= h.cache.CopyMaxSize() {
 			return errPrefillCacheFull
 		}
-		if id >= preGrown {
-			// the cache is pre-grown to len(h.nodes) at restore; ids beyond it are
-			// either live inserts (which self-preload) or corrupt keys that must not
-			// size the cache
+		if !h.prefillEligible(id) {
 			return nil
 		}
 		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
 		// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
 		// a fresh per-vector allocation, so normalizing in place is safe.
 		h.normalizeVecInPlace(vec)
-		if !h.cache.PreloadIfAbsent(id, vec) {
+		if !preloader.PreloadIfAbsent(id, vec) {
 			return nil
 		}
 		if n := loaded.Add(1); n%prefillAllocCheckEvery == 0 && h.allocChecker != nil {
@@ -185,16 +198,36 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 	return nil
 }
 
+// prefillEligible is the single definition of which nodes are worth caching, shared
+// by both scan paths so the read strategy cannot change what ends up resident. Doc
+// ids are never reused, so a superseded or deleted row's id has no live node, and a
+// corrupt id past the node range is rejected rather than sizing an allocation.
+// Tombstoned nodes keep their h.nodes entry until cleanup while their bucket row can
+// still be live.
+func (h *hnsw) prefillEligible(id uint64) bool {
+	return h.nodeAlive(id) && !h.hasTombstone(id)
+}
+
+func (h *hnsw) nodeAlive(id uint64) bool {
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+	// h.nodes can shrink under LockAll (index reset); read the bound under the lock
+	if id >= uint64(len(h.nodes)) {
+		return false
+	}
+	return h.nodes[id] != nil
+}
+
 // prefillOnVector consumes one decoded vector. Must be safe for concurrent use; a
 // non-nil error aborts the whole scan.
 type prefillOnVector func(id uint64, vec []float32) error
 
 // prefillRowDecoder extracts (docID, vector) from one bucket entry; ok=false skips
 // the row. The returned vec must not alias v — cursor buffers are reused.
-type prefillRowDecoder func(k, v []byte) (id uint64, vec []float32, ok bool)
+type prefillRowDecoder func(v []byte) (id uint64, vec []float32, ok bool)
 
 func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRowDecoder {
-	return func(k, v []byte) (uint64, []float32, bool) {
+	return func(v []byte) (uint64, []float32, bool) {
 		id, err := storobj.DocIDFromBinary(v)
 		if err != nil {
 			logger.WithField("action", "hnsw_vector_cache_prefill").
@@ -313,7 +346,7 @@ func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 			continue
 		}
 
-		id, vec, ok := decode(k, v)
+		id, vec, ok := decode(v)
 		if !ok || len(vec) == 0 {
 			continue
 		}

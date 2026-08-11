@@ -530,6 +530,14 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		return
 	}
 
+	// A prefill registered after Shutdown would never be cancelled: stopPrefill has
+	// already run and only sees prefills registered before it. PostStartup can still
+	// arrive that late — dynamic's flat->hnsw upgrade calls it on its own context,
+	// which a shard shutdown does not cancel.
+	if h.shutdownCtx.Err() != nil {
+		return
+	}
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
@@ -548,6 +556,11 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	prefillCacheFunc := func() {
 		defer h.prefillWG.Done()
 		defer cancel()
+		// deferred, not a trailing statement: GoWrapper recovers a panic in here, and
+		// leaving cachePrefilled false permanently disables tombstone cleanup and
+		// every compression path for this index. LIFO puts it before Done, so
+		// stopPrefill still guarantees it is set once the wait returns.
+		defer h.cachePrefilled.Store(true)
 
 		var err error
 		if h.compressed.Load() {
@@ -572,8 +585,6 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
 			}
 		}
-
-		h.cachePrefilled.Store(true)
 	}
 
 	if h.waitForCachePrefill {

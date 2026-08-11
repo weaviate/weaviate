@@ -86,6 +86,28 @@ func TestPrefillTargetedSkipsTruncatedRows(t *testing.T) {
 			keepBytes: 20,
 			named:     map[string][]float32{"custom": {7, 7, 7}},
 		},
+		// Sizes that stop inside the front sections VectorFromBinary walks to reach
+		// the target-vector segment. They are short enough to reach the whole-value
+		// fallback rather than the tail read, so the walk itself is what has to bound
+		// them — an unbounded one slices past the value and panics out of the scan.
+		{
+			name:      "truncated at the legacy vector length field",
+			target:    "custom",
+			keepBytes: 44,
+			named:     map[string][]float32{"custom": {7, 7, 7}},
+		},
+		{
+			name:      "truncated one byte into the class name length",
+			target:    "custom",
+			keepBytes: 45,
+			named:     map[string][]float32{"custom": {7, 7, 7}},
+		},
+		{
+			name:      "truncated inside the class name",
+			target:    "custom",
+			keepBytes: 60,
+			named:     map[string][]float32{"custom": {7, 7, 7}},
+		},
 	}
 
 	for _, tc := range cases {

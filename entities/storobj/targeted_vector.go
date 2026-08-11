@@ -41,7 +41,11 @@ func VectorTailOffsetFromPeek(peek []byte) (tailStart uint64, schemaLen uint32, 
 }
 
 // legacyVectorEnd is the value offset just past the legacy-vector section;
-// ok=false when peek cannot reach the length field.
+// ok=false when peek cannot reach the length field. This is legacyVectorBounds'
+// end offset, computed from a prefix: the section routinely reaches past the peek,
+// which is not an error here. dims is widened before scaling for the same reason
+// legacyVectorBounds widens it — the on-disk field is a uint16 and 65535 dimensions
+// overflow a uint16 multiplication.
 func legacyVectorEnd(peek []byte) (pos int, ok bool, err error) {
 	if len(peek) == 0 {
 		return 0, false, fmt.Errorf("empty value")
@@ -52,8 +56,8 @@ func legacyVectorEnd(peek []byte) (pos int, ok bool, err error) {
 	if len(peek) < marshallerV1HeaderLen+2 {
 		return 0, false, nil
 	}
-	vecLen := binary.LittleEndian.Uint16(peek[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
-	return marshallerV1HeaderLen + 2 + int(vecLen)*4, true, nil
+	dims := int(binary.LittleEndian.Uint16(peek[marshallerV1HeaderLen : marshallerV1HeaderLen+2]))
+	return marshallerV1HeaderLen + 2 + dims*byteops.Uint32Len, true, nil
 }
 
 // LegacyVectorPrefixLen: how many leading value bytes hold the legacy vector; a
@@ -85,26 +89,8 @@ func VectorFromTail(tail []byte, targetVector string) ([]float32, error) {
 		rw.MoveBufferPositionForward(sectionLen)
 	}
 
-	// validate both target-vector prefixes and the segment bound: the shared
-	// decoder assumes a well-formed buffer and would panic on a mislocated tail
-	pos := rw.Position
-	if pos >= uint64(len(tail)) {
-		return unmarshalSingleTargetVector(&rw, targetVector, nil) // pre-target-vector object
-	}
-	if pos+4 > uint64(len(tail)) {
-		return nil, fmt.Errorf("truncated target-vector offsets length")
-	}
-	offsetsLen := uint64(rw.ReadUint32())
-	if rw.Position+offsetsLen+4 > uint64(len(tail)) {
-		return nil, fmt.Errorf("truncated target-vector offsets")
-	}
-	rw.MoveBufferPositionForward(offsetsLen)
-	segLen := uint64(rw.ReadUint32())
-	if rw.Position+segLen > uint64(len(tail)) {
-		return nil, fmt.Errorf("truncated target-vector segment")
-	}
-	rw.MoveBufferToAbsolutePosition(pos)
-
+	// the decoder bounds the target-vector sections itself, including against a tail
+	// that is a subslice of a segment with bytes beyond it
 	return unmarshalSingleTargetVector(&rw, targetVector, nil)
 }
 
@@ -117,9 +103,3 @@ func UUIDFromPeek(peek []byte) (id []byte, ok bool) {
 	}
 	return peek[uuidStart : uuidStart+uuidLen], true
 }
-
-// VectorHeaderLen is the smallest value length that still carries the legacy
-// vector-length field. VectorFromBinary reads that field at a fixed offset and
-// documents a panic on shorter input, so callers handling untrusted rows must
-// check this first.
-const VectorHeaderLen = marshallerV1HeaderLen + 2

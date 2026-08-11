@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -25,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
@@ -110,22 +108,8 @@ func buildPrefillBenchStore(tb testing.TB, cfg prefillBenchConfig, opts ...lsmkv
 
 func newPrefillBenchIndex(store *lsmkv.Store, c cache.Cache[float32], n int) *hnsw {
 	logger, _ := test.NewNullLogger()
-	nodes := make([]*vertex, n)
-	for i := range nodes {
-		nodes[i] = &vertex{level: 0}
-	}
-	return &hnsw{
-		store:               store,
-		cache:               c,
-		nodes:               nodes,
-		id:                  helpers.VectorsBucketLSM + "_" + prefillBenchTarget,
-		logger:              logger,
-		distancerProvider:   distancer.NewDotProductProvider(),
-		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
-		tombstoneLock:       &sync.RWMutex{},
-		tombstones:          map[uint64]struct{}{},
-		currentMaximumLayer: 0,
-	}
+	return newPrefillTestIndex(helpers.VectorsBucketLSM+"_"+prefillBenchTarget,
+		store, c, n, distancer.NewDotProductProvider(), logger)
 }
 
 // runSerialPrefill measures the by-id path: per node one secondary-index lookup of

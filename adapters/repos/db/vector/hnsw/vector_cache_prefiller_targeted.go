@@ -49,8 +49,8 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 }
 
 // scanObjectVectorsTargeted reads a bounded peek per row plus, for large
-// schemas, only the vector-bearing tail. The scan hides superseded and deleted
-// rows itself; the liveness filter covers HNSW-side exclusions only.
+// schemas, only the vector-bearing tail. The bucket hides superseded and deleted
+// rows itself, so nothing here re-filters for them.
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
@@ -72,19 +72,6 @@ func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Buck
 func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector,
 	foreign *atomic.Int64,
 ) func(*lsmkv.TargetedScanEntry) error {
-	h.RLock()
-	nodesLen := uint64(len(h.nodes))
-	h.RUnlock()
-
-	// tombstoned nodes stay in h.nodes until cleanup while their bucket rows may
-	// still be live — they must not be prefilled
-	h.tombstoneLock.RLock()
-	tombstoned := make(map[uint64]struct{}, len(h.tombstones))
-	for id := range h.tombstones {
-		tombstoned[id] = struct{}{}
-	}
-	h.tombstoneLock.RUnlock()
-
 	return func(e *lsmkv.TargetedScanEntry) error {
 		if err := objectRowMatchesKey(e.Key, e.Peek); err != nil {
 			foreign.Add(1)
@@ -96,10 +83,9 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 			h.prefillSkipDebug("undecodable doc id", err)
 			return nil
 		}
-		if !h.nodeAlive(id, nodesLen) {
-			return nil
-		}
-		if _, dead := tombstoned[id]; dead {
+		// the same predicate onVector enforces, applied before the tail read so an
+		// ineligible row costs no second I/O
+		if !h.prefillEligible(id) {
 			return nil
 		}
 		vec, ok := h.targetedVectorFromEntry(e, targetVector)
@@ -108,22 +94,6 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 		}
 		return onVector(id, vec)
 	}
-}
-
-// nodeAlive: doc ids are never reused, so a superseded or deleted row's id has
-// no live node; ids beyond the snapshot come from inserts that self-preload.
-func (h *hnsw) nodeAlive(id uint64, nodesLen uint64) bool {
-	if id >= nodesLen {
-		return false
-	}
-	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
-	// h.nodes can shrink under LockAll (index reset); re-check under the shard lock
-	nodes := h.nodes
-	if id >= uint64(len(nodes)) {
-		return false
-	}
-	return nodes[id] != nil
 }
 
 func (h *hnsw) prefillSkipDebug(reason string, err error) {
@@ -205,18 +175,10 @@ func (h *hnsw) wholeVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector str
 		h.prefillSkipDebug("unreadable value", err)
 		return nil, false
 	}
-	// ReadRange hands back a window into the segment, whose capacity runs past the
-	// value; clamp it so a corrupt length cannot decode a neighbouring row
-	whole = whole[:len(whole):len(whole)]
 	return h.decodeVectorRow(whole, targetVector)
 }
 
 func (h *hnsw) decodeVectorRow(value []byte, targetVector string) ([]float32, bool) {
-	if len(value) < storobj.VectorHeaderLen {
-		h.prefillSkipDebug("value shorter than the vector header",
-			fmt.Errorf("%d bytes, need %d", len(value), storobj.VectorHeaderLen))
-		return nil, false
-	}
 	// nil buffer forces a fresh allocation, so the vector never aliases scan buffers
 	vec, err := storobj.VectorFromBinary(value, nil, targetVector)
 	if err != nil {

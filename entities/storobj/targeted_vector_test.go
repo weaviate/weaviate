@@ -181,3 +181,102 @@ func TestVectorFromTailOffsetOutOfBounds(t *testing.T) {
 		})
 	}
 }
+
+// TestVectorDecodersOnTruncatedValues sweeps every prefix of a real object through the
+// vector decoders. Each walks the value's sections by reading their lengths out of the
+// value itself, so a truncated row must produce an error rather than a panic: these
+// serve the HNSW cache-miss path and the prefill scan, both of which read untrusted
+// rows, and the prefill runs synchronously inside shard startup where a panic takes
+// the process down.
+//
+// The backing array is longer than the value and filled with a sentinel, mirroring the
+// mmapped segment a real truncated row is a subslice of: an unbounded read finds
+// plausible lengths there and decodes the neighbouring row instead of failing, so a
+// prefix that returns no error must still not return a vector built from those bytes.
+func TestVectorDecodersOnTruncatedValues(t *testing.T) {
+	named := map[string][]float32{"custom": {1, 2, 3}}
+	multi := map[string][][]float32{"multi": {{1, 2}, {3, 4}}}
+
+	cases := []struct {
+		name   string
+		full   []byte
+		decode func(value []byte) (any, error)
+		want   any
+	}{
+		{
+			name: "named target vector",
+			full: marshalledTestObject(t, "Test", nil, named, 4096),
+			decode: func(v []byte) (any, error) {
+				out, err := VectorFromBinary(v, nil, "custom")
+				if out == nil {
+					return nil, err
+				}
+				return out, err
+			},
+			want: []float32{1, 2, 3},
+		},
+		{
+			name: "legacy vector",
+			full: marshalledTestObject(t, "Test", []float32{4, 5, 6}, nil, 4096),
+			decode: func(v []byte) (any, error) {
+				out, err := VectorFromBinary(v, nil, "")
+				if out == nil {
+					return nil, err
+				}
+				return out, err
+			},
+			want: []float32{4, 5, 6},
+		},
+		{
+			name: "multi vector",
+			full: marshalledMultiVectorTestObject(t, multi),
+			decode: func(v []byte) (any, error) {
+				out, err := MultiVectorFromBinary(v, "multi")
+				if out == nil {
+					return nil, err
+				}
+				return out, err
+			},
+			want: [][]float32{{1, 2}, {3, 4}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for keep := 1; keep < len(tc.full); keep++ {
+				backing := make([]byte, len(tc.full)+1024)
+				for i := range backing {
+					backing[i] = 0xAB
+				}
+				copy(backing, tc.full[:keep])
+				value := backing[:keep:keep]
+
+				require.NotPanicsf(t, func() {
+					got, err := tc.decode(value)
+					if err == nil && got != nil {
+						require.Equalf(t, tc.want, got,
+							"a %d byte prefix decoded to a vector that is not the real one", keep)
+					}
+				}, "decoder panicked on a %d byte prefix", keep)
+			}
+
+			got, err := tc.decode(tc.full)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func marshalledMultiVectorTestObject(t *testing.T, multi map[string][][]float32) []byte {
+	t.Helper()
+	obj := New(42)
+	obj.Object = models.Object{
+		ID:         strfmt.UUID("00000000-0000-4000-8000-00000000002a"),
+		Class:      "Test",
+		Properties: map[string]interface{}{"filler": strings.Repeat("x", 4096)},
+	}
+	obj.MultiVectors = multi
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	return data
+}

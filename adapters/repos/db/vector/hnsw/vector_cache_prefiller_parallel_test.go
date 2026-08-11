@@ -27,11 +27,48 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
+
+// newPrefillTestIndex builds the index a prefill scan needs: the sharded node locks
+// and tombstone map prefillEligible consults on every row, and a live vertex per id.
+// A nil vertex means "not indexed", which the scan deliberately skips — a fixture
+// that leaves h.nodes zero-valued prefills nothing.
+func newPrefillTestIndex(id string, store *lsmkv.Store, c cache.Cache[float32],
+	nodeCount int, dp distancer.Provider, logger logrus.FieldLogger,
+) *hnsw {
+	nodes := make([]*vertex, nodeCount)
+	for i := range nodes {
+		nodes[i] = &vertex{level: 0}
+	}
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	return &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             nodes,
+		id:                id,
+		logger:            logger,
+		distancerProvider: dp,
+		shardedNodeLocks:  common.NewDefaultShardedRWLocks(),
+		tombstoneLock:     &sync.RWMutex{},
+		tombstones:        map[uint64]struct{}{},
+		shutdownCtx:       shutdownCtx,
+		shutdownCtxCancel: shutdownCancel,
+	}
+}
+
+// mustIfAbsentPreloader: PreloadIfAbsent is not on Cache[T], so a wrapper standing in
+// for a real cache has to carry the preloader separately to delegate to it.
+func mustIfAbsentPreloader(t testing.TB, c cache.Cache[float32]) cache.IfAbsentPreloader[float32] {
+	t.Helper()
+	p, ok := c.(cache.IfAbsentPreloader[float32])
+	require.True(t, ok, "test cache must implement IfAbsentPreloader")
+	return p
+}
 
 func newTestObjectsStore(t *testing.T) *lsmkv.Store {
 	t.Helper()
@@ -201,6 +238,7 @@ func TestParallelPrefillEligible(t *testing.T) {
 	base := parallelPrefillInputs{
 		multivector:  false,
 		muvera:       false,
+		ifAbsent:     true,
 		cacheMaxSize: 1e12,
 		nodeCount:    1000,
 	}
@@ -221,6 +259,9 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, false},
 		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
+		// the scan runs alongside live writes, so an overwriting Preload is not enough:
+		// without if-absent semantics it could clobber a newer inserted vector
+		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.ifAbsent = false }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -259,14 +300,8 @@ func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown 
 	if preGrown > 0 {
 		c.Grow(uint64(preGrown)) // mimic the restore-time pre-grow
 	}
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, preGrown),
-		id:                "main", // no "vectors_" prefix => legacy default target vector
-		logger:            logger,
-		distancerProvider: dp,
-	}
+	// id has no "vectors_" prefix => legacy default target vector
+	h := newPrefillTestIndex("main", store, c, preGrown, dp, logger)
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	return c
 }
@@ -404,14 +439,7 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, true, 0, nil)
 	c.Grow(uint64(n))
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, n),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewCosineDistanceProvider(),
-	}
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewCosineDistanceProvider(), logger)
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	require.Equal(t, int64(n), c.CountVectors())
@@ -448,14 +476,7 @@ func TestPrefillCacheParallelDoesNotOverwriteNewerVectors(t *testing.T) {
 		exp[id] = vec
 	}
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, n),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-	}
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 
 	requireCacheContains(t, c, exp)
@@ -485,15 +506,8 @@ func TestPrefillCacheParallelAbortsUnderMemoryPressure(t *testing.T) {
 	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
 	c.Grow(n)
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, n),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-		allocChecker:      failingAllocChecker{},
-	}
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+	h.allocChecker = failingAllocChecker{}
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	require.Equal(t, int64(prefillAllocCheckEvery), c.CountVectors())
 }
@@ -512,14 +526,7 @@ func TestPrefillCacheParallelSkipsWhenAlreadyCompressed(t *testing.T) {
 	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
 	c.Grow(50)
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, 50),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-	}
+	h := newPrefillTestIndex("main", store, c, 50, distancer.NewDotProductProvider(), logger)
 	h.compressed.Store(true)
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
@@ -531,13 +538,14 @@ func TestPrefillCacheParallelSkipsWhenAlreadyCompressed(t *testing.T) {
 // otherwise a timing race the test cannot place.
 type compressionFlippingCache struct {
 	cache.Cache[float32]
+	inner     cache.IfAbsentPreloader[float32]
 	h         *hnsw
 	flipAfter int64
 	stored    atomic.Int64
 }
 
 func (c *compressionFlippingCache) PreloadIfAbsent(id uint64, vec []float32) bool {
-	stored := c.Cache.PreloadIfAbsent(id, vec)
+	stored := c.inner.PreloadIfAbsent(id, vec)
 	if stored && c.stored.Add(1) == c.flipAfter {
 		c.h.compressed.Store(true)
 	}
@@ -564,24 +572,22 @@ func TestPrefillCacheParallelStopsWhenCompressionActivatesMidScan(t *testing.T) 
 	inner := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
 	inner.Grow(n)
 
-	h := &hnsw{
-		store:             store,
-		nodes:             make([]*vertex, n),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
+	h := newPrefillTestIndex("main", store, nil, n, distancer.NewDotProductProvider(), logger)
+	h.cache = &compressionFlippingCache{
+		Cache: inner, inner: mustIfAbsentPreloader(t, inner), h: h, flipAfter: flipAfter,
 	}
-	h.cache = &compressionFlippingCache{Cache: inner, h: h, flipAfter: flipAfter}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	require.True(t, h.compressed.Load(), "the wrapper never reached the flip point")
 	require.Equal(t, int64(flipAfter), inner.CountVectors())
 }
 
-// TestPrefillCacheParallelStopsWhenCacheFull: the scan must stop once count reaches
-// maxSize instead of feeding replaceIfFull's full-cache wipe; memtable-only data
-// forces a single scan range so the stop point is deterministic.
-func TestPrefillCacheParallelStopsWhenCacheFull(t *testing.T) {
+// TestPrefillCacheParallelStopsBelowCacheFull: the scan must stop *short* of maxSize,
+// not on it. replaceIfFull wipes the whole cache at count == maxSize, so a scan that
+// fills the last slot is discarded within one deletion interval — the failure
+// cacheFitsNodes' strict headroom requirement exists to avoid. Memtable-only data
+// forces a single scan range, making the stop point deterministic.
+func TestPrefillCacheParallelStopsBelowCacheFull(t *testing.T) {
 	const n = 50
 	const maxSize = 10
 	store := newTestObjectsStore(t)
@@ -594,16 +600,11 @@ func TestPrefillCacheParallelStopsWhenCacheFull(t *testing.T) {
 	c := cache.NewShardedFloat32LockCache(nil, nil, maxSize, 1, logger, false, 0, nil)
 	c.Grow(n)
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             make([]*vertex, n),
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-	}
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
-	require.Equal(t, int64(maxSize), c.CountVectors())
+	require.Equal(t, int64(maxSize-1), c.CountVectors())
+	require.Less(t, c.CountVectors(), c.CopyMaxSize(),
+		"a completed scan must leave the cache below the wipe threshold")
 }
 
 // TestUseParallelPrefillExcludesHFresh: the hfresh centroid index shares the shard's
@@ -614,14 +615,8 @@ func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
 
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		id:                "main_centroids",
-		logger:            logger,
-		hfreshMode:        true,
-		distancerProvider: distancer.NewDotProductProvider(),
-	}
+	h := newPrefillTestIndex("main_centroids", store, c, 0, distancer.NewDotProductProvider(), logger)
+	h.hfreshMode = true
 	require.False(t, h.useParallelPrefill())
 
 	h.hfreshMode = false
