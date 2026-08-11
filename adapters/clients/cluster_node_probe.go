@@ -28,7 +28,9 @@ import (
 const maxProbeResponseBytes = 64 << 10
 
 // nodeNotFoundBody is the body http.NotFound sends, i.e. what a node's own
-// catch-all handler answers for an unserved route.
+// catch-all handler answers for an unserved route. If a Go release ever
+// rewords it, mismatched 404s become plain retryable errors (fail closed)
+// rather than reading as "older build, let through" — deliberate.
 const nodeNotFoundBody = "404 page not found"
 
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
