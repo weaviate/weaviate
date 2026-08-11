@@ -642,7 +642,7 @@ func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
 	logger, hook := tlog.NewNullLogger()
 	idx.logger = logger
 	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
-	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 
