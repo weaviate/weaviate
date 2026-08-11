@@ -201,6 +201,38 @@ func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	require.NotContains(t, err.Error(), "/v1/schema/MyClass/")
 }
 
+// The coordinator decides whether a participant's refusal is publishable by
+// testing it against the sentinel followed by ": " (usecases/backup,
+// canCommitErrFromResponse). An older participant's wording continues
+// " on this shard: " instead, which is what tells the two apart. Every wording
+// this node produces has to keep that separator, or the coordinator classes
+// this node as old, throws the text away and rebuilds a refusal without the
+// cancel instructions.
+func TestReindexInFlightError_OpensWithTheSeparatorTheCoordinatorKeysOn(t *testing.T) {
+	// A literal, not the sentinel's own text, so renaming the sentinel on both
+	// sides at once can't slip a wording change past this assertion.
+	const wantPrefix = "backup blocked: runtime-reindex in flight: "
+
+	require.Equal(t, wantPrefix, entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()+": ",
+		"the coordinator builds its prefix from the shared sentinel, so the literal has to match it")
+
+	tests := []struct {
+		name    string
+		preWire bool
+	}{
+		{name: "DTM reports a live task", preWire: false},
+		{name: "lookup not yet installed", preWire: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := reindexInFlightError("MyClass", tc.preWire).Error()
+			assert.True(t, strings.HasPrefix(msg, wantPrefix),
+				"the coordinator publishes this text verbatim only while it opens with %q, got %q",
+				wantPrefix, msg)
+		})
+	}
+}
+
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
 // the shard-level halt-for-backup path delegates the gate decision to
 // the same DTM-backed lookup as the inactive-shard path.
@@ -379,6 +411,23 @@ func TestLogReindexRefusalPass_StaysSilentWithNothingToReport(t *testing.T) {
 			logReindexRefusalPass(nil, "test pass", "node1", "SilentClass", []string{"s1"})
 		})
 	})
+}
+
+// An Index without its DB back-reference is exactly the case the gate refuses
+// on (refuseIfReindexInFlight is conservative there), so the summary line for
+// that refusal runs with db nil and must report an empty node instead of
+// panicking inside a backup goroutine.
+func TestLogReindexRefusalSummary_NoDbBackReference(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	idx := &Index{logger: logger, Config: IndexConfig{ClassName: schema.ClassName("OrphanClass")}}
+	require.Nil(t, idx.db, "the point of this test is the missing back-reference")
+
+	require.NotPanics(t, func() { idx.logReindexRefusalSummary([]string{"s1"}) })
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "the refusal still has to reach the operator")
+	assert.Equal(t, "", entries[0].Data["node"],
+		"an unknown node name is reported as empty, not guessed")
 }
 
 // logReindexRefusal sits on error paths that carry every kind of failure, so it
@@ -640,8 +689,11 @@ func TestBackupableReportsNonGateErrorsAlongsideARefusal(t *testing.T) {
 		"the second collection's failure is the caller's to act on too")
 	assert.Contains(t, err.Error(), broken, "and it has to say which collection it belongs to")
 
-	// The gate refusal leads, so canCommitErrFromResponse's prefix check still
-	// recognizes the joined message as a refusal.
+	// The gate refusal leads and continues with ": ", which is the exact
+	// separator canCommitErrFromResponse keys on to tell this wording apart
+	// from an older participant's. Change either side and the coordinator
+	// rebuilds the message, dropping the cancel instructions from the 422.
 	assert.True(t, strings.HasPrefix(err.Error(),
-		entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()))
+		entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()+": "),
+		"the coordinator publishes this text verbatim only while it opens with the sentinel and a colon-space")
 }

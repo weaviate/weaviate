@@ -1316,18 +1316,23 @@ func TestRedactedReindexRefusal_WithoutClasses(t *testing.T) {
 func TestRedactedReindexRefusal_CapsTheClassList(t *testing.T) {
 	t.Parallel()
 
-	classes := make([]string, 0, redactedRefusalClassSample+5)
+	// A literal, not the constant the code caps with, so moving the constant
+	// alone can't fool this assertion.
+	const wantSampleCap = 10
+
+	classes := make([]string, 0, wantSampleCap+5)
 	for i := 0; i < cap(classes); i++ {
 		classes = append(classes, fmt.Sprintf("Class-%02d", i))
 	}
 
 	msg := redactedReindexRefusal(classes)
 
-	assert.Equal(t, redactedRefusalClassSample, strings.Count(msg, `"Class-`),
-		"the quoted list is a sample, not the whole request")
+	assert.Equal(t, wantSampleCap, strings.Count(msg, `"Class-`),
+		"past %d classes the sample is exactly that many: fewer hides names the caller could have acted on, "+
+			"more grows an API error body with the request", wantSampleCap)
 	assert.Contains(t, msg, "Class-00")
 	assert.NotContains(t, msg, "Class-10", "past the cap")
-	assert.Contains(t, msg, fmt.Sprintf("and %d more", len(classes)-redactedRefusalClassSample),
+	assert.Contains(t, msg, fmt.Sprintf("and %d more", len(classes)-wantSampleCap),
 		"the caller has to be told the list was cut")
 }
 
