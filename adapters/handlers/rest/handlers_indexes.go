@@ -1380,9 +1380,13 @@ const maxConcurrentReindexPerCollection = 32
 //
 // The status is intentionally 429 and not 503: the rejection is driven by
 // a concurrency limit specific to this caller's collection, not by the
-// cluster being unavailable. Returning 503 misled monitoring (and the
-// reindex_concurrent acceptance test asserts the cap is reached, not that
-// the service went unhealthy).
+// cluster being unavailable. Returning 503 made monitoring read a capped
+// collection as an unhealthy cluster.
+//
+// TestReindexCapExceededResponder_StatusAndBody is the only guard on this.
+// No acceptance test ever reaches the cap: every submit in
+// reindex_concurrent goes through a helper that requires 202, so a 429
+// there would fail the suite rather than assert the cap.
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
 	return schema.NewSchemaObjectsIndexesUpdateTooManyRequests().WithPayload(errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
