@@ -148,7 +148,10 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 // on every 50,000th put raised slow puts from 4 to 230 and the worst put from
 // 124ms to 202ms, which is still 0.005% of operations — a share-based limit
 // stays green through that, a count does not.
-const maxSlowOps = 50
+// TEMPORARY, REVERTED IN THE NEXT COMMIT: 0 forces the assertion to fail so CI
+// prints the real counts. A passing package prints nothing without -v, so the
+// error message is the only way to read these numbers off a CI runner.
+const maxSlowOps = 0
 
 type result struct {
 	workerID        int
