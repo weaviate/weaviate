@@ -637,9 +637,7 @@ func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		// Manager is built in New, before Open, so its drainer may already be
 		// running even though nothing here ever applied. Manager.Close is
-		// one-way (there is no reopen), which is safe because a Store is never
-		// reopened after Close: production builds one Store per process and
-		// closes it only at shutdown (Service.Close).
+		// one-way, which is fine since a Store is never reopened after Close.
 		st.distributedTasksManager.Close()
 		return nil
 	}

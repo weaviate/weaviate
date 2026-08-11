@@ -172,7 +172,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, TaskStatusFailed, rec.first().Status)
 	})
 
-	// A nil re-registration must not silently overwrite the live observer.
 	t.Run("a nil registration must not silence the live observer", func(t *testing.T) {
 		h, rec := newObserverHarness(t)
 		h.manager.RegisterTerminalObserver(observerNamespace, nil)
@@ -184,7 +183,6 @@ func TestManagerTerminalObserver(t *testing.T) {
 			"a nil re-registration must be dropped, not stored over the live observer")
 	})
 
-	// The fail-closed restore path must still signal its terminal ending.
 	t.Run("a task that fails closed on restore fires the observer", func(t *testing.T) {
 		h, rec := newObserverHarness(t)
 
