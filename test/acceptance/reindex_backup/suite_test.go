@@ -46,14 +46,16 @@ import (
 func TestBackupVsReindexSuite(t *testing.T) {
 	ctx := context.Background()
 
-	// USE_INVERTED_SEARCHABLE=false, from the shared env, forces new classes to
-	// start with the legacy Map (WAND) strategy so the rebuild:true verb has
-	// actual Map→Blockmax migration work to do.
-	compose, err := reindexhelpers.WithReindexEnv(
-		docker.New().
-			WithBackendFilesystem().
-			WithWeaviate(),
-	).Start(ctx)
+	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithBackendFilesystem().
+		WithWeaviate().
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
+		// USE_INVERTED_SEARCHABLE=false forces new classes to start with
+		// the legacy Map (WAND) strategy so the rebuild:true verb has
+		// actual Map→Blockmax migration work to do.
+		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
