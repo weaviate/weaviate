@@ -226,8 +226,12 @@ func TestExecutor(t *testing.T) {
 		status := map[string]map[string]string{"A": {"B": "C"}}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
-		assert.Nil(t, err)
+		statusList, err := x.GetShardsStatus("A", "")
+		assert.NoError(t, err)
+		assert.Len(t, statusList, 1, "number of shards in the status list")
+		statusList0 := statusList[0]
+		assert.Equal(t, statusList0.Name, "A", "shard name")
+		assert.Equal(t, statusList0.PerNodeStatus, map[string]string{"B": "C"})
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
