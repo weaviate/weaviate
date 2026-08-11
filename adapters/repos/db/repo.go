@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -576,11 +577,28 @@ func (db *DB) droppingIndex(id string) *Index {
 	return nil
 }
 
+// dropIndexData removes a class's files without going through an Index.
+func (db *DB) dropIndexData(className schema.ClassName) error {
+	deleted, err := renameForAsyncDelete(
+		filepath.Join(db.config.RootPath, indexID(className)), db.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, db.logger)
+	}
+	return nil
+}
+
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		// No live index, but the class may still have data: a startup load that
+		// never built one, or a delete applied while one was in flight. Only
+		// index.drop removes the directory, so returning here would strand it
+		// with no schema entry left to name it. Missing path is a no-op.
+		return db.dropIndexData(className)
 	}
 	id := indexID(className)
 
