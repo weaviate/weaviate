@@ -30,13 +30,12 @@ type ReindexCleanupProber interface {
 }
 
 type ReindexCleanup struct {
-	// resolve is called per request, not once at construction: the internal
-	// server is built before the reindex provider exists, so capturing the
-	// value here would freeze a nil that never becomes real.
+	// resolve is called per request: the internal server is built before the
+	// reindex provider exists, so capturing it once would freeze a nil.
 	//
-	// It returns false while there is no prober. A bare interface return would
-	// let a provider hand back a nil *T, which is a non-nil interface and would
-	// slip past a nil check into a call on a nil receiver.
+	// The bool backs up the interface check: a nil *T handed back as
+	// ReindexCleanupProber is a non-nil interface and would otherwise slip
+	// past a nil check into a call on a nil receiver.
 	resolve func() (ReindexCleanupProber, bool)
 	auth    auth
 	logger  logrus.FieldLogger

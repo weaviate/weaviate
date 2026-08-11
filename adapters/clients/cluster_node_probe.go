@@ -34,10 +34,8 @@ const nodeNotFoundBody = "404 page not found"
 // nodeProbe is the shared skeleton of the read-only cluster-internal probes:
 // resolve a node name to a host, GET a JSON route, decode the answer.
 //
-// client must be appState.ClusterHttpClient: it is the one carrying the
-// cluster credentials, so wherever basic auth is enabled on the internal API,
-// any other client 401s and fails the caller's gate closed instead of
-// reporting every node clear.
+// client must be appState.ClusterHttpClient, or basic auth (if enabled) 401s
+// and fails the caller's gate closed instead of reporting every node clear.
 type nodeProbe struct {
 	client   *http.Client
 	resolver nodeResolver
@@ -46,10 +44,9 @@ type nodeProbe struct {
 // getJSON GETs path on nodeName and decodes the body into out; what names the
 // route in errors, e.g. "node activity".
 //
-// Returns unanswerable, unwrapped, for a 404 shaped like a node's own
-// catch-all (older build) or a 503 carrying the not-wired sentinel. Any other
-// 404 is a plain error, since an intermediary answering in a node's stead
-// would otherwise report every node as clear.
+// Returns unanswerable, unwrapped, only for a 404/503 shaped like the node's
+// own answer. Any other 404 is a plain error: an intermediary answering in a
+// node's stead would otherwise make every node read as clear.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	query url.Values, unanswerable error, what string, out any,
 ) error {

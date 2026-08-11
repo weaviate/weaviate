@@ -25,11 +25,9 @@ const (
 	loggableTruncationMarker = "…(truncated)"
 )
 
-// Loggable renders a string the other end of a probe controls, i.e. a query
-// value a handler was sent or a body a client was answered with, so it is safe
-// to put in a log field or an error: quoting escapes the newline that would
-// otherwise split one line into two forgeable ones, and the cap stops a
-// megabyte of it from being written per request.
+// Loggable renders a string the other end of a probe controls (a query value
+// or response body) safe for a log field or error: quoting stops it forging a
+// second log line, and the cap bounds how much it can write per request.
 func Loggable(s string) string {
 	if len(s) > loggableLimit {
 		// Cut on a rune boundary so the kept part doesn't end in an escaped half rune.

@@ -143,9 +143,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			// Must not answer "not cleaning up" from a node that cannot tell.
-			// The sentinel body is what tells the caller this 503 is permanent
-			// rather than transient, so it is part of the wire contract.
+			// A node that cannot tell must not answer "not cleaning up".
 			name:          "probe not wired",
 			prober:        nil,
 			query:         "?collection=Movies",

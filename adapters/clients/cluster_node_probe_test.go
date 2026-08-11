@@ -83,7 +83,6 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 			wantErrMsg: "unexpected status code 503",
 		},
 		{
-			// Peer body must be capped before it reaches the error.
 			name: "a long body is truncated before it reaches the error",
 			respond: func(w http.ResponseWriter) {
 				http.Error(w, strings.Repeat("a", 4096), http.StatusBadGateway)

@@ -73,9 +73,9 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 		// the log, not just the one that carries a verdict.
 		log := b.logger.WithField("action", "backup_node_activity_probe")
 
-		// nil here means a fault, not an unwired build (this probe is always
-		// wired), so a plain 503 is worth retrying. The wording stays clear of
-		// the not-wired vocabulary the other probe uses for its terminal answer.
+		// nil means a fault, not an unwired build (this probe is always wired),
+		// so answer a plain, retryable 503 rather than the other probe's
+		// terminal "not wired" wording.
 		if b.activity == nil {
 			log.Warn("backup node activity probe answered: unavailable on this node")
 			http.Error(w, "backup activity probe unavailable on this node", http.StatusServiceUnavailable)
