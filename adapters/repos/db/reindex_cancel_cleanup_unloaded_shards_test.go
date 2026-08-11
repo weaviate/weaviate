@@ -441,11 +441,8 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	}
 }
 
-// A completed two-property migration owns a live ingest sidecar per property.
-// The sweep of one of those properties must leave both the tracker and that
-// sidecar alone, whether or not the tracker still carries its payload — a
-// tracker written before payload.mig existed points at live data just the same,
-// and sidecar deletion never consulted the payload.
+// Pins #10675: sweeping one property of a completed multi-property migration
+// must not remove the tracker or its live sidecar, payload or not.
 func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTracker(t *testing.T) {
 	const sidecar = "property_a__enable_filterable_ingest_1"
 	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
@@ -469,8 +466,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			tracker:     "enable_filterable_a_b_1",
 			wantTracker: true, wantSidecar: true,
 		},
-		// The widened preserve match stays inside this property: a completed
-		// tracker of another property must not shield this one's stale sidecar.
+		// Preserve guessing must not shield another property's stale sidecar.
 		{
 			name:        "a completed tracker of another property, payload gone",
 			tracker:     "enable_filterable_other_1",

@@ -232,24 +232,21 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_a_b_1",
 			propName: "a", want: false,
 		},
-		// Deletion refuses this dir, so nothing removes the tracker; sidecar
-		// deletion is not payload-gated, so refusing it here too would let the
-		// sweep take the live bucket the tracker points at.
+		// #10675: sidecar deletion is not payload-gated, so preservation must
+		// still catch this tracker even without a payload.
 		{
 			name:     "a two-property task with no payload, in the preserve set",
 			dir:      "enable_filterable_a_b_1",
 			propName: "a", preserve: true, want: true,
 		},
-		// The preserve set guesses, but only within this property: matching on
-		// the strategy prefix alone would let any completed tracker shield any
-		// property's sidecar.
+		// Preserve guessing stays scoped to this property; not the whole prefix.
 		{
 			name:     "another property's task with no payload, in the preserve set",
 			dir:      "enable_filterable_other_1",
 			propName: "cat", preserve: true, want: false,
 		},
-		// A payload that parses but names nothing decides nothing, so the name
-		// answers — as it does for a tracker written before payload.mig existed.
+		// An empty payload decides nothing, so falls back to the name like a
+		// missing payload does.
 		{
 			name:         "a payload that names no property at all",
 			dir:          "enable_filterable_cat_1",

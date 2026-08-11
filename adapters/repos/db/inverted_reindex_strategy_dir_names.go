@@ -194,15 +194,14 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
 // two-property tracker for "a" and "b" and a single-property tracker for
 // "a_b" — so payload.mig, written before anything else, decides. With no
-// readable payload the two directions answer differently, because their
-// wrong answers cost differently:
+// readable payload, the two directions guess differently because a wrong
+// guess costs differently:
 //
-//   - Deletion (the plain scope) answers only for the single-property shape.
-//     Guessing wider would remove another property's tracker.
+//   - Deletion (the plain scope) answers only the single-property shape;
+//     guessing wider would remove another property's tracker.
 //   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
-//     property-list segment carries this property as a whole "_"-delimited
-//     run of tokens. Guessing wider only keeps a sidecar dir alive one restart
-//     longer, while refusing to guess lets sidecar deletion — which is not
+//     property list carries this property as a whole "_"-delimited token,
+//     because refusing to guess lets sidecar deletion — which is not
 //     payload-gated — remove the live bucket the in-memory pointer is on.
 type migrationDirScope struct {
 	lsmPath  string
@@ -213,9 +212,8 @@ type migrationDirScope struct {
 	// classDirs are whole tracker dir names matched as they are. Only the
 	// preserve set carries them; see [migrationDirScope.preserving].
 	classDirs []string
-	// preserve marks a scope asked which dirs to keep rather than which to
-	// remove, which widens the no-payload fallback in
-	// [migrationDirScope.matches].
+	// preserve widens the no-payload fallback in [migrationDirScope.matches];
+	// set by [migrationDirScope.preserving].
 	preserve bool
 }
 
@@ -236,16 +234,12 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 	return migrationDirScope{lsmPath: lsmPath, classDirs: []string{classDir}}
 }
 
-// preserving widens the scope in two ways, both to keep live data out of the
-// sweep's reach (else #10675-shape data loss):
-//
-//   - the class-level tracker for indexType joins it. It is excluded from
-//     deletion, but a completed one owns live sidecars of every property.
-//   - a tracker with no readable payload matches on its name alone; see
-//     [migrationDirScope].
-//
-// Used identically by the unloaded-shard gate and the sweep so the two can't
-// drift apart.
+// preserving widens the scope, both to keep live data out of the sweep's
+// reach (else #10675-shape data loss): the class-level tracker for indexType
+// joins it (a completed one owns live sidecars of every property), and a
+// tracker with no readable payload matches on its name alone; see
+// [migrationDirScope]. Used identically by the unloaded-shard gate and the
+// sweep so the two can't drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	s.preserve = true
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
@@ -300,11 +294,9 @@ func (s migrationDirScope) matches(name string) bool {
 }
 
 // namesPropertyToken reports whether base is prefix + "_" + a property list
-// that carries propName as one whole "_"-delimited run of tokens. Used only by
-// the preserve direction of [migrationDirScope.matches]: it reads
-// "enable_filterable_a_b" as naming "a", which the property list of a
-// two-property task looks like, while still rejecting an unrelated property's
-// tracker.
+// that carries propName as one whole "_"-delimited token, e.g.
+// "enable_filterable_a_b" for propName "a", without matching an unrelated
+// property.
 func namesPropertyToken(base, prefix, propName string) bool {
 	props, ok := strings.CutPrefix(base, prefix+"_")
 	if !ok {

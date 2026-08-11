@@ -31,8 +31,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		prefixes []string
 		// tracker dir name → sentinels in it.
 		trackers map[string][]string
-		// payloads is the property list a tracker's task recorded, which is what
-		// says a dir named after several properties belongs to this one.
+		// payloads is the property list a tracker's task recorded.
 		payloads map[string][]string
 		want     bool
 	}{
@@ -114,8 +113,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 			},
 			want: true,
 		},
-		// A task over several properties writes one tracker for all of them, so
-		// each property's callbacks have to stay registered until it is tidied.
+		// One tracker serves both properties; the payload says which.
 		{
 			name:     "a two-property task, started only → recovery NEEDED",
 			prefixes: []string{MigrationDirPrefixSearchableRetokenize},
