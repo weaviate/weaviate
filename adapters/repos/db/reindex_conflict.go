@@ -337,6 +337,12 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // the caller's request, or "" when the refusal isn't property-scoped
 // (DeleteClass, tenant mutations).
 //
+// callerDropsTheData is true for the gates whose caller is destroying the
+// shards the migration works on (DeleteClass, tenant mutations). Those
+// callers cannot run the follow-up call the other variants name — the
+// collection or tenant is gone, so the PUT 404s — and the cost it repairs
+// disappears with the data, so they are told to cancel and retry instead.
+//
 // The sentence depends on status and on [IsSemanticMigration]:
 //   - unrecognized status (e.g. a newer node's, or terminal — no caller
 //     exercises terminal since every gate pre-filters on
@@ -370,7 +376,7 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true
 // to be accepted — the sentence names it. Cancel is exempt from that flag
 // (requestsCancel in the REST handler), so the cancel half always applies.
-func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string) string {
+func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
 	started := status == distributedtask.TaskStatusStarted
 	if !started && !status.IsCoordinationPhase() {
 		return "this build does not know that status, most likely because a " +
@@ -384,49 +390,69 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			"so it can only be waited out"
 	}
 	if !IsSemanticMigration(p.MigrationType) {
-		partial := "cancel it via " + cancelCall + ", or wait for it to finish; " +
-			"this migration has no cluster-wide cutover, so its shards commit " +
-			"one by one rather than at a single point and cancelling leaves the " +
-			"ones that already finished rebuilt and the rest untouched — "
+		partial := "cancel it via " + cancelCall + ", or wait for it to finish. " +
+			"This migration has no cluster-wide cutover, so its shards commit " +
+			"one by one rather than at a single point: cancelling leaves the " +
+			"ones that already finished rebuilt and the rest untouched. "
+		if callerDropsTheData {
+			return partial + "The rebuilt shards go with the data you are " +
+				"removing, so there is nothing to finish afterwards: cancel " +
+				"it, then re-issue this request."
+		}
 		if p.MigrationType == ReindexTypeEnableRangeable {
-			return partial + "re-submit it via " +
+			return partial + "To finish the job later, re-submit it via " +
 				reindexSubmitCall(p, askedProperty, `{"rangeable":{"enabled":true}}`) +
 				" while no shard has finished yet, or via " +
 				reindexSubmitCall(p, askedProperty, `{"rangeable":{"rebuild":true}}`) +
 				" once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike " +
-				"cancel): enable-rangeable sets indexRangeFilters on the " +
+				"cancel). enable-rangeable sets indexRangeFilters on the " +
 				"property as soon as its first shard commits, and each of the " +
-				"two verbs is rejected in the state the other one covers"
+				"two verbs is rejected in the state the other one covers."
 		}
 		// A format-only type flips no schema, so its original submit body
 		// stays accepted post-cancel — the re-submit IS the repair.
-		return partial + "re-submit it via " + ReindexRepairCall(p, askedProperty) +
+		return partial + "To finish the job later, re-submit it via " +
+			ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
-			"re-runs every shard, the ones that already finished included"
+			"re-runs every shard, the ones that already finished included."
 	}
 	if started {
 		return "cancel it via " + cancelCall + ", or wait for it to finish"
 	}
-	inversion := "wait for it to finish: from this phase on its per-shard work " +
+	inversion := "wait for it to finish. From this phase on its per-shard work " +
 		"may already be merged on disk, so cancelling now skips the schema " +
-		"change but does not drop that data, and the next restart promotes it " +
-		"— which leaves those " +
-		"buckets holding the new format under the old schema, repairable "
+		"change but does not drop that data, and the next restart promotes it, " +
+		"leaving those buckets holding the new format under the old schema. "
+	if callerDropsTheData {
+		return inversion + "That inversion goes with the data you are removing, " +
+			"so there is nothing left to repair: cancel it via " + cancelCall +
+			", then re-issue this request."
+	}
 	repairCall := ReindexRepairCall(p, askedProperty)
 	if repairCall == "" {
-		return inversion + "only by re-running the migration, which this build " +
-			"cannot name from the task's payload — if you accept that, " +
-			"cancel it via " + cancelCall
+		return inversion + "That is repairable only by re-running the " +
+			"migration, which this build cannot name from the task's payload. " +
+			"If you accept that, cancel it via " + cancelCall + "."
 	}
-	return inversion + "only by re-running the migration via " + repairCall +
-		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel) — if you " +
-		"accept that, cancel it via " + cancelCall
+	return inversion + "That is repairable only by re-running the migration " +
+		"via " + repairCall +
+		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel). If you " +
+		"accept that, cancel it via " + cancelCall + "."
 }
 
 // abortedMigrationConsequence names what killing an in-flight migration
 // costs: a schema inversion for semantic types, a half-applied rebuild
 // for format-only ones.
+//
+// [IsSemanticMigration] is a positive allowlist, so a newer node's type
+// would otherwise fall into the format-only arm and claim the cheaper of
+// the two costs about semantics this build does not have. Unknown types
+// therefore abstain instead.
 func abortedMigrationConsequence(mt ReindexMigrationType) string {
+	if firstUnknownMigrationType(mt) != "" {
+		return "have a consequence this build cannot name (it does not know " +
+			"this migration type, most likely because a newer node submitted it)"
+	}
 	if IsSemanticMigration(mt) {
 		return "produce a bucket↔schema inversion"
 	}
@@ -506,7 +532,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			ReindexGateRemedy(task.Status, existP, propertyName))
+			ReindexGateRemedy(task.Status, existP, propertyName, false))
 	}
 	return nil
 }
@@ -559,10 +585,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
-				"working state and %s on every replica — %s",
+				"working state on every replica and %s — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
 			abortedMigrationConsequence(existP.MigrationType),
-			ReindexGateRemedy(task.Status, existP, ""))
+			ReindexGateRemedy(task.Status, existP, "", true))
 	}
 	return nil
 }
@@ -620,7 +646,7 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
 			abortedMigrationConsequence(existP.MigrationType),
-			ReindexGateRemedy(task.Status, existP, ""))
+			ReindexGateRemedy(task.Status, existP, "", true))
 	}
 	return nil
 }

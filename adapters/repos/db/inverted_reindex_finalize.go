@@ -117,7 +117,7 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
 func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 	out := map[int]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	_ = forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
 		out[gen] = true
 	})
 	return out
@@ -130,7 +130,7 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 // to shield — a different strategy's sidecar at the same gen (issue #295).
 func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
 	out := map[string]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	_ = forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
 		suffixes := migrationSuffixes(base)
 		if suffixes == nil {
 			return
@@ -148,11 +148,14 @@ func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[st
 // forEachCompletedMigration invokes fn for every tracker dir under
 // lsmPath/.migrations matching `prefixes` that carries tidied.mig or
 // merged.mig (completed in-process, awaiting next-restart finalize).
-func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
+//
+// Returns the .migrations read error so a caller that has to fail closed on
+// an unenumerable dir can tell "nothing matched" from "could not look".
+func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) error {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return
+		return err
 	}
 	prefixSet := map[string]bool{}
 	for _, p := range prefixes {
@@ -174,6 +177,7 @@ func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base s
 			fn(base, gen)
 		}
 	}
+	return nil
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns
