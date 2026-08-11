@@ -13,10 +13,13 @@ package geo
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -45,7 +48,7 @@ func TestGeoJourney(t *testing.T) {
 		ID:                 "unit-test",
 		CoordinatesForID:   getCoordinates,
 		DisablePersistence: true,
-		RootPath:           "doesnt-matter-persistence-is-off",
+		RootPath:           t.TempDir(),
 	},
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
@@ -112,6 +115,64 @@ func TestGeoJourney(t *testing.T) {
 		expectedResults := []uint64{0}
 		assert.Equal(t, expectedResults, results)
 	})
+}
+
+// A geo index that leaves its cache maximum unset reloads every coordinate
+// from disk every few seconds.
+func TestGeoVectorCacheSurvivesDeletionCycle(t *testing.T) {
+	ctx := context.Background()
+	elements := []models.GeoCoordinates{
+		{ // coordinates of munich
+			Latitude:  ptFloat32(48.13743),
+			Longitude: ptFloat32(11.57549),
+		},
+		{ // coordinates of stuttgart
+			Latitude:  ptFloat32(48.78232),
+			Longitude: ptFloat32(9.17702),
+		},
+	}
+
+	var coordinateLoads atomic.Int64
+	getCoordinates := func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
+		coordinateLoads.Add(1)
+		return &elements[id], nil
+	}
+
+	geoIndex, err := NewIndex(Config{
+		AllocChecker:       memwatch.NewDummyMonitor(),
+		ID:                 "unit-test-vector-cache",
+		CoordinatesForID:   getCoordinates,
+		DisablePersistence: true,
+		RootPath:           t.TempDir(),
+	},
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, geoIndex.Shutdown(ctx)) })
+
+	for id := range elements {
+		require.NoError(t, geoIndex.Add(ctx, uint64(id), &elements[id]))
+	}
+
+	searchAroundMunich := func() []uint64 {
+		results, err := geoIndex.WithinRange(ctx, filters.GeoRange{
+			GeoCoordinates: &models.GeoCoordinates{
+				Latitude:  ptFloat32(48.13743),
+				Longitude: ptFloat32(11.57549),
+			},
+			Distance: 500 * 1000,
+		})
+		require.NoError(t, err)
+		return results
+	}
+
+	require.Equal(t, []uint64{0, 1}, searchAroundMunich())
+	loadsAfterWarmup := coordinateLoads.Load()
+
+	time.Sleep(2 * cache.DefaultDeletionInterval)
+
+	require.Equal(t, []uint64{0, 1}, searchAroundMunich())
+	require.Equal(t, loadsAfterWarmup, coordinateLoads.Load(),
+		"searching after a deletion cycle must not reload coordinates")
 }
 
 func TestGeoConfig(t *testing.T) {

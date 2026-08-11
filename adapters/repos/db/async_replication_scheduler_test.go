@@ -2330,3 +2330,36 @@ func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
 	}
 	sched.Close()
 }
+
+// TestRunEntrySkipHashbeatRecordsNoDiffStatus pins that a root-prefilter skip surfaces in asyncReplicationStatus like the ErrNoDiffFound descent it replaces.
+func TestRunEntrySkipHashbeatRecordsNoDiffStatus(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	s := &Shard{asyncRepCtx: context.Background(), class: &models.Class{Class: "C"}, name: "S"}
+	s.asyncRepWg.Add(1)
+
+	sched.runEntry(&asyncSchedulerEntry{shard: s}, true)
+
+	stats := s.getAsyncReplicationStats(context.Background())
+	require.Len(t, stats, 1, "a prefilter-skipped cycle proves in-sync and must be visible in asyncReplicationStatus")
+	require.Empty(t, stats[0].TargetNode)
+	require.Positive(t, stats[0].StartDiffTimeUnixMillis)
+}
+
+// TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty pins that the cancellation check runs under the stats lock: a disable's cancel+clear landing while the recorder awaits the lock must not leave a phantom entry, in every interleaving.
+func TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Shard{}
+
+	s.asyncReplicationStatsMux.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.recordRootPrefilterNoDiff(ctx)
+	}()
+	cancel()
+	s.asyncReplicationStatsByTargetNode = nil
+	s.asyncReplicationStatsMux.Unlock()
+	<-done
+
+	require.Empty(t, s.getAsyncReplicationStats(context.Background()))
+}

@@ -139,7 +139,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
-		return nil, NewErrInternal("batch objects: %#v", err)
+		return nil, NewErrInternal("batch objects: %w", err)
 	}
 
 	// Reaggregate a unanimous limit-exceeded into a top-level error so
