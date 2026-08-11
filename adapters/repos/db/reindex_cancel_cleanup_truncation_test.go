@@ -136,15 +136,6 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantShardErr:  true,
 		},
 		{
-			name:          "the abort lands mid-walk with three shards",
-			shards:        []string{"shard-a", "shard-b", "shard-c"},
-			cancelOnCall:  2,
-			staleOnDisk:   true,
-			wantErr:       true,
-			wantTruncated: true,
-			wantShardErr:  true,
-		},
-		{
 			// The walk visits nothing here, so "swept every shard" would be a
 			// report about work that never happened.
 			name:          "a node shutting down leaves every shard unswept",

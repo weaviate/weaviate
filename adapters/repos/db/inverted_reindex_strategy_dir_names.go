@@ -279,6 +279,12 @@ func (s migrationDirScope) matches(name string) bool {
 // ([hasUntidiedTracker]) fail open on it, since answering from the narrowed
 // fallback could report as clean (or recovered) state that the payload, once
 // readable again, says they own.
+//
+// An intact payload naming this property still requires the exact sorted-name
+// reconstruction, so a dir whose name lists its properties unsorted would be
+// preserved with a missing or corrupt payload (name-token fallback) but not
+// with an intact one — unreachable from real writers, which derive the name
+// and the payload from the same sorted list.
 func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
 	base, _, ok := parseMigrationDirName(name)
 	if !ok {

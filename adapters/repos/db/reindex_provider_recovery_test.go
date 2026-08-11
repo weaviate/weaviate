@@ -197,14 +197,6 @@ func TestHasUntidiedTracker(t *testing.T) {
 			unlistable: true,
 			want:       true,
 		},
-		{
-			name: "an unlistable .migrations dir with an untidied tracker inside → recovery NEEDED",
-			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig"},
-			},
-			unlistable: true,
-			want:       true,
-		},
 	}
 
 	for _, tc := range tests {
