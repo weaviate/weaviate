@@ -666,12 +666,16 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 		return false, err
 	}
 
+	// naming the next log before closing the old one means that on a name we
+	// cannot derive, the index is left with a log it can still write to
+	fileName, err := nextCommitLogFileName(oldFileName)
+	if err != nil {
+		return false, err
+	}
+
 	if err := l.commitLogger.Close(); err != nil {
 		return true, err
 	}
-
-	// this is a new commit log, initialize with the current time stamp
-	fileName := fmt.Sprintf("%d", time.Now().Unix())
 
 	if force {
 		l.logger.WithField("action", "commit_log_file_switched").
@@ -698,6 +702,23 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
 	return true, nil
+}
+
+// nextCommitLogFileName picks the name for the log that follows current. Logs
+// are named after the second they were created in, so two switches within one
+// second would land on the name of the file just closed and carry on writing to
+// it. A backup only copies logs that are closed, so everything written to that
+// file from then on would be left out.
+func nextCommitLogFileName(current string) (string, error) {
+	ts, err := endTimeStamp(current)
+	if err != nil {
+		return "", fmt.Errorf("parse commit log file name %q: %w", current, err)
+	}
+
+	if now := time.Now().Unix(); now > ts {
+		return fmt.Sprintf("%d", now), nil
+	}
+	return fmt.Sprintf("%d", ts+1), nil
 }
 
 func (l *hnswCommitLogger) condenseLogs() (bool, error) {

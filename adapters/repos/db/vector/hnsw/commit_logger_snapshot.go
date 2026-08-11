@@ -488,6 +488,12 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 		if l.snapshotCreateInterval > 0 {
 			l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
 			l.snapshotLastCheckedAt = time.Now()
+			// a commit log can be named a second or two ahead of the clock, and the
+			// snapshot takes its name from that log; treating it as the last
+			// creation time would delay the next snapshot by the same amount
+			if l.snapshotLastCreatedAt.After(l.snapshotLastCheckedAt) {
+				l.snapshotLastCreatedAt = l.snapshotLastCheckedAt
+			}
 			l.snapshotCheckInterval = min(snapshotCheckInterval, l.snapshotCreateInterval)
 
 			fields["last_created_at"] = l.snapshotLastCreatedAt

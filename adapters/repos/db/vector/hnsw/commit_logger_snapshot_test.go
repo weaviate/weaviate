@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -2203,6 +2204,44 @@ func TestCleanupCompactV2TempFiles(t *testing.T) {
 		// don't create commitlog dir
 		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
 	})
+}
+
+// A snapshot is named after the last commit log it covers, and a commit log can
+// be named a little ahead of the clock.
+func TestInitSnapshotLastCreatedAt(t *testing.T) {
+	tests := []struct {
+		name        string
+		offset      time.Duration
+		wantClamped bool
+	}{
+		{name: "snapshot named in the past", offset: -time.Hour},
+		{name: "snapshot named ahead of the clock", offset: time.Hour, wantClamped: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			id := "snapshot-last-created-at"
+
+			snapshotDir := snapshotDirectory(rootDir, id)
+			require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
+			stamp := time.Now().Add(tc.offset).Unix()
+			require.NoError(t, os.WriteFile(
+				filepath.Join(snapshotDir, fmt.Sprintf("%d.snapshot", stamp)), nil, 0o644))
+
+			cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(),
+				WithSnapshotDisabled(false), WithSnapshotCreateInterval(time.Hour))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, cl.Shutdown(context.Background())) })
+
+			if tc.wantClamped {
+				assert.False(t, cl.snapshotLastCreatedAt.After(time.Now()),
+					"a snapshot dated ahead of the clock delays the next snapshot by the same amount")
+				return
+			}
+			assert.Equal(t, stamp, cl.snapshotLastCreatedAt.Unix())
+		})
+	}
 }
 
 func TestSnapshotFileName(t *testing.T) {

@@ -27,19 +27,27 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type backupNoopBucketView struct{}
 
 func (n *backupNoopBucketView) ReleaseView() {}
 
+// After every PrepareForBackup, the log it just closed still has to show up in
+// ListFiles. Three rounds run back to back land within the same second, which is
+// what used to make a switch reopen the file the previous one had closed.
 func TestBackup_PrepareForBackup(t *testing.T) {
-	ctx := context.Background()
+	const backups = 3
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
 	dirName := t.TempDir()
 	indexID := "backup-switch-commitlogs-test"
 
 	idx, err := New(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logrus.New(),
@@ -50,17 +58,20 @@ func TestBackup_PrepareForBackup(t *testing.T) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
-	require.Nil(t, err)
-	idx.PostStartup(context.Background())
+	require.NoError(t, err)
+	idx.PostStartup(ctx)
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
+	for i := range backups {
+		require.NoError(t, idx.Add(ctx, uint64(i), testVectors[i]))
+		require.NoError(t, idx.PrepareForBackup(ctx))
 
-	err = idx.PrepareForBackup(ctx)
-	assert.Nil(t, err)
+		files, err := idx.ListFiles(ctx, dirName)
+		require.NoError(t, err)
+		assert.Len(t, files, i+1,
+			"a closed commit log went missing from the backup file list")
+	}
 
-	err = idx.Shutdown(ctx)
-	require.Nil(t, err)
+	require.NoError(t, idx.Shutdown(ctx))
 }
 
 func TestBackup_ListFiles(t *testing.T) {

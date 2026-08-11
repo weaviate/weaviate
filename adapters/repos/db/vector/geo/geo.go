@@ -49,11 +49,13 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Dump(...string)
 	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
+	ListFiles(ctx context.Context, basePath string) ([]string, error)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -182,6 +184,23 @@ func (i *Index) Flush() error {
 
 func (i *Index) Shutdown(ctx context.Context) error {
 	return i.vectorIndex.Shutdown(ctx)
+}
+
+// PrepareForBackup readies the geo graph for its files to be copied. The graph
+// is an HNSW in its own right, persisted beside the shard rather than inside its
+// LSM buckets, so a backup has to halt, list and resume it like any other vector
+// index.
+func (i *Index) PrepareForBackup(ctx context.Context) error {
+	return i.vectorIndex.PrepareForBackup(ctx)
+}
+
+func (i *Index) ResumeAfterBackup(ctx context.Context) error {
+	return i.vectorIndex.ResumeAfterBackup(ctx)
+}
+
+// ListFiles returns the index files a backup has to copy, relative to basePath.
+func (i *Index) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return i.vectorIndex.ListFiles(ctx, basePath)
 }
 
 // UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
