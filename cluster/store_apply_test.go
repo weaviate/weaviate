@@ -820,7 +820,7 @@ func TestStore_Apply_TerminalTaskArmsForwardCatchingUp(t *testing.T) {
 		},
 	}
 
-	run := func(t *testing.T, arm terminalArm, replay bool) *terminalObserverProbe {
+	run := func(t *testing.T, arm terminalArm, lastAppliedIndexToDB uint64) *terminalObserverProbe {
 		t.Helper()
 		ms := NewMockStore(t, "Node-1", 0)
 		ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
@@ -831,11 +831,11 @@ func TestStore_Apply_TerminalTaskArmsForwardCatchingUp(t *testing.T) {
 		})
 		t.Cleanup(ms.store.distributedTasksManager.Close)
 
-		if replay {
-			// Every apply below lands at an index ≤ lastAppliedIndexToDB, so
-			// Store.Apply computes catchingUp=true for each command.
-			ms.store.lastAppliedIndexToDB.Store(100)
-		}
+		// Keeps Apply's DB-reload branch out of this test: it fires once an
+		// apply reaches lastAppliedIndexToDB, and this harness has no snapshot
+		// store for it to read.
+		ms.store.dbLoaded.Store(true)
+		ms.store.lastAppliedIndexToDB.Store(lastAppliedIndexToDB)
 
 		applyTaskCmd(t, &ms, addIndex, api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
 			&api.AddDistributedTaskRequest{
@@ -854,16 +854,25 @@ func TestStore_Apply_TerminalTaskArmsForwardCatchingUp(t *testing.T) {
 	for _, arm := range arms {
 		t.Run(arm.name, func(t *testing.T) {
 			t.Run("live apply dispatches", func(t *testing.T) {
-				probe := run(t, arm, false)
+				probe := run(t, arm, 0)
 				require.Eventually(t, func() bool { return len(probe.snapshot()) == 1 },
 					2*time.Second, 5*time.Millisecond,
 					"a live terminal apply must reach the observer")
 			})
 			t.Run("catchup replay stays silent", func(t *testing.T) {
-				probe := run(t, arm, true)
+				probe := run(t, arm, 100)
 				require.Never(t, func() bool { return len(probe.snapshot()) > 0 },
 					300*time.Millisecond, 25*time.Millisecond,
 					"a replayed terminal apply must not reach the observer")
+			})
+			// The boundary the comparison is written on: the entry sitting
+			// exactly at lastAppliedIndexToDB was applied before the restart
+			// and must count as replay, not as live.
+			t.Run("a replay landing exactly on lastAppliedIndexToDB stays silent", func(t *testing.T) {
+				probe := run(t, arm, termIndex)
+				require.Never(t, func() bool { return len(probe.snapshot()) > 0 },
+					300*time.Millisecond, 25*time.Millisecond,
+					"catchingUp is index <= lastAppliedIndexToDB; the entry at the boundary is replay")
 			})
 		})
 	}
