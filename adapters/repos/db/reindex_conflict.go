@@ -316,31 +316,43 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // the caller's request, or "" when the refusal isn't property-scoped.
 // callerDropsTheData is true only when the caller's action destroys ALL the
 // shards the migration works on (today only DeleteClass): those get told to
-// cancel and retry, since a follow-up call would 404. Tenant mutations pass
-// false — the migration's on-disk state survives them.
+// re-issue their request, since a follow-up repair call would 404. Tenant
+// mutations pass false — the migration's on-disk state survives them.
+//
+// STARTED is the only status a cancel is accepted in: both
+// [distributedtask.Manager.CancelTask] and the REST pre-flight key on
+// [distributedtask.TaskStatus.IsCancellable], a literal `== STARTED`, and
+// answer 409 Conflict for everything else. So the split below reads that
+// same predicate — naming a cancel for PREPARING or SWAPPING would hand the
+// operator a request the API refuses.
 //
 // Precondition: status is non-terminal ([distributedtask.TaskStatus.IsActive]);
 // callers pre-filter on it, so a terminal status here would be misreported
 // as one this build doesn't recognize.
 //
-// For a semantic migration, the repair window opens at the MERGE, not the
-// swap: [FinalizeCompletedMigrations] promotes on merged.mig alone, written
-// during PREPARING before any shard swaps. Cancel does not roll a merged
-// generation back ([CleanStalePartialReindexState] preserves it —
-// wiping it is #10675-shape data loss) — so a PREPARING-time cancel already
-// leaves promotion-eligible data behind, and the next restart promotes it
-// into the bucket↔schema inversion [CheckClassMutation] treats as
-// catastrophic (weaviate/weaviate#12575).
-//
 // The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true;
 // cancel is exempt from that flag.
+//
+// FSM-determinism: three of the four call sites are apply-path gates, and the
+// wording branches on two local vocabularies (the status and the migration
+// type). Only the wording does. The gate returns an error either way, the
+// accept/reject decision never reads the remedy, and follower apply errors
+// are discarded — so the apply stays deterministic across binaries.
 func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
-	started := status == distributedtask.TaskStatusStarted
-	if !started && !status.IsCoordinationPhase() {
-		return "this build does not know that status, most likely because a " +
-			"newer node reported it, so it cannot tell you whether cancel " +
-			"still applies; read the task on a node that knows the status"
+	if status.IsCancellable() {
+		return cancellableGateRemedy(p, askedProperty, callerDropsTheData)
 	}
+	if status.IsCoordinationPhase() {
+		return uncancellableGateRemedy(p, askedProperty, callerDropsTheData)
+	}
+	return "this build does not know that status, most likely because a " +
+		"newer node reported it, so it cannot tell you whether cancel " +
+		"still applies; read the task on a node that knows the status"
+}
+
+// cancellableGateRemedy is [ReindexGateRemedy] for a STARTED task — the one
+// status where the cancel it names is accepted.
+func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
 	cancelCall := ReindexCancelCall(p, askedProperty)
 	if cancelCall == "" {
 		return "the cancel endpoint is keyed on one collection, property and " +
@@ -378,28 +390,62 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
 			"re-runs every shard, the ones that already finished included."
 	}
-	if started {
-		return "cancel it via " + cancelCall + ", or wait for it to finish"
+	return "cancel it via " + cancelCall + ", or wait for it to finish"
+}
+
+// uncancellableGateRemedy is [ReindexGateRemedy] for a task in a coordination
+// phase (PREPARING or SWAPPING). Every cancel is refused there, so no arm may
+// name one: waiting is the whole remedy, and the rest of the sentence is what
+// the operator has to be ready for once the wait ends.
+//
+// Both phases are entered from AllUnitsTerminal, and only
+// [distributedtask.Manager.CancelTask] ever writes CANCELLED — so a task that
+// reached here can still end FINISHED or FAILED, but no longer CANCELLED.
+//
+// For a semantic migration the repair window is already open: merged.mig is
+// written during PREPARING, before any shard swaps, and
+// [FinalizeCompletedMigrations] promotes on it alone. A FAILED outcome
+// therefore leaves promotion-eligible data behind that the next restart
+// promotes into the bucket↔schema inversion [ReindexProvider.CheckClassMutation]
+// treats as catastrophic (weaviate/weaviate#12575).
+func uncancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
+	wait := "wait for it to reach a terminal state (GET /v1/tasks reports it). " +
+		"From this phase on the cancel endpoint answers 409 Conflict, because " +
+		"nodes may already have merged their new buckets or renamed bucket " +
+		"directories and stopping the rest would leave the cluster serving " +
+		"migrated buckets under the pre-migration schema, so there is no way " +
+		"to end this task early. "
+	if firstUnknownMigrationType(p.MigrationType) != "" {
+		return wait + "What it leaves behind is something this build cannot " +
+			"name: it does not know this migration type, most likely because " +
+			"a newer node submitted it, so read the task on that node instead."
 	}
-	inversion := "wait for it to finish. From this phase on its per-shard work " +
-		"may already be merged on disk, so cancelling now skips the schema " +
-		"change but does not drop that data, and the next restart promotes it, " +
+	if !IsSemanticMigration(p.MigrationType) {
+		partial := wait + "Every unit of this migration has already completed " +
+			"on every node; what is left is the cluster-wide barrier that ends " +
+			"the task. "
+		if callerDropsTheData {
+			return partial + "Re-issue this request once the task is terminal."
+		}
+		return partial + "Nothing about the wait leaves its index rebuild " +
+			"half-applied, so there is nothing to re-submit afterwards."
+	}
+	inversion := wait + "Its per-shard work may already be merged on disk, so " +
+		"if the task ends in FAILED rather than FINISHED the schema change is " +
+		"skipped while that data stays, and the next restart promotes it, " +
 		"leaving those buckets holding the new format under the old schema. "
 	if callerDropsTheData {
 		return inversion + "That inversion goes with the data you are removing, " +
-			"so there is nothing left to repair: cancel it via " + cancelCall +
-			", then re-issue this request."
+			"so there is nothing left to repair: re-issue this request once the " +
+			"task is terminal."
 	}
 	repairCall := ReindexRepairCall(p, askedProperty)
 	if repairCall == "" {
 		return inversion + "That is repairable only by re-running the " +
-			"migration, which this build cannot name from the task's payload. " +
-			"If you accept that, cancel it via " + cancelCall + "."
+			"migration, which this build cannot name from the task's payload."
 	}
 	return inversion + "That is repairable only by re-running the migration " +
-		"via " + repairCall +
-		" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel). If you " +
-		"accept that, cancel it via " + cancelCall + "."
+		"via " + repairCall + " (which needs RUNTIME_REINDEX_ENABLED=true)."
 }
 
 // abortedMigrationConsequence names what killing an in-flight migration

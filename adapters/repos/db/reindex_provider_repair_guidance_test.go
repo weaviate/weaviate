@@ -14,10 +14,11 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -186,13 +187,22 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			}))
 
 			var guided bool
+			var guidance string
 			for _, e := range hook.AllEntries() {
 				if _, ok := e.Data["repair_command"]; ok {
 					guided = true
+					guidance = e.Message
 				}
 			}
 			require.Equal(t, tc.wantGuidance, guided,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
+			if tc.wantGuidance {
+				// The guidance is written so the operator can match it to
+				// the task, which only works if it names the status the
+				// task actually ended in.
+				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+			}
 		})
 	}
 }
@@ -258,6 +268,15 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTargetTokenizationSt
 	require.Contains(t, hook.Entries[0].Message, "cannot name the request")
 }
 
+// postMergeTrackerDir is the tracker dir name a searchable migration of
+// propName leaves behind, generation suffix included.
+func postMergeTrackerDir(t *testing.T, propName string) string {
+	t.Helper()
+	prefixes := migrationDirPrefixesForIndexType("searchable")
+	require.NotEmpty(t, prefixes)
+	return migrationDirWithProps(prefixes[0], []string{propName}) + "_1"
+}
+
 // Pins the wiring the ack maps cannot cover: a cancel that lands while
 // the task is still STARTED leaves both maps empty, so the only thing
 // that can raise the alarm is this node's own disk.
@@ -266,13 +285,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
-
-	prefixes := migrationDirPrefixesForIndexType("searchable")
-	require.NotEmpty(t, prefixes)
-	dir := migrationDirWithProps(prefixes[0], []string{"title"})
-	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", dir+"_1")
-	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -299,12 +312,77 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 		Payload:        payload,
 	}))
 
-	var guided bool
+	require.True(t, loggedRepairGuidance(hook),
+		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
+}
+
+// Pins where the post-merge probe sits relative to the drain: a drain that
+// does not finish skips the cleanup, but the tear it leaves behind is still
+// the operator's to repair, so the guidance has to fire anyway.
+func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *testing.T) {
+	className := "DrainTimeout_" + uuid.NewString()[:8]
+	shard, idx := testShard(t, testCtx(), className)
+	concrete, err := unwrapShard(testCtx(), shard)
+	require.NoError(t, err)
+	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    className,
+		Properties:    []string{"title"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+		// Needed for a repair command to be renderable at all; without it the
+		// guidance still fires but carries no repair_command field, which is
+		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
+		// TokenizationStillWarns pins.
+		TargetTokenization: "field",
+	})
+	require.NoError(t, err)
+
+	// A server context that expires shortly: the drain's bounded child
+	// inherits it, so the wait ends on that deadline instead of after
+	// reindexTerminalCleanupDrainTimeout. The deadline is ahead rather than
+	// behind so the probe, which runs before the drain and is bounded off
+	// the same context, still gets to read the disk — that ordering is what
+	// this test pins.
+	expired, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, logger, "n1", nil, expired)
+
+	desc := distributedtask.TaskDescriptor{ID: "T_cancel_drain", Version: 1}
+	// A worker that never exits, so the deadline is what ends the drain
+	// rather than the "nothing is running here" short-circuit.
+	structuralInvariantInjectHandle(p, desc)
+
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: desc,
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        payload,
+	}))
+
+	var drainTimedOut bool
 	for _, e := range hook.AllEntries() {
-		if _, ok := e.Data["repair_command"]; ok {
-			guided = true
+		if strings.Contains(e.Message, "drain did not finish") {
+			drainTimedOut = true
 		}
 	}
-	require.True(t, guided,
-		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
+	require.True(t, drainTimedOut,
+		"the fixture has to reach the drain-timeout arm for the rest to mean anything")
+	require.True(t, loggedRepairGuidance(hook),
+		"the cleanup is skipped on this arm, but merged.mig is still a tear only an operator can repair")
+}
+
+// loggedRepairGuidance reports whether any entry carries the operator's
+// copy-pasteable repair command.
+func loggedRepairGuidance(hook *logrustest.Hook) bool {
+	for _, e := range hook.AllEntries() {
+		if _, ok := e.Data["repair_command"]; ok {
+			return true
+		}
+	}
+	return false
 }

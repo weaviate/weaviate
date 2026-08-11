@@ -105,9 +105,16 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		"sanity: expected at least 1 .migrations/*_%s_* dir on disk mid-flight before cancel; got 0 — migration likely finished before cancel reached the cluster, so the post-cancel R5/R6 assertions would PASS trivially without exercising the fix",
 		propName)
 
-	cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
+	cancelled := cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
 	t.Logf("issued cancel for searchable migration on %s/%s (pre-cancel survivors: %d)",
 		className, propName, len(preCancelSurvivors))
+	if !cancelled {
+		// Everything below holds for a plain completion too, so passing
+		// here would say nothing about the cancel. Skip rather than pass,
+		// so "the cancel never lands any more" shows up in CI instead of
+		// hiding behind a green run.
+		t.Skip("cancel lost the race to task completion; the assertions below cannot tell the two apart")
+	}
 
 	// Every replica on every node must drain its .migrations/*_body_*
 	// dirs within cancelTimeout.
@@ -164,9 +171,13 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 
 // cancelReindexProperty sends {<indexType>: {cancel: true}} to
 // PUT /v1/schema/<class>/indexes/<prop> and checks the cancel contract
-// for taskID.
-func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) {
+// for taskID. Reports whether the cancel actually landed: all three arms
+// are legal outcomes of the race, but only one of them leaves the
+// caller's post-cancel assertions cancel-driven rather than
+// completion-driven.
+func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) bool {
 	t.Helper()
+	cancelled := false
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
 	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
@@ -191,6 +202,7 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 		case "CANCELLED":
 			require.Equalf(t, taskID, result.TaskID,
 				"cancel CANCELLED must name the cancelled task; body: %s", string(respBody))
+			cancelled = true
 		case "NO_OP":
 			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
 		default:
@@ -204,6 +216,7 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 	default:
 		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(respBody))
 	}
+	return cancelled
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by

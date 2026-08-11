@@ -48,7 +48,7 @@ import (
 //
 // Caller MUST ensure no local reindex goroutine is touching this
 // (collection, prop, indexType) when this fires; the cancel handler does
-// that via [ReindexProvider.WaitForLocalDrain]. Without the wait, the
+// that via [ReindexProvider.WaitForLocalTaskDrain]. Without the wait, the
 // cleanup races against the in-flight worker which is still writing to the
 // __reindex / __ingest buckets — the shutdown would tear those buckets out
 // from under the writer.
@@ -87,27 +87,38 @@ func (db *DB) cleanStalePartialReindexState(
 	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
 }
 
-// HasPromotableReindexState reports whether any local shard carries a
+// anyPromotableReindexState reports whether any local shard carries a
 // migration generation for (property, indexType) that
 // [FinalizeCompletedMigrations] would promote on next restart. Read-only;
-// works on unloaded shards too.
+// works on unloaded shards too. A nil cache reads the filesystem every time.
 //
-// Over-approximates on purpose (any matching generation and any unreadable
-// dir count as promotable). Fails open when there's no local index to
-// promote into, or when it's closing ([Index.HasPromotableReindexState]
-// walks no shards then); every other case fails closed to true.
-func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
+// Over-approximates on purpose: any matching generation and any unreadable
+// dir count as promotable, so every shard it looks at fails closed to true.
+//
+// Three cases fail open instead, and answer false while promotable state
+// exists: no local index to promote into, an index that is closing (then
+// [Index.anyPromotableReindexState] walks no shards), and a deactivated
+// (COLD) tenant, which Migrator.UpdateTenants removes from the shard map so
+// no walk can reach the merged generation it still holds on disk. That last
+// one is why [ReindexProvider.CheckTenantMutation] refuses the deactivation
+// while the migration is in flight in the first place.
+func (db *DB) anyPromotableReindexState(collection, propName, indexType string, dirs *dirNamesCache) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
 		return false
 	}
-	return idx.HasPromotableReindexState(propName, indexType)
+	return idx.anyPromotableReindexState(propName, indexType, dirs)
 }
 
-// HasPromotableReindexState is the per-index half of
-// [DB.HasPromotableReindexState]. Walks every shard, but does no further
+// anyPromotableReindexState is the per-index half of
+// [DB.anyPromotableReindexState]. Walks every shard, but does no further
 // disk reads once one of them has such a generation.
-func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
+//
+// Pass a shared cache when asking about several (property, index type) pairs
+// of the same collection: without one, each pair re-lists every shard's
+// .migrations dir, which on a large multi-tenant collection is a five-figure
+// syscall count per pair on the OnTaskCompleted callback.
+func (i *Index) anyPromotableReindexState(propName, indexType string, dirs *dirNamesCache) bool {
 	var found bool
 	// ForEachShard, not ForEachLoadedShard: cold-tenant promotable state is
 	// on disk regardless of load. Not forEachShardStrict either: a closing
@@ -117,7 +128,7 @@ func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 		if found {
 			return nil
 		}
-		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType, nil) {
+		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType, dirs) {
 			found = true
 		}
 		return nil

@@ -361,7 +361,11 @@ func (i *Index) localNodeName() string {
 //
 // Unlike the schema gates, it has no task to key a cancel call on — only
 // that a shard is live — so it points at the GET poll instead of guessing a
-// property/index-type pair that could 202 NO_OP.
+// property/index-type pair that could 202 NO_OP. For the same reason it
+// cannot drop the cancel advice the way [ReindexGateRemedy] does once the
+// task is past STARTED, so it states the STARTED-only restriction instead:
+// TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
+// answers 409 Conflict.
 //
 // Names no shard and no node — this reaches an API response body. Those
 // reach the operator via [Index.logReindexRefusal],
@@ -384,13 +388,14 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 		// for something that is gone.
 		advice = ": a cancelled migration is still removing its temporary index files; retry once the cleanup finishes (usually a few seconds)"
 	case reindexBlockedByLiveTask:
-		// Cancel always works here: DTM refuses it only for a task that has
-		// already reached a terminal status, and such a task does not hold this
-		// gate. So the advice can promise it for every state that gets here.
-		// Concrete requests the API accepts, with the collection rendered in;
-		// the property and index type are unknown here, so those stay named
-		// placeholders rather than guesses that could 202 NO_OP.
-		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result. If every index already reports \"ready\", the task holding this gate is one this node cannot match to a property: either it names no collection, in which case the same cancel call on any collection clears it, or its migration type is unknown to this build, in which case the cancel has to reach a node whose build knows the type (the cancel call above says which case it is)", collection, collection)
+		// This reason covers the coordination phases too, and a cancel is
+		// refused there ([distributedtask.TaskStatus.IsCancellable] is a
+		// literal == STARTED), so the advice cannot offer cancel without
+		// conditions: an operator who follows it in PREPARING gets a 409 and
+		// no next step. Concrete requests the API accepts, with the collection
+		// rendered in; the property and index type are unknown here, so those
+		// stay named placeholders rather than guesses that could 202 NO_OP.
+		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}. A cancel is accepted while the task is still STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on it is refused with 409, because nodes may already have written merged state, and waiting for the migration to finish is then the only option. If every index already reports \"ready\", the task holding this gate is one this node cannot match to a property: either it names no collection, in which case the same cancel call on any collection clears it, or its migration type is unknown to this build, in which case the cancel has to reach a node whose build knows the type (the cancel call above says which case it is)", collection, collection)
 	default:
 		// reindexBlockedByUnknownHold, or a zero-value reason from a caller
 		// bug. Neither can back a specific promise, so the message just names

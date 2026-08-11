@@ -816,12 +816,19 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	deletedByTest = true
 }
 
-// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts:
+// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts on
+// every run:
 //
-//  1. Cancel triggers auto-cleanup so `.migrations/<prefix>_body_N/`
-//     drains from disk within a few scheduler ticks.
-//  2. DELETE class after the task reaches CANCELLED succeeds and
+//  1. `.migrations/<prefix>_body_N/` drains from disk within a few
+//     scheduler ticks once the task is no longer running.
+//  2. DELETE class after the task reaches a terminal state succeeds and
 //     leaves no on-disk class dir behind.
+//
+// Whether the cancel is what ends the task is not one of them. The reindex
+// cannot be held at a chosen phase from the outside, so the cancel can land
+// after the task has finished on its own; the switch below asserts the
+// response the phase it did land in has to produce, and logs which one that
+// was. Only the 202/CANCELLED path proves cancel-driven cleanup.
 func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	const (
 		className = "ReindexBackup_CancelCleanup"
@@ -866,6 +873,12 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	// CANCELLED (still STARTED), 409 (every unit finished, cluster-wide swap
 	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
 	// is completion-driven, not cancel-driven, so log which one we got.
+	//
+	// Not a t.Skip like TestMultiNode_CancelClearsAcrossReplicas, for the
+	// same reason as the singlenode cancel test: each arm here checks
+	// something only that answer can satisfy. A regression to "the cancel
+	// is always refused" would still be green here; the per-status answer
+	// is pinned in TestCancelPreflight_WireResponsePerStatus.
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result models.IndexUpdateResponse
@@ -953,8 +966,6 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
 			classPath, strings.TrimSpace(out.String()))
 	}
-
-	_ = taskID
 }
 
 // backupAndRestoreRoundTrip creates a filesystem backup, deletes the

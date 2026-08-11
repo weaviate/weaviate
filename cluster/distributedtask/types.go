@@ -455,10 +455,9 @@ func (t TaskStatus) String() string {
 // backups on the collection, and reports the index as "indexing". See
 // docs/runtime-reindex.md §4.2.
 //
-// A new terminal status also diverges [Manager.CancelTask] across versions:
-// one log entry can leave an older node writing TaskStatusCancelled while a
-// newer node returns errTaskNotRunning — different FSM state at the same
-// log index (weaviate/weaviate#12575).
+// Cancel is not part of that cost. [TaskStatus.IsCancellable] is a literal
+// `== STARTED`, so an older node and a newer one reach the same verdict on
+// any other status, a new terminal one included.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -491,6 +490,11 @@ func (t TaskStatus) IsActive() bool {
 // [TaskStatus.IsActive] returns true: this method reports which phase a
 // task is in, IsActive reports whether this build has to assume the task
 // is still running.
+//
+// Nothing in production calls it. It stays because its switch is one of
+// the tripwires that make a newly declared status fail the build until
+// someone places it, and because it is the phase question the docs'
+// predicate table answers.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
