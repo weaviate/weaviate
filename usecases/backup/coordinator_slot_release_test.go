@@ -482,8 +482,6 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 
 // Pins that a restore losing its slot to the read that also hands it a
 // cancellation does not stamp that cancellation on the claim that replaced it.
-// The status half of the assertion pins pre-PR behavior: this read used to be
-// followed by an unchecked c.lastOp.set(Cancelled).
 func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStorage(t *testing.T) {
 	t.Parallel()
 	const (
