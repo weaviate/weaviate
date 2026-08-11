@@ -588,35 +588,40 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 			err := provider.CheckClassMutation("C", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_class")
-			require.Contains(t, err.Error(), "bucket↔schema inversion")
+			require.Contains(t, err.Error(),
+				"deleting this class would abort the migration on every replica")
 		})
 	}
 }
 
-// Gate messages must name the consequence for the migration type in
-// flight, not always claim a schema inversion.
+// The tenant gate must name the consequence for the migration type in
+// flight, not always claim a schema inversion — tenants outside the
+// mutation keep whatever state the abort leaves behind.
+//
+// The class gate names no per-type consequence at all: DeleteClass takes
+// the data with it, so there is no surviving state to describe.
 func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
-		wantIn        string
-		wantNotIn     []string
+		wantInTenant  string
+		notInTenant   []string
 	}{
 		{
 			migrationType: ReindexTypeChangeTokenization,
-			wantIn:        "bucket↔schema inversion",
-			wantNotIn:     []string{"half-applied", "cannot name"},
+			wantInTenant:  "bucket↔schema inversion",
+			notInTenant:   []string{"half-applied", "cannot name"},
 		},
 		{
 			migrationType: ReindexTypeRepairFilterable,
-			wantIn:        "half-applied",
-			wantNotIn:     []string{"bucket↔schema inversion", "cannot name"},
+			wantInTenant:  "half-applied",
+			notInTenant:   []string{"bucket↔schema inversion", "cannot name"},
 		},
 		{
 			// IsSemanticMigration is a positive allowlist, so without its own
 			// arm a newer node's type would claim the format-only cost.
 			migrationType: "a-type-from-a-newer-node",
-			wantIn:        "have a consequence this build cannot name",
-			wantNotIn:     []string{"half-applied", "bucket↔schema inversion"},
+			wantInTenant:  "have a consequence this build cannot name",
+			notInTenant:   []string{"half-applied", "bucket↔schema inversion"},
 		},
 	}
 
@@ -635,16 +640,24 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 				Payload:        payload,
 			}}
 
-			classErr := provider.CheckClassMutation("C", tasks)
-			require.Error(t, classErr)
 			tenantErr := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
 			require.Error(t, tenantErr)
+			require.Contains(t, tenantErr.Error(), tc.wantInTenant)
+			for _, unwanted := range tc.notInTenant {
+				require.NotContains(t, tenantErr.Error(), unwanted)
+			}
 
-			for _, err := range []error{classErr, tenantErr} {
-				require.Contains(t, err.Error(), tc.wantIn)
-				for _, unwanted := range tc.wantNotIn {
-					require.NotContains(t, err.Error(), unwanted)
-				}
+			classErr := provider.CheckClassMutation("C", tasks)
+			require.Error(t, classErr)
+			require.Contains(t, classErr.Error(),
+				"the interrupted migration's partial state is removed with "+
+					"the class, so nothing is left to repair")
+			// A consequence for surviving data would be a false
+			// counterfactual on a gate whose mutation removes the data.
+			for _, unwanted := range []string{
+				"bucket↔schema inversion", "half-applied", "cannot name",
+			} {
+				require.NotContains(t, classErr.Error(), unwanted)
 			}
 		})
 	}

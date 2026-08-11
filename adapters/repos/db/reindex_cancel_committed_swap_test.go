@@ -162,3 +162,13 @@ func TestHasPromotableReindexState(t *testing.T) {
 		})
 	}
 }
+
+// TestDBHasPromotableReindexStateWithoutLocalIndex pins the one place this
+// predicate does not fail closed: a node that holds no index for the
+// collection has no shard to promote, so answering true would emit repair
+// guidance for state that lives on other nodes.
+func TestDBHasPromotableReindexStateWithoutLocalIndex(t *testing.T) {
+	db := &DB{indices: map[string]*Index{}}
+
+	require.False(t, db.HasPromotableReindexState("C", "descr", "searchable"))
+}

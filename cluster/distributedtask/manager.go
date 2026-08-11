@@ -460,7 +460,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// nothing to act on. Error is version-dependent (older nodes may
 			// leave it empty), but readers only append/set this field, never
 			// branch a status on it — so divergence across nodes is safe.
-			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
+			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {
 					unitErr = "no error recorded"

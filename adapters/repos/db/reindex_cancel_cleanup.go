@@ -89,8 +89,8 @@ func (db *DB) HasPromotableReindexState(collection, propName, indexType string) 
 }
 
 // HasPromotableReindexState is the per-index half of
-// [DB.HasPromotableReindexState]. Stops at the first shard that has such a
-// generation.
+// [DB.HasPromotableReindexState]. Walks every shard, but does no further
+// disk reads once one of them has such a generation.
 func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 	var found bool
 	// ForEachShard rather than ForEachLoadedShard: a cold tenant's promotable
