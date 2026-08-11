@@ -47,8 +47,9 @@ func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 				return &stubCleanupProber{cleaningUp: true}, true
 			},
 			clusterapi.NewNoopAuthHandler(), nullLogger()))
-	// The catch-all a node really serves, so an unmatched path 404s the way a
-	// build without the route would rather than the way this mux would.
+	// Stands in for the catch-all a node really serves, so an unmatched path
+	// 404s the way a build without the route would rather than the way this mux
+	// would. TestOlderBuildCatchAllReadsAsAnOlderBuild uses the real one.
 	mux.Handle("/", http.NotFoundHandler())
 
 	server := httptest.NewServer(mux)

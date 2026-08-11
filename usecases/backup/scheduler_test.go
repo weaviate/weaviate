@@ -1315,9 +1315,15 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 }
 
 func (f *fakeScheduler) scheduler() *Scheduler {
+	return f.schedulerReportingTo(nil)
+}
+
+// schedulerReportingTo builds the scheduler the way production does: through
+// the constructor that registers it with the node-activity probe.
+func (f *fakeScheduler) schedulerReportingTo(activity *NodeActivityProbe) *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, &f.roleLister, provider,
-		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.log)
+		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, activity, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
@@ -1729,7 +1735,7 @@ func TestCancellingRestore(t *testing.T) {
 			}
 		}
 		s := NewScheduler(fs.auth, &fs.client, &fs.selector, &fs.userLister, &fs.roleLister,
-			&fakeBackupBackendProvider{backend: backend}, fs.nodeResolver, &fs.schema, nil, fs.log)
+			&fakeBackupBackendProvider{backend: backend}, fs.nodeResolver, &fs.schema, nil, nil, fs.log)
 
 		require.NoError(t, s.CancelRestore(ctx, nil, backendName, backupID, "", ""))
 		assert.Equal(t, []backup.Status{backup.Cancelling}, backend.storedStatuses(t),

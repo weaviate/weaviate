@@ -82,6 +82,7 @@ func NewScheduler(
 	nodeResolver NodeResolver,
 	schema schemaManger,
 	staticAPIKeyUsers []string,
+	activity *NodeActivityProbe,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
@@ -104,6 +105,14 @@ func NewScheduler(
 			schema,
 			logger, nodeResolver, backends,
 		),
+	}
+	// The probe reads these slots to answer "is this node coordinating a backup
+	// or restore". Registering here rather than at the call site means a
+	// Scheduler the probe cannot see cannot be built: such a node answers
+	// "not busy" for the whole operation, which is the one answer a caller
+	// gating on it may not act on.
+	if activity != nil {
+		activity.attachScheduler(m)
 	}
 	return m
 }

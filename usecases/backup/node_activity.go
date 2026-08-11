@@ -100,10 +100,11 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 	return &NodeActivityProbe{participant: participant}
 }
 
-// AttachScheduler wires in the coordinator slots once the Scheduler exists.
-// Probes may arrive first; answering from participant slots alone is still
-// correct then, since a Scheduler-less node can't be coordinating anything.
-func (p *NodeActivityProbe) AttachScheduler(s *Scheduler) {
+// attachScheduler wires in the coordinator slots. [NewScheduler] is the only
+// caller, so a Scheduler cannot exist that this probe does not see. Probes may
+// arrive before it: answering from participant slots alone is still correct
+// then, since a Scheduler-less node can't be coordinating anything.
+func (p *NodeActivityProbe) attachScheduler(s *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.scheduler = s
@@ -111,6 +112,10 @@ func (p *NodeActivityProbe) AttachScheduler(s *Scheduler) {
 
 // Activity reports the first held slot, in fixed order (coordinator backup,
 // restore, then participant backup, restore) so repeated probes agree.
+//
+// The slots are read one after another, not as one snapshot: a node handing an
+// operation from one slot to another between two reads can answer "not busy"
+// without having been idle at any single instant.
 func (p *NodeActivityProbe) Activity() NodeActivity {
 	p.mu.RLock()
 	scheduler := p.scheduler

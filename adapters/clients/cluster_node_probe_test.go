@@ -68,6 +68,16 @@ func TestProbeAnswersThatEndTheConversation(t *testing.T) {
 			wantErrMsg: "404 did not come from the node itself",
 		},
 		{
+			// The cluster transport honors HTTP_PROXY, and nosniff is a default
+			// on most ingress, so an intermediary can send both parts of a
+			// node's answer except the body.
+			name: "404 with nosniff but a body no node sends",
+			respond: func(w http.ResponseWriter) {
+				http.Error(w, "no healthy upstream", http.StatusNotFound)
+			},
+			wantErrMsg: "404 did not come from the node itself",
+		},
+		{
 			name: "503 without the sentinel stays retryable",
 			respond: func(w http.ResponseWriter) {
 				http.Error(w, "upstream connect error", http.StatusServiceUnavailable)

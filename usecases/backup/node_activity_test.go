@@ -72,7 +72,7 @@ func TestNodeActivityProbe(t *testing.T) {
 			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
 		},
 		{
-			name: "status cleared but slot still held",
+			name: "past Started, still held",
 			claim: func(h *Handler, _ *Scheduler) {
 				_, slot := h.backupper.lastOp.renew("part-backup", "path", "", "")
 				slot.set(backup.Transferring)
@@ -96,10 +96,10 @@ func TestNodeActivityProbe(t *testing.T) {
 			t.Parallel()
 
 			participant := createManager(nil, nil, nil, nil)
-			scheduler := newFakeScheduler(nil).scheduler()
-
 			probe := NewNodeActivityProbe(participant)
-			probe.AttachScheduler(scheduler)
+			// Built the production way: the constructor registers it, so a
+			// coordinator row also pins that registration.
+			scheduler := newFakeScheduler(nil).schedulerReportingTo(probe)
 			tt.claim(participant, scheduler)
 
 			assert.Equal(t, tt.want, probe.Activity())
@@ -173,6 +173,15 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, Kind: NodeActivityKindBackup},
 		},
 		{
+			// The kind reaches an operator verbatim in the 409 a gated caller
+			// returns, so only the two this package emits are accepted.
+			name: "busy with a kind this package never emits",
+			resp: NodeActivityResponse{
+				Probe: clusterprobe.BackupNodeActivityMarker,
+				Busy:  &busy, Kind: "compaction", ID: "1",
+			},
+		},
+		{
 			// Only a held slot has a kind, so this did not come from a node.
 			name: "idle but names a kind",
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, Kind: NodeActivityKindRestore},
@@ -207,21 +216,23 @@ func TestNodeActivityProbeMissingSlots(t *testing.T) {
 
 	t.Run("nil coordinators", func(t *testing.T) {
 		probe := NewNodeActivityProbe(createManager(nil, nil, nil, nil))
-		probe.AttachScheduler(&Scheduler{})
+		probe.attachScheduler(&Scheduler{})
 		assert.Equal(t, NodeActivity{}, probe.Activity())
 	})
 
 	t.Run("nil participant with busy coordinator", func(t *testing.T) {
-		scheduler := newFakeScheduler(nil).scheduler()
+		probe := NewNodeActivityProbe(nil)
+		scheduler := newFakeScheduler(nil).schedulerReportingTo(probe)
 		scheduler.backupper.lastOp.renew("coord-backup", "path", "", "")
 
-		probe := NewNodeActivityProbe(nil)
-		probe.AttachScheduler(scheduler)
 		assert.Equal(t, NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
 			probe.Activity())
 	})
 }
 
+// Every answer a probe gives while slots are being taken and released is a
+// whole slot: the ID that names an operation and the kind that names its role
+// always travel together. (Run under -race this also covers the two locks.)
 func TestNodeActivityProbeConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -229,12 +240,15 @@ func TestNodeActivityProbeConcurrent(t *testing.T) {
 	scheduler := newFakeScheduler(nil).scheduler()
 	probe := NewNodeActivityProbe(participant)
 
-	var wg sync.WaitGroup
+	var (
+		wg   sync.WaitGroup
+		seen []NodeActivity
+	)
 	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
-		probe.AttachScheduler(scheduler)
+		probe.attachScheduler(scheduler)
 	}()
 	go func() {
 		defer wg.Done()
@@ -253,11 +267,59 @@ func TestNodeActivityProbeConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
-			probe.Activity()
+			seen = append(seen, probe.Activity())
 		}
 	}()
 
 	wg.Wait()
+
+	whole := []NodeActivity{
+		{},
+		{Busy: true, Kind: NodeActivityKindBackup, ID: "part-backup"},
+		{Busy: true, Kind: NodeActivityKindRestore, ID: "coord-restore"},
+	}
+	require.Len(t, seen, 500)
+	for _, activity := range seen {
+		assert.Contains(t, whole, activity)
+	}
+}
+
+// A Scheduler the probe cannot see makes this node report "not busy" for every
+// backup or restore it coordinates, which is the answer a caller gating on the
+// probe acts on. So registration belongs to the constructor, not to a call the
+// wiring can leave out.
+func TestNewSchedulerRegistersItsSlotsWithTheProbe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		claim func(s *Scheduler)
+		want  NodeActivity
+	}{
+		{
+			name:  "coordinating a backup",
+			claim: func(s *Scheduler) { s.backupper.lastOp.renew("coord-backup", "path", "", "") },
+			want:  NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
+		},
+		{
+			name:  "coordinating a restore",
+			claim: func(s *Scheduler) { s.restorer.lastOp.renew("coord-restore", "path", "", "") },
+			want:  NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "coord-restore"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			probe := NewNodeActivityProbe(nil)
+			require.False(t, probe.Activity().Busy)
+
+			tt.claim(newFakeScheduler(nil).schedulerReportingTo(probe))
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
 }
 
 // TestNodeActivityProbeSlotExpiresWithPreCommit pins that the slot self-clears
