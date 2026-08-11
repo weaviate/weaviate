@@ -959,15 +959,24 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 		wantBody  string
 	}{
 		{
-			name:      "task is no longer running",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			// The FSM stamps the on-wire marker into the message, and it
+			// survives the gRPC round trip, so the error this arm really
+			// receives carries one. Built with it here, otherwise the
+			// "no marker in the body" assertion below has nothing to
+			// leak.
+			name: "task is no longer running",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-running] task reindex/T1/1 is no longer running: %w",
+					distributedtask.ErrTaskNotRunning)),
 			wantCode:  http.StatusConflict,
 			wantAudit: "reindex_task_cancel_refused",
 			wantBody:  "T1",
 		},
 		{
-			name:      "task does not exist",
-			err:       fmt.Errorf("executing command: %w", distributedtask.ErrTaskDoesNotExist),
+			name: "task does not exist",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-exist] task reindex/T1/1 does not exist: %w",
+					distributedtask.ErrTaskDoesNotExist)),
 			wantCode:  http.StatusAccepted,
 			wantAudit: "reindex_task_cancel_noop",
 			wantBody:  reindexCancelStatusNoOp,
@@ -987,10 +996,13 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
 				WriteResponse(rec, runtime.JSONProducer())
 
-			require.Equal(t, tc.wantCode, rec.Code)
-			require.Contains(t, rec.Body.String(), tc.wantBody)
+			// Asserted first on purpose: a status assertion failing
+			// ahead of it would abort the subtest and leave the marker
+			// unchecked on exactly the arm that leaked it.
 			require.NotContains(t, rec.Body.String(), "dtm-perm/",
 				"the sentinel's internal marker is not user-facing")
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
 			if tc.wantAudit == "" {
 				return
 			}

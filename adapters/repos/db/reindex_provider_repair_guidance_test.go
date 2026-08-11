@@ -181,13 +181,22 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			}))
 
 			var guided bool
+			var guidance string
 			for _, e := range hook.AllEntries() {
 				if _, ok := e.Data["repair_command"]; ok {
 					guided = true
+					guidance = e.Message
 				}
 			}
 			require.Equal(t, tc.wantGuidance, guided,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
+			if tc.wantGuidance {
+				// The guidance is written so the operator can match it to
+				// the task, which only works if it names the status the
+				// task actually ended in.
+				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+			}
 		})
 	}
 }
@@ -201,27 +210,52 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 	const prop = "title"
 
 	for _, tc := range []struct {
-		name     string
-		sentinel string
-		want     bool
+		name string
+		// migrationType defaults to change-tokenization.
+		migrationType ReindexMigrationType
+		// trackerDir defaults to the property's searchable dir.
+		trackerDir string
+		sentinel   string
+		want       bool
 	}{
 		{name: "started but not merged", sentinel: "started.mig", want: false},
 		{name: "merged, awaiting the next restart", sentinel: "merged.mig", want: true},
 		{name: "tidied", sentinel: "tidied.mig", want: true},
 		{name: "no tracker dir at all", want: false},
+		{
+			// map→blockmax keeps its tracker at the class level, which
+			// the per-property dirs omit by design, so the class-level
+			// arm is the only thing that can read this evidence — and
+			// the cleanup never removes it, so it is what a cancelled
+			// map→blockmax leaves behind.
+			name:          "change-algorithm merged at the class level",
+			migrationType: ReindexTypeChangeAlgorithm,
+			trackerDir:    MigrationDirSearchableMapToBlockmax,
+			sentinel:      "merged.mig",
+			want:          true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			migrationType := tc.migrationType
+			if migrationType == "" {
+				migrationType = ReindexTypeChangeTokenization
+			}
+
 			lsmPath := t.TempDir()
 			if tc.sentinel != "" {
-				dirs := migrationDirsForPropertyIndex(prop, "searchable")
-				require.NotEmpty(t, dirs)
-				trackerDir := filepath.Join(lsmPath, ".migrations", dirs[0]+"_1")
+				dir := tc.trackerDir
+				if dir == "" {
+					dirs := migrationDirsForPropertyIndex(prop, "searchable")
+					require.NotEmpty(t, dirs)
+					dir = dirs[0]
+				}
+				trackerDir := filepath.Join(lsmPath, ".migrations", dir+"_1")
 				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(trackerDir, tc.sentinel), nil, 0o600))
 			}
 
 			require.Equal(t, tc.want,
-				hasCompletedMigrationTracker(lsmPath, ReindexTypeChangeTokenization, []string{prop}))
+				hasCompletedMigrationTracker(lsmPath, migrationType, []string{prop}))
 		})
 	}
 }
