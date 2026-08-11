@@ -212,12 +212,9 @@ func TestRestoreWithoutExplicitIncludeIsGated(t *testing.T) {
 		"once the meta is read this arm knows its classes and must scope the gate to them")
 }
 
-// The include a restore names is a pattern, not a class list: it only becomes
-// class names inside validateRestoreRequest. A gate asked before that is asked
-// about a string no collection can equal, and a gate asked about the backup's
-// whole class list refuses restores the caller scoped away from the migration.
-// Both are silent — the refusal still reads the same either way — so the rows
-// below pin what the gate was asked, not only what it answered.
+// The include a restore names is a pattern, resolved to class names only
+// inside validateRestoreRequest, so the rows pin what the gate was asked, not
+// only what it answered — a wrong scope refuses (or admits) silently.
 func TestRestoreGateIsScopedPerArm(t *testing.T) {
 	ctx := context.Background()
 	const (

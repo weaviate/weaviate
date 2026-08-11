@@ -9,25 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package ciguard holds the guards for the reindex_backup CI shard chain.
-//
-// test/acceptance/reindex_backup is split across four CI matrix entries, each
-// passing an exact-name -run allowlist. A test added there but to no list never
-// runs, and the job still reports green — the failure mode these guards exist to
-// make loud. Every hop of that chain is pinned here: test -> allowlist ->
-// run.sh function -> dispatcher --flag -> a workflow matrix entry passing it.
-//
-// They live in this package, which the plain unit-test job runs, rather than in
-// the guarded package itself: a guard that ships inside the shard it guards is
-// disabled by the same matrix edit it is supposed to catch. Running here also
-// keeps them off the acceptance budget entirely — no container, no image build,
-// no per-test deadline.
-//
-// One way a test still escapes, left open deliberately: a test in a SUBpackage
-// of the guarded one is invisible to run.sh's `go list "./$path"`, which does
-// not recurse. Adding /... there would change every acceptance group's package
-// set and the budgets derived from it, which is a bigger change than the escape
-// is worth. It is not in use today; if it is ever needed, close it here first.
+// Package ciguard pins the full chain that runs test/acceptance/reindex_backup
+// in CI (test -> allowlist -> run.sh function -> workflow matrix entry). It
+// lives outside the guarded package so a matrix edit that disables the shard
+// cannot also disable its own guard.
 package ciguard
 
 import (
@@ -44,16 +29,9 @@ import (
 
 const guardedPackagePath = "test/acceptance/reindex_backup"
 
-// imageBuildAllowanceMinutes is the slice of the job window spent building the
-// weaviate test image before go test starts. The go-test budget is what makes
-// a hang panic with stacks, so it only does that if the runner has not killed
-// the job first — which means the budget and the build have to share the
-// window.
-//
-// An observed average, not an enforced cap: nothing measures the build, so a
-// build that slowly grows past 5 minutes eats into the budget this guard
-// believes is available. It fails as a runner-killed job, which reads as a
-// hang without stacks.
+// imageBuildAllowanceMinutes is the observed slice of the job window spent
+// building the test image before go test starts; it must fit alongside the
+// go-test budget inside the workflow's timeout_minutes.
 const imageBuildAllowanceMinutes = 5
 
 var (
@@ -128,27 +106,9 @@ func TestCIAllowlistCoversEveryTestInThisPackage(t *testing.T) {
 		guardedPackagePath, strings.Join(staleBudgets, ", "))
 }
 
-// TestCIGroupTimeoutFitsTheJobWindow walks each group from its run.sh filter
-// out to the workflow, and checks its budget against the two numbers that
-// bound it: the deadlines its own tests wait on, and the window the workflow
-// gives the job. Go's -timeout is what turns a hang into a panic with stacks,
-// and it produces that only if it fires before the runner kills the job and
-// after the tests have had the time they ask for.
-//
-// Walking the chain — filter -> run.sh function -> dispatcher --flag -> a
-// workflow matrix entry passing that flag — is what finding the window
-// requires, so it is the same assertion. A matrix entry renamed, deleted,
-// commented out, or put behind any if: that is not literally true takes the
-// whole group out of PR CI while both the allowlist guard and the job stay
-// green, and lands here as a group with no window. That last hop is read from
-// parsed YAML, not the file's bytes.
-//
-// The floor comes from hand-written AOF_TEST_BUDGET lines, not from the test
-// source, so raising a helper.WithDeadline without editing that test's line
-// moves the real floor above the budget and leaves this guard green. That rot
-// is accepted: it costs CI triage, not correctness. go test still panics with
-// stacks inside the job window; the failure just reads as a product hang
-// rather than as a budget too small.
+// TestCIGroupTimeoutFitsTheJobWindow checks each group's go-test budget against
+// the deadlines its own tests wait on and the timeout_minutes the workflow
+// gives the job, so a hang panics with stacks instead of being runner-killed.
 func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 	root := repoRoot(t)
 	runSh := readRunSh(t, root)
@@ -163,11 +123,8 @@ func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 			requireDispatched(t, runSh, group.name)
 			flag := flagArming(t, runSh, group.name)
 
-			// Zero covers both ways the window goes missing: no
-			// pull-request-triggered job passes this flag to run.sh at all, or
-			// one does but declares a timeout_minutes this guard cannot read.
-			// Either way nothing bounds the job, so the budget below cannot be
-			// checked against anything.
+			// Zero covers both ways the window goes missing: no PR job passes
+			// this flag, or one does with an unreadable timeout_minutes.
 			window := windows[flag]
 			require.NotZerof(t, window,
 				"no pull-request-triggered workflow job in .github/workflows passes %q to "+
@@ -303,10 +260,8 @@ func declaredTests(t *testing.T, root string) []string {
 }
 
 // allowlistedTests maps each allowlisted test name to the one group that runs
-// it. Being in two groups is rejected, not merged: the second group runs the
-// test again against a budget derived on the assumption it runs once, which is
-// what moving a test between groups and leaving the old entry behind looks
-// like.
+// it. Being in two groups is rejected, not merged: each group's budget is
+// derived on the assumption a test runs once.
 func allowlistedTests(t *testing.T, runSh string) map[string]string {
 	t.Helper()
 
@@ -416,10 +371,8 @@ func parseExactNameAlternation(t *testing.T, pattern string) []string {
 }
 
 // groupTimeoutMinutes reads the go-test budget a group sets, falling back to
-// run_aof_group's own default when the group does not set one. A budget written
-// in any other shape than whole minutes fails here rather than falling through
-// to the default, which would have this guard validate the group against a
-// number the group does not use.
+// run_aof_group's default when it sets none. A budget in any other shape than
+// whole minutes fails here rather than falling through to the default.
 func groupTimeoutMinutes(t *testing.T, runSh, group string) int {
 	t.Helper()
 
@@ -529,14 +482,9 @@ type workflowStep struct {
 	With map[string]yaml.Node `yaml:"with"`
 }
 
-// workflowRunShWindows maps every test/run.sh flag a pull request can actually
-// reach to the smallest timeout_minutes bounding a step that runs it. A flag
-// present with a zero window is reachable but unbounded by any window this
-// guard can read, which is why the two facts share one map: an absent key means
-// the group left PR CI, a zero one means its budget cannot be checked.
-//
-// Read from parsed YAML, not the file's bytes, so a matrix entry that was
-// commented out or moved behind a non-true if: no longer counts as invoked.
+// workflowRunShWindows maps every test/run.sh flag a pull request can reach to
+// the smallest timeout_minutes bounding a step that runs it; an absent key
+// means the group left PR CI, a zero one means its budget can't be checked.
 func workflowRunShWindows(t *testing.T, root string) map[string]int {
 	t.Helper()
 
@@ -658,11 +606,9 @@ func triggersOnPullRequest(on *yaml.Node) bool {
 	return false
 }
 
-// notProvenTrue reports whether an if: might not hold on a pull request, which
-// is how a job or step is kept in the file while being taken out of PR CI.
-// Anything other than an absent or literally-true condition counts, because a
-// condition like github.event_name == 'schedule' takes the group out of every
-// PR run just as effectively as a literal false.
+// notProvenTrue reports whether an if: might not hold on a pull request.
+// Anything other than an absent or literally-true condition counts, since e.g.
+// github.event_name == 'schedule' takes the group out of every PR run too.
 func notProvenTrue(expr string) bool {
 	e := strings.TrimSpace(expr)
 	if e == "" {

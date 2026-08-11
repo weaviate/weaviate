@@ -263,14 +263,8 @@ func overlapTaskWithUnits(collection string, status distributedtask.TaskStatus, 
 }
 
 // The check is overlap, not liveness: a task that ran entirely inside the
-// backup window must still refuse it.
-//
-// Cancelled tasks are decided by unit state instead, because cancel only
-// applies to a STARTED task and so a cancelled one may already have rebuilt
-// buckets. The boundary has to be exact in both directions: too strict fails
-// the backup that won the submission race (the submit path's own post-commit
-// rollback manufactures a cancelled task nothing ever claimed), too loose
-// passes a backup that spans a real migration.
+// backup window must still refuse it. Cancelled tasks are decided by unit
+// state instead, since a cancelled one may already have rebuilt buckets.
 func TestReindexOverlapLookup(t *testing.T) {
 	backupStart := time.Now().Add(-2 * time.Minute)
 	insideWindow := backupStart.Add(time.Minute)

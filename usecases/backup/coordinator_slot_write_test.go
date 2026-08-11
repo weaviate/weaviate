@@ -194,10 +194,8 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 		},
 		{
 			// One row for all three terminal statuses: the ownership check runs
-			// before publishIfOwned looks at the status, so none of them can
-			// reach the slot without the others. Cancelled is the worst of the
-			// three: commit() reads it as "cancelled externally" and aborts,
-			// ending an operation nobody cancelled.
+			// before the status is looked at. Cancelled is the worst of the
+			// three, since commit() reads it as an external cancellation.
 			name:       "a stale claim does not cancel the newer operation",
 			stale:      true,
 			status:     backup.Cancelled,

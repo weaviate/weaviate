@@ -215,15 +215,10 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// A multi-tenant submission scoped to one tenant produces a payload naming only
-// that tenant's shard, but the sweep it guards
-// ([Index.CleanStalePartialReindexState]) takes no shard list and removes every
-// local shard's __reindex / __ingest dirs. Gating only the named shard let a
-// backup hardlink a sibling tenant mid-delete.
-//
-// The spellings differ on purpose: a registration and a probe that disagree on
-// case must still match, and a release under the other spelling would leak the
-// entry forever.
+// The sweep this gates ([Index.CleanStalePartialReindexState]) takes no shard
+// list and removes every local shard's sidecars, so gating only the named
+// shard let a backup hardlink a sibling tenant mid-delete. Also checks that a
+// registration and a probe spelling the collection differently still match.
 func TestMarkCleanupInProgressGatesTheWholeCollection(t *testing.T) {
 	p := newCleanupRegistryProvider()
 	require.False(t, p.AnyCleanupInProgress())
@@ -606,12 +601,9 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 	}
 }
 
-// A terminal task whose payload cannot be read never tears its sidecars down:
-// the teardown is addressed by the shards the payload names. Nothing else says
-// so — the cleanup gate is keyed on the same payload, so none closes either —
-// and the only remaining sweep is the next restart's orphan audit. The
-// commit-time backstop keeps refusing meanwhile, which is what makes the line
-// actionable rather than noise.
+// A terminal task whose payload cannot be read never tears its sidecars down,
+// since the teardown is addressed by the shards the payload names; the only
+// remaining sweep is the next restart's orphan audit.
 func TestTerminalTaskWithAnUnreadablePayloadReportsThatNothingToreItDown(t *testing.T) {
 	tests := []struct {
 		name    string

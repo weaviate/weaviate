@@ -103,13 +103,9 @@ func TestIndexStatusPrefersADecodableTaskOverTheFallback(t *testing.T) {
 }
 
 // A decodable task that leaves the entry at "ready" must not swallow the
-// fallback. FINISHED tasks live for DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS
-// (5 days by default), so any collection reindexed in the last week has one
-// sitting next to the live task the backup gate is refusing on.
-//
-// One row, not one per route to "ready": the routes differ only in how the
-// matched task leaves the entry alone, and the finalize window that separates
-// them is already pinned by TestMergeReindexStatus_FinishedBeforeSchemaFlip.
+// fallback: FINISHED tasks live for days, so one often sits next to the live
+// task the backup gate is refusing on. The finalize window is separately
+// pinned by TestMergeReindexStatus_FinishedBeforeSchemaFlip.
 func TestIndexStatusFallsBackWhenTheMatchedTaskStillReadsReady(t *testing.T) {
 	matched := buildTask(t, "t-finished", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeRepairFilterable,

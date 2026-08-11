@@ -56,17 +56,7 @@ func allHoldsDB(disabled bool, calls *atomic.Int64) *DB {
 }
 
 // With RUNTIME_REINDEX_ENABLED off, none of the three gates may consult
-// anything: the kill switch has to buy back the whole cost, not just the
-// refusal. The lookups are leader-forwarded RAFT queries, so a gate that
-// returns nil but still asks keeps exactly the operator-visible cost this
-// pins down.
-//
-// The cancel path is the reason every gate is given every lookup: an operator
-// who turns the feature off can still cancel a migration that was already
-// running, and that cancel closes this node's cleanup gate. A flag check that
-// covered only the activity lookup would let that hold refuse this node's
-// backups for the length of its teardown, through a gate the flag is meant to
-// have turned off.
+// anything, including the lookup a cancel's cleanup gate still depends on.
 func TestRuntimeReindexDisabledSkipsEveryGate(t *testing.T) {
 	gates := []struct {
 		name string
