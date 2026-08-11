@@ -254,7 +254,9 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 }
 
 // Pins resetIfCancelled's check-and-clear as a single lock acquisition: a
-// split one could drop a concurrent renew's claim.
+// split one could drop a concurrent renew's claim. Only `go test -race`
+// catches a violation (CI runs with it); without it the mutex handoff keeps
+// the window shut.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
