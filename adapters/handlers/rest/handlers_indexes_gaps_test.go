@@ -164,22 +164,34 @@ func mustPayload(t *testing.T, p db.ReindexTaskPayload) []byte {
 }
 
 func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
-	existing := &distributedtask.Task{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
-		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		}),
-	}
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		// A status this build cannot name must block a fresh submit too:
+		// reading it as done would admit a second migration onto a
+		// property a newer node is still migrating.
+		unknownFutureStatus,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			existing := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
+				Status:         status,
+				Payload: mustPayload(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				}),
+			}
 
-	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
-	require.NoError(t, err)
-	require.NotEmpty(t, reason)
-	require.Contains(t, reason, "conflicts")
-	require.Contains(t, reason, existing.ID)
+			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+				[]string{"foo"}, []*distributedtask.Task{existing})
+			require.NoError(t, err)
+			require.NotEmpty(t, reason)
+			require.Contains(t, reason, "conflicts")
+			require.Contains(t, reason, existing.ID)
+		})
+	}
 }
 
 func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
@@ -1068,10 +1080,10 @@ func TestValidateBodyExclusivity(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// countStartedTasksForCollection / per-collection concurrent reindex cap.
+// countInFlightTasksForCollection / per-collection concurrent reindex cap.
 //
-// Pins (1) the count function only counts STARTED tasks targeting the named
-// collection, ignoring terminal-status tasks and tasks targeting other
+// Pins (1) the count function counts every non-terminal task targeting the
+// named collection, ignoring terminal-status tasks and tasks targeting other
 // collections; and (2) the comparison against
 // maxConcurrentReindexPerCollection has the right semantics: a fresh submit
 // is admitted exactly when there are strictly fewer than the cap already
@@ -1084,7 +1096,7 @@ func TestValidateBodyExclusivity(t *testing.T) {
 // realistic batch property migrations.
 // -----------------------------------------------------------------------------
 
-func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
+func TestCountInFlightTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
 	mkPayload := func(coll string) db.ReindexTaskPayload {
 		return db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
@@ -1112,6 +1124,19 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
 			},
 			want: 1,
+		},
+		{
+			// The coordination phases still hold tracker dirs and reindex
+			// buckets, and a status this build cannot name may too — all
+			// of them count against the cap.
+			name:       "coordination phases and an unrecognized status count",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusPreparing, mkPayload("C"), nil),
+				buildTask(t, "t2", distributedtask.TaskStatusSwapping, mkPayload("C"), nil),
+				buildTask(t, "t3", unknownFutureStatus, mkPayload("C"), nil),
+			},
+			want: 3,
 		},
 		{
 			name:       "FINISHED/FAILED/CANCELLED ignored",
@@ -1165,7 +1190,7 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := countStartedTasksForCollection(tc.collection, tc.tasks)
+			got := countInFlightTasksForCollection(tc.collection, tc.tasks)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -1202,14 +1227,14 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 		tasksAtCapMinusOne = append(tasksAtCapMinusOne,
 			mkStarted(fmtTaskID(i), collection))
 	}
-	got := countStartedTasksForCollection(collection, tasksAtCapMinusOne)
+	got := countInFlightTasksForCollection(collection, tasksAtCapMinusOne)
 	require.Equal(t, cap-1, got)
 	require.False(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be admitted", got, cap)
 
 	// At exactly the cap, a submit must be rejected.
 	tasksAtCap := append(tasksAtCapMinusOne, mkStarted(fmtTaskID(cap-1), collection))
-	got = countStartedTasksForCollection(collection, tasksAtCap)
+	got = countInFlightTasksForCollection(collection, tasksAtCap)
 	require.Equal(t, cap, got)
 	require.True(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be rejected", got, cap)
