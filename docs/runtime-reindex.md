@@ -639,7 +639,7 @@ Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | No-op; class-level `UsingBlockMaxWAND` flips from `OnTaskCompleted` (`flipSemanticMigrationSchema`) once every searchable prop is on Blockmax. |
 | `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op; tokenization and algorithm are preserved. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
 | `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |

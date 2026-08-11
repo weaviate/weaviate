@@ -71,7 +71,10 @@ func (db *DB) CleanStalePartialReindexState(
 //
 // Over-approximates on purpose: matches any generation under the (property,
 // indexType) prefix, so it may answer true past this task's own generation.
-// Errs toward an extra warning, not a missed one.
+//
+// Also answers false once [FinalizeCompletedMigrations] has already
+// promoted and removed the tracker dir. Read false as "nothing awaits
+// promotion", not as "still pre-migration".
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {

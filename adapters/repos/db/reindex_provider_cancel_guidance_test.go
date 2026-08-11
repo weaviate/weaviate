@@ -58,6 +58,10 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			sentinels:         nil,
 			status:            distributedtask.TaskStatusCancelled,
 			wantRepairCommand: false,
+			// Must not claim the buckets are clean; a promoted node also
+			// has no tracker dir left.
+			wantInLog: []string{"no promotable generation on this node"},
+			notInLog:  []string{"still pre-migration", "nothing to repair"},
 		},
 		{
 			name:              "cancelled with a started-only generation",
@@ -101,7 +105,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			name:          "cancelled format-only migration",
 			status:        distributedtask.TaskStatusCancelled,
 			migrationType: ReindexTypeRepairFilterable,
-			notInLog:      []string{"nothing to repair", "still pre-migration"},
+			notInLog:      []string{"no promotable generation"},
 		},
 		{
 			// Reserved whole-collection shape: no property to render a
@@ -111,7 +115,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			status:     distributedtask.TaskStatusCancelled,
 			properties: []string{},
 			wantInLog:  []string{"manual repair guidance not available"},
-			notInLog:   []string{"nothing to repair"},
+			notInLog:   []string{"no promotable generation"},
 		},
 	}
 

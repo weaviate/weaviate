@@ -658,9 +658,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 			// migration.
 			task.Status = TaskStatusFailed
 			// Name a reason: FAILED with an empty Error leaves the operator
-			// nothing to act on. Error is version-dependent FSM state (an
-			// older node may leave it empty, so GET /v1/tasks can differ per
-			// node), but nothing branches on it, so it costs a message only.
+			// nothing to act on. Error is version-dependent (older nodes may
+			// leave it empty), but readers only append/set this field, never
+			// branch a status on it — so divergence across nodes is safe.
 			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {

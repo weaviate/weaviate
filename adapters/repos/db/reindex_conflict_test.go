@@ -593,6 +593,54 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 	}
 }
 
+// Gate messages must name the consequence for the migration type in
+// flight, not always claim a schema inversion.
+func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		wantIn        string
+		wantNotIn     string
+	}{
+		{
+			migrationType: ReindexTypeChangeTokenization,
+			wantIn:        "bucket↔schema inversion",
+			wantNotIn:     "half-applied",
+		},
+		{
+			migrationType: ReindexTypeRepairFilterable,
+			wantIn:        "half-applied",
+			wantNotIn:     "bucket↔schema inversion",
+		},
+	}
+
+	provider := &ReindexProvider{}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			payload, _ := json.Marshal(ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: tc.migrationType,
+				Properties:    []string{"name"},
+			})
+			tasks := []*distributedtask.Task{{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_consequence", Version: 1},
+				Status:         distributedtask.TaskStatusStarted,
+				Payload:        payload,
+			}}
+
+			classErr := provider.CheckClassMutation("C", tasks)
+			require.Error(t, classErr)
+			require.Contains(t, classErr.Error(), tc.wantIn)
+			require.NotContains(t, classErr.Error(), tc.wantNotIn)
+
+			tenantErr := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			require.Error(t, tenantErr)
+			require.Contains(t, tenantErr.Error(), tc.wantIn)
+			require.NotContains(t, tenantErr.Error(), tc.wantNotIn)
+		})
+	}
+}
+
 func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -1438,6 +1486,10 @@ func TestReindexRepairCall(t *testing.T) {
 			}},
 			{"an enable-searchable with no target tokenization", ReindexTaskPayload{
 				Collection: "C", MigrationType: ReindexTypeEnableSearchable,
+				Properties: []string{"name"},
+			}},
+			{"a filterable tokenization change with no target", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeChangeTokenizationFilterable,
 				Properties: []string{"name"},
 			}},
 			{"no collection", ReindexTaskPayload{

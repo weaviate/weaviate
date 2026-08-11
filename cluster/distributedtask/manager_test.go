@@ -29,8 +29,9 @@ import (
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
 // without standing up the real reindex provider.
 type fakeConflictDetector struct {
-	called     int
-	rejectWith error
+	called      int
+	rejectWith  error
+	lastTaskIDs []string
 }
 
 func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
@@ -41,8 +42,12 @@ func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+func (f *fakeConflictDetector) CheckConflict(_ []byte, tasks []*Task) error {
 	f.called++
+	f.lastTaskIDs = nil
+	for _, t := range tasks {
+		f.lastTaskIDs = append(f.lastTaskIDs, t.ID)
+	}
 	return f.rejectWith
 }
 
@@ -115,6 +120,29 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		require.NoError(t, err2)
 		require.Empty(t, tasks["test"],
 			"rejected task MUST NOT appear in the FSM-stored task list")
+	})
+
+	// Tasks are stored in a map; an unsorted walk would let two nodes
+	// applying the same RAFT entry quote a different task ID.
+	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		// Insertion order is deliberately not sorted order.
+		for i, id := range []string{"T3", "T1", "T4", "T2"} {
+			c := toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "test",
+				Id:                    id,
+				SubmittedAtUnixMillis: time.Now().UnixMilli(),
+				UnitIds:               []string{"su-1"},
+			})
+			require.NoError(t, h.manager.AddTask(c, uint64(100+i)))
+		}
+		require.Equal(t, []string{"T1", "T3", "T4"}, detector.lastTaskIDs,
+			"the last AddTask must see the three already-stored tasks in ID order")
 	})
 
 	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
