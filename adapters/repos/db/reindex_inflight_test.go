@@ -27,6 +27,7 @@ import (
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -286,6 +287,72 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, shard, logged.Data["shard"])
 	assert.Equal(t, node, logged.Data["node"])
 	assert.Equal(t, collection, logged.Data["collection"])
+}
+
+// A gate refusal on the replica-snapshot RPC answers a remote caller, so the
+// refused shard's identity only survives through the local WARN. Both snapshot
+// modes must emit it.
+func TestIncomingCreateReplicaSnapshot_LogsGateRefusal(t *testing.T) {
+	tests := []struct {
+		name        string
+		className   string
+		noHardlinks bool
+	}{
+		{name: "hardlink snapshot path", className: "ReplicaSnapGateHardlink"},
+		{name: "halt-for-duration fallback path", className: "ReplicaSnapGateFallback", noHardlinks: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.noHardlinks {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			}
+			ctx := testCtx()
+			shd, idx := testShard(t, ctx, tc.className)
+			// The fixture skips NewIndex, which normally initializes this.
+			idx.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+
+			logger, hook := logrustest.NewNullLogger()
+			idx.logger = logger
+			require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+			idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+				{tc.className, shd.Name()}: true,
+			}))
+
+			_, err := idx.IncomingCreateReplicaSnapshot(ctx, shd.Name(), "op-gate")
+			require.Error(t, err)
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+			var logged *logrus.Entry
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "refused a replica shard copy") {
+					logged = e
+				}
+			}
+			require.NotNil(t, logged, "the operator needs a log line naming the refused shard")
+			assert.Equal(t, logrus.WarnLevel, logged.Level)
+			assert.Equal(t, shd.Name(), logged.Data["shard"])
+			assert.Equal(t, tc.className, logged.Data["collection"])
+			assert.Equal(t, idx.db.localNodeName, logged.Data["node"])
+		})
+	}
+}
+
+// The pass log sorts its shard sample for diffability; it must do so on a
+// copy, since callers still own their slice.
+func TestLogReindexRefusalPass_SortsACopy(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	shards := []string{"s-c", "s-a", "s-b"}
+
+	logReindexRefusalPass(logger, "test pass", "node1", "SortClass", shards)
+
+	require.Len(t, hook.AllEntries(), 1)
+	entry := hook.AllEntries()[0]
+	sample, ok := entry.Data["blocked_shards"].([]string)
+	require.True(t, ok, "blocked_shards must be a []string field")
+	assert.Equal(t, []string{"s-a", "s-b", "s-c"}, sample,
+		"the sample must be sorted so repeated refusals diff cleanly")
+	assert.Equal(t, []string{"s-c", "s-a", "s-b"}, shards,
+		"the caller's slice must keep its order")
 }
 
 // logReindexRefusal sits on error paths that carry every kind of failure, so it

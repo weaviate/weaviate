@@ -623,6 +623,56 @@ func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
 		wantSampleCap, len(sample))
 }
 
+// The sequential no-hardlinks fallback returns on the first refusal, so its
+// summary log carries exactly the one shard the gate blocked.
+func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	logger, hook := tlog.NewNullLogger()
+	idx.logger = logger
+	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
+	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "no-hardlink-refusal", &desc, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+
+	var gateLines int
+	var sample []string
+	var reportedCount int
+	for _, e := range hook.AllEntries() {
+		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
+			continue
+		}
+		gateLines++
+		if v, ok := e.Data["blocked_shards"].([]string); ok {
+			sample = v
+		}
+		if v, ok := e.Data["blocked_shard_count"].(int); ok {
+			reportedCount = v
+		}
+	}
+
+	require.Equal(t, 1, gateLines, "one refusal is one operator-facing line")
+	require.Equal(t, 1, reportedCount)
+	require.Equal(t, []string{"cold-tenant"}, sample,
+		"the log must name the shard the gate blocked")
+}
+
 func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	rootDir := t.TempDir()
 	className := "TestClass"

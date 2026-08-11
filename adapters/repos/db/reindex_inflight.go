@@ -14,7 +14,7 @@ package db
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -181,9 +181,10 @@ func logReindexRefusalPass(logger logrus.FieldLogger, stage, node, collection st
 	if len(shardNames) == 0 || logger == nil {
 		return
 	}
-	// Sorted so repeated refusals diff cleanly.
-	sort.Strings(shardNames)
-	sample := shardNames
+	// Sorted so repeated refusals diff cleanly; on a copy so the
+	// caller's slice keeps its order.
+	sorted := slices.Sorted(slices.Values(shardNames))
+	sample := sorted
 	if len(sample) > reindexRefusalShardSample {
 		sample = sample[:reindexRefusalShardSample]
 	}
