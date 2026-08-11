@@ -605,7 +605,7 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	}{
 		{
 			migrationType: ReindexTypeChangeTokenization,
-			wantInTenant:  "bucket↔schema inversion",
+			wantInTenant:  "can produce a bucket↔schema inversion",
 			notInTenant:   []string{"half-applied", "cannot name"},
 		},
 		{
@@ -784,7 +784,7 @@ func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
 			payload: semanticPayload,
 			want: []string{
 				"The migration's on-disk state is not removed by this mutation",
-				"a deactivated shard promotes it on reactivation",
+				"a deactivated shard promotes any merged generation on reactivation",
 				"a delete leaves every remaining tenant's shard carrying it",
 				`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
 			},
