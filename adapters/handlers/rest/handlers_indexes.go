@@ -2304,9 +2304,8 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // is reserved for a future whole-collection rebuild and is treated as
 // matching any property for conflict purposes.
 //
-// Which bucket types a migration touches on its targeted property comes
-// from [db.ReindexTargetIndexes], the single source of truth for that
-// mapping. It is not restated here.
+// Bucket types touched per migration type: see [db.ReindexTargetIndexes],
+// the single source of truth for that mapping.
 //
 // Unparseable payloads (e.g. payload schema change across versions, RAFT
 // replay of a task from an older binary) are treated as a hard error

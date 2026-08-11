@@ -60,26 +60,12 @@ func (db *DB) CleanStalePartialReindexState(
 
 // HasPromotableReindexState reports whether any local shard carries a
 // migration generation for (property, indexType) that
-// [FinalizeCompletedMigrations] would promote on the next restart. Read-only;
-// answers for registered-but-unloaded shards without hydrating them.
+// [FinalizeCompletedMigrations] would promote on next restart. Read-only;
+// works on unloaded shards too.
 //
-// "Promotable" = a tracker dir with tidied.mig or merged.mig, the same set
-// cancel cleanup preserves — except the class-level dir also scanned here,
-// which cleanup never matches. merged.mig alone triggers promotion and is
-// written during PREPARING, so this goes true at the merge, not the swap.
-// Unreadable directories answer true, same as [hasStalePartialReindexState].
-//
-// Over-approximates on purpose: it matches any generation under the
-// (property, indexType) prefix (so it may answer true past this task's own
-// generation), and the class-level dir isn't property-scoped (so one
-// class-level generation answers true for every property).
-//
-// Also answers false once [FinalizeCompletedMigrations] has already
-// promoted and removed the tracker dir. Read false as "nothing awaits
-// promotion", not as "still pre-migration".
-//
-// Exception to fail-closed: no local index (not in this node's replica
-// set, or already dropped) answers false — no shard here to promote.
+// Over-approximates on purpose (any matching generation and any unreadable
+// dir count as promotable) and fails open only when there's no local index
+// to promote into — every other case fails closed to true.
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
@@ -93,17 +79,10 @@ func (db *DB) HasPromotableReindexState(collection, propName, indexType string) 
 // disk reads once one of them has such a generation.
 func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 	var found bool
-	// ForEachShard rather than ForEachLoadedShard: a cold tenant's promotable
-	// state is on disk whether or not the shard is loaded, so skipping
-	// unloaded shards would suppress the warning on collections with the
-	// most cold tenants.
-	//
-	// ForEachShard rather than forEachShardStrict: a closing index walks no
-	// shards and answers false, the one non-fail-closed answer in this
-	// predicate. The cost is a suppressed CANCELLED warning on a node that
-	// is shutting down with genuinely promotable state on disk — which the
-	// next start promotes. Accepted because the alternative, failing the
-	// whole shutdown path on a strict walk, is worse.
+	// ForEachShard, not ForEachLoadedShard: cold-tenant promotable state is
+	// on disk regardless of load. Not forEachShardStrict either: a closing
+	// index walks no shards and answers false — a suppressed warning beats
+	// failing the shutdown path.
 	_ = i.ForEachShard(func(name string, _ ShardLike) error {
 		if found {
 			return nil
@@ -117,11 +96,9 @@ func (i *Index) HasPromotableReindexState(propName, indexType string) bool {
 }
 
 // hasPromotableReindexState is the on-disk predicate behind
-// [Index.HasPromotableReindexState], for the shard rooted at lsmPath.
-//
-// Fails closed like [hasStalePartialReindexState]: an unrecognized indexType
-// or an unenumerable .migrations dir answers true. An absent dir is the
-// exception (a shard that never ran a migration is the common case).
+// [Index.HasPromotableReindexState] for the shard rooted at lsmPath. Fails
+// closed (true) on an unrecognized indexType or unenumerable .migrations
+// dir; an absent dir is the one exception, since most shards never migrate.
 func hasPromotableReindexState(lsmPath, propName, indexType string) bool {
 	prefixes := migrationDirsForPropertyIndex(propName, indexType)
 	if len(prefixes) == 0 {
