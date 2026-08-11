@@ -24,8 +24,10 @@ const ReindexNamespace = "reindex"
 var ErrReindexPayloadNamesNoCollection = errors.New("reindex task payload names no collection")
 
 // DecodeReindexTaskPayload is the one place that decides whether a reindex
-// task payload can be acted on. Every gate, status view and cancel pass reads
-// it through here so they cannot disagree.
+// task payload can be acted on. Every gate that has to answer "is this task
+// readable enough to act on?" reads it through here so they cannot disagree.
+// Call sites that only need a field out of a payload they already trust
+// (conflict detection, the per-collection task count) still unmarshal directly.
 //
 // "Unreadable" keys on the collection being absent, not on the decoder
 // erroring: a renamed field on a newer node's payload unmarshals silently

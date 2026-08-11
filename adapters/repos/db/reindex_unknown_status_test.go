@@ -67,19 +67,32 @@ func TestCheckConflict_RejectsAgainstUnknownStatusTask(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for _, status := range []distributedtask.TaskStatus{
-		unknownFutureStatus,
-		distributedtask.TaskStatus(""),
-	} {
-		t.Run(string(status), func(t *testing.T) {
+	tests := []struct {
+		status       distributedtask.TaskStatus
+		wantConflict bool
+	}{
+		{status: unknownFutureStatus, wantConflict: true},
+		{status: distributedtask.TaskStatus(""), wantConflict: true},
+		// The contrast that makes the rows above mean something: a status this
+		// build DOES recognize as done must let the new migration through.
+		{status: distributedtask.TaskStatusFinished},
+		{status: distributedtask.TaskStatusCancelled},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
 					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
-					Status:         status,
+					Status:         tc.status,
 					Payload:        existPayload,
 				},
 			}
 			err := provider.CheckConflict(newPayload, existing)
+			if !tc.wantConflict {
+				require.NoError(t, err, "a task this build knows is finished must not block a new migration")
+				return
+			}
 			require.Error(t, err, "a task this build cannot prove is done must block a new migration")
 			require.Contains(t, err.Error(), "conflicts")
 		})

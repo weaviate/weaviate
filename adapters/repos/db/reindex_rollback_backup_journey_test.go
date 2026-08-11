@@ -85,7 +85,7 @@ func newRollbackJourney(t *testing.T, status distributedtask.TaskStatus,
 
 	// The per-shard gate: a live task on this shard refuses, mirroring
 	// newShardReindexActivityBuilder.
-	database.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+	database.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
 		live := map[string]bool{}
 		for _, tsk := range []*distributedtask.Task{task} {
 			if !IsLiveReindexTaskStatus(tsk.Status) {
@@ -109,7 +109,7 @@ func newRollbackJourney(t *testing.T, status distributedtask.TaskStatus,
 // captureShard is what a backup does per shard while it walks the collection:
 // Shard.HaltForTransfer consults exactly this gate before hardlinking.
 func (j *rollbackJourney) captureShard() error {
-	return j.index.refuseIfReindexInFlight(journeyShard)
+	return j.index.refuseIfReindexInFlight(context.Background(), journeyShard)
 }
 
 // The submit path rolls a committed reindex back precisely so the backup that

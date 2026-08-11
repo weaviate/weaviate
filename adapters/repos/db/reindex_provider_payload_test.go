@@ -84,8 +84,9 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 			payload: []byte("{not json"),
 		},
 		{
-			name:    "unparseable, not even brace-prefixed",
-			payload: []byte("not json"),
+			name:    "truncated mid-object, collection visible in the bytes",
+			payload: []byte(`{"collection":"Movies"`),
+			why:     "the fallback is a JSON decode, not a scan for the substring, so a truncated payload scopes nothing",
 		},
 		{
 			name:    "collection itself retyped",
