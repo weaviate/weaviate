@@ -1093,6 +1093,9 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
 			http.StatusConflict, "wait for it to reach a terminal state",
 		},
+		// The three terminal rows never reach the refusal logic: they
+		// are filtered out as cancel targets, so what they pin is that a
+		// finished task is a NO_OP rather than a 409.
 		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
 		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
 		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
@@ -1161,3 +1164,49 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 
 // The apply-time mapping of DTM's rejections is pinned by
 // TestCancelThatRacedTheTasksOwnEnding, which drives the real cancel handler.
+
+// Pins the selection policy when several in-flight tasks match: a
+// cancellable one wins, so the operator never gets a 409 while a task
+// the FSM would have cancelled sits further down the list. With none
+// cancellable the first match is reported, so the refusal names a task
+// they can look up.
+func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+	task := func(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+		return buildTask(t, id, status, payload, nil)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		tasks  []*distributedtask.Task
+		wantID string
+	}{
+		{
+			name: "a cancellable task behind a coordination phase",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("started", distributedtask.TaskStatusStarted),
+			},
+			wantID: "started",
+		},
+		{
+			name: "none cancellable, so the first match is refused",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("preparing", distributedtask.TaskStatusPreparing),
+			},
+			wantID: "swapping",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, _, found, _ := findCancelTarget(tc.tasks, "C", "foo", "filterable")
+			require.True(t, found)
+			require.NotNil(t, target)
+			require.Equal(t, tc.wantID, target.ID)
+		})
+	}
+}
