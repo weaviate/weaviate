@@ -495,7 +495,7 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
 		f = func() {
-			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
+			ret.Error = st.distributedTasksManager.CancelTask(&cmd, catchingUp)
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
 		f = func() {
@@ -503,7 +503,7 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED:
 		f = func() {
-			ret.Error = st.distributedTasksManager.RecordUnitCompletion(&cmd)
+			ret.Error = st.distributedTasksManager.RecordUnitCompletion(&cmd, catchingUp)
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:
 		f = func() {
@@ -515,15 +515,15 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED:
 		f = func() {
-			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd)
+			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd, catchingUp)
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
 		f = func() {
-			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
+			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd, catchingUp)
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:
 		f = func() {
-			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
+			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd, catchingUp)
 		}
 	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
 		f = func() {

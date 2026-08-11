@@ -41,6 +41,21 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// TerminalObserver is called on every node shortly after a task goes terminal
+// (CANCELLED or FAILED), usually before the scheduler has looked at it.
+// Register via [Manager.RegisterTerminalObserver]. It exists so a namespace can
+// make "this node has seen the task end" observable to peers without waiting
+// for the scheduler tick.
+//
+// Runs on the Manager's drainer goroutine, not the RAFT-apply path, so it may
+// take locks and do work; it gets a clone of the task and must not mutate
+// RAFT-replicated state. Guarantees it does NOT have: it may run after the
+// scheduler has already acted, two events may run concurrently under queue
+// overflow, and past [terminalDispatchOverflowLimit] an event is dropped rather
+// than delivered — see [Manager.dispatchTerminalWithLock]. Endings replayed
+// from the RAFT log at startup are skipped.
+type TerminalObserver func(task *Task)
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
@@ -526,7 +541,18 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time that task reached a terminal status.
+	// FinishedAt is the time the task's UNITS stopped working — despite the
+	// name, NOT the time it reached a terminal status. It is stamped when
+	// AllUnitsTerminal lands, while the status becomes PREPARING or SWAPPING
+	// and the bucket swap/rename still lie ahead, so a task can sit in
+	// SWAPPING for minutes with a FinishedAt already in the past.
+	//
+	// Known wrong, and worked around rather than fixed: TTL cleanup skips
+	// non-terminal statuses, and terminal-observer dispatch keys the
+	// boot-replay skip on the FSM's own replay flag instead. Anything new that
+	// needs "when did this task end" has to do the same — the correct fix
+	// changes what this field means.
+	//
 	// Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 
