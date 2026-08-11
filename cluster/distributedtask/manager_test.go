@@ -2121,3 +2121,35 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 		})
 	}
 }
+
+// Pins the journey that makes the CleanUpTask exit load-bearing: a task
+// in a status this build cannot name arrives by snapshot (a leader
+// running a newer release), survives the restart that replays it, and is
+// then still removable. Nothing else can remove it — every status
+// transition refuses a status it cannot name, and once the peers have
+// deleted their copies the sweep's leader-routed list no longer carries
+// it either.
+func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	restarted := NewManager(ManagerParameters{
+		Clock:            h.clock,
+		CompletedTaskTTL: h.completedTaskTTL,
+		Logger:           h.logger,
+	})
+	require.NoError(t, restarted.Restore(snap))
+	require.Equal(t, unknownFutureStatus, restarted.tasks[ns][id].Status,
+		"the status has to survive the round trip, or this journey proves nothing")
+
+	h.clock.Advance(2 * h.completedTaskTTL)
+	require.NoError(t, restarted.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+		Namespace: ns,
+		Id:        id,
+		Version:   version,
+	})))
+	require.NotContains(t, restarted.tasks[ns], id)
+}
