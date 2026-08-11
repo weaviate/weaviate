@@ -27,7 +27,20 @@ import (
 // boundaries with errors.Is, not substring comparison. The operator-visible
 // error text wrapping this sentinel is owned by the storage layer in
 // adapters/repos/db/reindex_inflight.go.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
+//
+// Names no shard: the text reaches API response bodies, and backing up a
+// collection grants nothing on shard ids.
+var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
+
+// ReindexBlockedError is the API-safe form of a backup refused by the reindex
+// gate. Wrappers on the way out add the shard and node an operator wants and a
+// backup caller is not granted, so the publishable message travels alongside
+// them and the boundary recovers it with errors.As.
+type ReindexBlockedError struct{ Msg string }
+
+func (e ReindexBlockedError) Error() string { return e.Msg }
+
+func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,7 +246,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("NodeDown", func(t *testing.T) {
@@ -483,7 +485,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
-		assert.Contains(t, err.Error(), nodes[1])
+		assert.Contains(t, err.Error(), nodes[1],
+			"a generic refusal must say which participant refused")
 	})
 
 	t.Run("PutInitialMeta", func(t *testing.T) {
@@ -938,18 +941,27 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
+		name string
+		// refusalResp is what the refusing participant answers. transportErr,
+		// when set, is the RPC error returned alongside it — the case where no
+		// response was ever produced.
 		refusalResp     *CanCommitResponse
+		transportErr    error
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
+		// Only the reindex refusal is composed to name no node, so only it is
+		// safe to serve to a backup caller unprefixed. Every other refusal
+		// keeps the node name: it is an operator-facing failure whose first
+		// question is which node produced it.
+		expectNodeNamed bool
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
+				Err:     backup.ErrBackupBlockedByInFlightReindex.Error() + ": collection \"Class-A\" has an active runtime-reindex task in DTM",
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
@@ -965,6 +977,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectCanCommit: true,
 			expectContain:   "some other refusal",
+			expectNodeNamed: true,
 		},
 		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
@@ -976,6 +989,18 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// returning a zero-value response.
 			},
 			expectCanCommit: true,
+			expectNodeNamed: true,
+		},
+		{
+			// A participant that cannot be reached never produces a
+			// CanCommitResponse, so there is no ErrKind to redact on.
+			// "connection refused" with no node name is unactionable on a
+			// cluster of any size.
+			name:            "a transport error names the node",
+			refusalResp:     &CanCommitResponse{},
+			transportErr:    errors.New("connection refused"),
+			expectContain:   "connection refused",
+			expectNodeNamed: true,
 		},
 	}
 
@@ -992,7 +1017,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			})).Return(acceptResp, nil).Maybe()
 			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
 				return r.Method == OpCreate && r.ID == backupID
-			})).Return(tc.refusalResp, nil)
+			})).Return(tc.refusalResp, tc.transportErr)
 
 			// On refusal the coordinator aborts the participant that accepted.
 			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
@@ -1022,8 +1047,13 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
-			// Surface the offending node so the operator knows where to look.
-			assert.Contains(t, err.Error(), nodes[1])
+			if tc.expectNodeNamed {
+				assert.Contains(t, err.Error(), nodes[1],
+					"an operator-facing refusal must say which participant produced it")
+			} else {
+				assert.NotContains(t, err.Error(), nodes[1],
+					"the reindex refusal is node-free by construction; a backup caller has no grant on node names")
+			}
 		})
 	}
 }
@@ -1053,7 +1083,7 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	// Shared symbol must be non-nil and carry the expected operator text.
 	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
 	require.Equal(t,
-		"backup blocked: runtime-reindex in flight on this shard",
+		"backup blocked: runtime-reindex in flight",
 		backup.ErrBackupBlockedByInFlightReindex.Error(),
 		"operator-visible sentinel text is part of the contract; do not edit lightly",
 	)
@@ -1072,6 +1102,34 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+}
+
+// The participant composes its refusal to open with the sentinel, so wrapping
+// it with %w again would state the condition twice in the operator's face.
+func TestCanCommitErrFromResponse_StatesTheConditionOnce(t *testing.T) {
+	t.Parallel()
+
+	sentinel := backup.ErrBackupBlockedByInFlightReindex.Error()
+	err := canCommitErrFromResponse(&CanCommitResponse{
+		Method:  OpCreate,
+		ID:      "dedupe-id",
+		Err:     sentinel + `: collection "Class-A" has an active runtime-reindex task in DTM`,
+		ErrKind: CanCommitErrInFlightReindex,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+	assert.Equal(t, 1, strings.Count(err.Error(), sentinel),
+		"the participant already opened with the sentinel; wrapping repeats it")
+
+	// A participant that did not open with it still gets the sentinel attached.
+	older := canCommitErrFromResponse(&CanCommitResponse{
+		Method:  OpCreate,
+		ID:      "dedupe-id",
+		Err:     "shard has 1 active tracker(s)",
+		ErrKind: CanCommitErrInFlightReindex,
+	})
+	require.ErrorIs(t, older, backup.ErrBackupBlockedByInFlightReindex)
+	assert.Contains(t, older.Error(), sentinel)
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number

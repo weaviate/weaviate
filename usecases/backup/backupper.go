@@ -93,7 +93,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // only that its metadata is missing.
 func (b *backupper) publishFailure(err error) {
 	b.lastAsyncError = err
-	b.lastOp.setFailed(err.Error())
+	b.lastOp.setFailed(publishableErrMsg(err))
 }
 
 // backup checks if the node is ready to back up (can commit phase)

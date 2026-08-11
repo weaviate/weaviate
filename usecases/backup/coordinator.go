@@ -536,10 +536,24 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
+		if strings.HasPrefix(resp.Err, backup.ErrBackupBlockedByInFlightReindex.Error()) {
+			// The participant's message already opens with the sentinel; %w
+			// would print the whole condition twice.
+			return backup.ReindexBlockedError{Msg: resp.Err}
+		}
 		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
+}
+
+// isNodeFreeCanCommitErrKind reports whether a refusal of this kind names no
+// node and no shard, and so can be served to a backup caller as-is. Only the
+// reindex refusal is; everything else is an operator-facing failure whose
+// first question is "which node?", so [coordinator.canCommit] keeps the node
+// prefix on those.
+func isNodeFreeCanCommitErrKind(kind CanCommitErrorKind) bool {
+	return kind == CanCommitErrInFlightReindex
 }
 
 // canCommit asks candidates if they agree to participate in DBRO
@@ -602,10 +616,19 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
+			redactNode := false
 			if err == nil && resp.Timeout == 0 {
+				redactNode = isNodeFreeCanCommitErrKind(resp.ErrKind)
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
+				c.log.WithField("action", req.Method).
+					WithField("backup_id", req.ID).
+					WithField("node", req.NodeName).
+					Errorf("canCommit refused by participant: %v", err)
+				if redactNode {
+					return err
+				}
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()

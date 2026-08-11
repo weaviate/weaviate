@@ -281,7 +281,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				// coordinator count the node done and report a backup that
 				// cannot be restored as good.
 				desc.Status = backup.Transferred
-				u.slot.setFailed(err.Error())
+				u.slot.setFailed(publishableErrMsg(err))
 			} else {
 				u.slot.set(backup.Success)
 			}
@@ -289,7 +289,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = nonEmptyErrMsg(err)
+		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
 		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
@@ -312,7 +312,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(err.Error())
+			u.slot.setFailed(publishableErrMsg(err))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -386,13 +386,23 @@ Loop:
 	return nil
 }
 
-// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
-// text is served verbatim from the status API, backend messages and all.
-func nonEmptyErrMsg(err error) string {
-	if msg := err.Error(); msg != "" {
-		return msg
+// publishableErrMsg is the failure text safe to serve from the status API,
+// or a stand-in when err has none. Everything else is served verbatim,
+// backend messages and all.
+//
+// A gate refusal arrives wrapped in the shard it came from; backing up a
+// collection grants nothing on shard ids, so the refusal's own message is
+// published rather than the traversal that found it.
+func publishableErrMsg(err error) string {
+	msg := err.Error()
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		msg = blocked.Error()
 	}
-	return failureWithoutReason
+	if msg == "" {
+		return failureWithoutReason
+	}
+	return msg
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

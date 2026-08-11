@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1746,4 +1747,46 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 		return
 	}
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
+}
+
+// The status API serves this text to a backup caller. A gate refusal reaches
+// it wrapped in the shard that produced it, and a backup caller is granted
+// nothing on shard ids.
+func TestPublishableErrMsg(t *testing.T) {
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "an ordinary failure is served verbatim",
+			err:  errors.New("no space left on device"),
+			want: "no space left on device",
+		},
+		{
+			name: "a failure with no text still states one",
+			err:  errors.New(""),
+			want: failureWithoutReason,
+		},
+		{
+			name: "a bare gate refusal is its own message",
+			err:  refusal,
+			want: refusal.Msg,
+		},
+		{
+			name: "the shard the wrappers named is dropped",
+			err:  fmt.Errorf("snapshot shard zmDMRo4olU4c: halt for snapshot: %w", refusal),
+			want: refusal.Msg,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, publishableErrMsg(tc.err))
+		})
+	}
 }
