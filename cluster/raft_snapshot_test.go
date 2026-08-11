@@ -52,7 +52,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 
 	// DeleteClass
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.indexer.On("DeleteClass", Anything, Anything).Return(nil)
 	m.replicationFSM.On("DeleteReplicationsByCollection", Anything).Return(nil)
 	_, err := srv.DeleteClass(ctx, "C")
 	assert.Nil(t, err)
