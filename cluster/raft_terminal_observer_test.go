@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -126,7 +127,13 @@ func TestRaftTerminalObserverWiring(t *testing.T) {
 func TestTerminalObserverReconcileNeedsACaughtUpNode(t *testing.T) {
 	const namespace = "terminal-observer-reconcile-test"
 
+	// Control for the subtest below: an unopened store has no RAFT at all, so
+	// the failure here is structural rather than an election outcome. It shows
+	// the shape of the advice, not that a leader was unreachable.
 	t.Run("at registration time the list has no leader to reach", func(t *testing.T) {
+		// Registered before the Close below so LIFO cleanup stops the drainer
+		// before the leak check looks for it.
+		t.Cleanup(leaktest.Check(t))
 		m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 		srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 		t.Cleanup(m.store.distributedTasksManager.Close)
@@ -145,6 +152,8 @@ func TestTerminalObserverReconcileNeedsACaughtUpNode(t *testing.T) {
 		require.Error(t, err,
 			"registration happens before Open, where this node is not the leader and knows of none, "+
 				"so reconciling here cannot be what the contract asks for")
+		require.Empty(t, probe.snapshot(),
+			"registering must not replay anything by itself")
 	})
 
 	t.Run("once the node is caught up the list reports an ending nobody announced", func(t *testing.T) {

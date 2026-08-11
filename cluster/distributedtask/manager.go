@@ -317,7 +317,12 @@ func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalOb
 // dropped since shutdown means there's no one left to read them. Does not
 // wait for an observer call already in flight — the drainer looks its
 // observer up under the same lock Close holds, so joining would deadlock.
-// Observers must tolerate being called for a moment after Close returns.
+//
+// Nothing bounds how long that in-flight call runs, so an observer can still
+// be executing after Close returns and after the caller has torn the rest of
+// the node down. Observers must not assume the subsystems they touch are
+// still up. Joining is not the trade we want here: it would hand a wedged
+// observer the power to hang node shutdown.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -401,6 +406,9 @@ func (m *Manager) runTerminalObserver(task *Task) {
 	m.mu.RLock()
 	observer := m.terminalObservers[task.Namespace]
 	m.mu.RUnlock()
+	// Never nil today: registration drops nil and nothing unregisters, and the
+	// dispatch path already filtered. Kept so adding an unregister path is not
+	// a nil call on the drainer.
 	if observer == nil {
 		return
 	}
