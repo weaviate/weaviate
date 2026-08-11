@@ -149,8 +149,7 @@ func TestInternalBackupsNodeActivity(t *testing.T) {
 	}
 }
 
-// App state does not always carry a logger by the time the internal server is
-// built, and the probe must not take the process down over it.
+// Pins: a nil logger must not crash the probe.
 func TestInternalBackupsNodeActivityToleratesANilLogger(t *testing.T) {
 	handler := clusterapi.NewBackups(nil, backup.NewNodeActivityProbe(nil),
 		clusterapi.NewNoopAuthHandler(), nil)
