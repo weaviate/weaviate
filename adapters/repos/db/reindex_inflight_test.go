@@ -260,7 +260,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{collection, shard}: true,
 	}))
-	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+	idx := &Index{db: db, logger: logger, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
 
 	err := idx.refuseIfReindexInFlight(shard)
 	require.Error(t, err)
@@ -273,6 +273,10 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
 	}
 
+	// The check itself runs once per shard of a whole-collection pass, so the
+	// pass owns the log. This is the single-shard form of it.
+	idx.logReindexRefusal(shard, err)
+
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
 		if strings.Contains(entry.Message, "refused a backup") {
@@ -283,6 +287,18 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, shard, logged.Data["shard"])
 	assert.Equal(t, node, logged.Data["node"])
 	assert.Equal(t, collection, logged.Data["collection"])
+}
+
+// logReindexRefusal sits on error paths that carry every kind of failure, so it
+// has to stay silent for the ones that are not a gate refusal.
+func TestLogReindexRefusal_IgnoresUnrelatedErrors(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	idx := &Index{logger: logger, Config: IndexConfig{ClassName: schema.ClassName("AnyClass")}}
+
+	idx.logReindexRefusal("s1", nil)
+	idx.logReindexRefusal("s1", errors.New("disk full"))
+
+	assert.Empty(t, hook.AllEntries(), "only a gate refusal produces a gate log line")
 }
 
 // The refusal has to stay reachable under the wrappers the backup path adds on
@@ -450,25 +466,24 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		wantSampleCap, len(sample))
 }
 
-// The other precheck errors name the local node, which a backup caller is not
-// granted. When a gate refusal is what the caller has to act on anyway, those
-// go to the log instead of the response.
-func TestBackupableWithholdsNodeNamingErrorsFromTheResponse(t *testing.T) {
+// A gate refusal on one collection must not swallow an unrelated failure on
+// another: the caller is told to retry the backup, and would retry into the
+// same second failure with no idea it is there. Neither message names the node.
+func TestBackupableReportsNonGateErrorsAlongsideARefusal(t *testing.T) {
 	const (
 		blocked = "BlockedClass"
 		broken  = "BrokenClass"
 		node    = "weaviate-0"
 	)
 
-	logger, hook := logrustest.NewNullLogger()
+	logger, _ := logrustest.NewNullLogger()
 	db := backupableFixture(t, blocked, node, "s1")
 	db.logger = logger
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 
-	// A second collection whose shard enumeration fails: the resulting error is
-	// prefixed with the node name.
+	// A second collection whose shard enumeration fails.
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("Read", broken, true, mock.Anything).Return(errors.New("raft read failed"))
 	getter := schemaUC.NewMockSchemaGetter(t)
@@ -482,16 +497,15 @@ func TestBackupableWithholdsNodeNamingErrorsFromTheResponse(t *testing.T) {
 
 	err := db.Backupable(context.Background(), []string{blocked, broken})
 	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the gate refusal must still classify, so the coordinator answers 422")
 	assert.NotContains(t, err.Error(), node, "the response must not name the node")
-	assert.NotContains(t, err.Error(), "raft read failed",
-		"an error the caller cannot act on and that names the node stays in the log")
+	assert.Contains(t, err.Error(), "raft read failed",
+		"the second collection's failure is the caller's to act on too")
+	assert.Contains(t, err.Error(), broken, "and it has to say which collection it belongs to")
 
-	var withheld bool
-	for _, e := range hook.AllEntries() {
-		if strings.Contains(e.Message, "raft read failed") {
-			withheld = true
-		}
-	}
-	assert.True(t, withheld, "withheld from the response, not from the operator")
+	// The gate refusal leads, so canCommitErrFromResponse's prefix check still
+	// recognizes the joined message as a refusal.
+	assert.True(t, strings.HasPrefix(err.Error(),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()))
 }

@@ -227,8 +227,8 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 			// adapters/repos/db/reindex_inflight.go: wrap the shared
 			// backup.ErrBackupBlockedByInFlightReindex sentinel so the
 			// errors.Is-based classifier in classifyCanCommitErr matches.
-			backupErr: fmt.Errorf("Node-1/MyClass: %w: shard %q has 1 active tracker(s): ...; retry after the migration finishes",
-				backup.ErrBackupBlockedByInFlightReindex, "shard-a"),
+			backupErr: fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes",
+				backup.ErrBackupBlockedByInFlightReindex, "MyClass"),
 			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),
 			wantKind:    CanCommitErrInFlightReindex,
 		},
@@ -238,10 +238,10 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 			// errors.Is must walk the joined graph; substring matching would
 			// trip on this realistic case.
 			backupErr: errors.Join(
-				fmt.Errorf("Node-1/ClassA: %w: shard %q (collection %q): ...",
-					backup.ErrBackupBlockedByInFlightReindex, "shard-a", "ClassA"),
-				fmt.Errorf("Node-1/ClassB: %w: shard %q (collection %q): ...",
-					backup.ErrBackupBlockedByInFlightReindex, "shard-b", "ClassB"),
+				fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
+					backup.ErrBackupBlockedByInFlightReindex, "ClassA"),
+				fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
+					backup.ErrBackupBlockedByInFlightReindex, "ClassB"),
 			),
 			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),
 			wantKind:    CanCommitErrInFlightReindex,

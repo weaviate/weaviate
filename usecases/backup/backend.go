@@ -302,7 +302,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
+		metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
+		if metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
@@ -312,7 +313,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(publishableErrMsg(err))
+			u.slot.setFailed(publishableFailureMsg(err, metaErr))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -403,6 +404,19 @@ func publishableErrMsg(err error) string {
 		return failureWithoutReason
 	}
 	return msg
+}
+
+// publishableFailureMsg is [publishableErrMsg] for the two-fault case, where
+// the backup failed and writing the metadata that carries the reason failed
+// too. A gate refusal replaces the whole chain, which would drop the second
+// fault, so it is re-attached: a poller that sees FAILED has to learn that the
+// metadata write is also gone.
+func publishableFailureMsg(err, metaErr error) string {
+	msg := publishableErrMsg(err)
+	if metaErr == nil || strings.Contains(msg, metaErr.Error()) {
+		return msg
+	}
+	return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", msg, metaErr)
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

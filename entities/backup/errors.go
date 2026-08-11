@@ -25,8 +25,10 @@ import (
 // (adapters/repos/db) and the coordinator layer (usecases/backup) can
 // share a single value without an import cycle. Match it across RPC
 // boundaries with errors.Is, not substring comparison. The operator-visible
-// error text wrapping this sentinel is owned by the storage layer in
-// adapters/repos/db/reindex_inflight.go.
+// error text wrapping this sentinel is written by the storage layer in
+// adapters/repos/db/reindex_inflight.go; the coordinator
+// (usecases/backup/coordinator.go) re-wraps a participant's copy of that text
+// when it promotes a canCommit response back to a typed error.
 //
 // Names no shard: the text reaches API response bodies, and backing up a
 // collection grants nothing on shard ids.

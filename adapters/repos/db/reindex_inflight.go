@@ -12,7 +12,9 @@
 package db
 
 import (
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -128,21 +130,13 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 //
-// Single-shard call sites only: it logs the refusal, which names the shard
-// the body withholds. A pass over many shards must use
-// [Index.refuseIfReindexInFlightQuiet] and summarise instead.
+// It never logs. Every one of those callers is reached once per shard of a
+// whole-collection pass, so a log line here would grow with the shard count —
+// five figures in this repo. The pass logs instead:
+// [DB.logReindexRefusals] for the canCommit precheck,
+// [Index.logReindexRefusalSummary] for the descriptor fan-out, and
+// [Index.logReindexRefusal] for the single-shard replica-snapshot path.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
-	err := i.refuseIfReindexInFlightQuiet(shardName)
-	if err != nil {
-		i.logReindexRefusal(shardName)
-	}
-	return err
-}
-
-// refuseIfReindexInFlightQuiet is [Index.refuseIfReindexInFlight] without the
-// log line, for callers that check many shards in one pass and log their own
-// summary ([DB.Backupable]).
-func (i *Index) refuseIfReindexInFlightQuiet(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
@@ -155,16 +149,53 @@ func (i *Index) refuseIfReindexInFlightQuiet(shardName string) error {
 	return reindexInFlightError(collection, false)
 }
 
-// logReindexRefusal records the shard and node the refusal body withholds.
-func (i *Index) logReindexRefusal(shardName string) {
-	if i.db == nil || i.db.logger == nil {
+// logReindexRefusal records the shard and node the refusal body withholds. It
+// is a no-op unless err is a gate refusal. Single-shard call sites only; a pass
+// over many shards must use [Index.logReindexRefusalSummary].
+func (i *Index) logReindexRefusal(shardName string, err error) {
+	if err == nil || !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) {
 		return
 	}
-	i.db.logger.WithField("action", "backup_reindex_gate").
+	if i.logger == nil {
+		return
+	}
+	i.logger.WithField("action", "backup_reindex_gate").
 		WithField("collection", i.Config.ClassName.String()).
 		WithField("shard", shardName).
-		WithField("node", i.db.localNodeName).
+		WithField("node", i.localNodeName()).
 		Warn("backup-reindex gate: refused a backup; a runtime-reindex is live on this shard")
+}
+
+// logReindexRefusalSummary is [Index.logReindexRefusal] for a pass over many
+// shards: one line for the whole pass, with an exact count and a capped sample
+// of the names.
+func (i *Index) logReindexRefusalSummary(shardNames []string) {
+	if len(shardNames) == 0 || i.logger == nil {
+		return
+	}
+	// Sorted so repeated refusals diff cleanly.
+	sort.Strings(shardNames)
+	sample := shardNames
+	if len(sample) > reindexRefusalShardSample {
+		sample = sample[:reindexRefusalShardSample]
+	}
+	collection := i.Config.ClassName.String()
+	i.logger.WithField("action", "backup_reindex_gate").
+		WithField("collection", collection).
+		WithField("node", i.localNodeName()).
+		WithField("blocked_shards", sample).
+		WithField("blocked_shard_count", len(shardNames)).
+		Warnf("backup descriptor refused: %d shard(s) of %q are held by the reindex gate; "+
+			"blocked_shards lists the first %d", len(shardNames), collection, len(sample))
+}
+
+// localNodeName is empty when the Index was built without its DB
+// back-reference (test fixtures, partial init).
+func (i *Index) localNodeName() string {
+	if i.db == nil {
+		return ""
+	}
+	return i.db.localNodeName
 }
 
 // reindexInFlightError formats the operator-facing rejection. `preWire`

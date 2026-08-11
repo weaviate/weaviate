@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	tlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -555,6 +557,75 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 
 	// Schema should be marshalled.
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
+}
+
+// The descriptor path fans out over every shard of the collection, so a gate
+// refusal that holds the whole collection is hit once per shard. Logging there
+// would put the O(shards) growth back that the canCommit precheck bounds one
+// tier up — and this fan-out cannot even stop early, since cancelling the
+// errgroup's context does not unqueue the goroutines already scheduled.
+func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+	const shardCount = 30
+
+	// Replicated everywhere so every tenant is a local shard of this node.
+	builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(shardCount)
+	tenants := make([]string, 0, shardCount)
+	for i := range shardCount {
+		name := fmt.Sprintf("cold-%02d", i)
+		tenants = append(tenants, name)
+		builder = builder.AddTenant(name, models.TenantActivityStatusCOLD)
+	}
+
+	idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
+	for _, name := range tenants {
+		createColdShardFiles(t, rootDir, className, name)
+	}
+
+	logger, hook := tlog.NewNullLogger()
+	// Debug on, so nothing hides behind the level: the per-shard lines in
+	// AnyLiveReindexForShard stay Debug on purpose, and a future edit promoting
+	// one of them to Warn is exactly what this counts.
+	logger.SetLevel(logrus.DebugLevel)
+	idx.logger = logger
+	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
+	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "wide-refusal", &desc, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+
+	var gateLines int
+	var sample []string
+	var reportedCount int
+	for _, e := range hook.AllEntries() {
+		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
+			continue
+		}
+		gateLines++
+		if v, ok := e.Data["blocked_shards"].([]string); ok {
+			sample = v
+		}
+		if v, ok := e.Data["blocked_shard_count"].(int); ok {
+			reportedCount = v
+		}
+	}
+
+	require.Equalf(t, 1, gateLines,
+		"a refusal of one collection is one operator-facing entry regardless of width; "+
+			"%d shards produced %d", shardCount, gateLines)
+	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
+	// A literal, not the constant the code caps with: asserting the bound
+	// against itself cannot fail.
+	const wantSampleCap = 10
+	require.LessOrEqualf(t, len(sample), wantSampleCap,
+		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
+		wantSampleCap, len(sample))
 }
 
 func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
