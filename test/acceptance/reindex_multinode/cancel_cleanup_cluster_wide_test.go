@@ -60,7 +60,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		propName  = "body"
 		// 200k keeps the change-tokenization iteration alive long enough
 		// that the cancel HTTP call lands mid-flight. Smaller values let
-		// the migration finish first, and the cancel hits 404.
+		// the migration finish first, and the cancel is refused with 409.
 		dataset       = 200_000
 		cancelTimeout = 30 * time.Second
 	)
@@ -105,7 +105,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		"sanity: expected at least 1 .migrations/*_%s_* dir on disk mid-flight before cancel; got 0 — migration likely finished before cancel reached the cluster, so the post-cancel R5/R6 assertions would PASS trivially without exercising the fix",
 		propName)
 
-	cancelReindexProperty(t, uri, className, propName, "searchable")
+	cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
 	t.Logf("issued cancel for searchable migration on %s/%s (pre-cancel survivors: %d)",
 		className, propName, len(preCancelSurvivors))
 
@@ -163,8 +163,9 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 }
 
 // cancelReindexProperty sends {<indexType>: {cancel: true}} to
-// PUT /v1/schema/<class>/indexes/<prop> and requires a 202.
-func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType string) {
+// PUT /v1/schema/<class>/indexes/<prop> and checks the cancel contract
+// for taskID.
+func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) {
 	t.Helper()
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
 	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
@@ -175,8 +176,34 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 	require.NoError(t, err)
 	respBody, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel returned %d: %s", resp.StatusCode, string(respBody))
+
+	// The task can outrun the STARTED poll and the pre-cancel disk scan, so
+	// its phase decides the code: 202 CANCELLED (still STARTED), 409 (every
+	// unit finished, cluster-wide swap under way), 202 NO_OP (terminal).
+	// Under 409 and NO_OP the caller's drain assertions are completion-
+	// driven rather than cancel-driven, so log which one we got.
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result models.IndexUpdateResponse
+		require.NoErrorf(t, json.Unmarshal(respBody, &result),
+			"cancel response should decode as IndexUpdateResponse: %s", string(respBody))
+		switch result.Status {
+		case "CANCELLED":
+			require.Equalf(t, taskID, result.TaskID,
+				"cancel CANCELLED must name the cancelled task; body: %s", string(respBody))
+		case "NO_OP":
+			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
+		default:
+			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
+				result.Status, string(respBody))
+		}
+	case http.StatusConflict:
+		require.Containsf(t, string(respBody), taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", string(respBody))
+		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
+	default:
+		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(respBody))
+	}
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by

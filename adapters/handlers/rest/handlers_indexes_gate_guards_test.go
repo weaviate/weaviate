@@ -267,6 +267,9 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 		// re-lists, empty for a task whose status does not move.
 		settledAs distributedtask.TaskStatus
 		wantNoOp  bool
+		// wantRefused expects the 409 the pre-flight would have given for the
+		// same condition, rather than a 500 carrying DTM's internal marker.
+		wantRefused bool
 	}{
 		{
 			name:      "the task finished before the cancel landed",
@@ -289,8 +292,18 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 		{
 			// Same rejection, but a live task: NO_OP here would misreport a
 			// migration that is still running.
-			name:      "the task is still preparing",
+			name:      "the task is still running",
 			cancelErr: rejection(),
+		},
+		{
+			// The task entered a coordination phase between the listing and
+			// the apply. DTM refuses that cancel, and it is the same condition
+			// the pre-flight refuses, so it owes the same 409 — not a 500
+			// leaking the sentinel's internal marker.
+			name:        "the task moved past its units before the cancel landed",
+			cancelErr:   rejection(),
+			settledAs:   distributedtask.TaskStatusPreparing,
+			wantRefused: true,
 		},
 		{
 			// The error says nothing about why the cancel failed, so the
@@ -305,7 +318,9 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &scriptedRollbackService{
 				tasks: []*distributedtask.Task{
-					buildTask(t, taskID, distributedtask.TaskStatusPreparing, db.ReindexTaskPayload{
+					// STARTED, so the handler reaches the apply: this is about
+					// the refusal arriving from the apply, not the pre-flight.
+					buildTask(t, taskID, distributedtask.TaskStatusStarted, db.ReindexTaskPayload{
 						MigrationType: db.ReindexTypeRepairFilterable,
 						Collection:    collection,
 						Properties:    []string{"title"},
@@ -320,6 +335,18 @@ func TestCancelThatRacedTheTasksOwnEnding(t *testing.T) {
 
 			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
 				&models.Principal{Username: "u1"})
+
+			if tc.wantRefused {
+				conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+				require.Truef(t, ok, "a task past its units owes the pre-flight's answer, got %T", responder)
+				require.Contains(t, conflict.Payload.Error[0].Message, taskID,
+					"the refusal must name the task it refuses")
+				require.NotContains(t, conflict.Payload.Error[0].Message, "dtm-perm",
+					"the response must not carry DTM's internal marker")
+				require.NotNilf(t, audited(hook, "reindex_task_cancel_refused"),
+					"a SIEM rule keys on audit_event; entries were %q", entryMessages(hook))
+				return
+			}
 
 			if !tc.wantNoOp {
 				_, ok := responder.(*schema.SchemaObjectsIndexesUpdateInternalServerError)

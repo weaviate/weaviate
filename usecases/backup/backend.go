@@ -220,12 +220,13 @@ type uploader struct {
 	log  logrus.FieldLogger
 }
 
-// statusPublisher is the observable half of a node's operation slot. Failing
-// goes through its own method so a failure can never be published without the
-// reason that belongs to it; see [backupStat.setFailed].
+// statusPublisher is the observable half of a node's operation slot. Writes
+// are ownership-checked (see [slotOwner]); the uploader ignores the bool
+// result, since a refusal (lost ownership, or the slot already holding its
+// last word) doesn't change what happens next, which is decided by err.
 type statusPublisher interface {
-	set(st backup.Status)
-	setFailed(reason string)
+	set(st backup.Status) bool
+	setFailed(reason string) bool
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,

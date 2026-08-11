@@ -703,9 +703,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		} else {
 			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup skips
-		// every non-terminal status so a stale FinishedAt won't clean a task
-		// mid-coordination.
+		// FinishedAt = when units completed — for PREPARING and SWAPPING alike.
+		// The scheduler's TTL cleanup excludes every non-terminal status
+		// (IsActive), so this stamp cannot clean a task mid-coordination.
 		task.FinishedAt = finishedAt
 
 		// Dispatch after FinishedAt is stamped so the observer's copy carries it.
@@ -1087,11 +1087,17 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 		return err
 	}
 
-	// Every non-terminal status is cancellable, not just STARTED. The
-	// conflict guards block schema mutations for any non-terminal status
-	// and tell the operator to cancel the task; refusing the cancel here
-	// would leave a collection wedged with no way out.
-	if task.Status.IsTerminal() {
+	// [TaskStatus.IsCancellable] is a literal, so every binary that
+	// replays this entry writes CANCELLED under exactly the same
+	// condition. Classifying instead would let a node that has never
+	// heard of the status cancel a migration a newer node is still
+	// coordinating, and follower apply errors are discarded, so the
+	// divergence would be silent.
+	//
+	// The operator-facing message for the coordination phases lives in
+	// the REST layer, which is free to classify because nothing
+	// downstream replays its answer.
+	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
@@ -1119,11 +1125,22 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Every non-terminal status, not just STARTED. A non-terminal task's
-	// FinishedAt is set at the units-completion moment and ages from there,
-	// so a task stuck past completedTaskTTL clears the age check below and
-	// only this liveness check stands between it and deletion.
-	if task.Status.IsActive() {
+	// Refuse for every status this build both declared and calls live —
+	// not just STARTED. A non-terminal task's FinishedAt is either zero
+	// (STARTED) or the units-completion moment (PREPARING/SWAPPING); both
+	// clear the age check below, so only this check stands between a task
+	// mid-coordination and deletion.
+	//
+	// A status this build cannot name is deleted instead. The only
+	// proposer is the Scheduler's TTL sweep, which reads the leader's
+	// view (pinned by TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer),
+	// so a CLEAN_UP for such a task exists only once the cluster already
+	// considers it done. Without this exit the entry is unreachable
+	// forever: no transition can advance it (MarkTaskFinalized refuses
+	// every status but FINISHED and SWAPPING) and no later sweep sees it,
+	// while it keeps blocking schema mutations and backups on its
+	// collection through the local map.
+	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
@@ -1200,6 +1217,35 @@ func sortTasksForDisplay(tasks []*Task) {
 
 		return tasks[i].ID < tasks[j].ID
 	})
+}
+
+// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
+// status this build never declared, grouped by namespace.
+//
+// Only [Manager.Restore] can put one here — every other write to
+// Task.Status is a literal from this build's vocabulary — so the source
+// is always a snapshot from a node running a newer release. It matters
+// because the leader-routed list stops carrying such a task once the
+// peers clean their copies up, which is exactly when a leftover local
+// copy starts silently refusing schema mutations. Returns clones; the
+// map is empty in the ordinary case.
+func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result map[string][]*Task
+	for namespace, tasks := range m.tasks {
+		for _, task := range tasks {
+			if task.Status.IsRecognized() {
+				continue
+			}
+			if result == nil {
+				result = map[string][]*Task{}
+			}
+			result[namespace] = append(result[namespace], task.Clone())
+		}
+	}
+	return result
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {

@@ -285,39 +285,6 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 		err = h.manager.CancelTask(cancelCmd, false)
 		require.ErrorContains(t, err, "does not exist")
 	})
-
-	t.Run("task is already cancelled", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			namespace        = "test"
-			taskID           = "1"
-			version   uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Namespace:             namespace,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-				UnitIds:               []string{"su-1"},
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Namespace:             "test",
-				Id:                    "1",
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd, false)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd, false)
-		require.ErrorContains(t, err, "no longer running")
-	})
 }
 
 func TestManager_CleanUpTask_Failures(t *testing.T) {
@@ -2095,11 +2062,11 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 	}
 }
 
-// nonTerminalFixture puts a task into the given non-terminal status and
-// returns its (namespace, id, version). PREPARING and SWAPPING go through
-// RecordUnitCompletion so FinishedAt matches production; an unrecognized
-// status has no production path, so it's assigned directly.
-func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
+// fixtureInStatus drives a task into the given status through the
+// production transitions, so the fixture cannot assert a state the FSM
+// never produces. An unrecognized status has no production path, so it is
+// assigned directly.
+func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
 	t.Helper()
 
 	const (
@@ -2109,14 +2076,42 @@ func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string
 	)
 
 	switch status {
+	case TaskStatusStarted:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 	case TaskStatusPreparing:
 		addBarrierTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		drivePreparing(t, h, ns, id, version, []string{"n1"})
 	case TaskStatusSwapping:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		completeUnit(t, h, ns, id, version, "n1", "u-n1")
-	case TaskStatusStarted:
+	case TaskStatusFailed:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		failUnit(t, h, ns, id, version, "n1", "u-n1", "boom")
+	case TaskStatusCancelled:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    id,
+			Version:               version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+	case TaskStatusFinished:
+		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+		completeUnit(t, h, ns, id, version, "n1", "u-n1")
+		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         ns,
+			Id:                id,
+			Version:           version,
+			NodeId:            "n1",
+			Success:           true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), false))
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             ns,
+			Id:                    id,
+			Version:               version,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
 	default:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		h.manager.tasks[ns][id].Status = status
@@ -2127,22 +2122,23 @@ func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string
 	return ns, id, version
 }
 
-// nonTerminalStatuses are every status this build treats as in-flight,
-// including the one it cannot recognize.
-var nonTerminalStatuses = []TaskStatus{
-	TaskStatusStarted,
-	TaskStatusPreparing,
-	TaskStatusSwapping,
-	unknownFutureStatus,
-}
-
-// Pins: CleanUpTask refuses every non-terminal status, past the TTL, when
-// only the liveness check still stands between the task and deletion.
-func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
-	for _, status := range nonTerminalStatuses {
-		t.Run(string(status), func(t *testing.T) {
+// Pins: CleanUpTask refuses the coordination phases, past the TTL, when
+// only the liveness check still stands between the task and deletion —
+// and deletes a task in a status this build cannot name, which is the
+// only exit such a task has. STARTED is pinned by
+// TestManager_CleanUpTask_Failures.
+func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T) {
+	for _, tc := range []struct {
+		status  TaskStatus
+		refused bool
+	}{
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{unknownFutureStatus, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, status)
+			ns, id, version := fixtureInStatus(t, h, tc.status)
 
 			// Past the TTL: the age check no longer protects the task.
 			h.clock.Advance(2 * h.completedTaskTTL)
@@ -2152,54 +2148,96 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 				Id:        id,
 				Version:   version,
 			}))
-			require.ErrorContains(t, err, "still running")
-			require.Contains(t, h.manager.tasks[ns], id,
-				"a task in %q must survive cleanup", status)
+			if tc.refused {
+				require.ErrorContains(t, err, "still running")
+				require.Contains(t, h.manager.tasks[ns], id,
+					"a task in %q must survive cleanup", tc.status)
+				return
+			}
+			require.NoError(t, err)
+			require.NotContains(t, h.manager.tasks[ns], id,
+				"a task in %q has no other way out of this node's FSM", tc.status)
 		})
 	}
 }
 
-// Pins: CancelTask accepts every non-terminal status — the guards' only
-// named remedy for a wedged collection.
-func TestManager_CancelTask_AcceptsEveryNonTerminalStatus(t *testing.T) {
-	for _, status := range nonTerminalStatuses {
-		t.Run(string(status), func(t *testing.T) {
+// Pins cancel eligibility for every status: open for STARTED and nothing
+// else. Closed for the coordination phases (a node may already have
+// swapped buckets), for every terminal status including a double cancel,
+// and for a status this build cannot name — only a build that can name it
+// knows whether stopping is safe, and every binary has to answer the same
+// way or the FSM diverges.
+func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
+	for _, tc := range []struct {
+		status   TaskStatus
+		accepted bool
+	}{
+		{TaskStatusStarted, true},
+		{unknownFutureStatus, false},
+		{TaskStatusPreparing, false},
+		{TaskStatusSwapping, false},
+		{TaskStatusFinished, false},
+		{TaskStatusFailed, false},
+		{TaskStatusCancelled, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, status)
+			ns, id, version := fixtureInStatus(t, h, tc.status)
+			finishedAtBefore := h.manager.tasks[ns][id].FinishedAt
 
 			cancelledAt := h.clock.Now().Add(time.Minute)
-			require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 				Namespace:             ns,
 				Id:                    id,
 				Version:               version,
 				CancelledAtUnixMillis: cancelledAt.UnixMilli(),
-			}), false))
+			}), false)
 
 			task := h.manager.tasks[ns][id]
+			if !tc.accepted {
+				require.ErrorContains(t, err, "no longer running")
+				require.Equal(t, tc.status, task.Status,
+					"a task in %q must survive the cancel attempt", tc.status)
+				require.Equal(t, finishedAtBefore, task.FinishedAt,
+					"a refused cancel must not restamp FinishedAt")
+				return
+			}
+			require.NoError(t, err)
 			require.Equal(t, TaskStatusCancelled, task.Status,
-				"a task in %q must actually cancel", status)
+				"a task in %q must actually cancel", tc.status)
 			require.Equal(t, cancelledAt.UnixMilli(), task.FinishedAt.UnixMilli())
 		})
 	}
 }
 
-// TestManager_CancelTask_RefusesTerminalStatus is the counterpart: a task
-// that already reached a terminal state has nothing left to cancel.
-func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
-	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
-		t.Run(string(status), func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, TaskStatusStarted)
-			h.manager.tasks[ns][id].Status = status
+// Pins the journey that makes the CleanUpTask exit load-bearing: a task
+// in a status this build cannot name arrives by snapshot (a leader
+// running a newer release), survives the restart that replays it, and is
+// then still removable. Nothing else can remove it — every status
+// transition refuses a status it cannot name, and once the peers have
+// deleted their copies the sweep's leader-routed list no longer carries
+// it either.
+func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)
 
-			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Namespace:             ns,
-				Id:                    id,
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-			}), false)
-			require.Error(t, err)
-			require.Equal(t, status, h.manager.tasks[ns][id].Status)
-		})
-	}
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	restarted := NewManager(ManagerParameters{
+		Clock:            h.clock,
+		CompletedTaskTTL: h.completedTaskTTL,
+		Logger:           h.logger,
+	})
+	require.NoError(t, restarted.Restore(snap))
+	require.Equal(t, unknownFutureStatus, restarted.tasks[ns][id].Status,
+		"the status has to survive the round trip, or this journey proves nothing")
+
+	h.clock.Advance(2 * h.completedTaskTTL)
+	require.NoError(t, restarted.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+		Namespace: ns,
+		Id:        id,
+		Version:   version,
+	})))
+	require.NotContains(t, restarted.tasks[ns], id)
 }

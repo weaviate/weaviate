@@ -13,12 +13,14 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
@@ -33,6 +35,36 @@ type ShardReindexActivityLookup func(collection, shardName string) bool
 // caller's context since building one queries the RAFT leader; a fixed
 // wiring context would let an unanswering leader park the caller forever.
 type ShardReindexActivityLookupBuilder func(ctx context.Context) ShardReindexActivityLookup
+
+// NewShardReindexActivityLookup snapshots which shards a reindex is
+// working on, indexing [IsLiveReindexTaskStatus] by (collection, shard):
+// a shard whose migration this build cannot prove is finished would
+// otherwise be captured half-migrated.
+func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) ShardReindexActivityLookup {
+	type shardKey struct {
+		collection string
+		shardName  string
+	}
+	live := make(map[shardKey]bool)
+	for _, task := range tasks {
+		if !IsLiveReindexTaskStatus(task.Status) {
+			continue
+		}
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("action", "backup_reindex_gate").
+				WithField("task_id", task.ID).
+				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+			continue
+		}
+		for _, shardName := range payload.UnitToShard {
+			live[shardKey{payload.Collection, shardName}] = true
+		}
+	}
+	return func(collection, shardName string) bool {
+		return live[shardKey{collection, shardName}]
+	}
+}
 
 // SetShardReindexActivityLookup installs the builder used by the backup
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup

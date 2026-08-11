@@ -45,12 +45,14 @@ type backupStat struct {
 	sync.Mutex
 	reqState
 
-	// generation counts the claims this slot has handed out. Backup ids are
-	// user-supplied and reusable — cancelling an operation and retrying it
-	// under the same id is a normal flow — so the id alone does not identify a
-	// claim. renew gives the claiming operation the generation of its own
-	// claim, and that is what the release paths match on.
+	// generation counts the claims handed out; see [slotOwner] for why identity
+	// is the generation and not the (reusable) backup id.
 	generation uint64
+
+	// log records the status writes the slot refuses, i.e. the ones made
+	// through [slotOwner.set] and [slotOwner.setFailed]. Optional: a zero
+	// backupStat is usable, it just says nothing.
+	log logrus.FieldLogger
 
 	// rememberedFailureID and rememberedFailureReason outlive the slot itself,
 	// for the one failure that leaves nothing else to read: the slot is
@@ -72,15 +74,14 @@ func (s *backupStat) get() reqState {
 	return s.reqState
 }
 
-// renew claims the slot if and only if it is not in use. On success it returns
-// "" and the generation of the new claim, which the caller hands back to
-// resetIfOwned to release it. On failure it returns the id already holding the
-// slot and a generation of 0, which no claim ever has.
-func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) (string, uint64) {
+// renew claims the slot if it is not in use, returning "" and the claim used
+// to write to it and release it. On failure it returns the id already
+// holding the slot and a claim that owns nothing.
+func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) (string, slotOwner) {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqState.ID != "" {
-		return s.reqState.ID, 0
+		return s.reqState.ID, slotOwner{}
 	}
 	s.generation++
 	s.reqState.ID = id
@@ -95,13 +96,7 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 		// answer to a poll for it.
 		s.rememberedFailureID, s.rememberedFailureReason = "", ""
 	}
-	return "", s.generation
-}
-
-func (s *backupStat) reset() {
-	s.Lock()
-	s.clear()
-	s.Unlock()
+	return "", slotOwner{stat: s, generation: s.generation}
 }
 
 // clear must be called with the lock held.
@@ -114,41 +109,67 @@ func (s *backupStat) clear() {
 	s.reqState.OverridePath = ""
 }
 
-// resetIfCancelled gives back the slot only when id owns it and that operation
-// was cancelled. An operation still running under the same id is writing files,
-// so its slot must survive. Checks and clears under one lock so a renew cannot
-// slip in between and lose its claim. Reports whether the slot was cleared.
-func (s *backupStat) resetIfCancelled(id string) bool {
+// resetIfCancelled gives back the slot only when id owns it and it has fully
+// cancelled (Cancelling, still unwinding, leaves it alone). Checks and clears
+// under one lock so a renew cannot slip in between. Reports whether it
+// cleared, and the state it found, read together to avoid pairing them
+// against different moments.
+func (s *backupStat) resetIfCancelled(id string) (bool, reqState) {
 	s.Lock()
 	defer s.Unlock()
-	if s.reqState.ID != id {
-		return false
-	}
-	if s.reqState.Status != backup.Cancelling && s.reqState.Status != backup.Cancelled {
-		return false
+	held := s.reqState
+	if held.ID != id || held.Status != backup.Cancelled {
+		return false, held
 	}
 	s.clear()
-	return true
+	return true, held
 }
 
-// setFailed ends the operation as failed together with the reason. Failed with
-// no reason is worse than useless to a poller: the coordinator latches whatever
-// a participant reports and stops asking, so an empty reason becomes the
-// permanent answer for a failure that does have one. A reason-less failure is
-// therefore substituted here rather than at the call sites, so that every
-// caller gets the guarantee, including the ones passing on a reason a
+// canAdvanceTo reports whether next may overwrite the status the slot holds.
+// Must be called with the lock held.
+//
+// Cancellation is the operation's last word: Cancelled is final, and a cancel
+// in flight may only advance to Cancelled — anything else would walk a
+// requested cancel back to "running". Finalizing is the mirror image: schema
+// apply over RAFT can no longer be stopped, so a cancellation there is
+// refused and the restore reports the outcome it actually had.
+//
+// Success and Failed are deliberately not terminal here: they're published
+// just before the slot releases, so a cancel landing in that window may still
+// stamp Cancelled over them. The descriptor carries the real outcome once the
+// slot clears.
+func (s *backupStat) canAdvanceTo(next backup.Status) bool {
+	switch s.reqState.Status {
+	case backup.Cancelled:
+		return false
+	case backup.Cancelling:
+		return next == backup.Cancelled
+	case backup.Finalizing:
+		return !next.IsCancellation()
+	default:
+		return true
+	}
+}
+
+// setStatus publishes a status that carries no reason of its own. Must be
+// called with the lock held. Clears any earlier reason, so a cancel landing
+// on a just-failed slot doesn't answer a poll with CANCELLING plus a stale
+// error.
+func (s *backupStat) setStatus(st backup.Status) {
+	s.reqState.Status = st
+	s.reqState.Err = ""
+}
+
+// setFailed ends the operation as failed together with the reason. Must be
+// called with the lock held.
+//
+// Failed with no reason is worse than useless to a poller: the coordinator
+// latches whatever a participant reports and stops asking, so an empty reason
+// becomes the permanent answer for a failure that does have one. A reason-less
+// failure is therefore substituted here rather than at the call sites, so that
+// every caller gets the guarantee, including the ones passing on a reason a
 // participant gave them.
 func (s *backupStat) setFailed(reason string) {
-	s.Lock()
-	defer s.Unlock()
-	s.setFailedLocked(reason)
-}
-
-// setFailedLocked must be called with the lock held.
-func (s *backupStat) setFailedLocked(reason string) {
-	if s.reqState.Status == backup.Cancelled {
-		return
-	}
 	if reason == "" {
 		reason = failureWithoutReason
 	}
@@ -171,90 +192,201 @@ func (s *backupStat) rememberedFailure(id string) (string, bool) {
 	return s.rememberedFailureReason, true
 }
 
-// resetIfOwned clears the slot only if generation is still the claim holding
-// it. An operation whose slot was already handed to a newer one must not free
-// the newcomer's claim: the slot is what keeps two operations from running on
-// this node at once, so a false idle lets a second one claim it alongside the
-// live one. Matching on the backup id would not be enough — the newer claim can
-// carry the same id, since retrying a cancelled operation is a normal flow.
-// Check-and-clear happens under one lock so a concurrent renew can't be lost.
-// Reports whether it cleared.
-func (s *backupStat) resetIfOwned(generation uint64) bool {
-	s.Lock()
-	defer s.Unlock()
-	if s.generation != generation || s.reqState.ID == "" {
-		return false
-	}
-	s.clear()
-	return true
+// slotOwner is the claim [backupStat.renew] hands to the operation that took
+// the slot, and the only way that operation reads or writes it. Every method
+// checks the claim still holds the slot, so an operation that outlives it
+// (its goroutine keeps running after a cancel frees the slot for the next
+// claimant) cannot land a stale write on that next operation's state.
+//
+// Identity is the generation, not the backup id: a cancel-then-retry under
+// the same id is normal, so the id alone can't tell two claims apart. The
+// zero value owns nothing; every write through it is a no-op, and so is one
+// with generation zero, which [backupStat.claimOf] hands back for an id that
+// does not hold the slot — renew hands out generations from one.
+type slotOwner struct {
+	stat       *backupStat
+	generation uint64
 }
 
-func (s *backupStat) set(st backup.Status) {
-	s.Lock()
-	defer s.Unlock()
-	s.setLocked(st)
+// owns must be called with the lock held.
+func (o slotOwner) owns() bool {
+	return o.stat != nil && o.stat.generation == o.generation && o.stat.reqState.ID != ""
 }
 
-// setLocked must be called with the lock held.
-func (s *backupStat) setLocked(st backup.Status) {
-	// Cancelled is terminal - don't allow overwriting
-	if s.reqState.Status == backup.Cancelled {
+// droppedWrite carries a refused write so it can be logged outside the
+// slot's lock.
+type droppedWrite struct {
+	log    logrus.FieldLogger
+	msg    string
+	fields logrus.Fields
+}
+
+// emit must run with the slot's lock released: logrus writes synchronously,
+// and every status poll reads the slot behind that lock.
+//
+// Info, not Debug: the default log level is Info, and a dropped write is
+// often what a support case starts from.
+func (d *droppedWrite) emit() {
+	if d == nil {
 		return
 	}
-	s.reqState.Status = st
-	// Every status other than Failed is reached through here, and none of them
-	// has a reason. Keeping an earlier one would serve it next to a status it
-	// does not belong to. The remembered failure is unaffected: it is what a
-	// poll arriving after the slot is gone reads.
-	s.reqState.Err = ""
+	d.log.WithFields(d.fields).Info(d.msg)
 }
 
-// publishIfOwned mirrors an operation's own outcome onto the slot, but only
-// while generation is still the claim holding it. Written this late, a newer
-// operation may already have claimed the slot; writing unconditionally would
-// stamp the finished operation's outcome onto the newcomer. Keyed on
-// generation rather than id, matching [backupStat.resetIfOwned], since a
-// retried operation can reuse the same id under a new claim. Reports whether
-// it wrote.
-func (s *backupStat) publishIfOwned(generation uint64, st backup.Status, reason string) bool {
-	s.Lock()
-	defer s.Unlock()
-	if s.generation != generation || s.reqState.ID == "" {
+// newDroppedWrite describes a write the slot refused, so "status stopped
+// updating" is diagnosable as a refusal rather than silence. Returns nil when
+// the slot has no logger. Must be called with the lock held.
+func (o slotOwner) newDroppedWrite(st backup.Status) *droppedWrite {
+	if o.stat == nil || o.stat.log == nil {
+		return nil
+	}
+	msg := "slot write dropped: this operation no longer holds the slot"
+	switch {
+	case !o.owns():
+		// keeps the message above
+	case o.stat.reqState.Status == backup.Finalizing:
+		msg = "slot write dropped: the restore is applying its schema and can no longer be cancelled"
+	case o.stat.reqState.Status == backup.Cancelling:
+		msg = "slot write dropped: a cancellation is in flight, and only its completion may follow"
+	default:
+		msg = "slot write dropped: the slot already reads a cancellation, which is its last word"
+	}
+	return &droppedWrite{
+		log: o.stat.log,
+		msg: msg,
+		fields: logrus.Fields{
+			"action":         "backup_slot_write",
+			"dropped_status": st,
+			"claim":          o.generation,
+			"slot_claim":     o.stat.generation,
+			"slot_holder":    o.stat.reqState.ID,
+			"slot_status":    o.stat.reqState.Status,
+		},
+	}
+}
+
+// set publishes a status on the slot. Reports whether it wrote.
+func (o slotOwner) set(st backup.Status) bool {
+	if o.stat == nil {
 		return false
 	}
-	if st == backup.Failed {
-		s.setFailedLocked(reason)
-		return true
+	o.stat.Lock()
+	if !o.owns() || !o.stat.canAdvanceTo(st) {
+		dropped := o.newDroppedWrite(st)
+		o.stat.Unlock()
+		dropped.emit()
+		return false
 	}
-	s.setLocked(st)
+	o.stat.setStatus(st)
+	o.stat.Unlock()
 	return true
 }
 
-// setIfOwned writes the status only if id still holds the slot, the write half
-// of the same ownership rule as [backupStat.resetIfOwned]. A caller that does
-// not derive id from the slot itself — a cancel, which takes it from object
-// storage — would otherwise stamp whichever operation happens to hold it, and a
-// slot reading Cancelled makes coordinator.commit abort the operation as
-// "cancelled externally". Reports whether it wrote.
+// setFailed ends the operation as failed together with the reason it ended for.
+// Reports whether it wrote.
+func (o slotOwner) setFailed(reason string) bool {
+	if o.stat == nil {
+		return false
+	}
+	o.stat.Lock()
+	if !o.owns() || !o.stat.canAdvanceTo(backup.Failed) {
+		dropped := o.newDroppedWrite(backup.Failed)
+		o.stat.Unlock()
+		dropped.emit()
+		return false
+	}
+	o.stat.setFailed(reason)
+	o.stat.Unlock()
+	return true
+}
+
+// holds reports whether this claim still owns the slot, i.e. whether the slot
+// still belongs to this operation.
+func (o slotOwner) holds() bool {
+	if o.stat == nil {
+		return false
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	return o.owns()
+}
+
+// status is the slot's status as long as this claim still holds it. The second
+// return is false once it does not, which readers take as "nothing to learn
+// here" rather than as the status of an operation that is not theirs.
+func (o slotOwner) status() (backup.Status, bool) {
+	if o.stat == nil {
+		return "", false
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	if !o.owns() {
+		return "", false
+	}
+	return o.stat.reqState.Status, true
+}
+
+// release gives the slot back, only while this claim still holds it: an
+// outlived claim must not free the slot the next operation now owns. Reports
+// whether it cleared.
+func (o slotOwner) release() bool {
+	if o.stat == nil {
+		return false
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	if !o.owns() {
+		return false
+	}
+	o.stat.clear()
+	return true
+}
+
+// claimOf is the claim held by the operation running under id, or one that
+// owns nothing if id does not hold the slot. It exists for the caller that has
+// no claim of its own — a cancel reads the id out of object storage — so that
+// its later writes still go through [slotOwner] and can tell the operation it
+// read from a retry that claimed the slot under the same id in between.
 //
-// Matches on the id, not on the generation resetIfOwned takes: the caller is
-// not the holder and has no claim of its own, and cancelling whichever
-// operation currently runs under that id is what a cancel is asking for. The
-// same is true of [backupStat.resetIfCancelled], whose caller is a fresh
-// restore attempt that has not claimed anything yet — which is why that one
-// checks the status instead.
-func (s *backupStat) setIfOwned(id string, st backup.Status) bool {
+// An empty id needs no special case, even though a free slot carries one too:
+// [slotOwner.owns] refuses a slot with no holder.
+func (s *backupStat) claimOf(id string) slotOwner {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqState.ID != id {
-		return false
+		return slotOwner{stat: s}
 	}
-	// Cancelled is terminal - don't allow overwriting
-	if s.reqState.Status == backup.Cancelled {
-		return false
+	return slotOwner{stat: s, generation: s.generation}
+}
+
+// state is what the slot holds, together with whether this claim still holds
+// it. Read under one lock, so a caller deciding on both cannot pair them
+// across two different moments.
+func (o slotOwner) state() (bool, reqState) {
+	if o.stat == nil {
+		return false, reqState{}
 	}
-	s.reqState.Status = st
-	return true
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	return o.owns(), o.stat.reqState
+}
+
+// stamp writes the status while this claim still holds the slot, and reports
+// the state it found along with whether it wrote — read together, so a caller
+// logging both cannot pair them across two different moments. [slotOwner.set]
+// is the same write for a caller that only needs to know whether it landed.
+func (o slotOwner) stamp(st backup.Status) (bool, reqState) {
+	if o.stat == nil {
+		return false, reqState{}
+	}
+	o.stat.Lock()
+	defer o.stat.Unlock()
+	held := o.stat.reqState
+	if !o.owns() || !o.stat.canAdvanceTo(st) {
+		return false, held
+	}
+	o.stat.setStatus(st)
+	return true, held
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.
@@ -268,8 +400,18 @@ type shardSyncChan struct {
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
 
-	// lastAsyncError used for debugging when no metadata is created
+	// lastAsyncError is written from operation goroutines without a lock or
+	// ownership check, so an outlived operation can overwrite it. Debugging
+	// aid only; nothing in production reads it.
 	lastAsyncError error
+}
+
+// setSlotLogger wires the operation slot to a logger, so the writes it refuses
+// leave something behind. Constructors only: it writes a field that the slot's
+// own lock guards everywhere else, so wiring a logger once the slot is reachable
+// from another goroutine is a data race.
+func (c *shardSyncChan) setSlotLogger(log logrus.FieldLogger) {
+	c.lastOp.log = log
 }
 
 // waitForCoordinator to confirm or to abort previous operation

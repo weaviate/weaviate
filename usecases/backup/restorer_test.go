@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,6 @@ func TestRestoreStatus(t *testing.T) {
 		backendType = "s3"
 		id          = "1234"
 		m           = createManager(nil, nil, nil, nil)
-		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
 	)
@@ -64,13 +64,12 @@ func TestRestoreStatus(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
-	// active state
-	m.restorer.lastOp.reqState = reqState{
-		Starttime: starTime,
-		ID:        id,
-		Status:    backup.Transferring,
-		Path:      path,
-	}
+	// active state. Claim and release through the slot's own methods: the
+	// restore goroutines in this package write it under its lock.
+	prevID, slot := m.restorer.lastOp.renew(id, path, "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Transferring))
+	starTime := m.restorer.lastOp.get().Starttime
 	st, err := m.restorer.status(backendType, id)
 	if err != nil {
 		t.Errorf("get active status: %v", err)
@@ -80,7 +79,7 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("get active status: got=%v want=%v", st, expected)
 	}
 	// cached status
-	m.restorer.lastOp.reset()
+	require.True(t, slot.release())
 	st.CompletedAt = starTime
 	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	st, err = m.restorer.status(backendType, id)
@@ -287,20 +286,18 @@ func TestRestoreOnStatus(t *testing.T) {
 	if !strings.Contains(got.Err, "not found") {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
-	// active state
-	m.restorer.lastOp.reqState = reqState{
-		Starttime: starTime,
-		ID:        id,
-		Status:    backup.Transferring,
-		Path:      path,
-	}
+	// active state. Claim and release through the slot's own methods: the
+	// restore goroutines in this package write it under its lock.
+	prevID, slot := m.restorer.lastOp.renew(id, path, "", "")
+	require.Empty(t, prevID)
+	require.True(t, slot.set(backup.Transferring))
 	got = m.OnStatus(ctx, &req)
 	expected := StatusResponse{Method: OpRestore, ID: req.ID, Status: backup.Transferring}
 	if expected != *got {
 		t.Errorf("get active status: got=%v want=%v", got, expected)
 	}
 	// cached status
-	m.restorer.lastOp.reset()
+	require.True(t, slot.release())
 	st := Status{Path: path, StartedAt: starTime, Status: backup.Transferring, CompletedAt: starTime}
 	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	got = m.OnStatus(ctx, &req)
@@ -324,22 +321,28 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// slotHolder is the id holding the participant restorer slot when
-		// restoreAll runs. A different id means this restore's slot was
-		// already handed to a newer one, and stamping it CANCELLED would
-		// cancel a restore nobody cancelled.
-		slotHolder string
+		// stolen hands the slot to a newer restore before restoreAll runs,
+		// leaving restoreAll's claim stale.
+		stolen bool
+		// newID is the id the newer restore claims with.
+		newID      string
+		wantSlotID string
 		wantStatus backup.Status
 	}{
 		{
 			name:       "slot held by this restore",
-			slotHolder: backupID,
+			wantSlotID: backupID,
 			wantStatus: backup.Cancelled,
 		},
 		{
-			name:       "slot held by a different restore",
-			slotHolder: "newer-restore",
-			wantStatus: backup.Transferring,
+			// Cancel and retry under the same id is a normal flow, and the one
+			// an id-keyed ownership check cannot tell from the first attempt
+			// still holding the slot.
+			name:       "slot taken over by a retry of the same id",
+			stolen:     true,
+			newID:      backupID,
+			wantSlotID: backupID,
+			wantStatus: backup.Started,
 		},
 	}
 
@@ -350,12 +353,18 @@ func TestRestoreAllCancellation(t *testing.T) {
 			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-			restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
-			// restoreAll's slot writes are ownership-checked, so the slot has
-			// to be claimed the way restore() claims it before calling in.
-			prevID, _ := restorer.lastOp.renew(tc.slotHolder, "test/path", "", "")
+			logger, _ := test.NewNullLogger()
+			restorer := newRestorer("node1", logger, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+			// restoreAll writes through the claim restore() took, so the slot
+			// has to be claimed the way restore() claims it before calling in.
+			prevID, slot := restorer.lastOp.renew(backupID, "test/path", "", "")
 			require.Empty(t, prevID)
-			restorer.lastOp.set(backup.Transferring)
+			slot.set(backup.Transferring)
+			if tc.stolen {
+				require.True(t, slot.release())
+				prevID, _ := restorer.lastOp.renew(tc.newID, "test/path", "", "")
+				require.Empty(t, prevID)
+			}
 
 			desc := &backup.BackupDescriptor{
 				ID:            backupID,
@@ -373,12 +382,12 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 			err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 				objectStore: objectStore{backend: backend, backupId: backupID},
-			}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
+			}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false, slot)
 
 			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "restore cancelled")
 			assert.Equal(t, tc.wantStatus, restorer.lastOp.get().Status)
-			assert.Equal(t, tc.slotHolder, restorer.lastOp.get().ID,
+			assert.Equal(t, tc.wantSlotID, restorer.lastOp.get().ID,
 				"restoreAll must never take a slot over")
 		})
 	}
@@ -409,12 +418,15 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 			backend := newFakeBackend()
 			backend.On("SourceDataPath").Return(t.TempDir())
 			rec := &recordingRbacRestorer{}
-			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
-			// restoreAll's slot writes are ownership-checked, so the slot has
-			// to be claimed the way restore() claims it before calling in.
-			prevID, _ := restorer.lastOp.renew("rbac-strip", "test/path", "", "")
+			logger, _ := test.NewNullLogger()
+			restorer := newRestorer("node1", logger, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			// restoreAll writes through the claim restore() took, so the slot
+			// has to be claimed the way restore() claims it before calling in.
+			prevID, slot := restorer.lastOp.renew("rbac-strip", "test/path", "", "")
 			require.Empty(t, prevID)
-			restorer.lastOp.set(backup.Transferring)
+			// The TRANSFERRING assertion below only says something if the slot
+			// did not already read it; a fresh claim reads STARTED.
+			require.Equal(t, backup.Started, restorer.lastOp.get().Status)
 
 			desc := &backup.BackupDescriptor{
 				ID:            "rbac-strip",
@@ -426,10 +438,12 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 
 			err := restorer.restoreAll(context.Background(), desc, 50, nodeStore{
 				objectStore: objectStore{backend: backend, backupId: desc.ID},
-			}, "", "", "", "", strip)
+			}, "", "", "", "", strip, slot)
 
 			assert.NoError(t, err)
 			assert.True(t, rec.called, "rbac restore must be invoked")
+			assert.Equal(t, backup.Transferring, restorer.lastOp.get().Status,
+				"restoreAll publishes TRANSFERRING through the claim it was given")
 			assert.Equal(t, strip, rec.strip)
 		})
 	}

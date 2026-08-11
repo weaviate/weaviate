@@ -12,14 +12,20 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_* pin the
+// TestLogOperatorRepairGuidanceOnTornSemanticMigration_* pin the
 // operator-actionable-error half of #221: when a semantic-migration
 // task reaches a terminal status (FAILED or CANCELLED), OnTaskCompleted
 // logs the exact REST command an operator should issue to repair the
@@ -30,7 +36,7 @@ import (
 // repair_command field (so the operator's copy-pasteable command stays
 // stable).
 
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenizationBothIndexes(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBothIndexes(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -39,7 +45,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T1"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1, "expected one error entry per property")
 	entry := hook.Entries[0]
@@ -55,7 +61,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 	require.Contains(t, entry.Message, "bucket")
 }
 
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -64,7 +70,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 		Properties:         []string{"category"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T2"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1)
 	entry := hook.Entries[0]
@@ -75,7 +81,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_ChangeTokenization
 		entry.Data["repair_command"])
 }
 
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_MultipleProperties(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -83,7 +89,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_MultipleProperties
 		MigrationType: ReindexTypeEnableFilterable,
 		Properties:    []string{"a", "b", "c"},
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T3"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed)
 
 	// One entry per property — easier for log scrapers to alert per-prop.
 	require.Len(t, hook.Entries, 3)
@@ -94,7 +100,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_MultipleProperties
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
 }
 
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	// Format-only migrations must not emit operator guidance.
@@ -109,14 +115,14 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_FormatOnlyMigratio
 				MigrationType: mt,
 				Properties:    []string{"name"},
 			}
-			logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T"), payload, "FAILED")
+			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), payload, distributedtask.TaskStatusFailed)
 			require.Empty(t, hook.Entries,
 				"format-only migration %s must not produce repair guidance", mt)
 		})
 	}
 }
 
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_EmptyPropertiesEmitsGenericGuidance(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGenericGuidance(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -124,16 +130,77 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_EmptyPropertiesEmi
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    nil, // reserved for future whole-collection rebuild
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T4"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T4"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1, "empty Properties → one generic guidance entry")
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
 }
 
+// Pins: repair guidance on a CANCELLED task follows the evidence that a
+// node got past its units — either ack map, since PREP acks land in a
+// different one from post-swap acks.
+func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
+	payload, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+		// Needed for a repair command to be renderable at all; without it the
+		// guidance still fires but carries no repair_command field, which is
+		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
+		// TokenizationStillWarns pins.
+		TargetTokenization: "field",
+	})
+	require.NoError(t, err)
+
+	acked := map[string]distributedtask.PostCompletionAck{"n1": {Success: true}}
+
+	for _, tc := range []struct {
+		name         string
+		postAcks     map[string]distributedtask.PostCompletionAck
+		prepAcks     map[string]distributedtask.PostCompletionAck
+		wantGuidance bool
+	}{
+		{name: "no node acked anything", wantGuidance: false},
+		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
+		// PREP writes merged.mig, which arms the next restart to promote
+		// the ingest dir to the canonical bucket name — the tear is
+		// already possible before any swap ack exists.
+		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			p := &ReindexProvider{
+				logger:    logger,
+				serverCtx: context.Background(),
+				// Terminal-status cleanup needs a DB; an empty one is a no-op.
+				db: &DB{},
+			}
+
+			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+				Namespace:                 ReindexNamespace,
+				TaskDescriptor:            distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
+				Status:                    distributedtask.TaskStatusCancelled,
+				Payload:                   payload,
+				PostCompletionAcks:        tc.postAcks,
+				PreparationCompletionAcks: tc.prepAcks,
+			}))
+
+			var guided bool
+			for _, e := range hook.AllEntries() {
+				if _, ok := e.Data["repair_command"]; ok {
+					guided = true
+				}
+			}
+			require.Equal(t, tc.wantGuidance, guided,
+				"repair guidance on a CANCELLED task must follow the swap evidence")
+		})
+	}
+}
+
 // The repair command must be callable by the only person who reads the
 // server log: an operator with cluster-wide reach, who has to type the
 // namespace prefix for the request to land on the right collection.
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -142,7 +209,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectio
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T5"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T5"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1)
 	require.Equal(t,
@@ -152,9 +219,11 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_QualifiedCollectio
 
 // CANCELLED reaches the same bucket↔schema end state as FAILED on a node
 // that already committed its swap, so it gets the same guidance.
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMessage(t *testing.T) {
-	for _, outcome := range []string{"FAILED", "CANCELLED"} {
-		t.Run(outcome, func(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_OutcomeAppearsInMessage(t *testing.T) {
+	for _, outcome := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled,
+	} {
+		t.Run(string(outcome), func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			payload := &ReindexTaskPayload{
 				Collection:         "Products",
@@ -162,11 +231,11 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMe
 				Properties:         []string{"name"},
 				TargetTokenization: "field",
 			}
-			logOperatorRepairGuidanceOnTerminalSemanticMigration(
+			logOperatorRepairGuidanceOnPartialSwap(
 				logger.WithField("taskID", "T6"), payload, outcome)
 
 			require.Len(t, hook.Entries, 1)
-			require.Contains(t, hook.Entries[0].Message, outcome)
+			require.Contains(t, hook.Entries[0].Message, string(outcome))
 		})
 	}
 }
@@ -174,7 +243,7 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_OutcomeAppearsInMe
 // A tokenization change submitted by an older binary carries no target, so
 // no repair command can be rendered. The operator still has to hear that the
 // buckets may be inverted — a silent terminal is the worse failure.
-func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_NoTargetTokenizationStillWarns(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTargetTokenizationStillWarns(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -182,9 +251,60 @@ func TestLogOperatorRepairGuidanceOnTerminalSemanticMigration_NoTargetTokenizati
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	}
-	logOperatorRepairGuidanceOnTerminalSemanticMigration(logger.WithField("taskID", "T7"), payload, "FAILED")
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T7"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1)
 	require.NotContains(t, hook.Entries[0].Data, "repair_command")
 	require.Contains(t, hook.Entries[0].Message, "cannot name the request")
+}
+
+// Pins the wiring the ack maps cannot cover: a cancel that lands while
+// the task is still STARTED leaves both maps empty, so the only thing
+// that can raise the alarm is this node's own disk.
+func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.T) {
+	ctx := context.Background()
+	shard, idx := testShard(t, ctx, "C")
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	prefixes := migrationDirPrefixesForIndexType("searchable")
+	require.NotEmpty(t, prefixes)
+	dir := migrationDirWithProps(prefixes[0], []string{"title"})
+	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", dir+"_1")
+	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+		// Needed for a repair command to be renderable at all; without it the
+		// guidance still fires but carries no repair_command field, which is
+		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
+		// TokenizationStillWarns pins.
+		TargetTokenization: "field",
+	})
+	require.NoError(t, err)
+
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		nil, logger, "n1", nil, ctx)
+
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1},
+		Status:         distributedtask.TaskStatusCancelled,
+		Payload:        payload,
+	}))
+
+	var guided bool
+	for _, e := range hook.AllEntries() {
+		if _, ok := e.Data["repair_command"]; ok {
+			guided = true
+		}
+	}
+	require.True(t, guided,
+		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -123,7 +124,23 @@ type Scheduler struct {
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
 
+	// Steady-state reporters get a sampler each. Both re-report on every
+	// tick until something outside the scheduler clears the condition, so
+	// sharing sampledLogger's budget would crowd out the one-off errors
+	// that budget exists for.
+	unrecognizedStatusLogger *logrusext.Sampler
+	postCompletionAckLogger  *logrusext.Sampler
+
 	tasksRunning *prometheus.GaugeVec
+
+	// tasksUnrecognizedStatus is the alertable form of the
+	// unrecognized-status warn: the warn is sampled, so it cannot carry a
+	// condition that persists for the life of a node's data directory.
+	tasksUnrecognizedStatus *prometheus.GaugeVec
+
+	// localTaskInspector reads this node's own FSM copies. nil in unit
+	// tests that don't exercise the unrecognized-status warn.
+	localTaskInspector LocalTaskInspector
 
 	// perTaskState holds all per-scheduler-instance per-task state for
 	// the two-phase callback firing and ack emission. Entries are
@@ -177,11 +194,15 @@ type SchedulerParams struct {
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
-	AckRecorder       PostCompletionAckRecorder
-	Providers         map[string]Provider
-	Clock             clockwork.Clock
-	Logger            logrus.FieldLogger
-	MetricsRegisterer prometheus.Registerer
+	AckRecorder PostCompletionAckRecorder
+	// LocalTaskInspector reads this node's own FSM copies, which the
+	// leader-routed TaskLister cannot report once the peers have deleted
+	// theirs. nil in unit tests that don't exercise the warn.
+	LocalTaskInspector LocalTaskInspector
+	Providers          map[string]Provider
+	Clock              clockwork.Clock
+	Logger             logrus.FieldLogger
+	MetricsRegisterer  prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
@@ -207,6 +228,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
+		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
 		localNode:        params.LocalNode,
@@ -216,9 +238,17 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		logger:        params.Logger,
 		sampledLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
+		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
+		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
 			Help: "Number of active distributed tasks running per namespace",
+		}, []string{"namespace"}),
+
+		tasksUnrecognizedStatus: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_distributed_tasks_unrecognized_status",
+			Help: "Number of distributed tasks in a status this build does not recognize, per namespace",
 		}, []string{"namespace"}),
 
 		stopCh: make(chan struct{}),
@@ -468,6 +498,75 @@ func (s *Scheduler) loop() {
 	}
 }
 
+// unrecognizedStatusWarnWindow is the sampling window for the
+// unrecognized-status warn. Long, because the condition holds until an
+// operator acts on it and every replicated progress update wakes the tick
+// loop.
+const unrecognizedStatusWarnWindow = time.Hour
+
+// warnOnUnrecognizedStatuses reports the tasks in a status this build
+// never declared. Such a task counts as in flight, which is why the DTM
+// guards keep refusing schema mutations and backups for it.
+//
+// One aggregated line per tick, sorted, covering every listed namespace:
+// naming the tasks one at a time let the sampler's budget pick an
+// arbitrary three by map-iteration order, which is not a set an operator
+// can act on. The gauge carries the same condition for alerting, since a
+// sampled log line cannot.
+//
+// Reads this node's own FSM copies as well as the leader-routed list. A
+// task the peers have already cleaned up is gone from the latter, and
+// that is exactly the task still wedged here.
+func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+	counts := make(map[string]int, len(tasksByNamespace))
+	var named []string
+	for namespace, tasks := range tasksByNamespace {
+		counts[namespace] = 0
+		for _, task := range tasks {
+			if task.Status.IsRecognized() {
+				continue
+			}
+			counts[namespace]++
+			named = append(named, fmt.Sprintf("%s/%s@%d=%s",
+				namespace, task.ID, task.Version, task.Status))
+		}
+	}
+	if s.localTaskInspector != nil {
+		for namespace, tasks := range s.localTaskInspector.LocalUnrecognizedDistributedTasks() {
+			if _, ok := counts[namespace]; !ok {
+				counts[namespace] = 0
+			}
+			for _, task := range tasks {
+				if _, alreadyNamed := tasksByNamespace[namespace][task.TaskDescriptor]; alreadyNamed {
+					continue
+				}
+				counts[namespace]++
+				named = append(named, fmt.Sprintf("%s/%s@%d=%s (this node only)",
+					namespace, task.ID, task.Version, task.Status))
+			}
+		}
+	}
+
+	// Reset first so a namespace that stopped reporting drops its series
+	// instead of freezing at the value it last had.
+	s.tasksUnrecognizedStatus.Reset()
+	for namespace, count := range counts {
+		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
+	}
+	if len(named) == 0 {
+		return
+	}
+	sort.Strings(named)
+
+	s.unrecognizedStatusLogger.WithSampling(func(l logrus.FieldLogger) {
+		s.logger.
+			WithField("unrecognized_tasks", named).
+			Warnf("%d distributed task(s) in an unrecognized status: %s. Each counts as in flight, "+
+				"so schema mutations and backups stay refused until it reaches a terminal state or "+
+				"is cancelled", len(named), strings.Join(named, ", "))
+	})
+}
+
 func (s *Scheduler) tick() {
 	tasksByNamespace, err := s.listTasks(context.Background())
 	if err != nil {
@@ -500,6 +599,8 @@ func (s *Scheduler) tick() {
 	if needsBootstrap {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
+
+	s.warnOnUnrecognizedStatuses(tasksByNamespace)
 
 	for namespace, provider := range providers {
 		tasks := tasksByNamespace[namespace]
@@ -534,19 +635,14 @@ func (s *Scheduler) tick() {
 				// authoritative status, not a hidden in-tick mutation.
 				effectiveStatus := task.Status
 
-				// State-machine dispatch by effectiveStatus.
-				//
-				// CANCELLED is a first-class branch: CancelTask accepts any
-				// non-terminal status, so cancel may land anywhere from
-				// STARTED to mid-SWAP. Skipping PREP/SWAP/the ack barriers
-				// here is what stops the migration; nothing here rolls back
-				// an already-committed shard swap, so a mid-SWAP cancel
-				// leaves those shards swapped and the schema unflipped —
-				// the provider's OnTaskCompleted owns that reconciliation.
-				//
-				// All other branches (STARTED, PREPARING, SWAPPING,
-				// FAILED, FINISHED) fall through to the in-flight ack
-				// pipeline and then Phase 2.
+				// State-machine dispatch by effectiveStatus. CANCELLED
+				// skips the ack barriers because [Manager.CancelTask]
+				// refuses the coordination phases this build can name, so
+				// the cancel landed before them. The gap is a cancel from a
+				// status this build cannot name: a newer node may already
+				// have swapped, which OnTaskCompleted reports as repair
+				// guidance. Every other status falls through to the
+				// in-flight ack pipeline and then Phase 2.
 				switch effectiveStatus {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
@@ -618,25 +714,12 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. IsActive() excludes every
-		// non-terminal status — PREPARING, SWAPPING, and anything a newer
-		// node introduced. Their FinishedAt is stamped when the units
-		// completed and ages from there, so the age check alone would
-		// propose a cleanup for a task still mid-coordination.
+		// TTL-cleanup of finished tasks. The age check never protects a
+		// non-terminal task: its FinishedAt is either zero or stamped at
+		// units-completion, and both clear the TTL. The liveness test is
+		// what stands between a task mid-coordination and deletion.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
-				// Warn only for genuinely unrecognized statuses (not
-				// STARTED or the coordination phases) — otherwise the
-				// operator sees only rejections quoting a status with no
-				// explanation anywhere else in the system.
-				if !task.Status.IsCoordinationPhase() && task.Status != TaskStatusStarted {
-					s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-						s.loggerWithTask(namespace, task.TaskDescriptor).
-							Warnf("distributed task is in unrecognized status %q; treating it as in flight. "+
-								"It blocks schema mutations and backups on its collection until it reaches a "+
-								"terminal state or is cancelled", task.Status)
-					})
-				}
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
@@ -1029,8 +1112,10 @@ func (s *Scheduler) runSwapPhase(
 	if ackErr != nil {
 		// Leave postCompletionAckEmitted unset; FSM-side ack is
 		// idempotent so retry is safe.
-		s.loggerWithTask(namespace, desc).
-			Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", ackErr)
+		s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
+			s.loggerWithTask(namespace, desc).
+				Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", ackErr)
+		})
 		return effectiveStatus
 	}
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
