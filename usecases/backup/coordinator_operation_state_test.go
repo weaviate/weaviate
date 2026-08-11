@@ -193,8 +193,8 @@ func (o *overlappingRestores) awaitLog(t *testing.T, msg string) {
 	awaitLog(t, o.logs, msg)
 }
 
-// awaitLog waits for msg to show up in hook, which is how a test waits for a
-// goroutine whose decision leaves no other trace.
+// awaitLog is how a test waits for a goroutine whose decision leaves no
+// other trace.
 func awaitLog(t *testing.T, hook *test.Hook, msg string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -207,7 +207,7 @@ func awaitLog(t *testing.T, hook *test.Hook, msg string) {
 	}, 20*time.Second, 10*time.Millisecond, "nothing logged %q", msg)
 }
 
-// staleRestoreStopped is what a restore goroutine logs once it finds the slot
+// staleRestoreStopped is logged when a restore goroutine finds the slot
 // belongs to somebody else.
 const staleRestoreStopped = "restore no longer holds the slot, stopping without publishing"
 
@@ -219,10 +219,8 @@ func (o *overlappingRestores) restore(t *testing.T, backendName, backupID, node 
 		restoreDescriptor(backupID, node), nil))
 }
 
-// finish lets every still-running restore complete and joins both goroutines:
-// the one that lost the slot, which ends at its stop log, and the one holding
-// it, which ends by releasing it. Without both the cancelled restore would
-// outlive the test and touch t after it returned.
+// finish lets every still-running restore complete and joins both goroutines,
+// so the cancelled one can't outlive the test and touch t after it returns.
 func (o *overlappingRestores) finish(t *testing.T) {
 	t.Helper()
 	o.finished.Store(true)
@@ -250,10 +248,8 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 		freed  = make(chan struct{})
 		unfini = func(*StatusRequest) bool { return !o.finished.Load() }
 		fini   = func(*StatusRequest) bool { return o.finished.Load() }
-		// The single participant answers one poll per restore at a time, so an
-		// in-flight count of two is one goroutine each, both inside a poll at
-		// the same moment. Each poll then waits for the other, which is what
-		// turns "both polled" into "both polled together".
+		// inFlight counts concurrent pollers; the second to arrive closes
+		// overlapped, so both proceed together instead of serially.
 		inFlight    atomic.Int32
 		overlapOnce sync.Once
 		overlapped  = make(chan struct{})
@@ -268,9 +264,8 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 				cancelAndFreeSlot(t, &o.c.lastOp, backupID)
 				close(freed)
 			})
-			// Bounded: the first poll runs before the retry exists, and both
-			// goroutines re-poll every timeoutNextRound, so waiting forever here
-			// would deadlock the very overlap it is looking for.
+			// Bounded: the first poll runs before the retry exists, so waiting
+			// forever here would deadlock the overlap this is trying to produce.
 			select {
 			case <-overlapped:
 			case <-time.After(100 * time.Millisecond):

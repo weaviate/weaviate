@@ -373,11 +373,10 @@ func (c *coordinator) Restore(
 				if op.descriptor.Error == "" {
 					op.descriptor.Error = errCancelled.Error()
 				}
-				// No slot write here: the caller returns true and the deferred
-				// release clears the slot right after. A poll landing in that
-				// window still reads the staging status the slot holds, and is
-				// answered from the descriptor, which already reads
-				// CANCELLING/CANCELLED, once the slot clears.
+				// No slot write here: the deferred release clears the slot right
+				// after. A poll landing in that window is still answered
+				// correctly once the slot clears, via the descriptor, which
+				// already reads CANCELLING/CANCELLED.
 				return true
 			}
 			return false

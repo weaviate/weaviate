@@ -134,10 +134,10 @@ func (s *backupStat) resetIfCancelled(id string) (bool, reqState) {
 // apply over RAFT can no longer be stopped, so a cancellation there is
 // refused and the restore reports the outcome it actually had.
 //
-// Success and Failed are deliberately not terminal here: they are published a
-// moment before the slot is released, and a cancel landing in that window
-// stamps Cancelled over them. Such a poll is answered from the descriptor on
-// the backend once the slot clears, which carries the real outcome.
+// Success and Failed are deliberately not terminal here: they're published
+// just before the slot releases, so a cancel landing in that window may still
+// stamp Cancelled over them. The descriptor carries the real outcome once the
+// slot clears.
 func (s *backupStat) canAdvanceTo(next backup.Status) bool {
 	switch s.reqState.Status {
 	case backup.Cancelled:
@@ -211,16 +211,16 @@ func (o slotOwner) owns() bool {
 	return o.stat != nil && o.stat.generation == o.generation && o.stat.reqState.ID != ""
 }
 
-// droppedWrite is a write the slot refused, captured so that emitting it can
-// happen outside the slot's lock.
+// droppedWrite carries a refused write so it can be logged outside the
+// slot's lock.
 type droppedWrite struct {
 	log    logrus.FieldLogger
 	msg    string
 	fields logrus.Fields
 }
 
-// emit writes the record, and must run with the slot's lock released: logrus
-// writes synchronously, and every status poll reads the slot behind that lock.
+// emit must run with the slot's lock released: logrus writes synchronously,
+// and every status poll reads the slot behind that lock.
 //
 // Info, not Debug: the default log level is Info, and a dropped write is
 // often what a support case starts from.
