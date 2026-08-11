@@ -510,6 +510,19 @@ func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 			write:   backup.Success,
 			wantMsg: "which is its last word",
 		},
+		{
+			// A cancel in flight is not the last word: CANCELLED still follows
+			// it, so saying so here would send the reader looking for a
+			// terminal state the slot is not in.
+			name: "a cancellation is in flight",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Cancelling)
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "only its completion may follow",
+		},
 	}
 
 	for _, tc := range tests {
