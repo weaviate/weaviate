@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -169,13 +170,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
@@ -376,13 +371,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_change_tok", Version: 1},
@@ -570,13 +559,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties: []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
@@ -640,13 +623,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		// An unrecognized status blocks too.
-		unknownFutureStatus,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
@@ -727,3 +704,61 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 // unknownFutureStatus simulates a status a newer node introduced that
 // this build doesn't recognize. Must never become a real status name.
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// blockingStatuses are the non-terminal statuses every reindex conflict
+// guard must refuse a mutation for, the unrecognized one included.
+var blockingStatuses = []distributedtask.TaskStatus{
+	distributedtask.TaskStatusStarted,
+	distributedtask.TaskStatusPreparing,
+	distributedtask.TaskStatusSwapping,
+	unknownFutureStatus,
+}
+
+// Pins: every mutation refusal stops telling the operator to cancel the
+// reindex when the status is one this build cannot classify. The FSM
+// refuses a cancel for such a task on every node, so that advice would
+// send them down a road that dead-ends.
+func TestMutationRefusals_DropTheCancelAdviceForAnUnclassifiableStatus(t *testing.T) {
+	provider := &ReindexProvider{}
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+	tasksIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+			Status:         status,
+			Payload:        payload,
+		}}
+	}
+
+	for name, guard := range map[string]func(tasks []*distributedtask.Task) error{
+		"property update": func(tasks []*distributedtask.Task) error {
+			return provider.CheckPropertyUpdate("C", "name", tasks)
+		},
+		"class mutation": func(tasks []*distributedtask.Task) error {
+			return provider.CheckClassMutation("C", tasks)
+		},
+		"tenant mutation": func(tasks []*distributedtask.Task) error {
+			return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			recognized := guard(tasksIn(distributedtask.TaskStatusStarted))
+			unclassifiable := guard(tasksIn(unknownFutureStatus))
+			require.Error(t, recognized)
+			require.Error(t, unclassifiable)
+
+			require.NotContains(t, recognized.Error(), "cannot classify that status")
+			require.Contains(t, unclassifiable.Error(), "cannot classify that status")
+
+			// Every message ends on its remedy. The cancel advice has to
+			// be gone, not merely joined by a caveat the operator has to
+			// reconcile against it.
+			remedy := recognized.Error()[strings.LastIndex(recognized.Error(), "— "):]
+			require.Contains(t, remedy, "cancel")
+			require.NotContains(t, unclassifiable.Error(), remedy)
+		})
+	}
+}

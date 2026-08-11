@@ -13,7 +13,12 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,4 +244,53 @@ func structuralInvariantSeedTask(
 			"u-1": {ID: "u-1", Status: UnitStatusPending},
 		},
 	}
+}
+
+// TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact
+// [Manager.CleanUpTask]'s unrecognized-status exit rests on. That exit is
+// only sound because the sweep filters on the leader's view, so a CLEAN_UP
+// for a task this build cannot classify exists only once the cluster
+// already considers it done. A second proposer reading local state would
+// let one node delete a task the rest still considers live, so adding one
+// has to fail here rather than in production.
+func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
+	root := filepath.Join("..", "..")
+	require.FileExists(t, filepath.Join(root, "go.mod"),
+		"expected the repo root two levels up; this test scans the whole tree")
+
+	var callSites []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "vendor" || d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") ||
+			strings.HasPrefix(name, "mock_") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			// The leading dot is what separates a call from the interface
+			// method and from the Raft method that implements it.
+			if strings.Contains(line, ".CleanUpDistributedTask(") {
+				callSites = append(callSites, fmt.Sprintf("%s:%d", filepath.ToSlash(path), i+1))
+			}
+		}
+		return nil
+	}))
+
+	require.Len(t, callSites, 1,
+		"CLEAN_UP must have exactly one proposer, found: %v", callSites)
+	require.Contains(t, callSites[0], "cluster/distributedtask/scheduler.go",
+		"the one proposer must be the scheduler's TTL sweep")
 }
