@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -34,12 +35,23 @@ type ReindexCleanup struct {
 	// resolve is called per request, not once at construction: the internal
 	// server is built before the reindex provider exists, so capturing the
 	// value here would freeze a nil that never becomes real.
-	resolve func() ReindexCleanupProber
+	//
+	// It returns false while there is no prober. A bare interface return would
+	// let a provider hand back a nil *T, which is a non-nil interface and would
+	// slip past a nil check into a call on a nil receiver.
+	resolve func() (ReindexCleanupProber, bool)
 	auth    auth
 	logger  logrus.FieldLogger
 }
 
-func NewReindexCleanup(resolve func() ReindexCleanupProber, auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+func NewReindexCleanup(resolve func() (ReindexCleanupProber, bool), auth auth, logger logrus.FieldLogger) *ReindexCleanup {
+	if logger == nil {
+		// Callers wire this from app state, which is not populated yet on every
+		// path that builds the internal server.
+		discard := logrus.New()
+		discard.Out = io.Discard
+		logger = discard
+	}
 	return &ReindexCleanup{resolve: resolve, auth: auth, logger: logger}
 }
 
@@ -95,11 +107,16 @@ func (rc *ReindexCleanup) activityHandler() http.HandlerFunc {
 
 		// Never silently report "not cleaning up": a cancel's answer depends
 		// on this, and a wrong "no" reopens the window it exists to close.
-		var prober ReindexCleanupProber
+		var (
+			prober ReindexCleanupProber
+			wired  bool
+		)
 		if rc.resolve != nil {
-			prober = rc.resolve()
+			prober, wired = rc.resolve()
 		}
-		if prober == nil {
+		// The nil check backs up the flag: a provider that reports wired while
+		// handing back nothing must still not reach a method call.
+		if !wired || prober == nil {
 			// The sentinel body lets the caller tell this permanent 503 apart
 			// from a transient one; see [clusterprobe.ProbeNotWiredMarker].
 			log.Debug("reindex cleanup probe answered: not wired on this node")
