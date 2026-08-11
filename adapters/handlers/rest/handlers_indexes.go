@@ -720,19 +720,56 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 }
 
 // cancelApplyFailureResponder maps an FSM rejection from the cancel apply
-// onto the answer the pre-flight would have given for the same condition.
-// The status can flip between the list read and the apply, which on a
-// small collection is an ordinary race; rendering that as a 500 also
-// leaks the sentinel's internal marker into the response body.
+// onto an answer at the same status code the pre-flight would have used
+// for the same condition. The status can flip between the list read and
+// the apply, which on a small collection is an ordinary race; rendering
+// that as a 500 also leaks the sentinel's internal marker into the
+// response body.
 func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
-		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
 	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
 	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped being
+// cancellable between the list read and the apply.
+//
+// The status this handler holds is stale by definition: reaching the
+// apply at all required [distributedtask.TaskStatus.IsCancellable], so it
+// is always STARTED, and the apply only rejects because the task is no
+// longer in that status. It could have moved into a coordination phase or
+// straight to a terminal state, and this side cannot tell which without a
+// second read that would be just as stale. So the body names no status:
+// rendering the stale STARTED would tell an operator whose task had
+// already FINISHED to wait for a terminal state it is already in, under a
+// hazard description that never applied to it.
+//
+// Still 409: the caller asked for a cancel and no cancel happened, same
+// as the pre-flight's refusal. Answering the terminal half with 202 +
+// NO_OP would be closer to the truth for that half alone, but this side
+// cannot separate the halves, and it changes the meaning of a status code
+// on a public endpoint.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_raced",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task stopped being cancellable between the list read and the apply; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between the read and the cancel, and is no "+
+			"longer cancellable: it has either entered a cluster-wide coordination phase, where nodes may "+
+			"already have written merged state or renamed bucket directories, or it has already reached a "+
+			"terminal state — re-read the index status to see where it landed",
+			target.ID, collection, propertyName)))
 }
 
 // cancelNoOpResponder answers a cancel that has nothing to cancel.
@@ -754,10 +791,13 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	})
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept. The body
-// has to hold for PREPARING as well as SWAPPING: in PREPARING no node has
-// swapped yet, so naming the swap as under way would have an operator
-// sizing the wait in seconds when PREP runs for minutes at billion-scale.
+// cancelRefusedResponder answers a cancel DTM will not accept. Two
+// conditions land here and they need different bodies: a coordination
+// phase, where this build knows what the task is doing and knows that
+// stopping it is unsafe, and a status it cannot name, where it knows
+// neither. Telling an operator to "wait for a terminal state" is honest
+// advice for the first and a dead end for the second — the status has to
+// terminate on the nodes that recognize it.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -769,10 +809,26 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		"principal":   principalUsername(principal),
 	}).Info("cancel: task is past the point where cancelling is safe; refusing")
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s is in status %s: nodes may already have written merged "+
-			"state or renamed bucket directories, so stopping it now would leave the cluster serving "+
-			"migrated buckets under the pre-migration schema — wait for it to reach a terminal state",
-			target.ID, collection, propertyName, target.Status)))
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
+			target.ID, collection, propertyName, target.Status,
+			cancelRefusalReason(target.Status))))
+}
+
+// cancelRefusalReason explains a 409 from the cancel verb.
+//
+// The coordination-phase wording has to hold for PREPARING as well as
+// SWAPPING: in PREPARING no node has swapped yet, so naming the swap as
+// under way would have an operator sizing the wait in seconds when PREP
+// runs for minutes at billion-scale.
+func cancelRefusalReason(status distributedtask.TaskStatus) string {
+	if !status.IsRecognized() {
+		return "this build cannot classify that status, so it cannot tell whether stopping the " +
+			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+			"state on the nodes that do recognize it"
+	}
+	return "nodes may already have written merged state or renamed bucket directories, so " +
+		"stopping it now would leave the cluster serving migrated buckets under the " +
+		"pre-migration schema — wait for it to reach a terminal state"
 }
 
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
@@ -1141,6 +1197,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
+	// No default arm, so the exhaustive linter makes a newly declared
+	// TaskStatus say how the GET should display it rather than inherit
+	// the unrecognized reading below. That reading is a fail-closed
+	// fallback for a status a newer node wrote, not a display rule
+	// anyone should get by not writing one.
 	switch best.Status {
 	case distributedtask.TaskStatusFailed:
 		idx.Status = "failed"
@@ -1200,11 +1261,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Progress = 1.0
 			surfaceSyntheticFields = true
 		}
-	default:
-		// Unrecognized status: other gates already treat it as in-flight
-		// (409 on PUT, counted against the cap, backups refused), so this
-		// reports "indexing" rather than "ready" or "pending" — the units
-		// don't prove no shard has started for a status this build can't name.
+	}
+
+	if !best.Status.IsRecognized() {
+		// Other gates already treat it as in-flight (409 on PUT, counted
+		// against the cap, backups refused), so this reports "indexing"
+		// rather than "ready" or "pending" — the units don't prove no
+		// shard has started for a status this build can't name.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true

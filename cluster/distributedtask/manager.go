@@ -663,9 +663,15 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 			// to SWAPPING and run the schema flip on a half-failed migration.
 			task.Status = TaskStatusFailed
 			// Name a reason: FAILED with an empty Error leaves the operator
-			// nothing to act on. Error is version-dependent (older nodes may
-			// leave it empty), but readers only append/set this field, never
-			// branch a status on it — so divergence across nodes is safe.
+			// nothing to act on.
+			//
+			// Accepted cross-version cost: an older peer replaying this same
+			// entry leaves Error empty, so during a rolling upgrade GET
+			// /v1/tasks answers differently depending on which node serves
+			// it. The status transition is identical on both binaries, no
+			// production code outside serialization reads Task.Error, and the
+			// field is snapshot-serialized, so a leader snapshot install
+			// converges it. A version gate would buy nothing but delay.
 			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {
@@ -1048,8 +1054,9 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions a running task to CANCELLED. In-flight units are not waited
-// for — the [Scheduler] will terminate their local handles on the next tick.
+// CancelTask transitions a STARTED task to CANCELLED and refuses every other status,
+// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
+// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
 func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1085,9 +1092,11 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	return nil
 }
 
-// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
-// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
-// removal of status information that other nodes may still need to observe.
+// CleanUpTask removes a task from the Manager's state. It refuses tasks in a status this
+// build both declared and calls live, and tasks whose completedTaskTTL has not yet elapsed,
+// preventing premature removal of status information that other nodes may still need to
+// observe. A status this build cannot name is removable — see the guard below, that exit is
+// the only one such a task has.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1112,11 +1121,17 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	// proposer is the Scheduler's TTL sweep, which reads the leader's
 	// view (pinned by TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer),
 	// so a CLEAN_UP for such a task exists only once the cluster already
-	// considers it done. Without this exit the entry is unreachable
-	// forever: no transition can advance it (MarkTaskFinalized refuses
+	// considers it done. Nothing else can move the entry: no transition
+	// advances a status this build cannot name (MarkTaskFinalized refuses
 	// every status but FINISHED and SWAPPING) and no later sweep sees it,
 	// while it keeps blocking schema mutations and backups on its
 	// collection through the local map.
+	//
+	// So the exit fires only when some node in the cluster classifies the
+	// status as terminal. For a new non-terminal status nothing ever
+	// proposes a CLEAN_UP and this node stays pinned either way — which
+	// is the cheap direction, and the one IsTerminal's godoc says a new
+	// status has to be introduced in.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
