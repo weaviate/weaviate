@@ -197,6 +197,12 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // to the name (no readable payload) answers only for the single-property
 // shape; a multi-property tracker with no payload is left to the
 // next-restart finalizer rather than matched on a guess.
+//
+// That guess-refusal is asymmetric with sidecar deletion, which is not
+// payload-gated: a completed-but-deferred multi-property migration whose
+// payload.mig is unreadable stays out of the preserve set while its live
+// ingest dir is still in deletion range. Only reachable for a tracker written
+// before payload.mig existed; see weaviate/weaviate#12574.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache

@@ -117,6 +117,8 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			if tc.wantErr {
 				assert.ErrorIs(t, err, context.Canceled,
 					"abandoning the walk must be reported as the cancellation it is")
+				assert.ErrorIs(t, err, ErrCleanupSweepTruncated,
+					"and tagged truncated, which is what decides the caller's severity")
 			} else {
 				assert.NoError(t, err)
 			}
@@ -179,7 +181,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			indexType: "filterable",
 		},
 		{
-			name:      "the main bucket dir is not a sidecar of itself",
+			name:      "the main bucket dir on its own is not stale state",
 			indexType: "filterable",
 			sidecars:  []string{"property_category"},
 		},
@@ -274,7 +276,7 @@ func TestHasStalePartialReindexStateMatchesTheHydratedSweep(t *testing.T) {
 			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
 			wantStale: true,
 		},
-		// Fail closed: not reachable in production (the sweep refuses this
+		// Fails open: not reachable in production (the sweep refuses this
 		// input earlier), but "nothing here" would read as a clean sweep.
 		{
 			name:      "an index type this build cannot map to a bucket",
@@ -674,13 +676,15 @@ func sweptMigrationDirPrefixes() []string {
 func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 	const main = "property_category"
 
+	require.ElementsMatch(t, sweptMigrationDirPrefixes(),
+		slices.Collect(maps.Keys(strategiesByMigrationDir(1))),
+		"a strategy the cleanup sweeps but this test does not instantiate would "+
+			"never have its suffix checked against the role words")
+
 	// Generation 0 is the canonical post-finalize bucket, which carries no
 	// sidecar suffix at all; live migrations start at 1 (see genSuffix).
 	for _, gen := range []int{1, 7} {
 		strategies := strategiesByMigrationDir(gen)
-		require.ElementsMatch(t, sweptMigrationDirPrefixes(), slices.Collect(maps.Keys(strategies)),
-			"a strategy the cleanup sweeps but this test does not instantiate would "+
-				"never have its suffix checked against the role words")
 		for prefix, strategy := range strategies {
 			require.Truef(t, strings.HasPrefix(strategy.MigrationDirName(), prefix),
 				"%T is filed under %q but names its tracker dir %q",
