@@ -345,6 +345,13 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	// backup HTTP call time to land mid-iteration.
 	importBodies(t, className, 50_000)
 
+	// Resolved before the refusal so the assertions below can name the exact
+	// strings that must not appear in the 422 body.
+	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
+	require.NotEmpty(t, shardName, "could not resolve shard name for %s", className)
+	nodeName := firstNodeName(t, restURI)
+	require.NotEmpty(t, nodeName, "could not resolve node name")
+
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
@@ -354,9 +361,11 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 
 	backupID := "reindex-backup-refuse"
 
-	// The Backupable precheck refuses during canCommit before the
-	// coordinator writes backup_config.json, so the HTTP call returns
-	// a synchronous 422 — no async status poll required.
+	// The Backupable precheck refuses before the coordinator writes
+	// backup_config.json, so the HTTP call returns a synchronous 422 — no async
+	// status poll required. The suite is single-node, so what runs here is the
+	// scheduler's local Backupable; the coordinator's remote-participant
+	// redaction has unit coverage only.
 	_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
 	require.Error(t, err, "create-backup must be refused synchronously while reindex is in flight")
 	var refusal *clientbackups.BackupsCreateUnprocessableEntity
@@ -371,6 +380,10 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"error body must name the affected collection; got: %s", errMsg)
 	require.NotContains(t, errMsg, "shard \"",
 		"the refusal reaches a backup caller, who is granted nothing on shard names; got: %s", errMsg)
+	require.NotContains(t, errMsg, shardName,
+		"the shard id must not reach the caller in any spelling; got: %s", errMsg)
+	require.NotContains(t, errMsg, nodeName,
+		"nor must the node name; got: %s", errMsg)
 	require.Contains(t, errMsg, "active runtime-reindex task in DTM",
 		"error body must explain the gate consulted DTM; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
@@ -408,6 +421,27 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.NoError(t, err, "same-id retry after migration drains must succeed")
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil,
 		helper.WithDeadline(2*time.Minute))
+}
+
+// firstNodeName returns the name of the first node the cluster reports.
+func firstNodeName(t *testing.T, restURI string) string {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var nodesResp struct {
+		Nodes []struct {
+			Name string `json:"name"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+	if len(nodesResp.Nodes) == 0 {
+		return ""
+	}
+	return nodesResp.Nodes[0].Name
 }
 
 // errorResponseMessage flattens an ErrorResponse into a single string

@@ -1749,9 +1749,8 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
 }
 
-// The status API serves this text to a backup caller. A gate refusal reaches
-// it wrapped in the shard that produced it, and a backup caller is granted
-// nothing on shard ids.
+// A gate refusal reaches the status API wrapped in the shard that produced
+// it; the shard must not survive into the published message.
 func TestPublishableErrMsg(t *testing.T) {
 	refusal := backup.ReindexBlockedError{
 		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
@@ -1787,6 +1786,46 @@ func TestPublishableErrMsg(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, publishableErrMsg(tc.err))
+		})
+	}
+}
+
+// A gate refusal replaces the whole chain, so a co-occurring meta-write
+// fault must be re-attached or a poller never learns of it.
+func TestPublishableFailureMsg(t *testing.T) {
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
+	}
+	metaErr := errors.New("put meta: 503 from backend")
+
+	tests := []struct {
+		name    string
+		err     error
+		metaErr error
+		want    string
+	}{
+		{
+			name: "no meta fault leaves the message alone",
+			err:  fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
+			want: refusal.Msg,
+		},
+		{
+			name:    "a refusal keeps the meta fault the redaction would drop",
+			err:     fmt.Errorf("upload %w: %w", refusal, metaErr),
+			metaErr: metaErr,
+			want:    refusal.Msg + "; uploading the backup metadata also failed: " + metaErr.Error(),
+		},
+		{
+			name:    "an ordinary failure already carries it, so it is not repeated",
+			err:     fmt.Errorf("upload %w: %w", errors.New("no space left on device"), metaErr),
+			metaErr: metaErr,
+			want:    "upload no space left on device: " + metaErr.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, publishableFailureMsg(tc.err, tc.metaErr))
 		})
 	}
 }

@@ -1673,11 +1673,10 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	const (
-		taskID         = "reindex-inflight"
-		taskVersion    = uint64(7)
-		taskNamespace  = "tasks-namespace"
-		classPayload   = `{"class":"Articles","property":"title"}`
-		expectedReason = "backup blocked: runtime-reindex in flight on shard \"articles_s1\""
+		taskID        = "reindex-inflight"
+		taskVersion   = uint64(7)
+		taskNamespace = "tasks-namespace"
+		classPayload  = `{"class":"Articles","property":"title"}`
 	)
 
 	h := newTestHarness(t).init(t)
@@ -1709,13 +1708,18 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	// (ErrBackupBlockedByInFlightReindex) inside backup.ErrUnprocessable;
 	// upstream callers select on the ErrUnprocessable shape so the
 	// envelope itself is the load-bearing contract.
+	// The condition comes from the production sentinel, not a literal copied
+	// from it: a rewording of the sentinel has to reach this assertion.
 	inflightErr := backup.NewErrUnprocessable(
-		fmt.Errorf("%s; retry after the migration finishes", expectedReason),
+		fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
+			backup.ErrBackupBlockedByInFlightReindex, "Articles"),
 	)
 	var unprocessable backup.ErrUnprocessable
 	require.True(t, errors.As(inflightErr, &unprocessable),
 		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
-	require.Contains(t, unprocessable.Error(), expectedReason)
+	require.Contains(t, unprocessable.Error(), backup.ErrBackupBlockedByInFlightReindex.Error())
+	require.NotContains(t, unprocessable.Error(), "articles_s1",
+		"the 422 body reaches a backup caller, who is granted nothing on shard names")
 }
 
 // Pins: the TTL sweep skips a task in an unrecognized status, while still

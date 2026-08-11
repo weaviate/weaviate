@@ -642,17 +642,24 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
 	for req := range reqChan {
 		g.Go(func() error {
-			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
+			resp, rpcErr := c.client.CanCommit(ctx, req.NodeHost, req)
+			err := rpcErr
 			redactNode := false
-			if err == nil && resp.Timeout == 0 {
+			if rpcErr == nil && resp.Timeout == 0 {
 				redactNode = isNodeFreeCanCommitErrKind(resp.ErrKind)
 				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
-				c.log.WithField("action", req.Method).
+				entry := c.log.WithField("action", req.Method).
 					WithField("backup_id", req.ID).
-					WithField("node", req.NodeName).
-					Errorf("canCommit refused by participant: %v", err)
+					WithField("node", req.NodeName)
+				if rpcErr != nil {
+					// Unreachable participant: cluster-side cause, operator-only.
+					entry.Errorf("canCommit failed to reach participant: %v", err)
+				} else {
+					// Deliberate refusal: usually caller-actionable, so Warn not Error.
+					entry.Warnf("canCommit refused by participant: %v", err)
+				}
 				if redactNode {
 					return err
 				}

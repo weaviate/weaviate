@@ -310,7 +310,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
+		metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
+		if metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
@@ -320,7 +321,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(publishableErrMsg(err))
+			u.slot.setFailed(publishableFailureMsg(err, metaErr))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -416,12 +417,8 @@ Loop:
 }
 
 // publishableErrMsg is the failure text safe to serve from the status API,
-// or a stand-in when err has none. Everything else is served verbatim,
-// backend messages and all.
-//
-// A gate refusal arrives wrapped in the shard it came from; backing up a
-// collection grants nothing on shard ids, so the refusal's own message is
-// published rather than the traversal that found it.
+// or a stand-in when err has none. A gate refusal arrives wrapped in the
+// shard it came from, so only its own message is published.
 func publishableErrMsg(err error) string {
 	msg := err.Error()
 	var blocked backup.ReindexBlockedError
@@ -432,6 +429,17 @@ func publishableErrMsg(err error) string {
 		return failureWithoutReason
 	}
 	return msg
+}
+
+// publishableFailureMsg is [publishableErrMsg] plus the meta-write fault,
+// which a gate refusal would otherwise drop: a poller reading FAILED needs
+// to know the metadata write failed too.
+func publishableFailureMsg(err, metaErr error) string {
+	msg := publishableErrMsg(err)
+	if metaErr == nil || strings.Contains(msg, metaErr.Error()) {
+		return msg
+	}
+	return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", msg, metaErr)
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

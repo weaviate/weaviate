@@ -254,7 +254,7 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{collection, shard}: true,
 	}))
-	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+	idx := &Index{db: db, logger: logger, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
 
 	err := idx.refuseIfReindexInFlight(shard)
 	require.Error(t, err)
@@ -267,6 +267,9 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 		assert.NotContainsf(t, body, leaked, "the refusal body leaked %q", leaked)
 	}
 
+	// Single-shard form of the pass-level log.
+	idx.logReindexRefusal(shard, err)
+
 	var logged *logrus.Entry
 	for _, entry := range hook.AllEntries() {
 		if strings.Contains(entry.Message, "refused a backup") {
@@ -277,6 +280,49 @@ func TestRefuseIfReindexInFlight_RedactsNodeAndShard(t *testing.T) {
 	assert.Equal(t, shard, logged.Data["shard"])
 	assert.Equal(t, node, logged.Data["node"])
 	assert.Equal(t, collection, logged.Data["collection"])
+}
+
+// logReindexRefusal sits on error paths that carry every kind of failure, so it
+// has to stay silent for the ones that are not a gate refusal.
+func TestLogReindexRefusal_IgnoresUnrelatedErrors(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	idx := &Index{logger: logger, Config: IndexConfig{ClassName: schema.ClassName("AnyClass")}}
+
+	idx.logReindexRefusal("s1", nil)
+	idx.logReindexRefusal("s1", errors.New("disk full"))
+
+	assert.Empty(t, hook.AllEntries(), "only a gate refusal produces a gate log line")
+}
+
+// The publishable message must survive wrapping (which adds the shard) so
+// the status API doesn't get the operator-log copy.
+func TestReindexRefusal_SurvivesWrappingAsAPublishableMessage(t *testing.T) {
+	const (
+		collection = "WrappedClass"
+		shard      = "zmDMRo4olU4c"
+	)
+
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{collection, shard}: true,
+	}))
+	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
+
+	refusal := idx.refuseIfReindexInFlight(shard)
+	require.Error(t, refusal)
+	wrapped := fmt.Errorf("snapshot shard %s: halt for snapshot: %w", shard, refusal)
+
+	require.ErrorIs(t, wrapped, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the sentinel must survive the snapshot wrappers")
+
+	var blocked entitiesbackup.ReindexBlockedError
+	require.ErrorAs(t, wrapped, &blocked,
+		"the publishable message must stay reachable under the wrappers")
+	assert.Contains(t, blocked.Error(), collection)
+	assert.NotContains(t, blocked.Error(), shard,
+		"the publishable message is what reaches the status API")
+	assert.NotContains(t, blocked.Error(), "halt for snapshot",
+		"and it carries the condition, not the path that found it")
 }
 
 // backupableFixture wires the minimum a DB.Backupable call needs: one index
@@ -411,9 +457,8 @@ func TestReindexBlockReasonIn_HoldKinds(t *testing.T) {
 	}
 }
 
-// Every refusing shard produces the same sentence, because the text names no
-// shard. A per-shard join therefore returns one identical line per shard: 60
-// copies on a 60-shard node, and shard counts in this repo reach five figures.
+// The refusal text names no shard, so per-shard joining must not repeat the
+// same sentence once per shard.
 func TestBackupableRefusesOncePerReasonNotOncePerShard(t *testing.T) {
 	const (
 		collection = "WideClass"
@@ -508,10 +553,8 @@ func TestBackupableLogsOnceForAWideRefusal(t *testing.T) {
 		shardCount, warnAndAbove)
 	require.Equal(t, 1, aggregate, "one refusal of one collection is one operator-facing line")
 	require.Equal(t, shardCount, reportedCount, "the count must be exact even though the names are sampled")
-	// A literal, not the constant the code caps with: asserting the bound
-	// against itself cannot fail, so raising the constant to 100000 would keep
-	// this green while 60 names went into the field. The number is deliberately
-	// duplicated — that duplication is what makes the assertion able to fail.
+	// A literal, not the constant the code caps with, so raising the constant
+	// alone can't fool this assertion.
 	const wantSampleCap = 10
 	require.LessOrEqualf(t, len(sample), wantSampleCap,
 		"the shard list must be capped at %d, or the growth just moves into a log field; got %d",
@@ -583,57 +626,23 @@ func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	require.NotContains(t, err.Error(), "/v1/schema/MyClass/")
 }
 
-// The refusal has to stay reachable under the wrappers the backup path adds on
-// the way out, which name the shard. That copy is what the operator log wants;
-// the status API gets the publishable one.
-func TestReindexRefusal_SurvivesWrappingAsAPublishableMessage(t *testing.T) {
-	const (
-		collection = "WrappedClass"
-		shard      = "zmDMRo4olU4c"
-	)
-
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{collection, shard}: true,
-	}))
-	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(collection)}}
-
-	refusal := idx.refuseIfReindexInFlight(shard)
-	require.Error(t, refusal)
-	wrapped := fmt.Errorf("snapshot shard %s: halt for snapshot: %w", shard, refusal)
-
-	require.ErrorIs(t, wrapped, entitiesbackup.ErrBackupBlockedByInFlightReindex,
-		"the sentinel must survive the snapshot wrappers")
-
-	var blocked entitiesbackup.ReindexBlockedError
-	require.ErrorAs(t, wrapped, &blocked,
-		"the publishable message must stay reachable under the wrappers")
-	assert.Contains(t, blocked.Error(), collection)
-	assert.NotContains(t, blocked.Error(), shard,
-		"the publishable message is what reaches the status API")
-	assert.NotContains(t, blocked.Error(), "halt for snapshot",
-		"and it carries the condition, not the path that found it")
-}
-
-// The other precheck errors name the local node, which a backup caller is not
-// granted. When a gate refusal is what the caller has to act on anyway, those
-// go to the log instead of the response.
-func TestBackupableWithholdsNodeNamingErrorsFromTheResponse(t *testing.T) {
+// A gate refusal on one collection must not swallow an unrelated failure on
+// another, or the caller retries blind into it.
+func TestBackupableReportsNonGateErrorsAlongsideARefusal(t *testing.T) {
 	const (
 		blocked = "BlockedClass"
 		broken  = "BrokenClass"
 		node    = "weaviate-0"
 	)
 
-	logger, hook := logrustest.NewNullLogger()
+	logger, _ := logrustest.NewNullLogger()
 	db := backupableFixture(t, blocked, node, "s1")
 	db.logger = logger
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 		return func(string, string) bool { return true }
 	})
 
-	// A second collection whose shard enumeration fails: the resulting error is
-	// prefixed with the node name.
+	// A second collection whose shard enumeration fails.
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.On("Read", broken, true, mock.Anything).Return(errors.New("raft read failed"))
 	getter := schemaUC.NewMockSchemaGetter(t)
@@ -647,16 +656,15 @@ func TestBackupableWithholdsNodeNamingErrorsFromTheResponse(t *testing.T) {
 
 	err := db.Backupable(context.Background(), []string{blocked, broken})
 	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"the gate refusal must still classify, so the coordinator answers 422")
 	assert.NotContains(t, err.Error(), node, "the response must not name the node")
-	assert.NotContains(t, err.Error(), "raft read failed",
-		"an error the caller cannot act on and that names the node stays in the log")
+	assert.Contains(t, err.Error(), "raft read failed",
+		"the second collection's failure is the caller's to act on too")
+	assert.Contains(t, err.Error(), broken, "and it has to say which collection it belongs to")
 
-	var withheld bool
-	for _, e := range hook.AllEntries() {
-		if strings.Contains(e.Message, "raft read failed") {
-			withheld = true
-		}
-	}
-	assert.True(t, withheld, "withheld from the response, not from the operator")
+	// The gate refusal leads, so canCommitErrFromResponse's prefix check still
+	// recognizes the joined message as a refusal.
+	assert.True(t, strings.HasPrefix(err.Error(),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()))
 }
