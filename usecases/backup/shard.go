@@ -133,6 +133,11 @@ func (s *backupStat) resetIfCancelled(id string) (bool, reqState) {
 // requested cancel back to "running". Finalizing is the mirror image: schema
 // apply over RAFT can no longer be stopped, so a cancellation there is
 // refused and the restore reports the outcome it actually had.
+//
+// Success and Failed are deliberately not terminal here: they are published a
+// moment before the slot is released, and a cancel landing in that window
+// stamps Cancelled over them. Such a poll is answered from the descriptor on
+// the backend once the slot clears, which carries the real outcome.
 func (s *backupStat) canAdvanceTo(next backup.Status) bool {
 	switch s.reqState.Status {
 	case backup.Cancelled:
@@ -206,15 +211,32 @@ func (o slotOwner) owns() bool {
 	return o.stat != nil && o.stat.generation == o.generation && o.stat.reqState.ID != ""
 }
 
-// logDroppedWrite records a write the slot refused, so "status stopped
-// updating" is diagnosable as a refusal rather than silence. Must be called
-// with the lock held.
+// droppedWrite is a write the slot refused, captured so that emitting it can
+// happen outside the slot's lock.
+type droppedWrite struct {
+	log    logrus.FieldLogger
+	msg    string
+	fields logrus.Fields
+}
+
+// emit writes the record, and must run with the slot's lock released: logrus
+// writes synchronously, and every status poll reads the slot behind that lock.
 //
 // Info, not Debug: the default log level is Info, and a dropped write is
 // often what a support case starts from.
-func (o slotOwner) logDroppedWrite(st backup.Status) {
-	if o.stat == nil || o.stat.log == nil {
+func (d *droppedWrite) emit() {
+	if d == nil {
 		return
+	}
+	d.log.WithFields(d.fields).Info(d.msg)
+}
+
+// droppedWrite describes a write the slot refused, so "status stopped
+// updating" is diagnosable as a refusal rather than silence. Returns nil when
+// the slot has no logger. Must be called with the lock held.
+func (o slotOwner) droppedWrite(st backup.Status) *droppedWrite {
+	if o.stat == nil || o.stat.log == nil {
+		return nil
 	}
 	msg := "slot write dropped: this operation no longer holds the slot"
 	switch {
@@ -225,14 +247,18 @@ func (o slotOwner) logDroppedWrite(st backup.Status) {
 	default:
 		msg = "slot write dropped: the slot already reads a cancellation, which is its last word"
 	}
-	o.stat.log.WithFields(logrus.Fields{
-		"action":         "backup_slot_write",
-		"dropped_status": st,
-		"claim":          o.generation,
-		"slot_claim":     o.stat.generation,
-		"slot_holder":    o.stat.reqState.ID,
-		"slot_status":    o.stat.reqState.Status,
-	}).Info(msg)
+	return &droppedWrite{
+		log: o.stat.log,
+		msg: msg,
+		fields: logrus.Fields{
+			"action":         "backup_slot_write",
+			"dropped_status": st,
+			"claim":          o.generation,
+			"slot_claim":     o.stat.generation,
+			"slot_holder":    o.stat.reqState.ID,
+			"slot_status":    o.stat.reqState.Status,
+		},
+	}
 }
 
 // set publishes a status on the slot. Reports whether it wrote.
@@ -241,12 +267,14 @@ func (o slotOwner) set(st backup.Status) bool {
 		return false
 	}
 	o.stat.Lock()
-	defer o.stat.Unlock()
 	if !o.owns() || !o.stat.canAdvanceTo(st) {
-		o.logDroppedWrite(st)
+		dropped := o.droppedWrite(st)
+		o.stat.Unlock()
+		dropped.emit()
 		return false
 	}
 	o.stat.setStatus(st)
+	o.stat.Unlock()
 	return true
 }
 
@@ -257,12 +285,14 @@ func (o slotOwner) setFailed(reason string) bool {
 		return false
 	}
 	o.stat.Lock()
-	defer o.stat.Unlock()
 	if !o.owns() || !o.stat.canAdvanceTo(backup.Failed) {
-		o.logDroppedWrite(backup.Failed)
+		dropped := o.droppedWrite(backup.Failed)
+		o.stat.Unlock()
+		dropped.emit()
 		return false
 	}
 	o.stat.setFailed(reason)
+	o.stat.Unlock()
 	return true
 }
 

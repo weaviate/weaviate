@@ -514,6 +514,9 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStor
 	startRestore(t, c, backend, backendName, backupID, node)
 
 	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
+	// The takeover only opens the window; wait for the goroutine to reach the
+	// decision itself, otherwise the absence of a write below proves nothing.
+	awaitLog(t, fc.logs, "restore cancelled (detected from storage after commit)")
 	require.Never(t, func() bool {
 		st := c.lastOp.get()
 		return st.ID != newID || st.Status != backup.Started || schemaManager.applies.Load() != 0
@@ -556,6 +559,9 @@ func TestCoordinatorRestoreStaleGoroutineStopsBeforeRereadingTheStoredMeta(t *te
 	startRestore(t, c, backend, backendName, backupID, node)
 
 	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
+	// The takeover only opens the window; wait for the goroutine to reach the
+	// decision itself, otherwise the absence of a read below proves nothing.
+	awaitLog(t, fc.logs, staleRestoreStopped)
 	// Read one is the one Restore itself does before claiming the slot.
 	require.Never(t, func() bool {
 		return backend.readCount() > 1 || schemaManager.applies.Load() != 0
@@ -662,6 +668,9 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	awaitInterference(t, interfered, "the restore never reached the finalizing decision")
 	require.Eventually(t, func() bool { return c.lastOp.get().ID == retryID },
 		10*time.Second, 10*time.Millisecond, "the restore goroutine never stopped")
+	// The takeover only opens the window; wait for the goroutine to reach the
+	// decision itself, otherwise the absence of a write below proves nothing.
+	awaitLog(t, fc.logs, "restore outcome refused by the slot, stopping without publishing")
 
 	// The goroutine may still be unwinding, so give it the chance to apply the
 	// schema or to report an outcome of its own. The retry owns the stored

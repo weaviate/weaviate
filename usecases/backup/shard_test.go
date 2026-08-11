@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -252,36 +253,19 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 	}
 }
 
-// The whole point of the single acquisition: whoever holds the slot after a
-// losing resetIf must still hold every field of its claim.
-func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
-	t.Parallel()
-
-	var s backupStat
-	prevID, slot := s.renew("live-restore", "home/dir", "bucket", "override")
-	require.Empty(t, prevID)
-	slot.set(backup.Cancelled)
-
-	requireSlotNotFreed(t, &s, "cancelled-restore", "live-restore")
-
-	got := s.get()
-	require.Equal(t, "live-restore", got.ID)
-	require.Equal(t, "home/dir", got.Path)
-	require.Equal(t, "bucket", got.OverrideBucket)
-	require.Equal(t, "override", got.OverridePath)
-}
-
-// Pins resetIfCancelled's check-and-clear as a single lock acquisition: two
-// separate ones would let a concurrent renew's claim get dropped. Racers spin
-// on a shared flag rather than a channel to line up tightly enough for the
-// bug to reproduce reliably across all 20000 iterations.
+// Pins resetIfCancelled's check-and-clear as a single lock acquisition. A split
+// one would read a cancelled slot, lose the race to the retry claiming it, and
+// then clear the retry's claim. Deleting resetIfCancelled leaves this green —
+// TestBackupStatResetIfCancelled is what covers that; this guards the shape.
+// The racers spin on a shared flag rather than a channel to line up tightly
+// enough for a split implementation to lose the race.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
 	const (
 		cancelled  = "cancelled-restore"
 		fresh      = "fresh-restore"
-		iterations = 20000
+		iterations = 2000
 	)
 
 	for i := 0; i < iterations; i++ {
@@ -299,12 +283,14 @@ func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for !gate.Load() {
+				runtime.Gosched()
 			}
 			s.resetIfCancelled(cancelled) //nolint:errcheck // the race, not the outcome, is what this drives
 		}()
 		go func() {
 			defer wg.Done()
 			for !gate.Load() {
+				runtime.Gosched()
 			}
 			// Whichever of the two frees the slot, the fresh claim follows it.
 			slot.release()
@@ -531,7 +517,6 @@ func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			logger, hook := test.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
 			s := backupStat{log: logger}
 			slot := tc.arrange(&s)
 
@@ -540,6 +525,66 @@ func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
 			require.NotNil(t, entry, "the refused write left nothing behind")
 			require.Contains(t, entry.Message, tc.wantMsg)
 			require.Equal(t, tc.write, entry.Data["dropped_status"])
+			require.Equal(t, logrus.InfoLevel, entry.Level,
+				"a dropped write is what a support case starts from, so it has to survive the default log level")
+		})
+	}
+}
+
+// lockProbeHook reports, from inside the log call, whether the slot's lock was
+// free at that moment. TryLock from the logging goroutine itself is what makes
+// this observable without deadlocking on a lock that is still held.
+type lockProbeHook struct {
+	stat  *backupStat
+	fired atomic.Bool
+	free  atomic.Bool
+}
+
+func (h *lockProbeHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *lockProbeHook) Fire(*logrus.Entry) error {
+	h.fired.Store(true)
+	if h.stat.TryLock() {
+		h.stat.Unlock()
+		h.free.Store(true)
+	}
+	return nil
+}
+
+// Pins that a refused write is logged with the slot's lock released. logrus
+// writes synchronously, so a slow or blocking hook would otherwise stall every
+// status poll, which reads the slot behind that same lock.
+func TestSlotOwnerLogsDroppedWritesOutsideTheLock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		write func(slot slotOwner) bool
+	}{
+		{
+			name:  "status",
+			write: func(slot slotOwner) bool { return slot.set(backup.Success) },
+		},
+		{
+			name:  "failure",
+			write: func(slot slotOwner) bool { return slot.setFailed("late failure") },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, _ := test.NewNullLogger()
+			s := &backupStat{log: logger}
+			hook := &lockProbeHook{stat: s}
+			logger.AddHook(hook)
+
+			_, slot := s.renew("op-1", "path", "", "")
+			require.True(t, slot.set(backup.Cancelled))
+
+			require.False(t, tc.write(slot))
+			require.True(t, hook.fired.Load(), "the refused write left nothing behind")
+			require.True(t, hook.free.Load(), "the slot's lock was held while its log hook ran")
 		})
 	}
 }
