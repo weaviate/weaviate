@@ -33,21 +33,41 @@ import (
 // every stall delays one operation in each of the other workers
 // (weaviate/0-weaviate-issues#525), and a run flushes tens of times.
 //
-// At 4 workers that puts the limit at 100. Healthy runs reach 30 slow ops per
-// category on a CI runner and 26 on a loaded developer machine, and a 200ms
-// stall on every 50,000th put produces 193 to 236 slow puts. So the usable
-// window is [30, 193]: 100 sits 3.3x above the noise and 1.9x below the
-// regression the gate has to catch.
+// At 4 workers the limit is 100. Measured over 15 healthy and 11 regressed runs
+// alternated on one machine so both arms saw the same background load, where
+// the regression is a 200ms stall inside that lock on every 50,000th put:
 //
-// A count, not a share of all operations. A run performs millions of them and a
-// stall only delays the few in flight, so any share stays vanishingly small no
-// matter how often it happens.
+//	          slow puts   slow gets
+//	healthy      0 - 33      0 - 77
+//	regressed  173 - 218    61 - 107
+//
+// Only the put counts separate: 100 sits 3.0x above the worst healthy run and
+// 1.7x below the weakest regressed one. The get counts overlap, so no limit
+// separates them there. The get arm is not a second detector for a write-side
+// stall; it is the gate for a read-side regression, which this one is not.
+//
+// The margin protecting a green run is therefore 1.3x, not 3.0x: both arms are
+// checked against this same constant and either one failing fails the run, so
+// 100 has to clear 77. Counts recorded before this file started reporting them
+// are not comparable, because the older instrumentation drained per-worker
+// worst-10 heaps and so could not express more than 40 per category.
+//
+// The healthy column tracks how contended the host is, not the code under test:
+// with three competing fsync writers a healthy run reached 283 slow puts. Below
+// 4 workers the signal shrinks faster than the limit does, so the gate gets less
+// sensitive rather than more: at 2 workers the same regression produced 66 to 84
+// slow puts against a limit of 50. Both are reasons to suspect the machine
+// before the code when this goes red, not reasons to move the number.
+//
+// A count, not a share of all operations. A share separates these two arms just
+// as well, but it moves with throughput: a faster machine inflates the
+// denominator and loosens the gate without anyone editing it.
 const maxSlowOpsPerWorker = 25
 
 // maxSingleOpStall fails a run on one catastrophically slow operation. A hang
 // delays too few operations to reach maxSlowOps, so the count gate alone would
 // pass it. The limit sits two orders of magnitude above the latency threshold
-// because the worst healthy operation observed so far is 914ms, and scheduling
+// because the worst healthy operation measured here is 806ms, and scheduling
 // noise on a shared runner must not be able to reach it.
 const maxSingleOpStall = 10 * time.Second
 
