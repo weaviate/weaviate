@@ -187,13 +187,9 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 // sortedTasksWithLock returns the namespace's tasks ordered by task ID.
 // Caller must hold m.mu.
 //
-// m.tasks[namespace] is a map, so ranging it directly gives a different
-// order per process. Accept/reject is the same either way — a detector
-// reports a conflict if any task conflicts — but WHICH conflicting task
-// the rejection names is not, so unsorted input lets two nodes (and two
-// retries on one node) quote different task IDs for the same refusal, and
-// lets the REST pre-check quote a different one from the apply gate.
-// Sorting makes the message stable without changing the decision.
+// Map order is nondeterministic; accept/reject is unaffected, but WHICH
+// conflicting task gets named in the refusal is not — sorting keeps that
+// message stable across nodes/retries and in sync with the REST pre-check.
 func (m *Manager) sortedTasksWithLock(namespace string) []*Task {
 	tasks := make([]*Task, 0, len(m.tasks[namespace]))
 	for _, t := range m.tasks[namespace] {
@@ -450,18 +446,16 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
-			// Fail-closed: AnyUnitFailed only trips here via a restored
-			// snapshot (see its godoc), never this node's own apply path.
-			// Without this branch a STARTED task with a FAILED unit would
-			// advance to SWAPPING and run the schema flip on a half-failed
-			// migration.
+			// Fail-closed: AnyUnitFailed only trips via a restored snapshot
+			// (see its godoc). Without this branch such a task would advance
+			// to SWAPPING and run the schema flip on a half-failed migration.
 			task.Status = TaskStatusFailed
 			// Name a reason: FAILED with an empty Error leaves the operator
-			// nothing to act on. Error is version-dependent FSM state — an
-			// older node may leave it empty during a rolling upgrade, but
-			// nothing reads it back, so it costs a message, not a decision.
-			task.Error = "task restored with a failed unit; refusing to advance past STARTED"
-			if unitID, unitErr, ok := task.FirstFailedUnit(); ok {
+			// nothing to act on. Error is version-dependent (older nodes may
+			// leave it empty), but readers only append/set this field, never
+			// branch a status on it — so divergence across nodes is safe.
+			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
+			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {
 					unitErr = "no error recorded"
 				}
@@ -473,8 +467,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		} else {
 			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
+		// FinishedAt = when units completed — for PREPARING and SWAPPING alike.
+		// The scheduler's TTL cleanup excludes every non-terminal status
+		// (IsActive), so this stamp cannot clean a task mid-coordination.
 		task.FinishedAt = finishedAt
 	}
 
@@ -848,11 +843,15 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Every non-terminal status is cancellable, not just STARTED. The
-	// conflict guards block schema mutations for any non-terminal status
-	// and tell the operator to cancel the task; refusing the cancel here
-	// would leave a collection wedged with no way out.
-	if task.Status.IsTerminal() {
+	// Cancellable: STARTED and any unrecognized status — the conflict
+	// guards block mutations for both and name cancel as the remedy.
+	//
+	// Not cancellable: the coordination phases (nodes may have already
+	// written merged state or renamed bucket directories). Stopping
+	// mid-way leaves the cluster serving migrated buckets under the
+	// pre-migration schema with no repair path — the task must run to
+	// FINISHED or FAILED.
+	if task.Status.IsTerminal() || task.Status.IsCoordinationPhase() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
@@ -880,9 +879,9 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	// Every non-terminal status, not just STARTED. A non-terminal task's
-	// FinishedAt is set at the units-completion moment and ages from there,
-	// so a task stuck past completedTaskTTL clears the age check below and
-	// only this liveness check stands between it and deletion.
+	// FinishedAt is either zero (STARTED) or the units-completion moment
+	// (PREPARING/SWAPPING); both clear the age check below, so only this
+	// liveness check stands between the task and deletion.
 	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}

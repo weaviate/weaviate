@@ -29,8 +29,9 @@ import (
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
 // without standing up the real reindex provider.
 type fakeConflictDetector struct {
-	called     int
-	rejectWith error
+	called      int
+	rejectWith  error
+	lastTaskIDs []string
 }
 
 func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
@@ -41,8 +42,12 @@ func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+func (f *fakeConflictDetector) CheckConflict(_ []byte, tasks []*Task) error {
 	f.called++
+	f.lastTaskIDs = nil
+	for _, t := range tasks {
+		f.lastTaskIDs = append(f.lastTaskIDs, t.ID)
+	}
 	return f.rejectWith
 }
 
@@ -115,6 +120,29 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		require.NoError(t, err2)
 		require.Empty(t, tasks["test"],
 			"rejected task MUST NOT appear in the FSM-stored task list")
+	})
+
+	// Tasks are stored in a map; an unsorted walk would let two nodes
+	// applying the same RAFT entry quote a different task ID.
+	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		// Insertion order is deliberately not sorted order.
+		for i, id := range []string{"T3", "T1", "T4", "T2"} {
+			c := toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "test",
+				Id:                    id,
+				SubmittedAtUnixMillis: time.Now().UnixMilli(),
+				UnitIds:               []string{"su-1"},
+			})
+			require.NoError(t, h.manager.AddTask(c, uint64(100+i)))
+		}
+		require.Equal(t, []string{"T1", "T3", "T4"}, detector.lastTaskIDs,
+			"the last AddTask must see the three already-stored tasks in ID order")
 	})
 
 	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
@@ -727,7 +755,7 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
 			// Same shape as the per-unit failure path: the unit's name and
 			// its own error, so repair-guidance logging has something to quote.
-			assert.Contains(t, tasks["ns"][0].Error, "refusing to advance past STARTED")
+			assert.Contains(t, tasks["ns"][0].Error, "failing the task rather than running the schema flip")
 			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
 		})
 	}
@@ -2221,6 +2249,46 @@ func nonTerminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string
 	return ns, id, version
 }
 
+// terminalFixture drives a task to the given terminal status through the
+// production transitions and returns its (namespace, id, version).
+func terminalFixture(t *testing.T, h *testHarness, status TaskStatus) (string, string, uint64) {
+	t.Helper()
+
+	const (
+		ns      = "ns"
+		id      = "task1"
+		version = uint64(10)
+	)
+
+	addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
+	switch status {
+	case TaskStatusFailed:
+		failUnit(t, h, ns, id, version, "n1", "u-n1", "boom")
+	case TaskStatusFinished:
+		completeUnit(t, h, ns, id, version, "n1", "u-n1")
+		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         ns,
+			Id:                id,
+			Version:           version,
+			NodeId:            "n1",
+			Success:           true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             ns,
+			Id:                    id,
+			Version:               version,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	default:
+		require.Failf(t, "no production path to this status", "%q is not terminal", status)
+	}
+
+	require.Equal(t, status, h.manager.tasks[ns][id].Status,
+		"fixture did not reach %q", status)
+	return ns, id, version
+}
+
 // nonTerminalStatuses are every status this build treats as in-flight,
 // including the one it cannot recognize.
 var nonTerminalStatuses = []TaskStatus{
@@ -2253,38 +2321,51 @@ func TestManager_CleanUpTask_RefusesNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// Pins: CancelTask accepts every non-terminal status — the guards' only
-// named remedy for a wedged collection.
-func TestManager_CancelTask_AcceptsEveryNonTerminalStatus(t *testing.T) {
-	for _, status := range nonTerminalStatuses {
-		t.Run(string(status), func(t *testing.T) {
+// Pins: cancel stays open for STARTED and an unrecognized status, and
+// closed for the coordination phases.
+func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
+	for _, tc := range []struct {
+		status   TaskStatus
+		accepted bool
+	}{
+		{TaskStatusStarted, true},
+		{unknownFutureStatus, true},
+		{TaskStatusPreparing, false},
+		{TaskStatusSwapping, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, status)
+			ns, id, version := nonTerminalFixture(t, h, tc.status)
 
 			cancelledAt := h.clock.Now().Add(time.Minute)
-			require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 				Namespace:             ns,
 				Id:                    id,
 				Version:               version,
 				CancelledAtUnixMillis: cancelledAt.UnixMilli(),
-			})))
+			}))
 
 			task := h.manager.tasks[ns][id]
+			if !tc.accepted {
+				require.Error(t, err)
+				require.Equal(t, tc.status, task.Status,
+					"a task in %q must survive the cancel attempt", tc.status)
+				return
+			}
+			require.NoError(t, err)
 			require.Equal(t, TaskStatusCancelled, task.Status,
-				"a task in %q must actually cancel", status)
+				"a task in %q must actually cancel", tc.status)
 			require.Equal(t, cancelledAt.UnixMilli(), task.FinishedAt.UnixMilli())
 		})
 	}
 }
 
-// TestManager_CancelTask_RefusesTerminalStatus is the counterpart: a task
-// that already reached a terminal state has nothing left to cancel.
+// Pins: cancel refuses terminal statuses.
 func TestManager_CancelTask_RefusesTerminalStatus(t *testing.T) {
-	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled} {
+	for _, status := range []TaskStatus{TaskStatusFinished, TaskStatusFailed} {
 		t.Run(string(status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			ns, id, version := nonTerminalFixture(t, h, TaskStatusStarted)
-			h.manager.tasks[ns][id].Status = status
+			ns, id, version := terminalFixture(t, h, status)
 
 			err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 				Namespace:             ns,

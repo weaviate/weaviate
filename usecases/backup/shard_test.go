@@ -12,16 +12,21 @@
 package backup
 
 import (
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// resetIfCancelled is the slot's check-and-clear. It releases only a cancelled
-// operation: a live one under the same id is still writing files, and clearing
-// its claim lets a second operation start alongside it.
+// resetIfCancelled must clear the slot only for an operation that has fully
+// cancelled, not one still Cancelling or running under the same id.
 func TestBackupStatResetIfCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -46,21 +51,13 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			claimedID:  "op-1",
 			status:     backup.Cancelling,
 			resetID:    "op-1",
-			wantOK:     true,
-			wantSlotID: "",
+			wantOK:     false,
+			wantSlotID: "op-1",
 		},
 		{
 			name:       "live op sharing the id being released",
 			claimedID:  "op-1",
 			status:     backup.Transferring,
-			resetID:    "op-1",
-			wantOK:     false,
-			wantSlotID: "op-1",
-		},
-		{
-			name:       "freshly claimed op sharing the id being released",
-			claimedID:  "op-1",
-			status:     backup.Started,
 			resetID:    "op-1",
 			wantOK:     false,
 			wantSlotID: "op-1",
@@ -87,60 +84,49 @@ func TestBackupStatResetIfCancelled(t *testing.T) {
 			t.Parallel()
 			var s backupStat
 			if tc.claimedID != "" {
-				prevID, _ := s.renew(tc.claimedID, "path", "bucket", "override")
+				prevID, slot := s.renew(tc.claimedID, "path", "bucket", "override")
 				require.Empty(t, prevID)
-				s.set(tc.status)
+				require.True(t, slot.set(tc.status))
 			}
 
-			require.Equal(t, tc.wantOK, s.resetIfCancelled(tc.resetID))
+			freed, _ := s.resetIfCancelled(tc.resetID)
+			require.Equal(t, tc.wantOK, freed)
 			require.Equal(t, tc.wantSlotID, s.get().ID)
 		})
 	}
 }
 
-// resetIfOwned is the release half: an operation gives the slot back only while
-// it still holds it. Ownership is the generation renew handed out, not the
-// backup id, because ids are reusable — a cancelled operation retried under the
-// same id is a different claim, and the first one's release must not free it.
-func TestBackupStatResetIfOwned(t *testing.T) {
+// release must free the slot only while its claim still holds it, even when a
+// retry reuses the same backup id under a new claim.
+func TestSlotOwnerRelease(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		// arrange sets the slot up and returns the generation held by the
+		// arrange sets the slot up and returns the claim held by the
 		// operation that is about to release.
-		arrange    func(t *testing.T, s *backupStat) uint64
+		arrange    func(t *testing.T, s *backupStat) slotOwner
 		wantOK     bool
 		wantSlotID string
 	}{
 		{
 			name: "holder releases its own slot",
-			arrange: func(t *testing.T, s *backupStat) uint64 {
-				_, gen := s.renew("op-1", "path", "", "")
-				s.set(backup.Success)
-				return gen
-			},
-			wantOK:     true,
-			wantSlotID: "",
-		},
-		{
-			name: "holder releases after a cancel",
-			arrange: func(t *testing.T, s *backupStat) uint64 {
-				_, gen := s.renew("op-1", "path", "", "")
-				s.set(backup.Cancelled)
-				return gen
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Success)
+				return slot
 			},
 			wantOK:     true,
 			wantSlotID: "",
 		},
 		{
 			name: "slot taken over by a different operation",
-			arrange: func(t *testing.T, s *backupStat) uint64 {
-				_, gen := s.renew("op-1", "path", "", "")
-				s.reset()
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.release()
 				prevID, _ := s.renew("op-2", "path", "", "")
 				require.Empty(t, prevID)
-				return gen
+				return slot
 			},
 			wantOK:     false,
 			wantSlotID: "op-2",
@@ -150,23 +136,23 @@ func TestBackupStatResetIfOwned(t *testing.T) {
 			// flow, and the one an id-keyed check cannot tell apart from the
 			// first attempt still holding the slot.
 			name: "slot taken over by a retry of the same id",
-			arrange: func(t *testing.T, s *backupStat) uint64 {
-				_, gen := s.renew("op-1", "path", "", "")
-				s.set(backup.Cancelled)
-				require.True(t, s.resetIfCancelled("op-1"))
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Cancelled)
+				freeSlot(t, s, "op-1")
 				prevID, _ := s.renew("op-1", "path", "", "")
 				require.Empty(t, prevID, "the retry could not claim the freed slot")
-				return gen
+				return slot
 			},
 			wantOK:     false,
 			wantSlotID: "op-1",
 		},
 		{
 			name: "slot already released",
-			arrange: func(t *testing.T, s *backupStat) uint64 {
-				_, gen := s.renew("op-1", "path", "", "")
-				s.reset()
-				return gen
+			arrange: func(t *testing.T, s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.release()
+				return slot
 			},
 			wantOK:     false,
 			wantSlotID: "",
@@ -177,18 +163,16 @@ func TestBackupStatResetIfOwned(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var s backupStat
-			generation := tc.arrange(t, &s)
+			slot := tc.arrange(t, &s)
 
-			require.Equal(t, tc.wantOK, s.resetIfOwned(generation))
+			require.Equal(t, tc.wantOK, slot.release())
 			require.Equal(t, tc.wantSlotID, s.get().ID)
 		})
 	}
 }
 
-// setIfOwned is the write half. Its caller is a cancel, which takes the id from
-// object storage rather than from the slot, so it must not stamp whatever
-// operation happens to be holding it — and must not walk a finished cancel back
-// to CANCELLING, which is what OnStatus would then report.
+// setIfOwned must stamp only the matching id, and must never walk a finished
+// cancel back to Cancelling.
 func TestBackupStatSetIfOwned(t *testing.T) {
 	t.Parallel()
 
@@ -232,6 +216,17 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			wantStatus: backup.Cancelled,
 		},
 		{
+			// The cancel endpoint's own write, aimed at a restore that has
+			// started applying its schema and can no longer be stopped.
+			name:       "a schema apply refuses the cancel stamp",
+			claimedID:  "op-1",
+			status:     backup.Finalizing,
+			setID:      "op-1",
+			set:        backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
 			name:       "slot is free",
 			claimedID:  "",
 			setID:      "op-1",
@@ -246,75 +241,388 @@ func TestBackupStatSetIfOwned(t *testing.T) {
 			t.Parallel()
 			var s backupStat
 			if tc.claimedID != "" {
-				prevID, _ := s.renew(tc.claimedID, "path", "bucket", "override")
+				prevID, slot := s.renew(tc.claimedID, "path", "bucket", "override")
 				require.Empty(t, prevID)
-				s.set(tc.status)
+				require.True(t, slot.set(tc.status))
 			}
 
-			require.Equal(t, tc.wantOK, s.setIfOwned(tc.setID, tc.set))
+			stamped, _ := s.setIfOwned(tc.setID, tc.set)
+			require.Equal(t, tc.wantOK, stamped)
 			require.Equal(t, tc.wantStatus, s.get().Status)
 		})
 	}
 }
 
-// The whole point of the single acquisition: whoever holds the slot after a
-// losing resetIf must still hold every field of its claim.
-func TestBackupStatResetIfCancelledLeavesNewOwnerIntact(t *testing.T) {
-	t.Parallel()
-
-	var s backupStat
-	prevID, _ := s.renew("live-restore", "home/dir", "bucket", "override")
-	require.Empty(t, prevID)
-	s.set(backup.Cancelled)
-
-	require.False(t, s.resetIfCancelled("cancelled-restore"))
-
-	got := s.get()
-	require.Equal(t, "live-restore", got.ID)
-	require.Equal(t, "home/dir", got.Path)
-	require.Equal(t, "bucket", got.OverrideBucket)
-	require.Equal(t, "override", got.OverridePath)
-}
-
-// The cancelled op releases the slot and a new restore claims it while a second
-// caller is releasing the cancelled id. A check and a clear under separate lock
-// acquisitions throw the new claim away here; one acquisition cannot.
+// Pins resetIfCancelled's check-and-clear as a single lock acquisition: a
+// split one could drop a concurrent renew's claim.
 func TestBackupStatResetIfCancelledDoesNotDropAConcurrentRenew(t *testing.T) {
 	t.Parallel()
 
 	const (
-		cancelled = "cancelled-restore"
-		fresh     = "fresh-restore"
+		cancelled  = "cancelled-restore"
+		fresh      = "fresh-restore"
+		iterations = 2000
 	)
 
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < iterations; i++ {
 		var s backupStat
-		prevID, _ := s.renew(cancelled, "path", "", "")
+		prevID, slot := s.renew(cancelled, "path", "", "")
 		require.Empty(t, prevID)
-		s.set(backup.Cancelled)
+		require.True(t, slot.set(backup.Cancelled))
 
 		var (
-			wg       sync.WaitGroup
-			start    = make(chan struct{})
-			renewErr string
+			wg          sync.WaitGroup
+			gate        atomic.Bool
+			freshPrevID string
 		)
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			<-start
-			s.resetIfCancelled(cancelled)
+			for !gate.Load() {
+				runtime.Gosched()
+			}
+			s.resetIfCancelled(cancelled) //nolint:errcheck // the race, not the outcome, is what this drives
 		}()
 		go func() {
 			defer wg.Done()
-			<-start
-			s.reset()
-			renewErr, _ = s.renew(fresh, "path", "", "")
+			for !gate.Load() {
+				runtime.Gosched()
+			}
+			// Whichever of the two frees the slot, the fresh claim follows it.
+			slot.release()
+			freshPrevID, _ = s.renew(fresh, "path", "", "")
 		}()
-		close(start)
+		gate.Store(true)
 		wg.Wait()
 
-		require.Empty(t, renewErr)
+		require.Empty(t, freshPrevID)
 		require.Equal(t, fresh, s.get().ID,
 			"iteration %d: the fresh restore's claim was cleared by a stale release", i)
+	}
+}
+
+// Pins that every slotOwner write no-ops once a claim has lost the slot to a
+// newer operation.
+func TestSlotOwnerWritesStopAtTheClaimBoundary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// write is what the outlived goroutine does after losing its claim.
+		write func(slot slotOwner) bool
+	}{
+		{
+			name:  "status",
+			write: func(slot slotOwner) bool { return slot.set(backup.Success) },
+		},
+		{
+			name:  "failure",
+			write: func(slot slotOwner) bool { return slot.setFailed("late failure") },
+		},
+		// release is the third write a lost claim can make; it has its own
+		// table in TestSlotOwnerRelease.
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			prevID, stale := s.renew("op-1", "path", "", "")
+			require.Empty(t, prevID)
+			require.True(t, stale.set(backup.Cancelled))
+			freeSlot(t, &s, "op-1")
+
+			// The retry carries the same id, which is what makes an id-keyed
+			// check unable to tell the two claims apart.
+			prevID, live := s.renew("op-1", "path", "", "")
+			require.Empty(t, prevID)
+			require.True(t, live.set(backup.Transferring))
+
+			require.False(t, tc.write(stale), "a claim that lost the slot must not write to it")
+
+			got := s.get()
+			require.Equal(t, "op-1", got.ID)
+			require.Equal(t, backup.Transferring, got.Status)
+			require.Empty(t, got.Err)
+			_, remembered := s.rememberedFailure("op-1")
+			require.False(t, remembered,
+				"a poll must never be answered with the outcome of an operation that is gone")
+		})
+	}
+}
+
+// Pins that status() answers only for a claim that still holds the slot.
+func TestSlotOwnerStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the holder reads its own status", func(t *testing.T) {
+		t.Parallel()
+		var s backupStat
+		_, slot := s.renew("op-1", "path", "", "")
+		require.True(t, slot.set(backup.Cancelling))
+
+		st, ok := slot.status()
+		require.True(t, ok)
+		require.Equal(t, backup.Cancelling, st)
+	})
+
+	t.Run("a claim that lost the slot reads nothing", func(t *testing.T) {
+		t.Parallel()
+		var s backupStat
+		_, stale := s.renew("op-1", "path", "", "")
+		require.True(t, stale.set(backup.Cancelled))
+		freeSlot(t, &s, "op-1")
+		_, live := s.renew("op-1", "path", "", "")
+		require.True(t, live.set(backup.Cancelled))
+
+		_, ok := stale.status()
+		require.False(t, ok, "the newer claim's cancellation is not this operation's")
+	})
+}
+
+// Pins the cancellation one-way rule: Cancelled and Cancelling refuse being
+// walked back to a running status.
+func TestBackupStatCancellationIsNotOverwritten(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		status     backup.Status
+		next       backup.Status
+		wantOK     bool
+		wantStatus backup.Status
+	}{
+		{
+			name:       "cancel in flight refuses a running status",
+			status:     backup.Cancelling,
+			next:       backup.Finalizing,
+			wantOK:     false,
+			wantStatus: backup.Cancelling,
+		},
+		{
+			name:       "cancel in flight may finish",
+			status:     backup.Cancelling,
+			next:       backup.Cancelled,
+			wantOK:     true,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "cancel in flight refuses a success",
+			status:     backup.Cancelling,
+			next:       backup.Success,
+			wantOK:     false,
+			wantStatus: backup.Cancelling,
+		},
+		{
+			name:       "a finished cancel refuses everything",
+			status:     backup.Cancelled,
+			next:       backup.Success,
+			wantOK:     false,
+			wantStatus: backup.Cancelled,
+		},
+		{
+			name:       "a running operation takes any status",
+			status:     backup.Transferring,
+			next:       backup.Finalizing,
+			wantOK:     true,
+			wantStatus: backup.Finalizing,
+		},
+		{
+			// A schema apply over RAFT cannot be undone, so a cancel landing on
+			// it would report CANCELLED for classes that do get restored.
+			name:       "a schema apply refuses a cancel in flight",
+			status:     backup.Finalizing,
+			next:       backup.Cancelling,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
+			name:       "a schema apply refuses a finished cancel",
+			status:     backup.Finalizing,
+			next:       backup.Cancelled,
+			wantOK:     false,
+			wantStatus: backup.Finalizing,
+		},
+		{
+			name:       "a schema apply still reports its own outcome",
+			status:     backup.Finalizing,
+			next:       backup.Success,
+			wantOK:     true,
+			wantStatus: backup.Success,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s backupStat
+			_, slot := s.renew("op-1", "path", "", "")
+			require.True(t, slot.set(tc.status))
+
+			require.Equal(t, tc.wantOK, slot.set(tc.next))
+			require.Equal(t, tc.wantStatus, s.get().Status)
+		})
+	}
+}
+
+// Pins that a refused write logs why, so silence isn't confused with a refusal.
+func TestSlotOwnerSaysWhyItDroppedAWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// arrange returns the claim whose next write is about to be refused.
+		arrange func(s *backupStat) slotOwner
+		write   backup.Status
+		wantMsg string
+	}{
+		{
+			name: "the claim no longer holds the slot",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.release()
+				s.renew("op-2", "path", "", "")
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "this operation no longer holds the slot",
+		},
+		{
+			name: "the restore is applying its schema",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Finalizing)
+				return slot
+			},
+			write:   backup.Cancelled,
+			wantMsg: "can no longer be cancelled",
+		},
+		{
+			name: "the slot already reads a cancellation",
+			arrange: func(s *backupStat) slotOwner {
+				_, slot := s.renew("op-1", "path", "", "")
+				slot.set(backup.Cancelled)
+				return slot
+			},
+			write:   backup.Success,
+			wantMsg: "which is its last word",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, hook := test.NewNullLogger()
+			s := backupStat{log: logger}
+			slot := tc.arrange(&s)
+
+			require.False(t, slot.set(tc.write))
+			entry := hook.LastEntry()
+			require.NotNil(t, entry, "the refused write left nothing behind")
+			require.Contains(t, entry.Message, tc.wantMsg)
+			require.Equal(t, tc.write, entry.Data["dropped_status"])
+			require.Equal(t, logrus.InfoLevel, entry.Level,
+				"a dropped write is what a support case starts from, so it has to survive the default log level")
+		})
+	}
+}
+
+// lockProbeHook reports, from inside the log call, whether the slot's lock
+// was free. TryLock from the logging goroutine is what makes that observable
+// without deadlocking on a lock still held.
+type lockProbeHook struct {
+	stat  *backupStat
+	fired atomic.Bool
+	free  atomic.Bool
+}
+
+func (h *lockProbeHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *lockProbeHook) Fire(*logrus.Entry) error {
+	h.fired.Store(true)
+	if h.stat.TryLock() {
+		h.stat.Unlock()
+		h.free.Store(true)
+	}
+	return nil
+}
+
+// Pins that a refused write is logged with the slot's lock released, so a
+// blocking log hook can't stall pollers reading the slot behind that lock.
+func TestSlotOwnerLogsDroppedWritesOutsideTheLock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		write func(slot slotOwner) bool
+	}{
+		{
+			name:  "status",
+			write: func(slot slotOwner) bool { return slot.set(backup.Success) },
+		},
+		{
+			name:  "failure",
+			write: func(slot slotOwner) bool { return slot.setFailed("late failure") },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, _ := test.NewNullLogger()
+			s := &backupStat{log: logger}
+			hook := &lockProbeHook{stat: s}
+			logger.AddHook(hook)
+
+			_, slot := s.renew("op-1", "path", "", "")
+			require.True(t, slot.set(backup.Cancelled))
+
+			require.False(t, tc.write(slot))
+			require.True(t, hook.fired.Load(), "the refused write left nothing behind")
+			require.True(t, hook.free.Load(), "the slot's lock was held while its log hook ran")
+		})
+	}
+}
+
+// Pins that every operation slot is wired to a logger. The slot itself is
+// silent by default, so an unwired constructor drops writes without a trace.
+func TestOperationSlotsAreWiredToALogger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		slot func(logrus.FieldLogger) *backupStat
+	}{
+		{
+			name: "coordinator",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newCoordinator(nil, nil, nil, l, nil, nil).lastOp
+			},
+		},
+		{
+			name: "backupper",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newBackupper("node1", l, config.Backup{}, nil, nil, nil, nil).lastOp
+			},
+		},
+		{
+			name: "restorer",
+			slot: func(l logrus.FieldLogger) *backupStat {
+				return &newRestorer("node1", l, nil, nil, nil, nil, false).lastOp
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger, hook := test.NewNullLogger()
+			stat := tc.slot(logger)
+
+			_, slot := stat.renew("op-1", "path", "", "")
+			require.True(t, slot.set(backup.Cancelled))
+			require.False(t, slot.set(backup.Success))
+			require.NotNil(t, hook.LastEntry(), "the refused write left nothing behind")
+		})
 	}
 }
