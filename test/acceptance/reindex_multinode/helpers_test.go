@@ -705,12 +705,35 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 
 // forensicCaptureByteBudget caps the bytes one capture may write, so a
 // pathological on-disk state cannot fill the CI runner's disk. It is shared by
-// every node in the capture, not per node.
+// every node in one capture, but each capture gets a fresh one: a test that
+// asserts at several phases can spend it once per failing assert.
 const forensicCaptureByteBudget = 512 << 20 // 512 MiB
 
 // forensicFilesPerNodeCap caps how many files a single node contributes, so one
 // node with a runaway directory cannot consume the whole byte budget.
 const forensicFilesPerNodeCap = 4000
+
+// forensicExecOutputCap caps how much of one in-container command's output is
+// read into memory. The byte budget and the file cap only apply once the file
+// list exists, so without this a runaway directory is read whole first.
+const forensicExecOutputCap = 1 << 20 // 1 MiB
+
+// forensicCaptureWindow bounds how long a capture may take. It does not reach
+// into container.Exec; see execCollect for what bounds that.
+const forensicCaptureWindow = 90 * time.Second
+
+// captureManifestName is the record of what the capture did, written inside the
+// artifact. The artifact zip and the CI job log are separate downloads, so
+// anything that explains a missing or short file has to be in both.
+const captureManifestName = "CAPTURE-MANIFEST.txt"
+
+// Suffixes for a captured file that is not a faithful copy of the container's.
+// They also take the file out of its original extension, so a tool pointed at
+// the artifact cannot parse a cut segment as if it were whole.
+const (
+	truncatedSuffix = ".TRUNCATED"
+	partialSuffix   = ".PARTIAL"
+)
 
 // captureAllowance is the decision for one candidate file: whether the capture
 // should stop, and if not, the most bytes that file may consume.
@@ -742,62 +765,231 @@ func allowNextFile(copiedTotal int64, filesThisNode int) captureAllowance {
 	return captureAllowance{limit: remaining}
 }
 
+// captureLog records what a capture did, to the test log and to a file inside
+// the artifact. Both matter: whoever downloads the zip may not have the job log
+// open, and a line that explains a missing or short file is useless in the one
+// place the reader is not looking.
+type captureLog struct {
+	t      *testing.T
+	phase  string
+	lines  []string
+	prefix string
+}
+
+func (c *captureLog) recordf(format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	c.lines = append(c.lines, line)
+	c.t.Logf("%s: %s", c.prefix, line)
+}
+
+// writeTo drops the record into the artifact root under captureManifestName.
+func (c *captureLog) writeTo(root string) {
+	dest := filepath.Join(root, captureManifestName)
+	body := strings.Join(c.lines, "\n") + "\n"
+	if err := os.WriteFile(dest, []byte(body), 0o644); err != nil {
+		// Recording this through recordf would write it into the file that just
+		// failed to be written.
+		c.t.Logf("%s: writing %s failed, the artifact carries no manifest: %v", c.prefix, dest, err)
+	}
+}
+
+// forensicCapture is one capture in progress: where files land, how much of the
+// shared byte budget is spent, and the record being built. dataDir is the
+// container path the class dirs live under, which is what PERSISTENCE_DATA_PATH
+// sets on the node.
+type forensicCapture struct {
+	log         *captureLog
+	root        string
+	dataDir     string
+	classDir    string
+	bucketMatch string
+	copied      int64
+}
+
 // captureRangeableDataDirsOnFailure is a best-effort dump of the rangeable
 // bucket's on-disk state (weaviate/0-weaviate-issues#335), for offline
 // post-mortem on a range-count failure. Capture errors are logged, never fatal.
 func captureRangeableDataDirsOnFailure(t *testing.T, compose *docker.DockerCompose, className, propName, phase string) {
 	t.Helper()
-	// Independent of the test's ctx (which may be cancelling) and bounded, so
-	// capture can never hang CI.
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// The test's own ctx may already be cancelling, so capture gets its own.
+	ctx, cancel := context.WithTimeout(context.Background(), forensicCaptureWindow)
 	defer cancel()
 
-	root := forensicArtifactRoot(t, className, phase)
-	t.Logf("range-count forensic capture [%s]: artifact root = %s", phase, root)
+	log := &captureLog{t: t, phase: phase, prefix: fmt.Sprintf("range-count forensic capture [%s]", phase)}
+	root, err := forensicArtifactRoot(t, className, phase)
+	if err != nil {
+		// Without a root every copy below would fail, one log line per file.
+		t.Logf("%s: no artifact dir (%v); nothing captured", log.prefix, err)
+		return
+	}
 
-	classDirLower := strings.ToLower(className)
-	// Prefix shared by the canonical bucket dir and all its sidecar generations.
-	bucketMatch := fmt.Sprintf("property_%s_rangeable", propName)
+	c := &forensicCapture{
+		log:      log,
+		root:     root,
+		dataDir:  "/data",
+		classDir: strings.ToLower(className),
+		// Prefix shared by the canonical bucket dir and all its sidecar generations.
+		bucketMatch: fmt.Sprintf("property_%s_rangeable", propName),
+	}
+	c.log.recordf("artifact root = %s", root)
+	defer c.log.writeTo(root)
 
-	var copiedBytes int64
 	nodesVisited := 0
-	// Walk until the compose runs out of nodes rather than assuming three, so a
-	// larger cluster cannot be captured only in part.
+	// Walk until the compose runs out of nodes rather than assuming three.
 	for nodeIdx := 1; ; nodeIdx++ {
 		node := compose.GetWeaviateNode(nodeIdx)
 		if node == nil {
 			break
 		}
+		if err := ctx.Err(); err != nil {
+			c.log.recordf("capture window closed (%v) after %d nodes; the remaining nodes were not visited",
+				err, nodesVisited)
+			break
+		}
 		nodesVisited++
-		container := node.Container()
-
-		// Manifest into the test log so it survives even without the artifact
-		// download; fall back to a full listing if nothing matches.
-		manifestScript := fmt.Sprintf(
-			`for lsm in /data/%s/*/lsm; do [ -d "$lsm" ] || continue; echo "### $lsm"; `+
-				`m=$(find "$lsm" -path "*%s*" 2>/dev/null); `+
-				`if [ -n "$m" ]; then echo "$m" | while IFS= read -r p; do ls -ld "$p"; done; `+
-				`else echo "(no %s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; fi; done`,
-			classDirLower, bucketMatch, bucketMatch)
-		manifest := execCollect(ctx, container, []string{"sh", "-c", manifestScript})
-		t.Logf("range-count forensic capture [%s]: node %d rangeable bucket manifest:\n%s",
-			phase, nodeIdx, strings.TrimSpace(manifest))
-
-		fileList := execCollect(ctx, container, []string{"sh", "-c", fmt.Sprintf(
-			`find /data/%s -path "*%s*" -type f 2>/dev/null`, classDirLower, bucketMatch)})
-		copiedBytes += copyContainerFiles(ctx, t, container, root, nodeIdx, fileList, copiedBytes, phase)
+		c.collectNode(ctx, node.Container(), nodeIdx)
 	}
 	if nodesVisited == 0 {
-		t.Logf("range-count forensic capture [%s]: no weaviate containers found, nothing captured", phase)
+		c.log.recordf("no weaviate containers found, nothing captured")
 	}
-	t.Logf("range-count forensic capture [%s]: copied ~%d bytes from %d nodes into %s",
-		phase, copiedBytes, nodesVisited, root)
+	c.log.recordf("copied ~%d bytes from %d nodes into %s", c.copied, nodesVisited, root)
 }
 
-// forensicArtifactRoot returns a unique host dir for one capture: under
+// collectNode records one node's rangeable bucket manifest and copies the
+// matching files under <root>/node<nodeIdx>/.
+func (c *forensicCapture) collectNode(ctx context.Context, container testcontainers.Container, nodeIdx int) {
+	manifest, cut, err := execCollect(ctx, container, []string{"sh", "-c", c.manifestScript()})
+	switch {
+	case err != nil:
+		c.log.recordf("node %d manifest command failed (%v); output so far:\n%s",
+			nodeIdx, err, strings.TrimSpace(manifest))
+	case cut:
+		c.log.recordf("node %d rangeable bucket manifest, cut at %d bytes:\n%s",
+			nodeIdx, forensicExecOutputCap, strings.TrimSpace(manifest))
+	default:
+		c.log.recordf("node %d rangeable bucket manifest:\n%s", nodeIdx, strings.TrimSpace(manifest))
+	}
+
+	fileList, cut, err := execCollect(ctx, container, []string{"sh", "-c", c.fileListScript()})
+	if err != nil {
+		// Whatever paths did arrive are still worth copying, so this reports
+		// rather than returns.
+		c.log.recordf("node %d file list command failed (%v); copying what it did list", nodeIdx, err)
+	}
+	if cut {
+		c.log.recordf("node %d file list was cut at %d bytes; the files past the cut were never offered to the copy",
+			nodeIdx, forensicExecOutputCap)
+	}
+	c.copyFiles(ctx, container, nodeIdx, fileList)
+}
+
+// manifestScript lists the rangeable bucket dirs on one node. Every branch
+// prints something: an empty manifest reads the same whether the data is
+// genuinely absent, the path is wrong, or the collector broke.
+func (c *forensicCapture) manifestScript() string {
+	return fmt.Sprintf(
+		`d="%[1]s/%[2]s"; `+
+			`if [ ! -d "$d" ]; then echo "(no $d dir; %[1]s listing:)"; ls -la "%[1]s"; exit 0; fi; `+
+			`found=0; `+
+			`for lsm in "$d"/*/lsm; do [ -d "$lsm" ] || continue; found=1; echo "### $lsm"; `+
+			`m=$(find "$lsm" -path "*%[3]s*" 2>/dev/null); `+
+			`if [ -n "$m" ]; then echo "$m" | while IFS= read -r p; do ls -ld "$p"; done; `+
+			`else echo "(no %[3]s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; fi; done; `+
+			`[ "$found" = 1 ] || { echo "(no */lsm dirs under $d; listing:)"; ls -la "$d"; }`,
+		c.dataDir, c.classDir, c.bucketMatch)
+}
+
+func (c *forensicCapture) fileListScript() string {
+	return fmt.Sprintf(`find "%s/%s" -path "*%s*" -type f 2>/dev/null`, c.dataDir, c.classDir, c.bucketMatch)
+}
+
+// copyFiles copies each listed container path under <root>/node<nodeIdx>/,
+// stopping at the first bound that trips.
+func (c *forensicCapture) copyFiles(
+	ctx context.Context, container testcontainers.Container, nodeIdx int, newlineSeparatedPaths string,
+) {
+	paths := splitPaths(newlineSeparatedPaths)
+	files := 0
+	for i, p := range paths {
+		// Once the capture window closes every remaining copy fails instantly,
+		// which would otherwise emit one log line per remaining path.
+		if err := ctx.Err(); err != nil {
+			c.log.recordf("node %d capture window closed (%v); %d of %d files not attempted",
+				nodeIdx, err, len(paths)-i, len(paths))
+			return
+		}
+		allowance := allowNextFile(c.copied, files)
+		if allowance.stop {
+			c.log.recordf("node %d %s; %d of %d files not attempted",
+				nodeIdx, allowance.reason, len(paths)-i, len(paths))
+			return
+		}
+		files++
+		res := c.copyOneFile(ctx, container, nodeIdx, p, allowance.limit)
+		// A copy that broke mid-stream still left its bytes on disk, so they
+		// count against the budget the same as a copy that finished.
+		c.copied += res.written
+		c.recordCopy(nodeIdx, p, c.markIncomplete(nodeIdx, res))
+	}
+}
+
+// markIncomplete renames a file that is not a faithful copy, and reports the
+// result with rel pointing at whatever name the file ended up under.
+func (c *forensicCapture) markIncomplete(nodeIdx int, res copyResult) copyResult {
+	suffix := incompleteSuffix(res.truncated, res.err)
+	if suffix == "" || res.rel == "" {
+		return res
+	}
+	if err := os.Rename(filepath.Join(c.root, res.rel), filepath.Join(c.root, res.rel+suffix)); err != nil {
+		c.log.recordf("node %d could not mark %s as %s; it stays in the artifact under its original name: %v",
+			nodeIdx, res.rel, suffix, err)
+		return res
+	}
+	res.rel += suffix
+	return res
+}
+
+func (c *forensicCapture) recordCopy(nodeIdx int, containerPath string, res copyResult) {
+	switch {
+	case res.err != nil && res.rel == "":
+		c.log.recordf("node %d copy %s failed, no file written: %v", nodeIdx, containerPath, res.err)
+	case res.err != nil:
+		c.log.recordf("node %d copy %s broke after %d bytes; kept as %s: %v",
+			nodeIdx, containerPath, res.written, res.rel, res.err)
+	case res.truncated:
+		c.log.recordf("node %d truncated %s at %d bytes to stay inside the budget; kept as %s",
+			nodeIdx, containerPath, res.written, res.rel)
+	}
+}
+
+// incompleteSuffix names what is wrong with a captured file, or "" when the
+// file is a faithful copy.
+func incompleteSuffix(truncated bool, err error) string {
+	switch {
+	case err != nil:
+		return partialSuffix
+	case truncated:
+		return truncatedSuffix
+	default:
+		return ""
+	}
+}
+
+// splitPaths turns a find(1) listing into the paths it names.
+func splitPaths(newlineSeparated string) []string {
+	var paths []string
+	for _, p := range strings.Split(newlineSeparated, "\n") {
+		if p = strings.TrimSpace(p); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// forensicArtifactRoot creates a unique host dir for one capture: under
 // REINDEX_FORENSICS_DIR in CI, an OS temp dir locally. Unique per
 // test+phase+timestamp so repeated captures in the same run don't collide.
-func forensicArtifactRoot(t *testing.T, className, phase string) string {
+func forensicArtifactRoot(t *testing.T, className, phase string) (string, error) {
 	t.Helper()
 	base := os.Getenv("REINDEX_FORENSICS_DIR")
 	if base == "" {
@@ -806,91 +998,112 @@ func forensicArtifactRoot(t *testing.T, className, phase string) string {
 	name := strings.ReplaceAll(t.Name(), "/", "_")
 	root := filepath.Join(base, fmt.Sprintf("%s_%s_%s_%d", name, className, phase, time.Now().UnixNano()))
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Logf("range-count forensic capture [%s]: mkdir %s failed: %v", phase, root, err)
+		return "", err
 	}
-	return root
+	return root, nil
 }
 
-// execCollect runs cmd in the container and returns combined stdout+stderr.
-// tcexec.Multiplexed strips Docker's stream-framing headers so the output is
-// plain text. Best effort: exec errors are returned as a note, not an error.
-func execCollect(ctx context.Context, container testcontainers.Container, cmd []string) string {
-	_, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
+// execCollect runs cmd in the container and returns its combined stdout+stderr,
+// whether that output was cut at forensicExecOutputCap, and what went wrong.
+//
+// ctx does not bound container.Exec. With tcexec.Multiplexed it blocks draining
+// a hijacked connection that nothing closes when ctx expires, so a wedged
+// container — the state this code exists for — would block until the go test
+// timeout fires and buries the real failure. Handing the call its own goroutine
+// is what actually bounds the caller's wait. A wedged exec parks that goroutine
+// until the test binary exits; it only ever writes to a buffered channel, never
+// to t, so it cannot log after the test has finished.
+func execCollect(ctx context.Context, container testcontainers.Container, cmd []string) (string, bool, error) {
+	type collected struct {
+		out string
+		err error
+	}
+	done := make(chan collected, 1)
+	go func() {
+		out, err := execCollectBlocking(ctx, container, cmd)
+		done <- collected{out: out, err: err}
+	}()
+
+	select {
+	case r := <-done:
+		out, cut := capExecOutput(r.out)
+		return out, cut, r.err
+	case <-ctx.Done():
+		return "", false, fmt.Errorf("command did not return inside the capture window: %w", ctx.Err())
+	}
+}
+
+// execCollectBlocking is the part that can hang. tcexec.Multiplexed strips
+// Docker's stream-framing headers so the output is plain text.
+func execCollectBlocking(ctx context.Context, container testcontainers.Container, cmd []string) (string, error) {
+	code, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
 	if err != nil {
-		return fmt.Sprintf("(exec error: %v)", err)
+		return "", err
 	}
 	buf := new(strings.Builder)
 	if reader != nil {
-		_, _ = io.Copy(buf, reader)
-	}
-	return buf.String()
-}
-
-// copyContainerFiles copies each container path to disk. alreadyCopied is the
-// running cross-node total, so the shared byte budget applies across nodes.
-func copyContainerFiles(
-	ctx context.Context, t *testing.T, container testcontainers.Container,
-	root string, nodeIdx int, newlineSeparatedPaths string, alreadyCopied int64, phase string,
-) int64 {
-	t.Helper()
-	var nodeCopied int64
-	files := 0
-	for _, p := range strings.Split(strings.TrimSpace(newlineSeparatedPaths), "\n") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		// Once the capture window closes every remaining copy fails instantly,
-		// which would otherwise emit one log line per remaining path.
-		if err := ctx.Err(); err != nil {
-			t.Logf("range-count forensic capture [%s]: node %d capture window closed (%v); remaining files skipped",
-				phase, nodeIdx, err)
-			break
-		}
-		allowance := allowNextFile(alreadyCopied+nodeCopied, files)
-		if allowance.stop {
-			t.Logf("range-count forensic capture [%s]: node %d %s; remaining files skipped",
-				phase, nodeIdx, allowance.reason)
-			break
-		}
-		files++
-		n, truncated, err := copyOneContainerFile(ctx, container, root, nodeIdx, p, allowance.limit)
-		if err != nil {
-			t.Logf("range-count forensic capture [%s]: node %d copy %s failed: %v", phase, nodeIdx, p, err)
-			continue
-		}
-		nodeCopied += n
-		if truncated {
-			t.Logf("range-count forensic capture [%s]: node %d truncated %s at %d bytes to stay inside the budget",
-				phase, nodeIdx, p, n)
+		// One byte past the cap is enough for capExecOutput to see it was cut.
+		if _, err := io.Copy(buf, io.LimitReader(reader, forensicExecOutputCap+1)); err != nil {
+			return buf.String(), fmt.Errorf("reading output: %w", err)
 		}
 	}
-	return nodeCopied
+	if code != 0 {
+		return buf.String(), fmt.Errorf("exit code %d", code)
+	}
+	return buf.String(), nil
 }
 
-// copyOneContainerFile mirrors containerPath's /data-relative path under
-// <root>/node<nodeIdx>/, writing at most limit bytes. It reports how much it
-// wrote and whether the file was cut short by that limit.
-func copyOneContainerFile(
-	ctx context.Context, container testcontainers.Container, root string, nodeIdx int,
+// capExecOutput cuts s to forensicExecOutputCap at a line boundary, so a cut
+// list of paths never ends in half a path, and reports whether it cut anything.
+func capExecOutput(s string) (string, bool) {
+	if len(s) <= forensicExecOutputCap {
+		return s, false
+	}
+	s = s[:forensicExecOutputCap]
+	// No newline at all means no whole line survived the cut.
+	i := strings.LastIndexByte(s, '\n')
+	if i < 0 {
+		return "", true
+	}
+	return s[:i+1], true
+}
+
+// copyResult is what one file copy left behind. rel is the file's path inside
+// the artifact root, empty when no file was created.
+type copyResult struct {
+	rel       string
+	written   int64
+	truncated bool
+	err       error
+}
+
+// copyOneFile mirrors containerPath's dataDir-relative path under
+// <root>/node<nodeIdx>/, writing at most limit bytes.
+func (c *forensicCapture) copyOneFile(
+	ctx context.Context, container testcontainers.Container, nodeIdx int,
 	containerPath string, limit int64,
-) (written int64, truncated bool, err error) {
+) copyResult {
 	rc, err := container.CopyFileFromContainer(ctx, containerPath)
 	if err != nil {
-		return 0, false, err
+		return copyResult{err: err}
 	}
 	defer rc.Close()
-	rel := strings.TrimPrefix(containerPath, "/data/")
-	dest := filepath.Join(root, fmt.Sprintf("node%d", nodeIdx), filepath.FromSlash(rel))
+	rel := filepath.Join(fmt.Sprintf("node%d", nodeIdx),
+		filepath.FromSlash(strings.TrimPrefix(containerPath, c.dataDir+"/")))
+	dest := filepath.Join(c.root, rel)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return 0, false, err
+		return copyResult{err: err}
 	}
 	f, err := os.Create(dest)
 	if err != nil {
-		return 0, false, err
+		return copyResult{err: err}
 	}
-	defer f.Close()
-	return copyBounded(f, rc, limit)
+	written, truncated, err := copyBounded(f, rc, limit)
+	// A close-time write error leaves behind another silently short file.
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	return copyResult{rel: rel, written: written, truncated: truncated, err: err}
 }
 
 // copyBounded writes at most limit bytes from src to dst, reporting how much it
