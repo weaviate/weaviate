@@ -351,6 +351,12 @@ func fetchObjectDateInt(restURI, className, id string) (int, bool) {
 	return int(obj.Properties.DateInt), true
 }
 
+// rangeCountConvergenceWindow is how long a replica gets to agree before the
+// count is called wrong. A forensic capture runs after it expires, so it is
+// also how much newer the captured on-disk state can be than the first bad
+// count, which the capture's own record states.
+const rangeCountConvergenceWindow = 30 * time.Second
+
 // assertRangeCountAllNodes requires that every replica serves exactly want
 // objects over [lo, hi] on propName within the convergence window. A durable
 // loss never converges and fails the poll; a transient replication lag
@@ -370,7 +376,7 @@ func assertRangeCountAllNodes(t *testing.T, compose *docker.DockerCompose, class
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond,
+	}, rangeCountConvergenceWindow, 500*time.Millisecond,
 		"%s: every replica must serve all %d updated objects over the sentinel band", phase, want)
 	if !ok {
 		t.Errorf("%s rangeable counts per node = %v, want %d on every node (silent rangeable write-loss)", phase, last, want)

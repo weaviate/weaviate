@@ -771,7 +771,6 @@ func allowNextFile(copiedTotal int64, filesThisNode int) captureAllowance {
 // place the reader is not looking.
 type captureLog struct {
 	t      *testing.T
-	phase  string
 	lines  []string
 	prefix string
 }
@@ -782,14 +781,23 @@ func (c *captureLog) recordf(format string, args ...any) {
 	c.t.Logf("%s: %s", c.prefix, line)
 }
 
+// captureManifestTerminator ends a complete manifest. os.WriteFile leaves the
+// bytes it managed to write behind when it fails, so without a terminator a
+// manifest cut short by a full disk reads exactly like a complete one.
+const captureManifestTerminator = "=== END OF CAPTURE MANIFEST, %d records ==="
+
 // writeTo drops the record into the artifact root under captureManifestName.
+// A capture whose manifest cannot be written is still a valid artifact, so this
+// reports and returns rather than failing the capture.
 func (c *captureLog) writeTo(root string) {
 	dest := filepath.Join(root, captureManifestName)
-	body := strings.Join(c.lines, "\n") + "\n"
+	body := strings.Join(c.lines, "\n") + "\n" +
+		fmt.Sprintf(captureManifestTerminator, len(c.lines)) + "\n"
 	if err := os.WriteFile(dest, []byte(body), 0o644); err != nil {
 		// Recording this through recordf would write it into the file that just
 		// failed to be written.
-		c.t.Logf("%s: writing %s failed, the artifact carries no manifest: %v", c.prefix, dest, err)
+		c.t.Logf("%s: writing %s failed, so the artifact carries no manifest or a cut one: %v",
+			c.prefix, dest, err)
 	}
 }
 
@@ -815,7 +823,7 @@ func captureRangeableDataDirsOnFailure(t *testing.T, compose *docker.DockerCompo
 	ctx, cancel := context.WithTimeout(context.Background(), forensicCaptureWindow)
 	defer cancel()
 
-	log := &captureLog{t: t, phase: phase, prefix: fmt.Sprintf("range-count forensic capture [%s]", phase)}
+	log := &captureLog{t: t, prefix: fmt.Sprintf("range-count forensic capture [%s]", phase)}
 	root, err := forensicArtifactRoot(t, className, phase)
 	if err != nil {
 		// Without a root every copy below would fail, one log line per file.
@@ -831,44 +839,75 @@ func captureRangeableDataDirsOnFailure(t *testing.T, compose *docker.DockerCompo
 		// Prefix shared by the canonical bucket dir and all its sidecar generations.
 		bucketMatch: fmt.Sprintf("property_%s_rangeable", propName),
 	}
-	c.log.recordf("artifact root = %s", root)
 	defer c.log.writeTo(root)
+	c.collectAll(ctx, weaviateContainers(compose))
+}
 
-	nodesVisited := 0
-	// Walk until the compose runs out of nodes rather than assuming three.
+// weaviateContainers lists the compose's weaviate nodes in node order, walking
+// until the compose runs out of nodes rather than assuming three. The lookup is
+// an in-memory scan, so listing them all up front costs nothing.
+func weaviateContainers(compose *docker.DockerCompose) []testcontainers.Container {
+	var containers []testcontainers.Container
 	for nodeIdx := 1; ; nodeIdx++ {
 		node := compose.GetWeaviateNode(nodeIdx)
 		if node == nil {
-			break
+			return containers
 		}
-		if err := ctx.Err(); err != nil {
-			c.log.recordf("capture window closed (%v) after %d nodes; the remaining nodes were not visited",
-				err, nodesVisited)
-			break
-		}
-		nodesVisited++
-		c.collectNode(ctx, node.Container(), nodeIdx)
+		containers = append(containers, node.Container())
 	}
-	if nodesVisited == 0 {
+}
+
+// collectAll captures every node in turn, opening the record with what the
+// artifact is and what it is not.
+func (c *forensicCapture) collectAll(ctx context.Context, containers []testcontainers.Container) {
+	c.log.recordf("artifact root = %s", c.root)
+	c.recordHowToRead()
+	if len(containers) == 0 {
 		c.log.recordf("no weaviate containers found, nothing captured")
 	}
-	c.log.recordf("copied ~%d bytes from %d nodes into %s", c.copied, nodesVisited, root)
+
+	visited := 0
+	for i, container := range containers {
+		if err := ctx.Err(); err != nil {
+			c.log.recordf("capture window closed (%v) after %d of %d nodes; the rest were not visited",
+				err, visited, len(containers))
+			break
+		}
+		visited++
+		c.collectNode(ctx, container, i+1)
+	}
+	c.log.recordf("copied ~%d bytes from %d of %d nodes into %s",
+		c.copied, visited, len(containers), c.root)
+}
+
+// recordHowToRead states the one thing a file name cannot: the copy was taken
+// from a live cluster. Every other way a file here can be wrong is either
+// marked on the file or named in this record, so without this line an
+// investigator reads mutually inconsistent segments as product corruption.
+func (c *forensicCapture) recordHowToRead() {
+	c.log.recordf("how to read this artifact:\n"+
+		"  the nodes were running and serving while these files were copied, so this is not a point-in-time snapshot\n"+
+		"  each file is copied on its own: two segments here can be from different instants, and a .wal can have a torn tail\n"+
+		"  files in that state keep their original names, because from the copier's side nothing went wrong\n"+
+		"  the assertion had already polled for %s before this ran, so what is on disk here can be that much newer than the first bad count",
+		rangeCountConvergenceWindow)
 }
 
 // collectNode records one node's rangeable bucket manifest and copies the
 // matching files under <root>/node<nodeIdx>/.
 func (c *forensicCapture) collectNode(ctx context.Context, container testcontainers.Container, nodeIdx int) {
+	// A command that failed and a command whose output was cut are separate
+	// facts. Reported as one choice, a manifest that hit both says only that
+	// the command failed and never mentions the cap.
 	manifest, cut, err := execCollect(ctx, container, []string{"sh", "-c", c.manifestScript()})
-	switch {
-	case err != nil:
-		c.log.recordf("node %d manifest command failed (%v); output so far:\n%s",
-			nodeIdx, err, strings.TrimSpace(manifest))
-	case cut:
-		c.log.recordf("node %d rangeable bucket manifest, cut at %d bytes:\n%s",
-			nodeIdx, forensicExecOutputCap, strings.TrimSpace(manifest))
-	default:
-		c.log.recordf("node %d rangeable bucket manifest:\n%s", nodeIdx, strings.TrimSpace(manifest))
+	if err != nil {
+		c.log.recordf("node %d manifest command failed (%v); what it printed before that is below", nodeIdx, err)
 	}
+	if cut {
+		c.log.recordf("node %d manifest output was cut at %d bytes%s",
+			nodeIdx, forensicExecOutputCap, nothingSurvivedNote(manifest))
+	}
+	c.log.recordf("node %d rangeable bucket manifest:\n%s", nodeIdx, strings.TrimSpace(manifest))
 
 	fileList, cut, err := execCollect(ctx, container, []string{"sh", "-c", c.fileListScript()})
 	if err != nil {
@@ -877,24 +916,38 @@ func (c *forensicCapture) collectNode(ctx context.Context, container testcontain
 		c.log.recordf("node %d file list command failed (%v); copying what it did list", nodeIdx, err)
 	}
 	if cut {
-		c.log.recordf("node %d file list was cut at %d bytes; the files past the cut were never offered to the copy",
-			nodeIdx, forensicExecOutputCap)
+		c.log.recordf("node %d file list was cut at %d bytes; the files past the cut were never offered to the copy%s",
+			nodeIdx, forensicExecOutputCap, nothingSurvivedNote(fileList))
 	}
 	c.copyFiles(ctx, container, nodeIdx, fileList)
 }
 
+// nothingSurvivedNote explains output that the cap left empty. capExecOutput
+// keeps whole lines only, so a cut that found no line break keeps nothing, and
+// the bare word "cut" would otherwise read as if something was shown.
+func nothingSurvivedNote(out string) string {
+	if strings.TrimSpace(out) != "" {
+		return ""
+	}
+	return "; no whole line survived the cut, so none of it is shown"
+}
+
 // manifestScript lists the rangeable bucket dirs on one node. Every branch
 // prints something: an empty manifest reads the same whether the data is
-// genuinely absent, the path is wrong, or the collector broke.
+// genuinely absent, the path is wrong, or the collector broke. The find keeps
+// its stderr and its exit status for the same reason, so a search that could
+// not read a directory is not reported as a search that found nothing.
 func (c *forensicCapture) manifestScript() string {
 	return fmt.Sprintf(
 		`d="%[1]s/%[2]s"; `+
 			`if [ ! -d "$d" ]; then echo "(no $d dir; %[1]s listing:)"; ls -la "%[1]s"; exit 0; fi; `+
 			`found=0; `+
 			`for lsm in "$d"/*/lsm; do [ -d "$lsm" ] || continue; found=1; echo "### $lsm"; `+
-			`m=$(find "$lsm" -path "*%[3]s*" 2>/dev/null); `+
+			`m=$(find "$lsm" -path "*%[3]s*"); rc=$?; `+
+			`[ "$rc" = 0 ] || echo "(find under $lsm exited $rc; what it listed may be incomplete)"; `+
 			`if [ -n "$m" ]; then echo "$m" | while IFS= read -r p; do ls -ld "$p"; done; `+
-			`else echo "(no %[3]s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; fi; done; `+
+			`elif [ "$rc" = 0 ]; then echo "(no %[3]s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; `+
+			`else ls -la "$lsm"; fi; done; `+
 			`[ "$found" = 1 ] || { echo "(no */lsm dirs under $d; listing:)"; ls -la "$d"; }`,
 		c.dataDir, c.classDir, c.bucketMatch)
 }
@@ -909,7 +962,13 @@ func (c *forensicCapture) copyFiles(
 	ctx context.Context, container testcontainers.Container, nodeIdx int, newlineSeparatedPaths string,
 ) {
 	paths := splitPaths(newlineSeparatedPaths)
-	files := 0
+	files, whole, bytesBefore := 0, 0, c.copied
+	// Without this, a node that listed nothing and a node that copied everything
+	// cleanly leave the same trace: none.
+	defer func() {
+		c.log.recordf("node %d: listed %d files, attempted %d, copied %d whole, %d bytes",
+			nodeIdx, len(paths), files, whole, c.copied-bytesBefore)
+	}()
 	for i, p := range paths {
 		// Once the capture window closes every remaining copy fails instantly,
 		// which would otherwise emit one log line per remaining path.
@@ -929,6 +988,9 @@ func (c *forensicCapture) copyFiles(
 		// A copy that broke mid-stream still left its bytes on disk, so they
 		// count against the budget the same as a copy that finished.
 		c.copied += res.written
+		if res.err == nil && !res.truncated {
+			whole++
+		}
 		c.recordCopy(nodeIdx, p, c.markIncomplete(nodeIdx, res))
 	}
 }

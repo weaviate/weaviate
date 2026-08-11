@@ -256,7 +256,7 @@ func (f *fakeContainer) Exec(_ context.Context, cmd []string, _ ...tcexec.Proces
 func newTestCapture(t *testing.T) *forensicCapture {
 	t.Helper()
 	return &forensicCapture{
-		log:         &captureLog{t: t, phase: "probe", prefix: "range-count forensic capture [probe]"},
+		log:         &captureLog{t: t, prefix: "range-count forensic capture [probe]"},
 		root:        t.TempDir(),
 		dataDir:     "/data",
 		classDir:    "things",
@@ -385,6 +385,80 @@ func TestCopyFilesMarksFilesThatAreNotFaithfulCopies(t *testing.T) {
 	}
 }
 
+// The rename is the one place the marking can fail open: the copy is already
+// short, and a file that keeps its .db name is byte-indistinguishable from a
+// whole segment. The manifest is then the only thing standing between an
+// investigator and reading a cut capture as product corruption.
+func TestCopyFilesKeepsTheOriginalNameWhenTheMarkerCannotBeApplied(t *testing.T) {
+	c := newTestCapture(t)
+	// A non-empty directory sitting on the .PARTIAL name: os.Rename cannot
+	// replace it, on any unix.
+	blocked := filepath.Join(c.root, "node1", "things", "s", "lsm", "b", "seg.db"+partialSuffix)
+	require.NoError(t, os.MkdirAll(blocked, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(blocked, "occupied"), []byte("x"), 0o644))
+
+	container := &fakeContainer{open: func(string) (io.ReadCloser, error) {
+		return io.NopCloser(&errReader{payload: []byte("cut"), err: errors.New("stream reset")}), nil
+	}}
+
+	c.copyFiles(context.Background(), container, 1, "/data/things/s/lsm/b/seg.db")
+	c.log.writeTo(c.root)
+
+	files := artifactFiles(t, c.root)
+	assert.Equal(t, "cut", files["node1/things/s/lsm/b/seg.db"],
+		"the incomplete copy stays in the artifact under its original name")
+
+	manifest := files[captureManifestName]
+	assert.Contains(t, manifest, "could not mark node1/things/s/lsm/b/seg.db as "+partialSuffix,
+		"the manifest is the only remaining signal that this file is not whole")
+	assert.Contains(t, manifest, "it stays in the artifact under its original name")
+	// The copy line must name the file as it actually is on disk, not as the
+	// rename meant to leave it.
+	assert.Contains(t, manifest, "kept as node1/things/s/lsm/b/seg.db:")
+	assert.NotContains(t, manifest, "kept as node1/things/s/lsm/b/seg.db"+partialSuffix)
+}
+
+func TestCopyFilesRecordsWhatEachNodeContributed(t *testing.T) {
+	tests := []struct {
+		name        string
+		alreadyUsed int64
+		body        string
+		paths       string
+		want        string
+	}{
+		{
+			name:  "a node that listed nothing says so",
+			paths: "",
+			want:  "node 1: listed 0 files, attempted 0, copied 0 whole, 0 bytes",
+		},
+		{
+			name:  "a node that copied cleanly says how much",
+			body:  "segment-bytes",
+			paths: "/data/things/s/lsm/b/a.db\n/data/things/s/lsm/b/b.db",
+			want:  "node 1: listed 2 files, attempted 2, copied 2 whole, 26 bytes",
+		},
+		{
+			name:        "a truncated file is not counted as copied whole",
+			alreadyUsed: forensicCaptureByteBudget - 5,
+			body:        "whole-segment",
+			paths:       "/data/things/s/lsm/b/a.db",
+			want:        "node 1: listed 1 files, attempted 1, copied 0 whole, 5 bytes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCapture(t)
+			c.copied = tt.alreadyUsed
+			container := &fakeContainer{open: readerFor(tt.body)}
+
+			c.copyFiles(context.Background(), container, 1, tt.paths)
+
+			assert.Contains(t, strings.Join(c.log.lines, "\n"), tt.want)
+		})
+	}
+}
+
 func TestCaptureManifestNamesEveryIncompleteFile(t *testing.T) {
 	c := newTestCapture(t)
 	container := &fakeContainer{open: func(path string) (io.ReadCloser, error) {
@@ -442,6 +516,45 @@ func TestCopyFilesRecordsAFileItCouldNotOpen(t *testing.T) {
 		"copy /data/things/s/lsm/b/gone.db failed, no file written: no such file or directory")
 }
 
+// A destination the capture cannot write is a path that appears in no artifact
+// file, so the record has to be what names it.
+func TestCopyFilesRecordsAFileItCouldNotWrite(t *testing.T) {
+	tests := []struct {
+		name    string
+		blocker func(t *testing.T, root string)
+	}{
+		{
+			name: "a file where the destination directory has to go",
+			blocker: func(t *testing.T, root string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(root, "node1", "things", "s", "lsm"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(root, "node1", "things", "s", "lsm", "b"),
+					[]byte("x"), 0o644))
+			},
+		},
+		{
+			name: "a directory where the destination file has to go",
+			blocker: func(t *testing.T, root string) {
+				require.NoError(t, os.MkdirAll(
+					filepath.Join(root, "node1", "things", "s", "lsm", "b", "seg.db"), 0o755))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCapture(t)
+			tt.blocker(t, c.root)
+			container := &fakeContainer{open: readerFor("segment-bytes")}
+
+			c.copyFiles(context.Background(), container, 1, "/data/things/s/lsm/b/seg.db")
+
+			assert.Zero(t, c.copied, "nothing reached the disk, so nothing may be charged")
+			assert.Contains(t, strings.Join(c.log.lines, "\n"),
+				"node 1 copy /data/things/s/lsm/b/seg.db failed, no file written:")
+		})
+	}
+}
+
 // fakeNode answers the two commands collectNode runs, dispatching on which one
 // it was handed. Only the manifest script sets a shell variable first.
 func fakeNode(manifest string, manifestCode int, fileList string, fileListCode int) func([]string) (int, io.Reader, error) {
@@ -483,6 +596,161 @@ func TestCollectNodeSaysSoWhenTheCollectorItselfBroke(t *testing.T) {
 	assert.Contains(t, record, "partial output")
 	assert.Contains(t, record, "node 1 file list command failed (exit code 1)")
 	assert.Empty(t, container.opened)
+}
+
+func TestCollectNodeReportsTheCapEvenWhenTheCommandAlsoFailed(t *testing.T) {
+	// One line short of the cap, then enough to run past it.
+	longManifest := strings.Repeat("### /data/things/s/lsm\n", forensicExecOutputCap/23+10)
+
+	tests := []struct {
+		name     string
+		manifest string
+		code     int
+		fileList string
+		wantHas  []string
+		wantMiss []string
+	}{
+		{
+			name:     "a command that failed and was cut reports both",
+			manifest: longManifest,
+			code:     2,
+			wantHas: []string{
+				"node 1 manifest command failed (exit code 2)",
+				"node 1 manifest output was cut at 1048576 bytes",
+			},
+		},
+		{
+			name:     "a cut that kept no whole line says nothing of it is shown",
+			manifest: strings.Repeat("a", forensicExecOutputCap+1),
+			code:     0,
+			wantHas: []string{
+				"node 1 manifest output was cut at 1048576 bytes; no whole line survived the cut",
+			},
+		},
+		{
+			name:     "a cut file list says how much of it reached the copy",
+			manifest: "### /data/things/s/lsm\n",
+			code:     0,
+			fileList: strings.Repeat("a", forensicExecOutputCap+1),
+			wantHas: []string{
+				"node 1 file list was cut at 1048576 bytes",
+				"the files past the cut were never offered to the copy; no whole line survived the cut",
+				"node 1: listed 0 files",
+			},
+		},
+		{
+			name:     "output inside the cap is not reported as cut",
+			manifest: "### /data/things/s/lsm\n",
+			code:     0,
+			wantMiss: []string{"was cut at"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCapture(t)
+			container := &fakeContainer{
+				exec: fakeNode(tt.manifest, tt.code, tt.fileList, 0),
+				open: readerFor("never read"),
+			}
+
+			c.collectNode(context.Background(), container, 1)
+
+			record := strings.Join(c.log.lines, "\n")
+			for _, want := range tt.wantHas {
+				assert.Contains(t, record, want)
+			}
+			for _, miss := range tt.wantMiss {
+				assert.NotContains(t, record, miss)
+			}
+		})
+	}
+}
+
+// Every other way a captured file can be wrong is marked on the file. A copy
+// taken from running nodes is not, so the record has to say it.
+func TestCollectAllSaysTheCopyWasTakenFromRunningNodes(t *testing.T) {
+	c := newTestCapture(t)
+	node := &fakeContainer{
+		exec: fakeNode("### /data/things/shardA/lsm\n", 0, "", 0),
+		open: readerFor("never read"),
+	}
+
+	c.collectAll(context.Background(), []testcontainers.Container{node, node})
+	c.log.writeTo(c.root)
+
+	manifest := artifactFiles(t, c.root)[captureManifestName]
+	assert.Contains(t, manifest, "not a point-in-time snapshot")
+	assert.Contains(t, manifest, "a .wal can have a torn tail")
+	assert.Contains(t, manifest, "keep their original names")
+	assert.Contains(t, manifest, "polled for "+rangeCountConvergenceWindow.String()+" before this ran")
+	assert.Contains(t, manifest, "artifact root = "+c.root)
+	assert.Contains(t, manifest, "copied ~0 bytes from 2 of 2 nodes")
+}
+
+func TestCollectAllTellsAnEmptyClusterApartFromAClosedWindow(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodes    int
+		closed   bool
+		wantHas  []string
+		wantMiss []string
+	}{
+		{
+			name:    "a compose with no weaviate nodes says so",
+			nodes:   0,
+			wantHas: []string{"no weaviate containers found", "copied ~0 bytes from 0 of 0 nodes"},
+		},
+		{
+			name:     "a window that closed first is not reported as an empty cluster",
+			nodes:    3,
+			closed:   true,
+			wantHas:  []string{"capture window closed", "after 0 of 3 nodes"},
+			wantMiss: []string{"no weaviate containers found"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.closed {
+				cancel()
+			}
+			c := newTestCapture(t)
+			var nodes []testcontainers.Container
+			for i := 0; i < tt.nodes; i++ {
+				nodes = append(nodes, &fakeContainer{
+					exec: fakeNode("", 0, "", 0),
+					open: readerFor("never read"),
+				})
+			}
+
+			c.collectAll(ctx, nodes)
+
+			record := strings.Join(c.log.lines, "\n")
+			for _, want := range tt.wantHas {
+				assert.Contains(t, record, want)
+			}
+			for _, miss := range tt.wantMiss {
+				assert.NotContains(t, record, miss)
+			}
+		})
+	}
+}
+
+// A capture that cannot create its artifact dir must stop before it touches a
+// container, or it logs one failure per file for every node.
+func TestCaptureStopsBeforeItTouchesAnyContainer(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(blocked, []byte("x"), 0o644))
+	t.Setenv("REINDEX_FORENSICS_DIR", blocked)
+
+	// A nil compose panics on the first node lookup, so returning at all is the
+	// proof that no lookup happened.
+	assert.NotPanics(t, func() {
+		captureRangeableDataDirsOnFailure(t, nil, "Things", "dateInt", "pre-restart")
+	})
 }
 
 func execReturning(code int, out string, err error) func([]string) (int, io.Reader, error) {
@@ -691,6 +959,28 @@ func TestManifestScriptExplainsEveryEmptyCase(t *testing.T) {
 	}
 }
 
+// A search that could not read a directory and a search that found nothing are
+// the same empty result. Only the exit status tells them apart, and the script
+// prints its "nothing found" sentence off that result.
+func TestManifestScriptSaysWhenTheSearchItselfFailed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable directories, so find cannot be made to fail this way")
+	}
+	dataDir := t.TempDir()
+	unreadable := filepath.Join(dataDir, "things", "shardA", "lsm", "blocked")
+	require.NoError(t, os.MkdirAll(unreadable, 0o755))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	// t.TempDir cleanup cannot descend into a 000 dir.
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o755) })
+
+	out := runManifestScript(t, dataDir)
+
+	assert.Contains(t, out, "exited 1; what it listed may be incomplete")
+	assert.NotContains(t, out, "no property_dateInt_rangeable* bucket dirs found",
+		"a search that broke must not be reported as a search that found nothing")
+	assert.Contains(t, out, "blocked", "the listing that follows must still be there")
+}
+
 func TestForensicArtifactRootHonorsTheCIEnvAndIsUniquePerCapture(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("REINDEX_FORENSICS_DIR", base)
@@ -707,6 +997,25 @@ func TestForensicArtifactRootHonorsTheCIEnvAndIsUniquePerCapture(t *testing.T) {
 		assert.DirExists(t, root)
 	}
 	assert.NotEqual(t, first, second, "two captures in one run must not overwrite each other")
+}
+
+// Off CI nothing sets the env var, and a capture that landed nowhere would be
+// a local run with no way to see what it found.
+func TestForensicArtifactRootFallsBackToATempDir(t *testing.T) {
+	t.Setenv("REINDEX_FORENSICS_DIR", "")
+	fallback := filepath.Join(os.TempDir(), "reindex-forensics")
+
+	root, err := forensicArtifactRoot(t, "Things", "pre-restart")
+
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(root)
+		// Only succeeds while no other capture is using it.
+		_ = os.Remove(fallback)
+	})
+	assert.True(t, strings.HasPrefix(root, fallback+string(filepath.Separator)),
+		"%s must be under %s", root, fallback)
+	assert.DirExists(t, root)
 }
 
 func TestForensicArtifactRootReportsAnUnusableBase(t *testing.T) {
@@ -772,9 +1081,25 @@ func TestSplitPaths(t *testing.T) {
 // captureLog writes into the artifact, so its own failure to write must not be
 // what stops a capture.
 func TestCaptureLogSurvivesAnUnwritableRoot(t *testing.T) {
-	c := &captureLog{t: t, phase: "probe", prefix: "probe"}
+	c := &captureLog{t: t, prefix: "probe"}
 	c.recordf("something happened")
 
 	assert.NotPanics(t, func() { c.writeTo(filepath.Join(t.TempDir(), "missing", "deeper")) })
 	assert.Equal(t, []string{"something happened"}, c.lines)
+}
+
+// A manifest that the write cut short keeps the bytes it managed to write, so
+// without a terminator it reads exactly like a complete one.
+func TestCaptureManifestEndsWithATerminator(t *testing.T) {
+	c := &captureLog{t: t, prefix: "probe"}
+	c.recordf("first")
+	c.recordf("second")
+	root := t.TempDir()
+
+	c.writeTo(root)
+
+	body := artifactFiles(t, root)[captureManifestName]
+	require.NotEmpty(t, body)
+	assert.True(t, strings.HasSuffix(body, "=== END OF CAPTURE MANIFEST, 2 records ===\n"),
+		"a cut manifest must be tellable from a complete one, got:\n%s", body)
 }
