@@ -18,9 +18,12 @@ import (
 	"io"
 	"os"
 	"sync"
+	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -148,6 +151,15 @@ func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
 	fb.RLock()
 	defer fb.RUnlock()
 	return fb.meta.Status, fb.meta.Error
+}
+
+// getGlobalMetaStatus is the status of the last global backup or restore
+// descriptor stored, which is the operation's outcome as a poll sees it once
+// the slot is gone.
+func (fb *fakeBackend) getGlobalMetaStatus() backup.Status {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.glMeta.Status
 }
 
 func (fb *fakeBackend) getMetaBaseBackupID() string {
@@ -296,13 +308,14 @@ type fakeStatusSlot struct {
 	reason   string
 }
 
-func (f *fakeStatusSlot) set(st backup.Status) {
+func (f *fakeStatusSlot) set(st backup.Status) bool {
 	f.statuses = append(f.statuses, st)
+	return true
 }
 
-func (f *fakeStatusSlot) setFailed(reason string) {
+func (f *fakeStatusSlot) setFailed(reason string) bool {
 	f.reason = reason
-	f.set(backup.Failed)
+	return f.set(backup.Failed)
 }
 
 func (f *fakeStatusSlot) last() backup.Status {
@@ -310,4 +323,34 @@ func (f *fakeStatusSlot) last() backup.Status {
 		return ""
 	}
 	return f.statuses[len(f.statuses)-1]
+}
+
+// cancelAndFreeSlot does to the slot what a cancel does: stamp the restore
+// holding it and give the slot back, leaving that restore's goroutine running.
+// assert, not require: this runs on that goroutine or inside a mock callback,
+// where Goexit surfaces as a hang instead of the failure.
+func cancelAndFreeSlot(t *testing.T, stat *backupStat, id string) {
+	t.Helper()
+	stamped, _ := stat.setIfOwned(id, backup.Cancelled)
+	assert.True(t, stamped)
+	freed, _ := stat.resetIfCancelled(id)
+	assert.True(t, freed)
+}
+
+// takeOverSlot stages the whole takeover a cancel leaves behind: the operation
+// holding the slot is cancelled and gives it back, and a newer one claims it
+// while the old one's goroutine is still running.
+func takeOverSlot(t *testing.T, stat *backupStat, id, newID string) {
+	t.Helper()
+	cancelAndFreeSlot(t, stat, id)
+	prevID, _ := stat.renew(newID, "path", "", "")
+	assert.Empty(t, prevID)
+}
+
+// freeSlot gives the slot back the way a cancelled operation does, and fails
+// if the slot refuses.
+func freeSlot(t *testing.T, stat *backupStat, id string) {
+	t.Helper()
+	freed, _ := stat.resetIfCancelled(id)
+	require.True(t, freed)
 }

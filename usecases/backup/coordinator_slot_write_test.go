@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -91,10 +90,7 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 						// assert, not require: Goexit inside a mock callback
 						// surfaces as a hang instead of this failure.
 						once.Do(func() {
-							c.lastOp.set(backup.Cancelled)
-							assert.True(t, c.lastOp.resetIfCancelled(backupID))
-							prevID, _ := c.lastOp.renew(tc.stealID, "path", "", "")
-							assert.Empty(t, prevID)
+							takeOverSlot(t, &c.lastOp, backupID, tc.stealID)
 						})
 					})
 				fc.client.On("Commit", anyArg, node, anyArg).Return(nil)
@@ -152,9 +148,12 @@ func TestCoordinatorRestoreGoroutineOnlyWritesTheSlotItOwns(t *testing.T) {
 	}
 }
 
-// TestBackupStatPublishIfOwned pins the terminal slot write on its own, since
-// the coordinator tests can only reach the states a full restore walks through.
-func TestBackupStatPublishIfOwned(t *testing.T) {
+// TestOperationPublishStatusOnlyWritesTheClaimItHolds pins the terminal slot
+// write on its own, since the coordinator tests can only reach the states a
+// full restore walks through. The claim, not the id, is what the write is
+// keyed on: a retry under the original id is a normal flow, so an id match
+// does not mean the writer still holds the slot.
+func TestOperationPublishStatusOnlyWritesTheClaimItHolds(t *testing.T) {
 	t.Parallel()
 	const (
 		holderID = "backup-a"
@@ -164,9 +163,11 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// stale releases the claim and hands the slot to newerID before the
-		// publish, so the publishing operation is no longer the holder.
-		stale bool
+		// stale releases the claim and hands the slot to another operation
+		// before the publish, so the publishing operation is no longer the
+		// holder. reclaimID is the id that newer operation claims it with.
+		stale     bool
+		reclaimID string
 		// released frees the slot without anyone claiming it again.
 		released   bool
 		status     backup.Status
@@ -198,7 +199,17 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 			// three, since commit() reads it as an external cancellation.
 			name:       "a stale claim does not cancel the newer operation",
 			stale:      true,
+			reclaimID:  newerID,
 			status:     backup.Cancelled,
+			wantStatus: backup.Started,
+		},
+		{
+			// The id alone cannot tell the two claims apart here, so this is
+			// the row that fails if the write is ever keyed on it.
+			name:       "a stale claim does not stamp a retry of its own id",
+			stale:      true,
+			reclaimID:  holderID,
+			status:     backup.Success,
 			wantStatus: backup.Started,
 		},
 		{
@@ -212,28 +223,32 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var slot backupStat
-			prevID, generation := slot.renew(holderID, "bucket/backups/a", "", "")
+			var stat backupStat
+			prevID, slot := stat.renew(holderID, "bucket/backups/a", "", "")
 			require.Empty(t, prevID)
 
 			switch {
 			case tc.stale:
-				require.True(t, slot.resetIfOwned(generation))
-				newPrevID, _ := slot.renew(newerID, "bucket/backups/b", "", "")
+				require.True(t, slot.release())
+				newPrevID, _ := stat.renew(tc.reclaimID, "bucket/backups/b", "", "")
 				require.Empty(t, newPrevID)
 			case tc.released:
-				require.True(t, slot.resetIfOwned(generation))
+				require.True(t, slot.release())
 			}
-			require.Equal(t, tc.wantWrote, slot.publishIfOwned(generation, tc.status, tc.reason))
 
-			st := slot.get()
+			op := newOperation(&backup.DistributedBackupDescriptor{
+				ID: holderID, Status: tc.status, Error: tc.reason,
+			})
+			require.Equal(t, tc.wantWrote, op.publishStatus(slot))
+
+			st := stat.get()
 			require.Equal(t, tc.wantStatus, st.Status)
 			require.Equal(t, tc.wantErr, st.Err)
 			if tc.stale {
-				require.Equal(t, newerID, st.ID, "the publish must never take the slot over")
+				require.Equal(t, tc.reclaimID, st.ID, "the publish must never take the slot over")
 			}
 
-			gotRemembered, found := slot.rememberedFailure(holderID)
+			gotRemembered, found := stat.rememberedFailure(holderID)
 			require.Equal(t, tc.wantRemembered != "", found)
 			require.Equal(t, tc.wantRemembered, gotRemembered)
 		})

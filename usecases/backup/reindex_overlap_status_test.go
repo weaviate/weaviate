@@ -80,8 +80,7 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 
 	// Real slot on a real backupper, not a stub, to exercise what OnStatus serves.
 	bp := &backupper{}
-	slot := &bp.lastOp
-	prevID, _ := slot.renew(backupID, "bucket/backups/1", "", "")
+	prevID, slot := bp.lastOp.renew(backupID, "bucket/backups/1", "", "")
 	require.Empty(t, prevID)
 
 	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
@@ -91,7 +90,7 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	require.Contains(t, err.Error(), "object storage unreachable",
 		"the meta write failure has to stay visible next to the refusal")
 
-	st := slot.get()
+	st := bp.lastOp.get()
 	require.Equal(t, backup.Failed, st.Status,
 		"a refusal left at Transferring reads as a backup that is still running")
 	require.Contains(t, st.Err, "a runtime-reindex overlapped this backup",
@@ -122,7 +121,8 @@ func (e undeterminedOverlapErr) Unwrap() []error {
 // Pins the two rules TestBackupStatRemembersAFailureBeyondTheSlot does not
 // reach: a poll that names no backup at all matches nothing, and another
 // backup starting does not erase the failed one's reason. The stand-in reason
-// and the cancelled-slot rule are pinned by TestBackupStatPublishIfOwned.
+// and the cancelled-slot rule are pinned by
+// TestOperationPublishStatusOnlyWritesTheClaimItHolds.
 func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	const (
 		failedID = "backup-a"
@@ -141,15 +141,15 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	})
 
 	t.Run("a different backup starting does not erase the failed one's reason", func(t *testing.T) {
-		var slot backupStat
-		prevID, _ := slot.renew(failedID, "bucket/backups/a", "", "")
+		var stat backupStat
+		prevID, slot := stat.renew(failedID, "bucket/backups/a", "", "")
 		require.Empty(t, prevID)
 		slot.setFailed(reason)
-		slot.reset()
-		prevID, _ = slot.renew(otherID, "bucket/backups/b", "", "")
+		slot.release()
+		prevID, _ = stat.renew(otherID, "bucket/backups/b", "", "")
 		require.Empty(t, prevID)
 
-		gotReason, gotFound := slot.rememberedFailure(failedID)
+		gotReason, gotFound := stat.rememberedFailure(failedID)
 		require.True(t, gotFound)
 		require.Equal(t, reason, gotReason)
 	})

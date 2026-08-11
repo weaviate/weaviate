@@ -2984,10 +2984,9 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 	}
 }
 
-// liveReindexTrackerLookup answers, for the startup orphan audit, which
-// tasks still own their on-disk tracker dirs. Every non-terminal status
-// counts, including one a newer node introduced: the audit's other answer
-// is os.RemoveAll on a live migration's trackers, and that is the one
+// liveReindexTrackerLookup reports whether a task still owns its on-disk
+// tracker dirs. Every non-terminal status counts, including one this build
+// cannot name: the other answer deletes the dirs, and that is the one
 // outcome nothing downstream can undo.
 func liveReindexTrackerLookup(tasks []*distributedtask.Task) db.KnownReindexTaskLookup {
 	type taskKey struct {

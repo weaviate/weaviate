@@ -703,9 +703,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) err
 		} else {
 			task.Status = TaskStatusSwapping
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup skips
-		// every non-terminal status so a stale FinishedAt won't clean a task
-		// mid-coordination.
+		// FinishedAt = when units completed — for PREPARING and SWAPPING alike.
+		// The scheduler's TTL cleanup excludes every non-terminal status
+		// (IsActive), so this stamp cannot clean a task mid-coordination.
 		task.FinishedAt = finishedAt
 
 		// Dispatch after FinishedAt is stamped so the observer's copy carries it.
@@ -1087,11 +1087,15 @@ func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 		return err
 	}
 
-	// Every non-terminal status is cancellable, not just STARTED. The
-	// conflict guards block schema mutations for any non-terminal status
-	// and tell the operator to cancel the task; refusing the cancel here
-	// would leave a collection wedged with no way out.
-	if task.Status.IsTerminal() {
+	// Cancellable: STARTED and any unrecognized status — the conflict
+	// guards block mutations for both and name cancel as the remedy.
+	//
+	// Not cancellable: the coordination phases (nodes may have already
+	// written merged state or renamed bucket directories). Stopping
+	// mid-way leaves the cluster serving migrated buckets under the
+	// pre-migration schema with no repair path — the task must run to
+	// FINISHED or FAILED.
+	if task.Status.IsTerminal() || task.Status.IsCoordinationPhase() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
@@ -1120,9 +1124,9 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	// Every non-terminal status, not just STARTED. A non-terminal task's
-	// FinishedAt is set at the units-completion moment and ages from there,
-	// so a task stuck past completedTaskTTL clears the age check below and
-	// only this liveness check stands between it and deletion.
+	// FinishedAt is either zero (STARTED) or the units-completion moment
+	// (PREPARING/SWAPPING); both clear the age check below, so only this
+	// liveness check stands between the task and deletion.
 	if task.Status.IsActive() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}

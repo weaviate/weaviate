@@ -692,7 +692,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// is unavailable". Returning 503 here misled callers and
 	// monitoring into thinking the cluster was unhealthy rather than
 	// rate-limiting them.
-	if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
+	if inflight := countInFlightTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
 		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
 	}
 
@@ -763,8 +763,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 		defer cancelCleanup()
+		// One cache for the whole loop: every index type asks the same unloaded shards.
+		sweep := h.appState.DB.NewStalePartialReindexSweep()
 		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			err := h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, indexTypeForCleanup)
+			err := sweep(cleanupCtx, collection, propertyName, indexTypeForCleanup)
 			logPreSubmitSweep(h.appState.Logger.WithFields(logrus.Fields{
 				"collection":     collection,
 				"property":       propertyName,
@@ -1315,6 +1317,12 @@ const auditEventCancelAuthorizerUnavailable = "reindex_task_cancel_unattributabl
 // window the conflict guards block on. Tasks whose payload will not decode
 // are skipped here; the caller's unreadable-payload pass handles them.
 //
+// Whether DTM would accept a cancel for the target is
+// [distributedtask.TaskStatus.IsCancellable] on it, the same predicate the
+// FSM guard applies, so the two cannot drift. A coordination-phase task is
+// still returned as the target; the caller refuses it rather than reporting
+// nothing to cancel.
+//
 // unknownType is a live task whose migration type this build can't map to
 // index types (submitted by a newer node); the caller must refuse it rather
 // than answer NO_OP.
@@ -1333,7 +1341,9 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
-		if !slices.Contains(payload.Properties, propertyName) {
+		// Empty Properties means "all properties" for every blocking guard;
+		// the matcher must agree or leave the operator with no cancel target.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
 		matches, isKnown := migrationTypeTargetsIndex(payload.MigrationType, indexType)
@@ -1362,6 +1372,29 @@ func reindexUnknownTypeCancelResponder(principal *models.Principal,
 			"targets it. Send the same request to a node whose build knows the type, or wait for the migration "+
 			"to finish. Until then it keeps refusing backups and restores of this collection.",
 		collection, propertyName, migrationType)))
+}
+
+// cancelRefusedResponder answers a cancel DTM will not accept because the
+// task is past its units. Both the pre-flight
+// ([distributedtask.TaskStatus.IsCancellable]) and the apply's
+// [distributedtask.ErrTaskNotRunning] land here, so which side of the list
+// read the status flipped on cannot change the answer.
+func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task,
+	collection, propertyName, indexType string, principal *models.Principal,
+) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"status":      target.Status.String(),
+		"principal":   principalUsername(principal),
+	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: every unit has finished and the "+
+			"cluster-wide swap is in progress, so it can no longer be cancelled — wait for it to "+
+			"reach a terminal state", target.ID, collection, propertyName, target.Status)))
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting
@@ -1548,6 +1581,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		})
 	}
 
+	if !target.Status.IsCancellable() {
+		// Some nodes may already have swapped buckets; stopping the rest
+		// would leave the cluster serving migrated buckets under the
+		// pre-migration schema, so DTM refuses the cancel.
+		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	}
+
 	if err := h.tasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
@@ -1687,9 +1727,11 @@ func (h *indexesHandlers) drainAndCleanupCancelledTask(
 		context.WithoutCancel(ctx), reindexCancelCleanupTimeout)
 	defer cancelCleanup()
 
+	// One cache for the whole loop; see the submit path for why.
+	sweep := h.appState.DB.NewStalePartialReindexSweep()
 	var outcome cleanupSweepOutcome
 	for _, it := range indexTypesToClean {
-		outcome.add(it, h.appState.DB.CleanStalePartialReindexState(cleanupCtx, collection, propertyName, it))
+		outcome.add(it, sweep(cleanupCtx, collection, propertyName, it))
 	}
 	logCleanupSweep(h.appState.Logger.WithFields(fields), indexTypesToClean, outcome, payloadReadable)
 	return release
@@ -1711,7 +1753,7 @@ type cleanupSweepOutcome struct {
 func (o *cleanupSweepOutcome) add(indexType string, err error) {
 	switch {
 	case err == nil:
-	case errors.Is(err, db.ErrCleanupCollectionDropped):
+	case db.IsCleanupCollectionDropped(err):
 		o.dropped = true
 	default:
 		o.errs = append(o.errs, fmt.Errorf("indexType=%q: %w", indexType, err))
@@ -1726,7 +1768,7 @@ func (o *cleanupSweepOutcome) add(indexType string, err error) {
 func logPreSubmitSweep(entry *logrus.Entry, err error) {
 	switch {
 	case err == nil:
-	case errors.Is(err, db.ErrCleanupCollectionDropped):
+	case db.IsCleanupCollectionDropped(err):
 		entry.Infof("submit: pre-submit cleanup swept nothing because the collection is being deleted, "+
 			"which takes its stale state with it: %v", err)
 	default:
@@ -1836,6 +1878,25 @@ func (h *indexesHandlers) answerCancelThatRacedTheCommit(ctx context.Context, ca
 		})
 	}
 
+	// The FSM also refuses once a task reaches a coordination phase, which it
+	// can enter between the pre-flight read and the apply. That is the same
+	// condition the pre-flight answers with 409, so it answers the same way
+	// here rather than a 500 carrying DTM's internal marker.
+	if live := reindexTaskByID(tasks, target.ID); live != nil && !live.Status.IsCancellable() {
+		return h.cancelRefusedResponder(live, collection, propertyName, indexType, principal)
+	}
+
+	return nil
+}
+
+// reindexTaskByID returns the task with this ID, or nil once the list no
+// longer carries it.
+func reindexTaskByID(tasks []*distributedtask.Task, id string) *distributedtask.Task {
+	for _, task := range tasks {
+		if task.ID == id {
+			return task
+		}
+	}
 	return nil
 }
 
@@ -2157,8 +2218,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 	default:
 		// Unrecognized status: other gates already treat it as in-flight
-		// (409 on PUT, counted against the cap, backups refused), so
-		// leaving this entry "ready" would contradict them.
+		// (409 on PUT, counted against the cap, backups refused), so this
+		// reports "indexing" rather than "ready" or "pending" — the units
+		// don't prove no shard has started for a status this build can't name.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -2373,10 +2435,10 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 		collection, inflight, capLimit, collection)))
 }
 
-// countStartedTasksForCollection counts in-flight reindex tasks for a
+// countInFlightTasksForCollection counts in-flight reindex tasks for a
 // collection. Counts every non-terminal status (via IsActive) because
 // PREPARING/SWAPPING still hold tracker dirs and reindex buckets.
-func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
+func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
 		if !task.Status.IsActive() {

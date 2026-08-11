@@ -1774,19 +1774,18 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	require.Equal(t, "unknown", remaining[0].ID)
 }
 
-// Pins: the sweep warns only for a genuinely unrecognized status, staying
-// quiet for STARTED and the coordination phases.
-func TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
-	for _, tc := range []struct {
-		status   TaskStatus
-		wantWarn bool
-	}{
-		{unknownFutureStatus, true},
-		{TaskStatus(""), true},
-		{TaskStatusStarted, false},
-		{TaskStatusPreparing, false},
-		{TaskStatusSwapping, false},
+// Pins: the tick warns only for a genuinely unrecognized status, never for
+// STARTED or a coordination phase.
+func TestSchedulerTick_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
+	for _, status := range []TaskStatus{
+		unknownFutureStatus,
+		TaskStatusStarted,
+		TaskStatusSwapping,
 	} {
+		tc := struct {
+			status   TaskStatus
+			wantWarn bool
+		}{status, !status.IsRecognized()}
 		t.Run(string(tc.status), func(t *testing.T) {
 			defer leaktest.Check(t)()
 
@@ -1810,4 +1809,47 @@ func TestSchedulerTTLSweep_WarnsOnlyOnUnrecognizedStatus(t *testing.T) {
 				"status %q: warn fired=%v, want %v", tc.status, warned, tc.wantWarn)
 		})
 	}
+}
+
+// Pins: the unrecognized-status warn uses its own sampler, so a persistent
+// cleanup error still gets the shared budget's full slots.
+func TestSchedulerTick_UnrecognizedStatusWarnDoesNotStarveErrorLogging(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+
+	// A stuck task in a status this build cannot name: warns every tick.
+	addTaskWithUnits(t, h, h.tasksNamespace, "stuck", 10, []string{"su-1"})
+	h.manager.tasks[h.tasksNamespace]["stuck"].Status = unknownFutureStatus
+
+	// A terminal, TTL-expired task whose cleanup keeps failing.
+	addTaskWithUnits(t, h, h.tasksNamespace, "control", 11, []string{"su-2"})
+	control := h.manager.tasks[h.tasksNamespace]["control"]
+	control.Status = TaskStatusFinished
+	control.FinishedAt = h.clock.Now()
+
+	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(errors.New("cleanup keeps failing"))
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.completedTaskTTL)
+	for i := 0; i < 8; i++ {
+		h.advanceClock(h.schedulerTickInterval)
+	}
+
+	var warns, cleanupErrors int
+	for _, e := range h.loggerHook.AllEntries() {
+		switch {
+		case e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status"):
+			warns++
+		case e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "failed to clean up distributed task"):
+			cleanupErrors++
+		}
+	}
+
+	require.Positive(t, warns, "the stuck task must still be reported")
+	require.Equal(t, 5, cleanupErrors,
+		"the persistent cleanup failure must get the shared sampler's whole budget")
 }

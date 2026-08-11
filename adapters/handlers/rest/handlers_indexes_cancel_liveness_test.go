@@ -24,10 +24,12 @@ import (
 )
 
 // The gates block schema mutations and backups for every non-terminal status
-// and name cancel as the remedy, and DTM accepts a cancel for every
-// non-terminal status. Pins: the cancel handler matches the same set, so a
-// PREPARING/SWAPPING/unknown-status task is cancelled rather than answered
-// with NO_OP while the gates stay closed.
+// and name cancel as the remedy. Pins: the cancel handler matches the same
+// set, so a task holding the gates is never answered with NO_OP. What it gets
+// instead depends on the status — DTM accepts a cancel for STARTED and for a
+// status this build cannot name, and refuses it for the coordination phases
+// ([distributedtask.TaskStatus.IsCancellable]) — but "the gate is clear" is
+// never one of the answers while a task is holding it.
 func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 	const collection = "Movies"
 
@@ -48,6 +50,9 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 		gateBlocks bool
 		// wantCancelled is the task ID cancel must send to DTM, empty for none.
 		wantCancelled string
+		// wantRefusedID is the task a coordination-phase refusal must name.
+		// Mutually exclusive with wantCancelled; both empty means NO_OP.
+		wantRefusedID string
 	}{
 		{
 			// The unknown status stands in for PREPARING and SWAPPING too: all
@@ -68,12 +73,24 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 			wantCancelled: "t1",
 		},
 		{
+			// The unreadable-payload pass still has to find it: the refusal
+			// names the task holding the gate, where a NO_OP would tell the
+			// operator the gate is clear.
 			name: "preparing, payload will not decode, collection in another case",
 			tasks: []*distributedtask.Task{
 				unreadableTask("t1", "MOVIES", distributedtask.TaskStatusPreparing),
 			},
 			gateBlocks:    true,
-			wantCancelled: "t1",
+			wantRefusedID: "t1",
+		},
+		{
+			// Past its units on the requested tuple: DTM refuses the cancel,
+			// so the handler must refuse it too rather than send an apply it
+			// knows will be rejected.
+			name:          "swapping on the requested property",
+			tasks:         []*distributedtask.Task{decodable("t1", distributedtask.TaskStatusSwapping, collection)},
+			gateBlocks:    true,
+			wantRefusedID: "t1",
 		},
 		{
 			name:       "preparing on another collection",
@@ -109,6 +126,16 @@ func TestCancelMatchesEveryStatusTheGatesBlockOn(t *testing.T) {
 
 			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable",
 				&models.Principal{Username: "u1"})
+
+			if tc.wantRefusedID != "" {
+				conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+				require.Truef(t, ok, "a task past its units must be refused, got %T", responder)
+				require.Contains(t, conflict.Payload.Error[0].Message, tc.wantRefusedID,
+					"the refusal has to name the task still holding the gate")
+				require.Empty(t, svc.cancelled,
+					"a refused cancel must not reach DTM")
+				return
+			}
 
 			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
 			require.Truef(t, ok, "cancel must be accepted, got %T", responder)

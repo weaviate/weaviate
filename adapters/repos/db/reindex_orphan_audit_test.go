@@ -207,7 +207,7 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	lsmPath := shd.(*Shard).pathLSM()
 	migs := filepath.Join(lsmPath, ".migrations")
 	// Tracker dir names must encode the property prefix so the underlying
-	// cleanStaleMigrationDirs can match them (see migrationDirsForPropertyIndex).
+	// cleanStaleMigrationDirs can match them (see migrationDirPrefixesForIndexType).
 	orphans := []struct{ prop, dir string }{
 		{"alpha", "searchable_retokenize_alpha_1"},
 		{"beta", "searchable_retokenize_beta_1"},

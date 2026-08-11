@@ -184,6 +184,9 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 		// handle on a task they now have to watch finish.
 		wantTaskID string
 		wantStatus string
+		// wantRefusedID is the task a 409 must name when DTM will not accept
+		// the cancel. Set instead of wantStatus.
+		wantRefusedID string
 	}{
 		{
 			name:            "the only live task names no collection",
@@ -221,13 +224,12 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 			wantStatus: reindexCancelStatusNoOp,
 		},
 		{
-			// DTM cancels every non-terminal status, so a task that left
-			// STARTED is still cancellable — the gates it holds must clear.
-			name:            "past STARTED is still cancellable",
-			tasks:           []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)},
-			wantCancelledID: "orphan",
-			wantTaskID:      "orphan",
-			wantStatus:      "CANCELLED",
+			// DTM refuses a cancel once the task is past its units, so this
+			// one cannot be cleared — but it is still holding the gates, so
+			// the answer names it rather than reporting nothing to cancel.
+			name:          "past its units is refused, not reported as nothing to cancel",
+			tasks:         []*distributedtask.Task{unattributableTask("orphan", distributedtask.TaskStatusSwapping)},
+			wantRefusedID: "orphan",
 		},
 		{
 			// The id is the caller's handle on the cancel, and a namespaced
@@ -251,6 +253,15 @@ func TestCancelClearsATaskThatNamesNoCollection(t *testing.T) {
 				principal = &models.Principal{Username: "u1"}
 			}
 			responder := h.cancelReindexTask(context.Background(), collection, "title", "filterable", principal)
+
+			if tc.wantRefusedID != "" {
+				conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)
+				require.Truef(t, ok, "a task past its units must be refused, got %T", responder)
+				require.Contains(t, conflict.Payload.Error[0].Message, tc.wantRefusedID,
+					"the refusal must name the task still holding every backup in the cluster")
+				require.Empty(t, svc.cancelled, "a refused cancel must not reach DTM")
+				return
+			}
 
 			accepted, ok := responder.(*schema.SchemaObjectsIndexesUpdateAccepted)
 			require.Truef(t, ok, "cancel must be accepted, got %T", responder)
