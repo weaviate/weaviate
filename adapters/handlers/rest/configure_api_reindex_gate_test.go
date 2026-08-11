@@ -146,17 +146,12 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 		// probes maps a (collection, shard) tuple to whether the gate must
 		// report it held.
 		probes map[[2]string]bool
-		// decodesCleanly pins the shape of the payload itself: the renamed
-		// case is only meaningful while json.Unmarshal accepts it, and a
-		// future payload change that starts rejecting it would otherwise leave
-		// the case passing for the wrong reason.
-		decodesCleanly bool
 	}{
 		{
 			// The rolling-upgrade case: a newer node retypes a field, the full
 			// decoder gives up, the collection is still perfectly readable.
 			name:    "a field retyped by a newer node",
-			payload: []byte(`{"collection":"MyClass","unitToShard":"a-newer-node-changed-this-shape"}`),
+			payload: retypedFieldPayload("MyClass"),
 			probes: map[[2]string]bool{
 				{"MyClass", "shard1"}:      true,
 				{"MyClass", "shard99"}:     true,
@@ -174,9 +169,8 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 			// the task under a collection no caller can name and reports every
 			// shard free, while the commit-time backstop refuses the same
 			// capture after all the upload work.
-			name:           "the collection field renamed by a newer node",
-			payload:        []byte(`{"collektion":"MyClass","unitToShard":{"u1":"shard1"}}`),
-			decodesCleanly: true,
+			name:    "the collection field renamed by a newer node",
+			payload: renamedFieldPayload("MyClass"),
 			probes: map[[2]string]bool{
 				{"MyClass", "shard1"}:      true,
 				{"OtherClass", "shard1"}:   true,
@@ -188,14 +182,6 @@ func TestShardReindexActivityBuilderScopesUndecodablePayloads(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var probe db.ReindexTaskPayload
-			if tc.decodesCleanly {
-				require.NoError(t, json.Unmarshal(tc.payload, &probe))
-				require.Empty(t, probe.Collection)
-			} else {
-				require.Error(t, json.Unmarshal(tc.payload, &probe))
-			}
-
 			logger, hook := test.NewNullLogger()
 			lookup := newShardReindexActivityBuilder(context.Background(),
 				func(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -271,9 +257,14 @@ func TestAnyReindexActivityLookupScopesByCollection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			live, err := lookup(context.Background(), tt.collections)
+			hold, err := lookup(context.Background(), tt.collections)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantLive, live)
+			assert.Equal(t, tt.wantLive, hold != nil)
+			if tt.wantLive {
+				assert.Equal(t, "Logs", hold.Collection,
+					"the refusal names the blocking collection, so the lookup has to report it")
+				assert.Equal(t, "t1", hold.TaskID)
+			}
 		})
 	}
 }
@@ -290,12 +281,12 @@ func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
 	}{
 		{
 			name:    "a field retyped by a newer node",
-			payload: []byte(`{"collection":"Logs","unitToShard":"a-newer-node-changed-this-shape"}`),
+			payload: retypedFieldPayload("Logs"),
 			probes:  map[string]bool{"Logs": true, "logs": true, "Docs": false},
 		},
 		{
 			name:    "the collection field renamed by a newer node",
-			payload: []byte(`{"collektion":"Logs","unitToShard":{"u1":"shard1"}}`),
+			payload: renamedFieldPayload("Logs"),
 			probes:  map[string]bool{"Logs": true, "Docs": true},
 		},
 	}
@@ -312,13 +303,15 @@ func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
 				}, logger)
 
 			for collection, want := range tc.probes {
-				live, err := lookup(context.Background(), []string{collection})
+				hold, err := lookup(context.Background(), []string{collection})
 				require.NoError(t, err)
-				assert.Equalf(t, want, live, "restore of %q", collection)
+				assert.Equalf(t, want, hold != nil, "restore of %q", collection)
 			}
-			live, err := lookup(context.Background(), nil)
+			hold, err := lookup(context.Background(), nil)
 			require.NoError(t, err)
-			assert.True(t, live, "a restore with no class list yet must still be refused")
+			require.NotNil(t, hold, "a restore with no class list yet must still be refused")
+			assert.Equal(t, "t1", hold.TaskID,
+				"the task id is the operator's only handle on a payload that will not decode")
 			require.NotEmpty(t, hook.AllEntries(),
 				"the operator has to be told which restores are being refused and why")
 		})
@@ -334,7 +327,7 @@ func TestAnyReindexActivityLookupFailsOnUnreachableDTM(t *testing.T) {
 			return nil, errors.New("raft: not leader")
 		}, logger)
 
-	live, err := lookup(context.Background(), []string{"Docs"})
+	hold, err := lookup(context.Background(), []string{"Docs"})
 	require.Error(t, err)
-	assert.False(t, live, "the refusal must come from the error, not from a made-up live task")
+	assert.Nil(t, hold, "the refusal must come from the error, not from a made-up live task")
 }

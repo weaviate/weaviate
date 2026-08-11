@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexesUpdateNotFound) WriteResponse(rw http.ResponseWrite
 const SchemaObjectsIndexesUpdateConflictCode int = 409
 
 /*
-SchemaObjectsIndexesUpdateConflict Conflicting reindex task already running, or a backup or restore is in progress on some node.
+SchemaObjectsIndexesUpdateConflict Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.
 
 swagger:response schemaObjectsIndexesUpdateConflict
 */
@@ -266,6 +266,51 @@ func (o *SchemaObjectsIndexesUpdateConflict) SetPayload(payload *models.ErrorRes
 func (o *SchemaObjectsIndexesUpdateConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SchemaObjectsIndexesUpdateTooManyRequestsCode is the HTTP code returned for type SchemaObjectsIndexesUpdateTooManyRequests
+const SchemaObjectsIndexesUpdateTooManyRequestsCode int = 429
+
+/*
+SchemaObjectsIndexesUpdateTooManyRequests The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish; the message names the poll route that lists them.
+
+swagger:response schemaObjectsIndexesUpdateTooManyRequests
+*/
+type SchemaObjectsIndexesUpdateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsIndexesUpdateTooManyRequests creates SchemaObjectsIndexesUpdateTooManyRequests with default headers values
+func NewSchemaObjectsIndexesUpdateTooManyRequests() *SchemaObjectsIndexesUpdateTooManyRequests {
+
+	return &SchemaObjectsIndexesUpdateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the schema objects indexes update too many requests response
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexesUpdateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects indexes update too many requests response
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {
@@ -323,7 +368,7 @@ func (o *SchemaObjectsIndexesUpdateInternalServerError) WriteResponse(rw http.Re
 const SchemaObjectsIndexesUpdateServiceUnavailableCode int = 503
 
 /*
-SchemaObjectsIndexesUpdateServiceUnavailable Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.
+SchemaObjectsIndexesUpdateServiceUnavailable Distributed tasks not enabled, an in-flight task could not be inspected, a node could not be checked for running backups, or the migration was committed while the post-commit backup check could not be confirmed. In the last case the message names the running task to cancel.
 
 swagger:response schemaObjectsIndexesUpdateServiceUnavailable
 */

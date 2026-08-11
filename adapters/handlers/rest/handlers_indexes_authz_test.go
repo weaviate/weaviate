@@ -195,3 +195,77 @@ func TestUpdateIndexAuthorization(t *testing.T) {
 			"the check must be scoped to the collection being reindexed")
 	})
 }
+
+// The status route is the read arm of GET .../indexes: behind its
+// authorization check the handler reads the collection's schema and the
+// cluster's task list. The check is all that keeps per-property index state
+// — collection-internal information — from an unauthorized caller.
+func TestGetIndexesAuthorization(t *testing.T) {
+	principal := &models.Principal{Username: "u1"}
+
+	// The denial arrives wrapped, the way both real authorizers wrap it
+	// ("rbac:" / "adminlist:" prefix). The bare form cannot fail on its own:
+	// any unwrapping regression reddens this arm first. The sibling PUT test
+	// keeps the bare-vs-wrapped pair as the documentary row for the trap.
+	t.Run("an unauthorized caller is refused before anything behind the check runs", func(t *testing.T) {
+		denied := forbidden(principal, authorization.READ, authorization.CollectionsMetadata("Movies")[0])
+		f := newAuthzSubmitFixture(t, denied)
+
+		responder := getIndexesStatus(f.handlers)
+
+		// The task-list read is the observable work behind this route's
+		// check; the allow arm below proves it does fire when admitted.
+		require.Zerof(t, f.tasks.lists,
+			"a refused caller made the handler read the cluster's task list")
+
+		refused, ok := responder.(*schema.SchemaObjectsIndexesGetForbidden)
+		require.Truef(t, ok, "a caller without read_collections must be refused with 403, got %T", responder)
+		require.Equal(t, denied.Error(), errorMessage(t, refused.Payload))
+	})
+
+	// A check that fails for a reason other than "denied" must not be read as a
+	// grant, and must stop the handler in the same place.
+	t.Run("an authorizer that errors refuses too, and just as early", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, errors.New("policy store unreachable"))
+
+		responder := getIndexesStatus(f.handlers)
+
+		require.Zerof(t, f.tasks.lists,
+			"an authorizer that cannot answer let the handler read the cluster's task list")
+
+		failed, ok := responder.(*schema.SchemaObjectsIndexesGetInternalServerError)
+		require.Truef(t, ok, "an authorizer that cannot answer must not admit the read, got %T", responder)
+		require.Equal(t, "policy store unreachable", errorMessage(t, failed.Payload))
+	})
+
+	// The allow arm is what makes the arms above discriminate: it proves the
+	// task list is read when the check passes, so its absence on the deny arms
+	// is the check's doing and not the fixture's.
+	t.Run("an authorized caller gets the index state behind the check", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, nil)
+
+		responder := getIndexesStatus(f.handlers)
+
+		granted, ok := responder.(*schema.SchemaObjectsIndexesGetOK)
+		require.Truef(t, ok, "a caller holding read_collections must be answered 200, got %T", responder)
+		require.Equal(t, "Movies", granted.Payload.Collection)
+		require.NotEmpty(t, granted.Payload.Properties,
+			"the answer carries the per-property index state the check guards")
+		require.Equal(t, 1, f.tasks.lists,
+			"the task list is read once, behind the check; this is the observation the deny arms require to be absent")
+	})
+
+	// The verb and resource are the check itself. Strengthening the resource to
+	// the full collection (what the sibling PUT uses) would refuse readers who
+	// legitimately hold only metadata access, and a write verb would do the same.
+	t.Run("the check demands READ on the collection's metadata", func(t *testing.T) {
+		f := newAuthzSubmitFixture(t, nil)
+
+		getIndexesStatus(f.handlers)
+
+		require.Equal(t, []string{authorization.READ}, f.authz.verbs,
+			"the route only reads index state; it must not demand more than READ")
+		require.Equal(t, [][]string{authorization.CollectionsMetadata("Movies")}, f.authz.resources,
+			"the check must be scoped to the collection's metadata, the resource that state belongs to")
+	})
+}

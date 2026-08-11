@@ -36,7 +36,7 @@ func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 		errs            []error
 		payloadReadable bool
 		wantLevel       logrus.Level
-		wantContains    string
+		wantContains    []string
 		wantNotContains string
 	}{
 		{
@@ -44,21 +44,21 @@ func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 			errs:            []error{nil, nil},
 			payloadReadable: true,
 			wantLevel:       logrus.InfoLevel,
-			wantContains:    "on-disk cleanup complete",
+			wantContains:    []string{"on-disk cleanup complete"},
 		},
 		{
 			name:            "a clean sweep on an undecodable payload says which tuple it swept",
 			errs:            []error{nil, nil},
 			payloadReadable: false,
 			wantLevel:       logrus.InfoLevel,
-			wantContains:    "the property and index type in the request URL",
+			wantContains:    []string{"the property and index type in the request URL"},
 		},
 		{
 			name:            "a bounded per-shard failure names the strategies that failed",
 			errs:            []error{errors.New("shard \"a\": disk full"), nil},
 			payloadReadable: true,
 			wantLevel:       logrus.ErrorLevel,
-			wantContains:    "cleaning partial reindex state on disk for 1 strategies failed",
+			wantContains:    []string{"cleaning partial reindex state on disk for 1 strategies failed"},
 			wantNotContains: "not swept at all",
 		},
 		{
@@ -66,14 +66,20 @@ func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 			errs:            []error{fmt.Errorf("%w: node is shutting down", db.ErrCleanupSweepTruncated), nil},
 			payloadReadable: true,
 			wantLevel:       logrus.ErrorLevel,
-			wantContains:    "next submit's defense-in-depth cleanup will retry",
+			// The truncation phrase is the discriminating half: without it this
+			// row asserts only the retry promise, which the bounded-failure arm
+			// emits too, so dropping the truncated branch entirely stays green.
+			wantContains: []string{
+				"not swept at all",
+				"next submit's defense-in-depth cleanup will retry",
+			},
 		},
 		{
 			name:            "a collection being deleted is not a failure and promises no retry",
 			errs:            []error{fmt.Errorf("%w: collection is being deleted", db.ErrCleanupCollectionDropped), nil},
 			payloadReadable: true,
 			wantLevel:       logrus.InfoLevel,
-			wantContains:    "the collection is being deleted",
+			wantContains:    []string{"the collection is being deleted"},
 			wantNotContains: "next submit",
 		},
 		{
@@ -86,7 +92,7 @@ func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 			},
 			payloadReadable: true,
 			wantLevel:       logrus.ErrorLevel,
-			wantContains:    "disk full",
+			wantContains:    []string{"disk full"},
 		},
 	}
 
@@ -106,7 +112,9 @@ func TestCancelCleanupSweepIsReportedAtTheLevelItsRemedyDeserves(t *testing.T) {
 			entry := hook.AllEntries()[0]
 			require.Equalf(t, tc.wantLevel, entry.Level,
 				"the level is the operator's cue to act; message was %q", entry.Message)
-			require.Contains(t, entry.Message, tc.wantContains)
+			for _, want := range tc.wantContains {
+				require.Contains(t, entry.Message, want)
+			}
 			if tc.wantNotContains != "" {
 				require.NotContains(t, entry.Message, tc.wantNotContains,
 					"the message must not offer a remedy this outcome does not have")

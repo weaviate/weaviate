@@ -417,7 +417,7 @@ func abortedMigrationConsequence(mt ReindexMigrationType) string {
 			"this migration type, most likely because a newer node submitted it)"
 	}
 	if IsSemanticMigration(mt) {
-		return "produce a bucket↔schema inversion"
+		return "can produce a bucket↔schema inversion"
 	}
 	return "leave its index rebuild half-applied"
 }
@@ -611,8 +611,9 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
 				"unavailable and %s. The migration's on-disk state is not "+
-				"removed by this mutation: a deactivated shard promotes it "+
-				"on reactivation, and a delete leaves every remaining "+
+				"removed by this mutation: a deactivated shard promotes any "+
+				"merged generation on reactivation, and a delete leaves every "+
+				"remaining "+
 				"tenant's shard carrying it — %s",
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,

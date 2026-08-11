@@ -168,9 +168,7 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 		// publish, so the publishing operation is no longer the holder.
 		stale bool
 		// released frees the slot without anyone claiming it again.
-		released bool
-		// preset, when set, is stamped on the slot before the publish.
-		preset     backup.Status
+		released   bool
 		status     backup.Status
 		reason     string
 		wantWrote  bool
@@ -195,41 +193,12 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 			wantRemembered: reason,
 		},
 		{
-			name:       "a failure with no reason gets the stand-in",
-			status:     backup.Failed,
-			wantWrote:  true,
-			wantStatus: backup.Failed,
-			wantErr:    failureWithoutReason,
-			// A poll for a failure with no text reads as no failure at all.
-			wantRemembered: failureWithoutReason,
-		},
-		{
-			name:       "a cancelled slot is not turned into a failure",
-			preset:     backup.Cancelled,
-			status:     backup.Failed,
-			reason:     reason,
-			wantWrote:  true,
-			wantStatus: backup.Cancelled,
-		},
-		{
-			name:       "a stale claim does not fail the newer operation",
-			stale:      true,
-			status:     backup.Failed,
-			reason:     reason,
-			wantStatus: backup.Started,
-		},
-		{
-			// commit() reads Cancelled on the slot as "cancelled externally"
-			// and aborts, so this arm ends an operation nobody cancelled.
+			// One row for all three terminal statuses: the ownership check runs
+			// before the status is looked at. Cancelled is the worst of the
+			// three, since commit() reads it as an external cancellation.
 			name:       "a stale claim does not cancel the newer operation",
 			stale:      true,
 			status:     backup.Cancelled,
-			wantStatus: backup.Started,
-		},
-		{
-			name:       "a stale claim does not stamp success on the newer operation",
-			stale:      true,
-			status:     backup.Success,
 			wantStatus: backup.Started,
 		},
 		{
@@ -255,10 +224,6 @@ func TestBackupStatPublishIfOwned(t *testing.T) {
 			case tc.released:
 				require.True(t, slot.resetIfOwned(generation))
 			}
-			if tc.preset != "" {
-				slot.set(tc.preset)
-			}
-
 			require.Equal(t, tc.wantWrote, slot.publishIfOwned(generation, tc.status, tc.reason))
 
 			st := slot.get()

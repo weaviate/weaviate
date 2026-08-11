@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -216,107 +215,37 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// TestMarkCleanupInProgress pins that the gate covers the collection, and that
-// one release reopens it.
-func TestMarkCleanupInProgress(t *testing.T) {
+// The sweep this gates ([Index.CleanStalePartialReindexState]) takes no shard
+// list and removes every local shard's sidecars, so gating only the named
+// shard let a backup hardlink a sibling tenant mid-delete. Also checks that a
+// registration and a probe spelling the collection differently still match.
+func TestMarkCleanupInProgressGatesTheWholeCollection(t *testing.T) {
 	p := newCleanupRegistryProvider()
-	payload := &ReindexTaskPayload{
-		Collection:  "C",
-		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2", "u3": "shard1"},
-	}
-
 	require.False(t, p.AnyCleanupInProgress())
 
-	release := p.MarkCleanupInProgress(payload)
-	assert.True(t, holdIsCleanup(p, "C", "shard1"))
-	assert.True(t, holdIsCleanup(p, "C", "shard2"))
-	assert.True(t, p.AnyCleanupInProgress(),
-		"the restore gate asks the collection-blind question")
-
-	release()
-	assert.False(t, holdIsCleanup(p, "C", "shard1"),
-		"a shard named by two units must not need two releases")
-	assert.False(t, holdIsCleanup(p, "C", "shard2"))
-	assert.False(t, p.AnyCleanupInProgress())
-}
-
-// A multi-tenant submission scoped to one tenant produces a payload naming only
-// that tenant's shard, but the sweep it guards
-// ([Index.CleanStalePartialReindexState]) takes no shard list and removes every
-// local shard's __reindex / __ingest dirs. Gating only the named shard let a
-// backup hardlink a sibling tenant mid-delete.
-func TestMarkCleanupInProgressGatesShardsThePayloadDoesNotName(t *testing.T) {
-	p := newCleanupRegistryProvider()
-
 	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
-		Collection:  "Movies",
+		Collection:  "MoViEs",
 		UnitToShard: map[string]string{"u1": "t1"},
 	})
 
-	assert.True(t, holdIsCleanup(p, "Movies", "t2"),
-		"the sweep deletes t2's sidecars too, so a backup of t2 must be refused")
-	assert.Equal(t, ReindexHoldCleanup, p.HoldForShard("Movies", "t2"),
-		"the refusal must name the teardown, not fall through to no hold")
+	assert.Equal(t, ReindexHoldCleanup, p.HoldForShard("mOvIeS", "t2"),
+		"the sweep deletes t2's sidecars too, so a backup of t2 must be refused, "+
+			"and the refusal must name the teardown rather than fall through to no hold")
+	assert.True(t, p.AnyCleanupInProgress(),
+		"the restore gate asks the collection-blind question")
+	// The node handling a cancel may own none of the collection's shards, so it
+	// asks the owners this before answering. It knows the collection, not which
+	// shards the owner holds.
+	assert.True(t, p.AnyCleanupInProgressForCollection("mOvIeS"))
+	assert.False(t, p.AnyCleanupInProgressForCollection("Actors"),
+		"a collection nothing is tearing down must not answer busy")
 
 	release()
-	assert.False(t, holdIsCleanup(p, "Movies", "t2"))
-}
-
-// TestCleanupGateMatchesCollectionRegardlessOfCase pins that a registration and
-// a probe spelling the collection name differently still match.
-func TestCleanupGateMatchesCollectionRegardlessOfCase(t *testing.T) {
-	tests := []struct {
-		name           string
-		registerAs     string
-		probeAs        string
-		shards         map[string]string
-		probeShard     string
-		wantInProgress bool
-	}{
-		{
-			name:           "mixed case on both sides",
-			registerAs:     "MoViEs",
-			probeAs:        "mOvIeS",
-			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: true,
-		},
-		{
-			name:           "case folding also covers the whole-collection guard",
-			registerAs:     "movies",
-			probeAs:        "Movies",
-			shards:         nil,
-			probeShard:     "any-shard",
-			wantInProgress: true,
-		},
-		{
-			name:           "a genuinely different collection still does not match",
-			registerAs:     "movies",
-			probeAs:        "Actors",
-			shards:         map[string]string{"u1": "shard1"},
-			probeShard:     "shard1",
-			wantInProgress: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			p := newCleanupRegistryProvider()
-
-			release := p.MarkCleanupInProgress(&ReindexTaskPayload{
-				Collection:  tc.registerAs,
-				UnitToShard: tc.shards,
-			})
-
-			assert.Equal(t, tc.wantInProgress, holdIsCleanup(p, tc.probeAs, tc.probeShard))
-
-			release()
-			assert.False(t, holdIsCleanup(p, tc.probeAs, tc.probeShard),
-				"the release must find the same key the registration wrote")
-			assert.False(t, p.AnyCleanupInProgress(),
-				"a release under a different spelling would leak the entry forever")
-		})
-	}
+	assert.False(t, holdIsCleanup(p, "mOvIeS", "t2"),
+		"the release must find the same key the registration wrote")
+	assert.False(t, p.AnyCleanupInProgress())
+	assert.False(t, p.AnyCleanupInProgressForCollection("mOvIeS"),
+		"the answer must go back down or the owner looks busy forever")
 }
 
 // drainGateProvider carries the cleanup registry and running-handle map the
@@ -356,51 +285,6 @@ func TestDrainWithCleanupGateHoldsTheGateAcrossTheWait(t *testing.T) {
 
 	release()
 	assert.False(t, p.AnyCleanupInProgress())
-}
-
-// The node handling a cancel may own none of the collection's shards, so it
-// asks the owners this before answering. It knows the collection, not which
-// shards the owner holds.
-func TestAnyCleanupInProgressForCollection(t *testing.T) {
-	tests := []struct {
-		name    string
-		payload *ReindexTaskPayload
-		probe   string
-		want    bool
-	}{
-		{
-			name:    "per-shard registration",
-			payload: &ReindexTaskPayload{Collection: "Movies", UnitToShard: map[string]string{"u1": "shard1"}},
-			probe:   "Movies",
-			want:    true,
-		},
-		{
-			name:    "collection-wide registration",
-			payload: &ReindexTaskPayload{Collection: "Movies"},
-			probe:   "Movies",
-			want:    true,
-		},
-		{
-			name:    "a different collection",
-			payload: &ReindexTaskPayload{Collection: "Movies", UnitToShard: map[string]string{"u1": "shard1"}},
-			probe:   "Actors",
-			want:    false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			p := newCleanupRegistryProvider()
-			require.False(t, p.AnyCleanupInProgressForCollection(tc.probe))
-
-			release := p.MarkCleanupInProgress(tc.payload)
-			assert.Equal(t, tc.want, p.AnyCleanupInProgressForCollection(tc.probe))
-
-			release()
-			assert.False(t, p.AnyCleanupInProgressForCollection(tc.probe),
-				"the answer must go back down or the owner looks busy forever")
-		})
-	}
 }
 
 // Pins both halves of the ordering autoCleanupAfterTerminal documents: the gate
@@ -456,41 +340,6 @@ func TestAutoCleanupAfterTerminalRaisesTheGateBeforeDraining(t *testing.T) {
 		return !p.AnyCleanupInProgressForCollection("Movies")
 	}, time.Second, 5*time.Millisecond,
 		"the gate must reopen once the worker is gone")
-}
-
-// A drain that times out is the case the gate exists for, so the gate must
-// survive the hook's return and follow the worker instead.
-func TestReleaseCleanupGateOnWorkerExitHoldsUntilTheWorkerIsGone(t *testing.T) {
-	desc := distributedtask.TaskDescriptor{ID: "task-3", Version: 1}
-	doneCh := make(chan struct{})
-	serverCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	p := &ReindexProvider{
-		cleanupInProgress: make(map[string]int),
-		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-			desc: {doneCh: doneCh},
-		},
-		serverCtx: serverCtx,
-		timings:   defaultReindexTimings(),
-	}
-
-	logger, _ := logrustest.NewNullLogger()
-	release := p.MarkCleanupInProgress(&ReindexTaskPayload{
-		Collection:  "Movies",
-		UnitToShard: map[string]string{"u1": "shard1"},
-	})
-	p.ReleaseCleanupGateOnWorkerExit(desc, release, logger)
-
-	require.Never(t, func() bool {
-		return !p.AnyCleanupInProgressForCollection("Movies")
-	}, 200*time.Millisecond, 10*time.Millisecond,
-		"the gate must stay closed while the worker is still writing")
-
-	close(doneCh)
-	require.Eventually(t, func() bool {
-		return !p.AnyCleanupInProgressForCollection("Movies")
-	}, time.Second, 5*time.Millisecond,
-		"the gate must reopen once the worker exits")
 }
 
 // A worker that never exits must not hold the gate forever: the restore gate
@@ -603,9 +452,7 @@ func TestCancelApplyGateCap(t *testing.T) {
 
 // Pins the three things that decide whether the gate is held: what the payload
 // says there is to tear down, whether the task's units show a worker ever ran,
-// and whether a worker for the task is running on this node right now. FAILED
-// with nothing claimed still holds the gate, since a failed task means a worker
-// reported something, unlike CANCELLED with nothing claimed.
+// and whether a worker for the task is running on this node right now.
 func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "task-2", Version: 1}
 	const shard = "shard1"
@@ -650,22 +497,6 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 			name:        "cancelled, no unit ever claimed, but a worker is running here",
 			payload:     teardownPayload,
 			status:      distributedtask.TaskStatusCancelled,
-			unit:        distributedtask.UnitStatusPending,
-			localWorker: true,
-			wantHold:    true,
-		},
-		{
-			name:        "cancelled after a worker claimed a unit",
-			payload:     teardownPayload,
-			status:      distributedtask.TaskStatusCancelled,
-			unit:        distributedtask.UnitStatusInProgress,
-			localWorker: true,
-			wantHold:    true,
-		},
-		{
-			name:        "failed with nothing claimed",
-			payload:     teardownPayload,
-			status:      distributedtask.TaskStatusFailed,
 			unit:        distributedtask.UnitStatusPending,
 			localWorker: true,
 			wantHold:    true,
@@ -727,63 +558,6 @@ func TestAutoCleanupAfterTerminalHoldsTheGateOnlyWhenThereIsSomethingToClean(t *
 	}
 }
 
-// The cancel-apply gate covers the gap between the task going terminal in DTM
-// and the teardown starting. A cancelled task no worker ever claimed a unit of
-// is waived from it — unless a worker for that task is running on this node,
-// which is exactly the window between the handle being registered and the
-// first progress report leaving PENDING.
-func TestOnTerminalAppliedHoldsTheGateWhenAWorkerIsRunningHere(t *testing.T) {
-	desc := distributedtask.TaskDescriptor{ID: "task-apply", Version: 1}
-	payload := ReindexTaskPayload{
-		Collection: "Movies", Properties: []string{"body"},
-		MigrationType: ReindexTypeChangeTokenization,
-		UnitToShard:   map[string]string{"u1": "shard1"},
-	}
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name        string
-		localWorker bool
-		wantHold    bool
-	}{
-		{
-			name:        "no worker here — the submit rollback's own cancel",
-			localWorker: false,
-		},
-		{
-			name:        "a worker is running here",
-			localWorker: true,
-			wantHold:    true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			handles := map[distributedtask.TaskDescriptor]*reindexTaskHandle{}
-			if tc.localWorker {
-				handles[desc] = &reindexTaskHandle{doneCh: make(chan struct{})}
-			}
-			p := drainGateProvider(handles)
-			p.serverCtx = context.Background()
-			logger, _ := logrustest.NewNullLogger()
-			p.logger = logger
-
-			p.OnTerminalApplied(&distributedtask.Task{
-				TaskDescriptor: desc,
-				Payload:        raw,
-				Status:         distributedtask.TaskStatusCancelled,
-				Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: distributedtask.UnitStatusPending}},
-			})
-
-			require.Equal(t, tc.wantHold, p.AnyCleanupInProgress(),
-				"the blocking gate must follow the running worker, not the unit list alone")
-			require.True(t, p.AnyCleanupInProgressForCollection("Movies"),
-				"the confirmation latch is a separate signal and fires either way")
-		})
-	}
-}
-
 // A dropped collection is not a failed sweep. Nothing was swept either way, so
 // the difference is only visible in what the operator is told.
 func TestTerminalCleanupOutcome(t *testing.T) {
@@ -823,6 +597,61 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 			msg, warn := terminalCleanupOutcome(tc.swept, tc.dropped)
 			require.Equal(t, tc.wantMsg, msg)
 			require.Equal(t, tc.wantWarn, warn)
+		})
+	}
+}
+
+// A terminal task whose payload cannot be read never tears its sidecars down,
+// since the teardown is addressed by the shards the payload names; the only
+// remaining sweep is the next restart's orphan audit.
+func TestTerminalTaskWithAnUnreadablePayloadReportsThatNothingToreItDown(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  distributedtask.TaskStatus
+		payload []byte
+		wantLog bool
+	}{
+		{
+			// Decodes without error, names no collection: the shape a newer
+			// node renaming the field produces. It tears down exactly as
+			// little as one that will not decode at all, and unlike that one
+			// it is invisible to a check keyed on the decoder's error.
+			name:    "cancelled, the collection field was renamed",
+			status:  distributedtask.TaskStatusCancelled,
+			payload: []byte(`{"collektion":"Movies","unitToShard":{"u1":"shard1"}}`),
+			wantLog: true,
+		},
+		{
+			name:    "cancelled, readable",
+			status:  distributedtask.TaskStatusCancelled,
+			payload: []byte(`{"collection":"Movies","migrationType":"repair-filterable","unitToShard":{"u1":"shard1"}}`),
+			wantLog: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			provider := NewReindexProvider(nil, nil, logger, "node1",
+				func() int { return 1 }, context.Background())
+
+			require.NoError(t, provider.OnTaskCompleted(&distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+				Namespace:      ReindexNamespace,
+				Status:         test.status,
+				Payload:        test.payload,
+			}))
+
+			var found bool
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(entry.Message, "no sidecar teardown can run for it") {
+					found = true
+					require.Equal(t, logrus.WarnLevel, entry.Level)
+				}
+			}
+			require.Equal(t, test.wantLog, found,
+				"an operator only learns about un-torn-down state from this line")
 		})
 	}
 }

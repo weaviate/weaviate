@@ -1049,11 +1049,12 @@ function run_acceptance_reindex_mt() {
     test/acceptance/reindex_mt
 }
 
-# The single-node half of test/acceptance/reindex_backup is spread over the
-# three groups below. Every filter matches by exact name; a typo runs zero
-# tests and still reports green, which is what
-# TestCIAllowlistCoversEveryTestInThisPackage exists to catch (it has to be
-# listed itself to be able to run).
+# test/acceptance/reindex_backup is spread over the four groups below (three
+# single-node, one multi-node). Every filter matches by exact name; a typo runs
+# zero tests and still reports green, which is what
+# TestCIAllowlistCoversEveryTestInThisPackage exists to catch. It lives in
+# test/ciguard, which the plain unit-test job runs: a guard shipped inside the
+# shard it guards is disabled by the same matrix edit it exists to catch.
 #
 # Each group's budget is the sum of the deadlines its own tests wait on, which
 # is why they differ. A budget below that sum has go test killed by the runner
@@ -1068,9 +1069,6 @@ function run_acceptance_reindex_mt() {
 #   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 15m   two 5m waits + 30s + 60s + 180s, rounded up from 14.5m
 #   AOF_TEST_BUDGET TestRestoreRefusedDuringInFlightReindex 6m   3m backup + 2m restore + 30s
 #   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup waits + six 60s waits
-#   AOF_TEST_BUDGET TestCIAllowlistCoversEveryTestInThisPackage 0m   no deadline; costs a package build
-#   AOF_TEST_BUDGET TestCIWorkflowInvokesEveryGroupThatRunsThisPackage 0m   no deadline
-#   AOF_TEST_BUDGET TestCIGroupTimeoutFitsTheJobWindow 0m   no deadline
 #
 # That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
 # are budgeted at exactly theirs, on the assumption their tests finish well
@@ -1082,7 +1080,8 @@ function run_acceptance_reindex_mt() {
 #
 # Those sum to ~119m against a 45m job window that also has to fit the ~5m
 # image build, which is why the package is split over four entries rather than
-# run under one budget.
+# run under one budget. 40m is therefore the ceiling for any single budget
+# below; TestCIGroupTimeoutFitsTheJobWindow enforces it.
 
 function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
@@ -1096,11 +1095,11 @@ function run_acceptance_reindex_backup_suite() {
 function run_acceptance_reindex_backup_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-a (single-node restore guards)"
-  # Carries the three CI guards, which cost a package build and a
-  # `go test -list` rather than a container. They ride in the shortest group so
-  # their compile time has the most room.
-  AOF_GROUP_TIMEOUT=27m \
-    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex|TestCIAllowlistCoversEveryTestInThisPackage|TestCIWorkflowInvokesEveryGroupThatRunsThisPackage|TestCIGroupTimeoutFitsTheJobWindow)$' \
+  # Both restore-side guards, so a change to that side lands in one group
+  # rather than two. 2m over the 26m floor for container startup and the -race
+  # build, which sit outside every per-test deadline.
+  AOF_GROUP_TIMEOUT=28m \
+    AOF_GROUP_RUN='^(TestReindexRefusedWhileRestoreRuns|TestRestoreRefusedDuringInFlightReindex)$' \
     run_aof_group "reindex-backup-a" test/acceptance/reindex_backup
 }
 
@@ -1117,9 +1116,11 @@ function run_acceptance_reindex_backup_b() {
 function run_acceptance_reindex_backup_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
-  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m this budget
-  # carries over its floor buys padding for the multi-node cluster, which takes
-  # the longest of the four groups to come up.
+  # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m over its
+  # floor buys padding for the multi-node cluster, the slowest of the four
+  # groups to come up. The floor is a healthy-path ceiling; a placement-retry
+  # loop could theoretically exceed it, and this budget — but that fails loudly
+  # as a go-test panic, not silently.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup

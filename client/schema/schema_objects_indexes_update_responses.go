@@ -70,6 +70,12 @@ func (o *SchemaObjectsIndexesUpdateReader) ReadResponse(response runtime.ClientR
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewSchemaObjectsIndexesUpdateTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewSchemaObjectsIndexesUpdateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -423,7 +429,7 @@ func NewSchemaObjectsIndexesUpdateConflict() *SchemaObjectsIndexesUpdateConflict
 /*
 SchemaObjectsIndexesUpdateConflict describes a response with status code 409, with default header values.
 
-Conflicting reindex task already running, or a backup or restore is in progress on some node.
+Refused: a conflicting reindex task is already running, a backup or restore is in progress on some node, a live task carries a migration type this node does not recognize, or the migration was committed and could not be rolled back. The message names the task to cancel when there is one.
 */
 type SchemaObjectsIndexesUpdateConflict struct {
 	Payload *models.ErrorResponse
@@ -472,6 +478,74 @@ func (o *SchemaObjectsIndexesUpdateConflict) GetPayload() *models.ErrorResponse 
 }
 
 func (o *SchemaObjectsIndexesUpdateConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsIndexesUpdateTooManyRequests creates a SchemaObjectsIndexesUpdateTooManyRequests with default headers values
+func NewSchemaObjectsIndexesUpdateTooManyRequests() *SchemaObjectsIndexesUpdateTooManyRequests {
+	return &SchemaObjectsIndexesUpdateTooManyRequests{}
+}
+
+/*
+SchemaObjectsIndexesUpdateTooManyRequests describes a response with status code 429, with default header values.
+
+The collection is already at its concurrent-reindex cap. Wait for one of the in-flight tasks to finish; the message names the poll route that lists them.
+*/
+type SchemaObjectsIndexesUpdateTooManyRequests struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects indexes update too many requests response has a 2xx status code
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects indexes update too many requests response has a 3xx status code
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects indexes update too many requests response has a 4xx status code
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects indexes update too many requests response has a 5xx status code
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects indexes update too many requests response a status code equal to that given
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the schema objects indexes update too many requests response
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) String() string {
+	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsIndexesUpdateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
@@ -559,7 +633,7 @@ func NewSchemaObjectsIndexesUpdateServiceUnavailable() *SchemaObjectsIndexesUpda
 /*
 SchemaObjectsIndexesUpdateServiceUnavailable describes a response with status code 503, with default header values.
 
-Distributed tasks not enabled, an in-flight task could not be inspected, or a node could not be checked for running backups.
+Distributed tasks not enabled, an in-flight task could not be inspected, a node could not be checked for running backups, or the migration was committed while the post-commit backup check could not be confirmed. In the last case the message names the running task to cancel.
 */
 type SchemaObjectsIndexesUpdateServiceUnavailable struct {
 	Payload *models.ErrorResponse

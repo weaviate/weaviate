@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,6 +106,14 @@ func (r *observerRecorder) first() *Task {
 	return r.seen[0]
 }
 
+func (r *observerRecorder) all() []*Task {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*Task, len(r.seen))
+	copy(out, r.seen)
+	return out
+}
+
 func (r *observerRecorder) waitForCount(t *testing.T, want int, msg string) {
 	t.Helper()
 	require.Eventually(t, func() bool { return r.count() == want },
@@ -193,6 +202,32 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, observerTaskID, rec.first().ID)
 	})
 
+	// The pre-registration buffer is bounded per namespace; past the bound
+	// the oldest ending is dropped so newer ones survive to registration.
+	t.Run("the pre-registration buffer is bounded and drops the oldest", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		t.Cleanup(leaktest.Check(t))
+		t.Cleanup(h.Close)
+
+		for i := range terminalPendingPerNamespace + 1 {
+			id := fmt.Sprintf("pending-%d", i)
+			require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, id), observerVersion))
+			require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, id), false))
+		}
+
+		rec := &observerRecorder{}
+		h.manager.RegisterTerminalObserver(observerNamespace, rec.record)
+
+		rec.waitForCount(t, terminalPendingPerNamespace,
+			"registration must deliver exactly the bounded buffer, no more")
+		rec.requireNeverExceeds(t, terminalPendingPerNamespace, 300*time.Millisecond,
+			"an ending past the bound must have been dropped, not parked")
+		for _, task := range rec.all() {
+			require.NotEqual(t, "pending-0", task.ID,
+				"past the bound the oldest ending is the one dropped")
+		}
+	})
+
 	// A replayed ending is skipped whether or not an observer exists yet, so
 	// the pre-registration buffer must not resurrect it.
 	t.Run("a replayed ending applied before registration stays skipped", func(t *testing.T) {
@@ -267,6 +302,44 @@ func TestManagerTerminalObserver(t *testing.T) {
 		require.Equal(t, TaskStatusFailed, observed.Status)
 		require.Equal(t, h.clock.Now().UnixMilli(), observed.FinishedAt.UnixMilli(),
 			"the observer's copy must carry the stamp written by the same apply")
+	})
+
+	// The fourth delivery case from the TerminalObserver contract: a
+	// non-terminal task removed by the DELETE_CLASS cascade never goes
+	// CANCELLED or FAILED, so it never fires.
+	t.Run("a task removed by the DELETE_CLASS cascade must not fire", func(t *testing.T) {
+		h, rec := newObserverHarness(t)
+		h.manager.RegisterCollectionExtractor(observerNamespace, func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, true
+		})
+
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, observerTaskID), observerVersion))
+
+		removed := h.manager.DeleteTasksForCollection("Movies")
+		require.Len(t, removed, 1)
+		require.Equal(t, observerTaskID, removed[0].ID)
+
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, tasks[observerNamespace],
+			"the cascade must remove the task from the listing")
+
+		// Barrier: once this live cancel lands, a missing event for the removed
+		// task means the contract held, not a slow drainer.
+		const cancelledTaskID = "2"
+		require.NoError(t, h.manager.AddTask(observerAddCmd(t, h, cancelledTaskID), observerVersion))
+		require.NoError(t, h.manager.CancelTask(observerCancelCmd(t, h, cancelledTaskID), false))
+
+		rec.waitForAtLeast(t, 1, "the live cancel must fire the observer")
+		require.Equal(t, cancelledTaskID, rec.first().ID,
+			"only the live cancel may be announced; the cascade removal must stay silent")
+		require.Equal(t, 1, rec.count())
 	})
 
 	// Only CANCELLED and FAILED fire the observer; MarkTaskFinalized (FINISHED)
@@ -477,8 +550,6 @@ func TestTerminalDispatchOverflowIsBounded(t *testing.T) {
 		return m.terminalOverflowInFlight.Load() == 0
 	}, 5*time.Second, 10*time.Millisecond,
 		"every overflow goroutine must have released its slot")
-	require.EqualValues(t, 0, m.terminalOverflowInFlight.Load(),
-		"the in-flight count must settle at exactly zero, never negative")
 }
 
 // Pins that an overflow goroutine's own stop-signal check, not Close joining
@@ -604,6 +675,49 @@ func TestTerminalOverflowDispatchSurvivesAPanickingObserver(t *testing.T) {
 		"every observer panic must be contained and logged the same way the drainer contains one; "+
 			"contained %d of %d panics — the shortfall is the overflow arm relying on GoWrapper, "+
 			"whose recover the acceptance image disables", contained(), total)
+}
+
+// panickingTerminalObserver is a named function so the stack-frame assertion
+// in TestTerminalObserverPanicLogsTheObserverStack can match its frame.
+func panickingTerminalObserver(*Task) {
+	panic("named observer blew up")
+}
+
+// Pins that a contained observer panic still reports the way GoWrapper would:
+// the logged stack includes the observer's own frame (not just the panic
+// value), and the drainer keeps delivering to other namespaces' observers.
+func TestTerminalObserverPanicLogsTheObserverStack(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	defer h.Close()
+	hook := h.loggerHook
+
+	const healthyNamespace = "healthy"
+	var rec observerRecorder
+	h.manager.RegisterTerminalObserver(observerNamespace, panickingTerminalObserver)
+	h.manager.RegisterTerminalObserver(healthyNamespace, rec.record)
+
+	healthyTask := terminalDispatchTask(h.manager)
+	healthyTask.Namespace = healthyNamespace
+
+	h.manager.mu.Lock()
+	h.manager.dispatchTerminalWithLock(terminalDispatchTask(h.manager), false)
+	h.manager.dispatchTerminalWithLock(healthyTask, false)
+	h.manager.mu.Unlock()
+
+	rec.waitForCount(t, 1,
+		"a panic in one namespace's observer must not stop delivery to another's")
+
+	stackLogged := func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "panickingTerminalObserver") {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventuallyf(t, stackLogged, 5*time.Second, 10*time.Millisecond,
+		"the panic log must include a stack with the observer's frame, not just the panic value")
 }
 
 // restoreTask installs a single task in the given status and unit layout,

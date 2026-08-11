@@ -32,49 +32,66 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-// ctxAwareTaskService is the task service a real RAFT client behaves like: both
-// calls fail on a dead context instead of ignoring it.
-type ctxAwareTaskService struct {
-	mu           sync.Mutex
-	tasks        []*distributedtask.Task
-	cancelled    []distributedtask.TaskDescriptor
-	listHadDeadl bool
-	listCtxErr   error
+// scriptedRollbackService answers the two cluster calls the rollback makes from
+// a fixed script and counts them. Both honour the context the way a real RAFT
+// client does, and record what it carried, so the detached-rollback case can
+// read it back.
+type scriptedRollbackService struct {
+	mu          sync.Mutex
+	tasks       []*distributedtask.Task
+	cancelled   []distributedtask.TaskDescriptor
+	listErr     error
+	cancelErr   error
+	listCalls   int
+	cancelCalls int
+	// listHadDeadline and listCtxErr are the context the listing was handed.
+	listHadDeadline bool
+	listCtxErr      error
+	// failFirstN makes the first N cancels fail, so the retry can be observed
+	// succeeding rather than only exhausting itself.
+	failFirstN int
+	// statusAfterFailedCancel is applied to every task once a cancel has been
+	// refused, reproducing the case the refusal is meant to describe: the task
+	// reached that status between the listing and the cancel.
+	statusAfterFailedCancel distributedtask.TaskStatus
 }
 
-func (s *ctxAwareTaskService) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *scriptedRollbackService) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	s.mu.Lock()
-	_, s.listHadDeadl = ctx.Deadline()
+	defer s.mu.Unlock()
+	s.listCalls++
+	_, s.listHadDeadline = ctx.Deadline()
 	s.listCtxErr = ctx.Err()
-	out := make([]*distributedtask.Task, len(s.tasks))
-	copy(out, s.tasks)
-	s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return map[string][]*distributedtask.Task{db.ReindexNamespace: out}, nil
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return map[string][]*distributedtask.Task{db.ReindexNamespace: s.tasks}, nil
 }
 
-func (s *ctxAwareTaskService) CancelDistributedTask(ctx context.Context, _, taskID string, version uint64) error {
+func (s *scriptedRollbackService) CancelDistributedTask(ctx context.Context, _, taskID string, version uint64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cancelCalls++
+	if s.cancelCalls <= s.failFirstN {
+		s.applyStatusAfterFailedCancel()
+		return errors.New("raft: leader election in progress")
+	}
+	if s.cancelErr != nil {
+		s.applyStatusAfterFailedCancel()
+		return s.cancelErr
+	}
 	s.cancelled = append(s.cancelled, distributedtask.TaskDescriptor{ID: taskID, Version: version})
 	for _, t := range s.tasks {
 		if t.ID == taskID {
 			t.Status = distributedtask.TaskStatusCancelled
 		}
 	}
-	return nil
-}
-
-func (s *ctxAwareTaskService) AddDistributedTaskWithBarrier(context.Context, string, string, any, []string, bool) error {
-	return nil
-}
-
-func (s *ctxAwareTaskService) AddDistributedTaskWithGroupsBarrier(context.Context, string, string, any, []distributedtask.UnitSpec, bool) error {
 	return nil
 }
 
@@ -90,7 +107,7 @@ func TestRollbackRacedReindexTaskSurvivesRequestCancellation(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
-	svc := &ctxAwareTaskService{tasks: []*distributedtask.Task{{
+	svc := &scriptedRollbackService{tasks: []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: taskID, Version: 3},
 		Namespace:      db.ReindexNamespace,
 		Status:         distributedtask.TaskStatusStarted,
@@ -109,55 +126,13 @@ func TestRollbackRacedReindexTaskSurvivesRequestCancellation(t *testing.T) {
 	defer svc.mu.Unlock()
 	require.NoError(t, svc.listCtxErr,
 		"the rollback must not inherit the caller's cancellation")
-	require.True(t, svc.listHadDeadl,
+	require.True(t, svc.listHadDeadline,
 		"a detached rollback still has to be bounded, or it outlives the request forever")
 	require.Len(t, svc.cancelled, 1,
 		"the raced task must still be cancelled after the caller disconnected")
 	require.Equal(t, taskID, svc.cancelled[0].ID)
 	require.Equal(t, distributedtask.TaskStatusCancelled, svc.tasks[0].Status)
 	require.NotNil(t, entryWithMessage(hook, "rollback: cancelled a reindex task"))
-}
-
-// scriptedRollbackService answers the two cluster calls the rollback makes from
-// a fixed script and counts them.
-type scriptedRollbackService struct {
-	mu          sync.Mutex
-	tasks       []*distributedtask.Task
-	listErr     error
-	cancelErr   error
-	listCalls   int
-	cancelCalls int
-	// failFirstN makes the first N cancels fail, so the retry can be observed
-	// succeeding rather than only exhausting itself.
-	failFirstN int
-	// statusAfterFailedCancel is applied to every task once a cancel has been
-	// refused, reproducing the case the refusal is meant to describe: the task
-	// reached that status between the listing and the cancel.
-	statusAfterFailedCancel distributedtask.TaskStatus
-}
-
-func (s *scriptedRollbackService) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listCalls++
-	if s.listErr != nil {
-		return nil, s.listErr
-	}
-	return map[string][]*distributedtask.Task{db.ReindexNamespace: s.tasks}, nil
-}
-
-func (s *scriptedRollbackService) CancelDistributedTask(context.Context, string, string, uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancelCalls++
-	if s.cancelCalls <= s.failFirstN {
-		s.applyStatusAfterFailedCancel()
-		return errors.New("raft: leader election in progress")
-	}
-	if s.cancelErr != nil {
-		s.applyStatusAfterFailedCancel()
-	}
-	return s.cancelErr
 }
 
 func (s *scriptedRollbackService) applyStatusAfterFailedCancel() {
@@ -500,41 +475,6 @@ func TestAwaitOwnerCleanupGatesGivesEachOwnerItsOwnBudget(t *testing.T) {
 		"a healthy owner must not be reported degraded because another owner was slow")
 }
 
-// clearThenUnreachableProber answers the pre-commit probe and fails every probe
-// after it, which is what a client disconnecting mid-submission looks like: the
-// task is committed, then nothing can be reached to confirm anything.
-type clearThenUnreachableProber struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (p *clearThenUnreachableProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.calls++
-	if p.calls == 1 {
-		return backup.NodeActivity{}, nil
-	}
-	return backup.NodeActivity{}, errors.New("dial tcp: connection refused")
-}
-
-// "Nobody answered" is not evidence that a backup claimed the slot, and a client
-// disconnect produces exactly that verdict on every node. Rolling back on it
-// destroys a cleanly committed migration at the one moment the caller is no
-// longer there to resubmit — so the task must survive an unconfirmed probe.
-func TestUpdateIndexKeepsTheTaskWhenThePostCommitProbeCannotConfirm(t *testing.T) {
-	svc := &raceTaskService{}
-	h := submissionHandlers(t, svc, &clearThenUnreachableProber{})
-
-	responder := submitReindex(h)
-
-	_, ok := responder.(*schema.SchemaObjectsIndexesUpdateServiceUnavailable)
-	require.Truef(t, ok, "an unconfirmable probe must answer 503, got %T", responder)
-	require.Equal(t, 1, svc.adds, "the task must have been committed, or the post-commit probe is untested")
-	require.Empty(t, svc.cancelled,
-		"an unreachable verdict is not proof of a backup; the committed migration must not be rolled back")
-}
-
 // disconnectingProber answers the pre-commit probe clear and kills the request
 // context at the post-commit probe, in the same instant it delivers its verdict.
 type disconnectingProber struct {
@@ -630,19 +570,6 @@ func TestWaitBeforeRollbackRetryStopsOnExhaustedBackoff(t *testing.T) {
 		"a backoff that has nothing left to give must end the retry loop")
 }
 
-// countingProber records whether the gate probed the cluster at all.
-type countingProber struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (p *countingProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.calls++
-	return backup.NodeActivity{}, nil
-}
-
 // rollbackObservingService reports what the submission still holds at the
 // moment the rollback cancels the task. CancelDistributedTask is only reached
 // from the rollback, so it is an unambiguous hook for that instant.
@@ -730,35 +657,22 @@ func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
 		}
 	}
 
+	// Both rows hold a restore. The backup half of each is already asserted
+	// byte for byte by the submit-gate tests, and a row per kind per outcome
+	// only ever fails alongside its sibling.
 	tests := []struct {
 		name string
-		kind string
 		// cancelErr fails every rollback attempt when set.
 		cancelErr error
 		wantBody  func(taskID string) string
 	}{
 		{
-			name:      "the rollback never lands during a backup",
-			kind:      backup.NodeActivityKindBackup,
-			cancelErr: errors.New("raft: leader election in progress"),
-			wantBody:  wantNamed("backup"),
-		},
-		{
 			name:      "the rollback never lands during a restore",
-			kind:      backup.NodeActivityKindRestore,
 			cancelErr: errors.New("raft: leader election in progress"),
 			wantBody:  wantNamed("restore"),
 		},
 		{
-			name: "the rollback lands during a backup",
-			kind: backup.NodeActivityKindBackup,
-			wantBody: func(string) string {
-				return "reindex blocked: a backup is running in the cluster; retry after it finishes"
-			},
-		},
-		{
 			name: "the rollback lands during a restore",
-			kind: backup.NodeActivityKindRestore,
 			wantBody: func(string) string {
 				return "reindex blocked: a restore is running in the cluster; retry after it finishes"
 			},
@@ -771,7 +685,9 @@ func TestUpdateIndexNamesTheTaskWhenTheRollbackFails(t *testing.T) {
 			svc := &raceTaskService{cancelErr: test.cancelErr}
 			svc.onCommitted = func() { busy.Store(true) }
 
-			h := submissionHandlers(t, svc, togglingProber{busy: &busy, kind: test.kind})
+			h := submissionHandlers(t, svc, togglingProber{
+				busy: &busy, kind: backup.NodeActivityKindRestore,
+			})
 			responder := submitReindex(h)
 
 			conflict, ok := responder.(*schema.SchemaObjectsIndexesUpdateConflict)

@@ -55,13 +55,17 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 //
 // Delivery is best-effort, so an observer must reconcile against
 // [Manager.ListDistributedTasks] on registration and must not treat "no event"
-// as "not terminal". Three cases:
+// as "not terminal". Four cases:
 //   - Endings already in the local RAFT log at startup are skipped.
 //   - Endings replicated as log entries after startup fire, even when old, so
 //     observers must be idempotent and must not assume the ending is recent.
 //   - Endings that arrive inside an installed snapshot never fire: a follower
 //     far enough behind for the leader to have compacted its log gets the state
 //     through [Manager.Restore], which merges tasks without dispatching.
+//   - A non-terminal task removed by the DELETE_CLASS cascade
+//     ([Manager.DeleteTasksForCollection]) never goes CANCELLED or FAILED, so it
+//     never fires — and afterwards it is gone from ListDistributedTasks too, so
+//     observers must not wait indefinitely for an ending on any one task.
 type TerminalObserver func(task *Task)
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.

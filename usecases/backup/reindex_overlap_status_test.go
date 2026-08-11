@@ -26,38 +26,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// Pins: a status poll must never observe FAILED with an empty reason, since
-// the status and the reason are written by two separate steps.
-func TestOverlapRefusalPublishesTheReasonBeforeFailedBecomesObservable(t *testing.T) {
-	const backupID, wantReason = "1", "a runtime-reindex overlapped this backup"
-	any := mock.Anything
-
-	backend := newFakeBackend()
-	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-	sourcer.reindexOverlapErr = fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrBackupSpannedReindex, "Movies")
-
-	// What an observer polling at the instant of the FAILED transition reads.
-	var sawFailed bool
-	slot := &fakeStatusSlot{onChange: func(st backup.Status) {
-		if st != backup.Failed {
-			return
-		}
-		sawFailed = true
-		_, reason := backend.getMetaStatus()
-		require.Contains(t, reason, wantReason, "a status poll in this window reads FAILED without a reason")
-	}}
-
-	require.ErrorIs(t, runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil,
-		time.Now().UTC()), backup.ErrBackupSpannedReindex)
-	storedStatus, storedReason := backend.getMetaStatus()
-	require.Equal(t, backup.Failed, storedStatus)
-	require.Contains(t, storedReason, wantReason)
-	require.True(t, sawFailed, "the refused backup has to end up observably FAILED")
-}
-
 // Pins: an operator abort during the overlap lookup must publish as CANCELLED,
 // not FAILED for a reindex that never happened.
 func TestAbortDuringOverlapCheckReportsCancelledNotAReindex(t *testing.T) {
@@ -135,43 +103,8 @@ func TestOverlapRefusalStaysTerminalWhenTheMetaWriteFails(t *testing.T) {
 	require.Equal(t, backup.Failed, res.Status)
 	require.Contains(t, res.Err, "a runtime-reindex overlapped this backup",
 		"the reason must survive the hop to the coordinator, which latches this answer")
-	// TestRememberedFailureSurvivesTheProductionSlotRelease covers the post-release poll.
-}
-
-// Pins: a foreign context.Canceled from the RAFT client (not the backup's own
-// context) must publish as FAILED, not as an operator cancellation.
-func TestOverlapRefusalCarryingAForeignCancellationPublishesAsFailed(t *testing.T) {
-	const backupID = "1"
-	any := mock.Anything
-
-	backend := newFakeBackend()
-	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-
-	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-	sourcer.reindexOverlapFn = func(context.Context) error {
-		// The backup's own context is untouched here.
-		return undeterminedOverlapErr{cause: context.Canceled}
-	}
-
-	slot := &fakeStatusSlot{}
-
-	err := runOverlapBackup(context.Background(), backend, sourcer, slot, backupID, nil, time.Now().UTC())
-	require.ErrorIs(t, err, backup.ErrReindexOverlapUndetermined,
-		"a refusal that never observed an overlap has to stay distinguishable from one that did")
-
-	storedStatus, storedReason := backend.getMetaStatus()
-	require.Equal(t, backup.Failed, storedStatus,
-		"a refusal published as CANCELLED reads as an operator abort that never happened")
-	require.Contains(t, storedReason, "cannot rule out a runtime-reindex during this backup",
-		"the refusal must keep the text that says why the backup was failed")
-	require.NotContains(t, storedReason, "overlapped this backup",
-		"the check never got an answer, so it must not report a migration it did not see")
-
-	require.NotContains(t, slot.statuses, backup.Cancelled,
-		"nobody cancelled this backup")
-	require.Equal(t, backup.Failed, slot.last(),
-		"the last status an operator can poll has to be the failure")
+	// TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits covers the
+	// post-release poll.
 }
 
 // undeterminedOverlapErr is a refusal that never observed an overlap: both
@@ -186,35 +119,10 @@ func (e undeterminedOverlapErr) Unwrap() []error {
 	return []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined, e.cause}
 }
 
-// Pins: the overlap check must be asked about the whole capture window, not
-// the commit instant, or a migration inside the window would read as clean.
-func TestOverlapCheckIsAskedAboutTheCaptureWindowNotTheCommitInstant(t *testing.T) {
-	const backupID = "1"
-	any := mock.Anything
-
-	backend := newFakeBackend()
-	backend.On("PutObject", any, backupID, BackupFile, any).Return(nil)
-
-	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
-
-	// Far enough back that "now" cannot be mistaken for it.
-	startedAt := time.Now().UTC().Add(-time.Hour)
-	classes := []string{"Movies"}
-
-	require.NoError(t, runOverlapBackup(context.Background(), backend, sourcer,
-		&fakeStatusSlot{}, backupID, classes, startedAt))
-
-	askedClasses, askedSince, calls := sourcer.lastOverlapQuery()
-	require.Equal(t, 1, calls, "every commit has to consult the overlap check exactly once")
-	require.Equal(t, startedAt, askedSince,
-		"the check must be asked about the capture start, not the commit instant")
-	require.Equal(t, classes, askedClasses,
-		"the check must be asked about the classes this backup captured")
-}
-
-// Pins: the remembered failure must answer only for the backup that failed,
-// never for another id polling the same slot.
+// Pins the two rules TestBackupStatRemembersAFailureBeyondTheSlot does not
+// reach: a poll that names no backup at all matches nothing, and another
+// backup starting does not erase the failed one's reason. The stand-in reason
+// and the cancelled-slot rule are pinned by TestBackupStatPublishIfOwned.
 func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 	const (
 		failedID = "backup-a"
@@ -222,92 +130,29 @@ func TestRememberedFailureAnswersOnlyTheBackupThatFailed(t *testing.T) {
 		reason   = "a runtime-reindex overlapped this backup"
 	)
 
-	tests := []struct {
-		name string
-		// setup drives the slot into the state the poll then reads.
-		setup      func(s *backupStat)
-		pollID     string
-		wantFound  bool
-		wantReason string
-	}{
-		{
-			name:       "the failed backup's own poll gets the reason",
-			setup:      func(s *backupStat) { s.setFailed(reason) },
-			pollID:     failedID,
-			wantFound:  true,
-			wantReason: reason,
-		},
-		{
-			name:      "another backup's poll is not answered with this failure",
-			setup:     func(s *backupStat) { s.setFailed(reason) },
-			pollID:    otherID,
-			wantFound: false,
-		},
-		{
-			name:      "an empty id matches nothing, including a slot that never failed",
-			setup:     func(s *backupStat) {},
-			pollID:    "",
-			wantFound: false,
-		},
-		{
-			name:      "a slot that ended without failing remembers nothing",
-			setup:     func(s *backupStat) { s.set(backup.Success) },
-			pollID:    failedID,
-			wantFound: false,
-		},
-		{
-			name: "a retry under the same id is not answered with the earlier attempt's failure",
-			setup: func(s *backupStat) {
-				s.setFailed(reason)
-				s.reset()
-				prevID, _ := s.renew(failedID, "bucket/backups/a", "", "")
-				require.Empty(t, prevID)
-			},
-			pollID:    failedID,
-			wantFound: false,
-		},
-		{
-			name: "a different backup starting does not erase the failed one's reason",
-			setup: func(s *backupStat) {
-				s.setFailed(reason)
-				s.reset()
-				prevID, _ := s.renew(otherID, "bucket/backups/b", "", "")
-				require.Empty(t, prevID)
-			},
-			pollID:     failedID,
-			wantFound:  true,
-			wantReason: reason,
-		},
-		{
-			name:       "a failure with no reason is remembered by its stand-in",
-			setup:      func(s *backupStat) { s.setFailed("") },
-			pollID:     failedID,
-			wantFound:  true,
-			wantReason: failureWithoutReason,
-		},
-		{
-			name: "a cancelled backup is not turned into a failure",
-			setup: func(s *backupStat) {
-				s.set(backup.Cancelled)
-				s.setFailed(reason)
-			},
-			pollID:    failedID,
-			wantFound: false,
-		},
-	}
+	t.Run("an empty id matches nothing, including a slot that never failed", func(t *testing.T) {
+		var slot backupStat
+		prevID, _ := slot.renew(failedID, "bucket/backups/a", "", "")
+		require.Empty(t, prevID)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var slot backupStat
-			prevID, _ := slot.renew(failedID, "bucket/backups/a", "", "")
-			require.Empty(t, prevID)
-			tc.setup(&slot)
+		gotReason, gotFound := slot.rememberedFailure("")
+		require.False(t, gotFound)
+		require.Empty(t, gotReason)
+	})
 
-			gotReason, gotFound := slot.rememberedFailure(tc.pollID)
-			require.Equal(t, tc.wantFound, gotFound)
-			require.Equal(t, tc.wantReason, gotReason)
-		})
-	}
+	t.Run("a different backup starting does not erase the failed one's reason", func(t *testing.T) {
+		var slot backupStat
+		prevID, _ := slot.renew(failedID, "bucket/backups/a", "", "")
+		require.Empty(t, prevID)
+		slot.setFailed(reason)
+		slot.reset()
+		prevID, _ = slot.renew(otherID, "bucket/backups/b", "", "")
+		require.Empty(t, prevID)
+
+		gotReason, gotFound := slot.rememberedFailure(failedID)
+		require.True(t, gotFound)
+		require.Equal(t, reason, gotReason)
+	})
 }
 
 // runOverlapBackup drives one commit through the uploader with the given
@@ -330,14 +175,20 @@ func runOverlapBackup(ctx context.Context, backend *fakeBackend, sourcer *fakeSo
 func TestOverlapRefusalKeepsItsSentinelsThroughTheUploader(t *testing.T) {
 	const backupID = "1"
 	any := mock.Anything
+	classes := []string{"Movies"}
+	// Far enough back that "now" cannot be mistaken for it.
+	startedAt := time.Now().UTC().Add(-time.Hour)
 
 	tests := []struct {
 		name string
 		// refusal is what the overlap check answers with.
-		refusal        error
-		wantIs         []error
-		wantNotIs      []error
-		wantStoredHint string
+		refusal   error
+		wantIs    []error
+		wantNotIs []error
+		// wantStoredHint and wantNotStoredHint are what the stored reason has
+		// to say, and what it must not claim.
+		wantStoredHint    string
+		wantNotStoredHint string
 	}{
 		{
 			name:      "no overlap",
@@ -352,10 +203,14 @@ func TestOverlapRefusalKeepsItsSentinelsThroughTheUploader(t *testing.T) {
 			wantStoredHint: "was migrated while this backup was being captured",
 		},
 		{
-			name:           "an overlap the check could not rule out",
-			refusal:        undeterminedOverlapErr{},
-			wantIs:         []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined},
-			wantStoredHint: "cannot rule out a runtime-reindex during this backup",
+			// The cause is a cancellation from the RAFT client, not from this
+			// backup's own context: published as CANCELLED it would read as an
+			// operator abort that never happened.
+			name:              "an overlap the check could not rule out, carrying a foreign cancellation",
+			refusal:           undeterminedOverlapErr{cause: context.Canceled},
+			wantIs:            []error{backup.ErrBackupSpannedReindex, backup.ErrReindexOverlapUndetermined},
+			wantStoredHint:    "cannot rule out a runtime-reindex during this backup",
+			wantNotStoredHint: "overlapped this backup",
 		},
 	}
 
@@ -367,8 +222,19 @@ func TestOverlapRefusalKeepsItsSentinelsThroughTheUploader(t *testing.T) {
 			sourcer.On("BackupDescriptors", any, backupID, any, any).Return(fakeBackupDescriptor())
 			sourcer.reindexOverlapErr = tc.refusal
 
-			err := runOverlapBackup(context.Background(), backend, sourcer, &fakeStatusSlot{},
-				backupID, nil, time.Now().UTC())
+			slot := &fakeStatusSlot{}
+			err := runOverlapBackup(context.Background(), backend, sourcer, slot,
+				backupID, classes, startedAt)
+
+			// The answer alone says nothing about which window the check was asked
+			// about, and asking about the commit instant would read a migration
+			// inside the capture window as clean.
+			askedClasses, askedSince, calls := sourcer.lastOverlapQuery()
+			require.Equal(t, 1, calls, "every commit has to consult the overlap check exactly once")
+			require.Equal(t, startedAt, askedSince,
+				"the check must be asked about the capture start, not the commit instant")
+			require.Equal(t, classes, askedClasses,
+				"the check must be asked about the classes this backup captured")
 
 			for _, sentinel := range tc.wantIs {
 				require.ErrorIs(t, err, sentinel)
@@ -382,9 +248,17 @@ func TestOverlapRefusalKeepsItsSentinelsThroughTheUploader(t *testing.T) {
 				require.Equal(t, backup.Success, storedStatus)
 				return
 			}
-			require.Equal(t, backup.Failed, storedStatus)
+			require.Equal(t, backup.Failed, storedStatus,
+				"a refusal published as CANCELLED reads as an operator abort that never happened")
 			require.Contains(t, storedReason, tc.wantStoredHint,
 				"the stored reason has to say which of the two refusals this was")
+			if tc.wantNotStoredHint != "" {
+				require.NotContains(t, storedReason, tc.wantNotStoredHint,
+					"the check never got an answer, so it must not report a migration it did not see")
+			}
+			require.NotContains(t, slot.statuses, backup.Cancelled, "nobody cancelled this backup")
+			require.Equal(t, backup.Failed, slot.last(),
+				"the last status an operator can poll has to be the failure")
 		})
 	}
 }

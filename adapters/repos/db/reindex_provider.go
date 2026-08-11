@@ -2021,9 +2021,9 @@ func (p *ReindexProvider) HoldForShard(collection, _ string) ReindexHold {
 // gate OR-s them.
 type CleanupInProgressLookup func(collection, shard string) ReindexHold
 
-// CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// CleanupInProgressLookupBuilder builds the cleanup half of the backup gate.
+// Mirrors the builder pattern used by [ShardReindexActivityLookupBuilder] so
+// configure_api.go can install both lookups identically.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures

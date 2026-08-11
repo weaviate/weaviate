@@ -61,7 +61,7 @@ func (m fixedMembership) LocalName() string {
 // and cleared: the probe comes first, so a wired cluster with no task service
 // still gets the refusal rather than a nil-deref panic.
 func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
-	prober := &countingProber{}
+	prober := &fixedActivityProber{}
 	h := submissionHandlers(t, nil, prober)
 
 	responder := submitReindex(h)
@@ -71,10 +71,9 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 	require.Equal(t, "cluster service unavailable; cannot submit reindex task",
 		errorMessage(t, unavailable.Payload))
 
-	prober.mu.Lock()
-	defer prober.mu.Unlock()
-	require.Equal(t, 1, prober.calls,
-		"the pre-commit gate runs before the task service is needed; only it can have probed")
+	require.Zero(t, prober.probes(),
+		"a submission that cannot succeed must be turned away before it fans out a probe, "+
+			"closes the submit gate, and lets the pre-submit sweep delete on-disk state")
 }
 
 // Cluster membership is nil before a node joins. There is no one to probe then,

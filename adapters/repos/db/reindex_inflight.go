@@ -36,6 +36,10 @@ type reindexGateSamplers struct {
 	unwiredRestoreGate *logrusext.Sampler
 	unwiredOverlap     *logrusext.Sampler
 	unknownHold        *logrusext.Sampler
+	// restoreGateHold is not a fail-open budget: it rate-limits the WARN naming
+	// the task that refused a restore, which a retrying caller would otherwise
+	// emit once per attempt.
+	restoreGateHold *logrusext.Sampler
 }
 
 func newReindexGateSamplers(logger logrus.FieldLogger) *reindexGateSamplers {
@@ -50,6 +54,7 @@ func newReindexGateSamplers(logger logrus.FieldLogger) *reindexGateSamplers {
 		unwiredRestoreGate: newSampler(),
 		unwiredOverlap:     newSampler(),
 		unknownHold:        newSampler(),
+		restoreGateHold:    newSampler(),
 	}
 }
 
@@ -441,7 +446,7 @@ func reindexInFlightError(collection string, reason reindexBlockReason) error {
 		// Concrete requests the API accepts, with the collection rendered in;
 		// the property and index type are unknown here, so those stay named
 		// placeholders rather than guesses that could 202 NO_OP.
-		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result. If every index already reports \"ready\", the task holding this gate is one this server cannot attribute to a collection — the same cancel call, on any collection, clears it", collection, collection)
+		advice = fmt.Sprintf(" has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/%s/indexes until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result. If every index already reports \"ready\", the task holding this gate is one this node cannot match to a property: either it names no collection, in which case the same cancel call on any collection clears it, or its migration type is unknown to this build, in which case the cancel has to reach a node whose build knows the type (the cancel call above says which case it is)", collection, collection)
 	default:
 		// reindexBlockedByUnknownHold, or a zero-value reason from a caller
 		// bug. Neither can back a specific promise, so the message just names

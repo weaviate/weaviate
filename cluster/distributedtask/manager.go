@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -393,6 +394,11 @@ func (m *Manager) runTerminalObserverSafely(task *Task) {
 				WithField("namespace", task.Namespace).
 				WithField("task_id", task.ID).
 				Errorf("distributedtask: terminal observer panicked; dropping this event and keeping the drainer alive: %v", r)
+			// This recover fires before GoWrapper's, so report the way it
+			// would have: Sentry capture plus the stack, or the operator
+			// only ever sees the panic value.
+			entsentry.Recover(r)
+			enterrors.PrintStack(m.logger)
 		}
 	}()
 	m.runTerminalObserver(task)
@@ -429,6 +435,7 @@ func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
 		m.logger.WithFields(logrus.Fields{
 			"namespace": task.Namespace,
 			"task_id":   task.ID,
+			"version":   task.Version,
 		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
 		return
 	}
@@ -463,7 +470,7 @@ func (m *Manager) enqueueTerminalWithLock(clone *Task) {
 	case m.terminalDispatch <- clone:
 	default:
 		logger := m.logger
-		fields := logrus.Fields{"namespace": clone.Namespace, "task_id": clone.ID}
+		fields := logrus.Fields{"namespace": clone.Namespace, "task_id": clone.ID, "version": clone.Version}
 		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
 			// Past the bound the observer is wedged, not just behind.
 			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
