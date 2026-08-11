@@ -33,6 +33,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
+func nullLogger() *logrus.Logger {
+	logger, _ := logrustest.NewNullLogger()
+	return logger
+}
+
 type stubCleanupProber struct {
 	cleaningUp bool
 	asked      string
@@ -94,7 +99,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 			if tt.prober != nil {
 				resolve = func() clusterapi.ReindexCleanupProber { return tt.prober }
 			}
-			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler(), nil)
+			handler := clusterapi.NewReindexCleanup(resolve, clusterapi.NewNoopAuthHandler(), nullLogger())
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
 
@@ -126,7 +131,7 @@ func TestInternalReindexCleanupActivity(t *testing.T) {
 func TestInternalReindexCleanupActivityRejectsNonGET(t *testing.T) {
 	handler := clusterapi.NewReindexCleanup(
 		func() clusterapi.ReindexCleanupProber { return &stubCleanupProber{} },
-		clusterapi.NewNoopAuthHandler(), nil)
+		clusterapi.NewNoopAuthHandler(), nullLogger())
 	server := httptest.NewServer(handler.Activity())
 	defer server.Close()
 
@@ -164,7 +169,7 @@ func TestInternalReindexCleanupActivityRequiresAuth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			prober := &stubCleanupProber{}
 			handler := clusterapi.NewReindexCleanup(
-				func() clusterapi.ReindexCleanupProber { return prober }, auth, nil)
+				func() clusterapi.ReindexCleanupProber { return prober }, auth, nullLogger())
 			server := httptest.NewServer(handler.Activity())
 			defer server.Close()
 
@@ -251,6 +256,16 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 			collection: strings.Repeat("A", 500),
 			wantLogged: `"` + strings.Repeat("A", 128) + `…(truncated)"`,
 		},
+		{
+			name:       "multi-byte runes, cap on a boundary",
+			collection: strings.Repeat("é", 300),
+			wantLogged: `"` + strings.Repeat("é", 64) + `…(truncated)"`,
+		},
+		{
+			name:       "multi-byte runes, cap one byte into a rune",
+			collection: "a" + strings.Repeat("é", 300),
+			wantLogged: `"a` + strings.Repeat("é", 63) + `…(truncated)"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -286,4 +301,28 @@ func TestInternalReindexCleanupActivityLogsABoundedQuotedCollection(t *testing.T
 				"one request must not be able to write an unbounded log line")
 		})
 	}
+}
+
+// Until the cleanup side is wired up, every production request takes the
+// not-wired path, so that is the path an operator tracing a stalled cancel
+// needs in the log.
+func TestInternalReindexCleanupActivityLogsTheNotWiredAnswer(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	handler := clusterapi.NewReindexCleanup(nil, clusterapi.NewNoopAuthHandler(), logger)
+	server := httptest.NewServer(handler.Activity())
+	defer server.Close()
+
+	res, err := server.Client().Get(server.URL + "/reindex/cleanup-activity?collection=Movies")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "a node that cannot answer still has to log the question")
+	assert.Equal(t, "reindex_cleanup_probe", entry.Data["action"])
+	assert.Equal(t, `"Movies"`, entry.Data["collection"])
+	assert.NotContains(t, entry.Data, "cleaning_up",
+		"a node that cannot tell must not log an answer either way")
 }

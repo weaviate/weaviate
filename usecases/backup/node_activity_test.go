@@ -161,6 +161,10 @@ func TestNodeActivityResponseRejects(t *testing.T) {
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
 		},
 		{
+			name: "busy without an id",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, Kind: NodeActivityKindBackup},
+		},
+		{
 			// Only a held slot has a kind, so this did not come from a node.
 			name: "idle but names a kind",
 			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, Kind: NodeActivityKindRestore},

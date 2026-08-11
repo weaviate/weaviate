@@ -61,15 +61,12 @@ func (fakeBackupSchema) NodeName() string              { return "node1" }
 func (fakeBackupSchema) NamespacesEnabled() bool       { return false }
 func (fakeBackupSchema) ClassEqual(name string) string { return name }
 
+// fakeSnapshotter serves both the RBAC and the dynamic-user snapshotter slot;
+// their method sets are identical.
 type fakeSnapshotter struct{}
 
 func (fakeSnapshotter) Snapshot(...string) ([]byte, error) { return nil, nil }
 func (fakeSnapshotter) Restore([]byte, bool) error         { return nil }
-
-type fakeDynUserSnapshotter struct{}
-
-func (fakeDynUserSnapshotter) Snapshot(...string) ([]byte, error) { return nil, nil }
-func (fakeDynUserSnapshotter) Restore([]byte, bool) error         { return nil }
 
 // busyBackupProbe returns the production probe with a participant backup slot
 // genuinely held, taken via OnCanCommit since the probe has no setter.
@@ -90,7 +87,7 @@ func busyBackupProbe(t *testing.T, backupID string) *backup.NodeActivityProbe {
 	backends.EXPECT().BackupBackend(mock.Anything, mock.Anything).Return(store, nil).Maybe()
 
 	participant := backup.NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(),
-		fakeBackupSchema{}, fakeBackupSourcer{}, backends, fakeSnapshotter{}, fakeDynUserSnapshotter{})
+		fakeBackupSchema{}, fakeBackupSourcer{}, backends, fakeSnapshotter{}, fakeSnapshotter{})
 
 	probe := backup.NewNodeActivityProbe(participant)
 	resp := participant.OnCanCommit(context.Background(), &backup.Request{

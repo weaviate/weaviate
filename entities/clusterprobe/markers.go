@@ -9,10 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package clusterprobe holds the wire markers and paths of the read-only
-// cluster-internal probes. It is a leaf so that the handler serving a probe
-// and the client reading it can agree on one value without importing each
-// other.
+// Package clusterprobe holds the wire contract of the read-only
+// cluster-internal probes: the markers, the paths, and the payload types that
+// carry an answer. It is a leaf so that the handler serving a probe and the
+// client reading it can share all three without importing each other.
 package clusterprobe
 
 // Each route puts its marker in the "probe" field; its client refuses a 200

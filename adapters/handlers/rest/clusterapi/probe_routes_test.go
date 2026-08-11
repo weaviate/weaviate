@@ -44,7 +44,7 @@ func TestProbeRoutesAnswerTheClientsThatCallThem(t *testing.T) {
 		clusterapi.NewBackups(nil, busyBackupProbe(t, backupID), clusterapi.NewNoopAuthHandler()).NodeActivity(),
 		clusterapi.NewReindexCleanup(
 			func() clusterapi.ReindexCleanupProber { return &stubCleanupProber{cleaningUp: true} },
-			clusterapi.NewNoopAuthHandler(), nil).Activity())
+			clusterapi.NewNoopAuthHandler(), nullLogger()).Activity())
 	// The catch-all a node really serves, so an unmatched path 404s the way a
 	// build without the route would rather than the way this mux would.
 	mux.Handle("/", http.NotFoundHandler())
