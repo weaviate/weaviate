@@ -1594,9 +1594,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// the next restart to promote the target-tokenization ingest
 				// dir to the canonical bucket name. No ack records that —
 				// the late ack hits an already-CANCELLED task and is dropped
-				// — so the only witness is this node's disk, which the
-				// cleanup below reads on its way past.
-				tornLocally := p.autoCleanupAfterTerminal(task, payload, logger)
+				// — so the only witness is this node's disk. Read it before
+				// the cleanup below wipes it, and only here: the FAILED arm
+				// logs the guidance unconditionally, so the probe's shard
+				// loads would buy it nothing.
+				tornLocally := p.probeLocalPostMergeState(payload)
+				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally ||
 					len(task.PostCompletionAcks) > 0 ||
 					len(task.PreparationCompletionAcks) > 0 {
@@ -1673,23 +1676,20 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 //
-// Returns whether this node holds post-merge tracker state for the task.
-// The caller needs that to decide on operator repair guidance, and this
-// is the routine that already walks the same shards.
-func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
+// Callers that need to know whether this node holds post-merge tracker
+// state run [ReindexProvider.probeLocalPostMergeState] first — the probe
+// has to read the evidence this routine is about to wipe.
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	drainErr := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor)
-	// Probed before the early returns below: a drain that timed out skips
-	// the cleanup, but the operator still needs to hear about the tear.
-	tornLocally := p.hasLocalPostMergeState(payload)
 	if drainErr != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, drainErr)
-		return tornLocally
+		return
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return tornLocally
+		return
 	}
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
@@ -1715,15 +1715,31 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		}
 	}
 	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
-	return tornLocally
+}
+
+// probeLocalPostMergeState bounds [ReindexProvider.hasLocalPostMergeState]
+// the way every other call on this path is bounded: off p.serverCtx, with
+// a timeout. The probe force-loads lazy shards, and for a multi-tenant
+// collection the payload names every shard the task touched, so an
+// unbounded one lets a single wedged shard block the scheduler tick that
+// dispatched it and survive shutdown.
+func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
+	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
+	defer cancel()
+	return p.hasLocalPostMergeState(ctx, payload)
 }
 
 // hasLocalPostMergeState reports whether any shard of the task on this
 // node carries a tracker dir the migration already merged or tidied.
 // Local by construction: lookupShardByName only resolves shards this node
 // hosts.
-func (p *ReindexProvider) hasLocalPostMergeState(payload *ReindexTaskPayload) bool {
-	if p.db == nil {
+//
+// Only a semantic migration can leave that state, and it is the only
+// migration the repair guidance fires for, so anything else skips the
+// shard walk. Gives up on a cancelled or expired ctx: the answer feeds a
+// log line, and a shutdown is not worth holding open for it.
+func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
+	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
 	}
 	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
@@ -1731,11 +1747,14 @@ func (p *ReindexProvider) hasLocalPostMergeState(payload *ReindexTaskPayload) bo
 		return false
 	}
 	for _, shardName := range uniqueShardsFromPayload(payload) {
+		if ctx.Err() != nil {
+			return false
+		}
 		shard, err := lookupShardByName(idx, shardName)
 		if err != nil {
 			continue
 		}
-		concrete, err := unwrapShard(context.Background(), shard)
+		concrete, err := unwrapShard(ctx, shard)
 		if err != nil {
 			continue
 		}
@@ -1889,6 +1908,11 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // reindexTerminalCleanupTimeout bounds cleanup per shard across all
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
+
+// reindexTornStateProbeTimeout bounds the post-merge evidence probe on a
+// cancelled task across every shard the payload names. Matches the drain
+// timeout: both run inline on the scheduler's completion dispatch.
+const reindexTornStateProbeTimeout = 10 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns the on-disk tracker dirs and sidecar buckets of its

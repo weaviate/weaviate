@@ -226,6 +226,41 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 	}
 }
 
+// Pins that the evidence probe answers to a context. It force-loads
+// every shard the payload names, so on a multi-tenant collection an
+// unbounded one is a per-cancel fan-out of lazy-shard loads that blocks
+// the scheduler tick and outlives shutdown.
+func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
+	ctx := context.Background()
+	shard, idx := testShard(t, ctx, "C")
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	dirs := migrationDirsForPropertyIndex("title", "searchable")
+	require.NotEmpty(t, dirs)
+	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", dirs[0]+"_1")
+	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+
+	payload := &ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+	}
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		nil, logrus.New(), "n1", nil, ctx)
+
+	require.True(t, p.hasLocalPostMergeState(ctx, payload),
+		"merged.mig is on disk, so a live context must find it")
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.False(t, p.hasLocalPostMergeState(cancelled, payload),
+		"a shut-down node must not walk and load the task's shards")
+}
+
 // Pins the wiring the ack maps cannot cover: a cancel that lands while
 // the task is still STARTED leaves both maps empty, so the only thing
 // that can raise the alarm is this node's own disk.
