@@ -14,9 +14,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
@@ -46,14 +48,22 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 	db.shardReindexActivityLookupBuilder = builder
 }
 
-// AnyReindexActivityLookup reports whether a runtime-reindex task on any of the
-// given collections is live in the cluster. An empty list asks about every
-// collection (the restore path's case when it doesn't yet know its class
-// list). Scoped by collection: a migration can run for days, and a blind
-// answer would refuse restores of every OTHER collection for that whole
-// time. A live task whose payload names no collection still answers yes for
-// every collection, since nothing says what it holds.
-type AnyReindexActivityLookup func(ctx context.Context, collections []string) (bool, error)
+// ReindexActivityHold identifies the live task the restore gate found, so the
+// refusal and the log can name it. Collection is empty when the task's payload
+// names none — that task holds every collection's gate.
+type ReindexActivityHold struct {
+	Collection string
+	TaskID     string
+}
+
+// AnyReindexActivityLookup reports the runtime-reindex task on any of the
+// given collections that is live in the cluster, or nil when there is none. An
+// empty list asks about every collection (the restore path's case when it
+// doesn't yet know its class list). Scoped by collection: a migration can run
+// for days, and a blind answer would refuse restores of every OTHER collection
+// for that whole time. A live task whose payload names no collection still
+// answers yes for every collection, since nothing says what it holds.
+type AnyReindexActivityLookup func(ctx context.Context, collections []string) (*ReindexActivityHold, error)
 
 // AnyCleanupInProgressLookup reports whether this node is still tearing reindex
 // sidecar dirs for a task that has already reached a terminal status on any of
@@ -128,7 +138,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 			db.logger.WithField("action", "restore_reindex_gate").
 				Debug("restore-reindex gate: refusing — a teardown or a submission sweep is holding reindex sidecars on this node")
 		}
-		poll, cancel := reindexRemediationURLs(collections)
+		poll, cancel := reindexRemediationURLs(remediationClass(collections, ""))
 		return fmt.Errorf(
 			"%w: a migration is holding temporary index files on this node: either a cancelled one still removing them, "+
 				"or a newly submitted one preparing to run. Retry in a few seconds; if a new migration has started, "+
@@ -145,7 +155,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 		return nil
 	}
 
-	live, err := lookup(ctx, collections)
+	hold, err := lookup(ctx, collections)
 	if err != nil {
 		// The RAFT error may name nodes; keep detail in the log, not the response.
 		if db.logger != nil {
@@ -160,32 +170,52 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 			cause:     err,
 		}
 	}
-	if !live {
+	if hold == nil {
 		return nil
 	}
-	if db.logger != nil {
-		db.logger.WithField("action", "restore_reindex_gate").
-			Debug("restore-reindex gate: refusing — DTM lists a live runtime-reindex task in the cluster")
-	}
+	// WARN, not Debug: this refuses a restore the operator asked for, and the
+	// task id is the only handle they have on what is holding it. Budgeted
+	// because a retrying restore reaches this on every attempt.
+	db.gateSamplers().restoreGateHold.WithSampling(func(l logrus.FieldLogger) {
+		l.WithFields(logrus.Fields{
+			"action":     "restore_reindex_gate",
+			"collection": hold.Collection,
+			"task_id":    hold.TaskID,
+		}).Warn("restore-reindex gate: refusing — DTM lists a live runtime-reindex task in the cluster")
+	})
+	class := remediationClass(collections, hold.Collection)
 	// Unconditional cancel advice, matching the backup gate's text in
 	// [reindexInFlightError]: DTM refuses a cancel only for a task that already
 	// reached a terminal status, and such a task is not live here.
-	poll, cancel := reindexRemediationURLs(collections)
+	poll, cancel := reindexRemediationURLs(class)
 	return fmt.Errorf(
-		"%w: retry after the migration finishes (poll %s until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via %s {\"<indexType>\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result",
-		entitiesbackup.ErrReindexInFlight, poll, cancel,
+		"%w on collection %s: retry after the migration finishes (poll %s until all indexes report status=\"ready\"), or lift this refusal now by cancelling it via %s {\"<indexType>\":{\"cancel\":true}}. Cancel is accepted at every stage of a migration, including while it is committing its result",
+		entitiesbackup.ErrReindexInFlight, class, poll, cancel,
 	)
 }
 
-// reindexRemediationURLs renders the poll and cancel routes the restore
-// refusals point at. Only a single-collection restore can name the class: with
-// none, or with several, the refusal cannot say which one holds the gate, so
-// the class stays a placeholder the operator fills in.
-func reindexRemediationURLs(collections []string) (poll, cancel string) {
-	class := "<class>"
-	if len(collections) == 1 {
-		class = collections[0]
+// remediationClass picks the collection the restore refusal points at.
+//
+// The blocking task's own collection wins when the caller's request listed it:
+// the restore was authorized against that list, so naming it back discloses
+// nothing new. Otherwise a single-collection restore can only be about that
+// one. With neither, the class stays a placeholder the operator fills in —
+// naming a collection the caller never asked about would leak it.
+func remediationClass(collections []string, blocking string) string {
+	if blocking != "" && slices.ContainsFunc(collections, func(c string) bool {
+		return strings.EqualFold(c, blocking)
+	}) {
+		return blocking
 	}
+	if len(collections) == 1 {
+		return collections[0]
+	}
+	return "<class>"
+}
+
+// reindexRemediationURLs renders the poll and cancel routes the restore
+// refusals point at, for the class [remediationClass] settled on.
+func reindexRemediationURLs(class string) (poll, cancel string) {
 	return fmt.Sprintf("GET /v1/schema/%s/indexes", class),
 		fmt.Sprintf("PUT /v1/schema/%s/indexes/<prop>", class)
 }

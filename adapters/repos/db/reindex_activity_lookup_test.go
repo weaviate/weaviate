@@ -62,27 +62,29 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	}{
 		{
 			name:   "no live task admits the restore",
-			lookup: func(context.Context, []string) (bool, error) { return false, nil },
+			lookup: func(context.Context, []string) (*ReindexActivityHold, error) { return nil, nil },
 		},
 		{
 			// The lookup cannot say whether the hold is a teardown or a
 			// submission sweep, so the text must not claim either one.
 			name:         "a node-local reindex hold refuses the restore",
-			lookup:       func(context.Context, []string) (bool, error) { return false, nil },
+			lookup:       func(context.Context, []string) (*ReindexActivityHold, error) { return nil, nil },
 			cleanup:      func([]string) bool { return true },
 			wantRefusal:  true,
 			wantContains: "holding temporary index files on this node",
 			wantAbsent:   []string{"a cancelled migration is still removing"},
 		},
 		{
-			name:         "live task refuses the restore",
-			lookup:       func(context.Context, []string) (bool, error) { return true, nil },
+			name: "live task refuses the restore",
+			lookup: func(context.Context, []string) (*ReindexActivityHold, error) {
+				return &ReindexActivityHold{Collection: "Movies", TaskID: "t1"}, nil
+			},
 			wantRefusal:  true,
 			wantContains: "retry after the migration finishes",
 		},
 		{
 			name:         "lookup failure fails closed",
-			lookup:       func(context.Context, []string) (bool, error) { return false, lookupErr },
+			lookup:       func(context.Context, []string) (*ReindexActivityHold, error) { return nil, lookupErr },
 			wantRefusal:  true,
 			wantContains: "the cluster task manager could not be queried",
 			wantAbsent:   []string{"weaviate-1", "weaviate-2", "can not resolve nodes"},
@@ -138,8 +140,8 @@ func TestRefuseIfAnyReindexInFlight_PropagatesContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	db.SetAnyReindexActivityLookup(func(ctx context.Context, _ []string) (bool, error) {
-		return false, ctx.Err()
+	db.SetAnyReindexActivityLookup(func(ctx context.Context, _ []string) (*ReindexActivityHold, error) {
+		return nil, ctx.Err()
 	})
 
 	err := db.RefuseIfAnyReindexInFlight(ctx, nil)
@@ -615,19 +617,30 @@ func TestRefuseIfReindexOverlapped_Unwired(t *testing.T) {
 }
 
 // Both restore refusals point the operator at a cancel, so both have to render
-// a route they can actually call. Only a single-collection restore knows which
-// class that is.
+// a route they can actually call. The blocking task's own collection is used
+// whenever the caller's request listed it; only when it cannot be named does
+// the class fall back to a placeholder.
 func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
 	tests := []struct {
 		name        string
 		collections []string
+		// holding is the collection the blocking task names, empty for a task
+		// whose payload names none.
+		holding     string
 		cleanupHold bool
 		wantURL     string
+		// wantNamed, when set, must appear in the refusal text itself.
+		wantNamed string
+		// wantAbsent must not appear; it guards against naming a collection
+		// the caller never asked about.
+		wantAbsent string
 	}{
 		{
 			name:        "live task, one collection",
 			collections: []string{"Movies"},
+			holding:     "Movies",
 			wantURL:     "PUT /v1/schema/Movies/indexes/<prop>",
+			wantNamed:   "Movies",
 		},
 		{
 			name:        "teardown hold, one collection",
@@ -636,12 +649,24 @@ func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
 			wantURL:     "PUT /v1/schema/Movies/indexes/<prop>",
 		},
 		{
-			name:        "live task, no class list yet",
-			collections: nil,
-			wantURL:     "PUT /v1/schema/<class>/indexes/<prop>",
+			name:       "live task, no class list yet",
+			holding:    "Movies",
+			wantURL:    "PUT /v1/schema/<class>/indexes/<prop>",
+			wantAbsent: "Movies",
 		},
 		{
-			name:        "live task, several collections",
+			// The caller listed it and was authorized against that list, so
+			// naming it back discloses nothing new.
+			name:        "live task, several collections, the blocker is one of them",
+			collections: []string{"Movies", "Actors"},
+			holding:     "Actors",
+			wantURL:     "PUT /v1/schema/Actors/indexes/<prop>",
+			wantNamed:   "Actors",
+		},
+		{
+			// Only reachable for a task whose payload names no collection; it
+			// holds every gate, and there is nothing to name.
+			name:        "live task, several collections, the blocker names none",
 			collections: []string{"Movies", "Actors"},
 			wantURL:     "PUT /v1/schema/<class>/indexes/<prop>",
 		},
@@ -649,10 +674,13 @@ func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
+			logger, hook := logrustest.NewNullLogger()
 			db := &DB{logger: logger}
-			db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) {
-				return !tc.cleanupHold, nil
+			db.SetAnyReindexActivityLookup(func(context.Context, []string) (*ReindexActivityHold, error) {
+				if tc.cleanupHold {
+					return nil, nil
+				}
+				return &ReindexActivityHold{Collection: tc.holding, TaskID: "task-1"}, nil
 			})
 			db.SetAnyCleanupInProgressLookup(func([]string) bool { return tc.cleanupHold })
 
@@ -660,6 +688,22 @@ func TestRefuseIfAnyReindexInFlightRendersTheRemediationURL(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 			assert.Contains(t, err.Error(), tc.wantURL)
+			if tc.wantNamed != "" {
+				assert.Contains(t, err.Error(), tc.wantNamed,
+					"the refusal has to name the collection that is actually blocking")
+			}
+			if tc.wantAbsent != "" {
+				assert.NotContains(t, err.Error(), tc.wantAbsent,
+					"a collection the caller never asked about must not be disclosed")
+			}
+			if !tc.cleanupHold {
+				var named bool
+				for _, e := range hook.AllEntries() {
+					named = named || (e.Level == logrus.WarnLevel && e.Data["task_id"] == "task-1")
+				}
+				assert.True(t, named,
+					"the operator's only handle on the blocking task is a WARN naming its id")
+			}
 			// DTM refuses a cancel only for a task that already reached a
 			// terminal status, and such a task holds neither gate. Sending the
 			// operator to a cluster restart instead costs them the cluster.
@@ -737,7 +781,7 @@ func TestRefuseIfReindexOverlappedCollectionScope(t *testing.T) {
 func TestRefuseIfAnyReindexInFlightScopesTheCleanupCheckByCollection(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) { return false, nil })
+	db.SetAnyReindexActivityLookup(func(context.Context, []string) (*ReindexActivityHold, error) { return nil, nil })
 	db.SetAnyCleanupInProgressLookup(func(collections []string) bool {
 		for _, c := range collections {
 			if c == "Stuck" {
@@ -762,14 +806,17 @@ func TestRefuseIfAnyReindexInFlightScopesTheClusterCheckByCollection(t *testing.
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 	var asked [][]string
-	db.SetAnyReindexActivityLookup(func(_ context.Context, collections []string) (bool, error) {
+	db.SetAnyReindexActivityLookup(func(_ context.Context, collections []string) (*ReindexActivityHold, error) {
 		asked = append(asked, collections)
 		for _, c := range collections {
 			if c == "Logs" {
-				return true, nil
+				return &ReindexActivityHold{Collection: "Logs", TaskID: "t1"}, nil
 			}
 		}
-		return len(collections) == 0, nil
+		if len(collections) == 0 {
+			return &ReindexActivityHold{Collection: "Logs", TaskID: "t1"}, nil
+		}
+		return nil, nil
 	})
 
 	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Docs"}),

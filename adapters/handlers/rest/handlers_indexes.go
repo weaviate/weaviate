@@ -131,6 +131,9 @@ type indexesHandlers struct {
 	// package-level budget would leave every test after the first exhausted.
 	providerGateWarn gateWarnBudget
 	probeGateWarn    gateWarnBudget
+	// unsupportedProbeWarn is not a fail-open wiring gap but a rolling-upgrade
+	// one: every node answers "unsupported" until it is restarted.
+	unsupportedProbeWarn gateWarnBudget
 }
 
 // gateWarnBudget rate-limits one fail-open gate's WARN to a line per hour,
@@ -649,51 +652,58 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// the early-acquisition comment up top + [state.ReindexSubmitLocks]
 	// godoc for the multi-node caveat.
 
+	// Answered here rather than at the submit call below: without the cluster
+	// service the conflict checks cannot run at all, and a request that is
+	// certain to be refused must not first close the submit gate and let the
+	// pre-submit sweep delete on-disk state.
+	if h.tasks == nil {
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+			"cluster service unavailable; cannot submit reindex task"))
+	}
+
 	// Check for conflicting active tasks. Any two reindex migrations on
 	// the same (collection, property) tuple conflict; see typesConflict's
 	// godoc for the on-disk state race that motivated the rule.
-	if h.tasks != nil {
-		tasks, err := h.tasks.ListDistributedTasks(ctx)
-		if err != nil {
-			// A conflict that cannot be ruled out must be refused, not raced;
-			// the destructive sweep further down would otherwise delete a live
-			// task's on-disk state that this node couldn't see.
-			return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
-				fmt.Sprintf("reindex blocked: cannot list in-flight reindex tasks, so a conflicting "+
-					"migration cannot be ruled out; retry once the cluster answers: %v", err)))
-		}
-		reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
-		if checkErr != nil {
-			// An in-flight task has an unparseable payload — we cannot
-			// prove the new submit doesn't conflict with it, so refuse
-			// rather than race. Return 503 so the caller knows to retry
-			// after an operator inspects the in-flight task.
-			return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
-		}
-		if reason != "" {
-			return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
-		}
-		// Per-collection cap on concurrent STARTED reindex tasks. Without
-		// this a caller scripting `for p in $(properties); do PUT
-		// .../indexes/$p; done` against an N-property collection submits N
-		// independent RAFT tasks, each fanning out ingest+backup buckets
-		// on every replica. The LSM compaction layer and disk would not
-		// survive that. Reject with 429 once the cap is reached — the
-		// semantics ("retry later, you're over a concurrency limit") map
-		// exactly to RFC 6585's Too Many Requests, not to 503's "server
-		// is unavailable". Returning 503 here misled callers and
-		// monitoring into thinking the cluster was unhealthy rather than
-		// rate-limiting them.
-		if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-			return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
-		}
+	tasks, err := h.tasks.ListDistributedTasks(ctx)
+	if err != nil {
+		// A conflict that cannot be ruled out must be refused, not raced;
+		// the destructive sweep further down would otherwise delete a live
+		// task's on-disk state that this node couldn't see.
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+			fmt.Sprintf("reindex blocked: cannot list in-flight reindex tasks, so a conflicting "+
+				"migration cannot be ruled out; retry once the cluster answers: %v", err)))
+	}
+	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
+	if checkErr != nil {
+		// An in-flight task has an unparseable payload — we cannot
+		// prove the new submit doesn't conflict with it, so refuse
+		// rather than race. Return 503 so the caller knows to retry
+		// after an operator inspects the in-flight task.
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
+	}
+	if reason != "" {
+		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
+	}
+	// Per-collection cap on concurrent STARTED reindex tasks. Without
+	// this a caller scripting `for p in $(properties); do PUT
+	// .../indexes/$p; done` against an N-property collection submits N
+	// independent RAFT tasks, each fanning out ingest+backup buckets
+	// on every replica. The LSM compaction layer and disk would not
+	// survive that. Reject with 429 once the cap is reached — the
+	// semantics ("retry later, you're over a concurrency limit") map
+	// exactly to RFC 6585's Too Many Requests, not to 503's "server
+	// is unavailable". Returning 503 here misled callers and
+	// monitoring into thinking the cluster was unhealthy rather than
+	// rate-limiting them.
+	if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
 	}
 
 	// Refuse from this node's own slots before the gate below is taken, so a
 	// submission that is certain to be refused anyway cannot kill an
 	// already-running capture on this node. Cheap in-memory check; does not
 	// replace the fan-out probe, which also catches backups held elsewhere.
-	if responder := h.refuseOnLocalBackupActivity(principal); responder != nil {
+	if responder := h.refuseOnLocalBackupActivity(principal, collection, propertyName); responder != nil {
 		return responder
 	}
 
@@ -720,7 +730,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	if _, responder := h.probeBackupActivity(ctx, principal); responder != nil {
+	if _, responder := h.probeBackupActivity(ctx, principal, collection, propertyName); responder != nil {
 		return responder
 	}
 
@@ -767,12 +777,6 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// Unlike the conflict checks above, submitting requires the cluster service.
-	if h.tasks == nil {
-		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
-			"cluster service unavailable; cannot submit reindex task"))
-	}
-
 	// Semantic migrations opt into the two-phase RAFT PREP barrier;
 	// MT semantic migrations also group by tenant for per-tenant barriers.
 	if isMT && semantic {
@@ -795,7 +799,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Second probe, now that the task is committed: a backup that claimed its
 	// slot before this point saw nothing to refuse. From here on, whichever
 	// side committed second sees the other. We roll back; the backup can't.
-	scan, responder := h.probeBackupActivity(ctx, principal)
+	scan, responder := h.probeBackupActivity(ctx, principal, collection, propertyName)
 	if responder != nil {
 		// Only a positive report is evidence a backup claimed the slot.
 		// "Nobody answered" can just mean the client disconnected and killed
@@ -942,13 +946,15 @@ func (h *indexesHandlers) awaitOneOwnerCleanupGate(ctx context.Context, node, co
 	defer cancel()
 
 	for {
-		closed, err := h.reindexCleanup.CleanupInProgress(waitCtx, node, collection)
+		// True means the node has seen the cancel and is holding its cleanup
+		// gate shut, which is what this wait is confirming.
+		gateClosed, err := h.reindexCleanup.CleanupInProgress(waitCtx, node, collection)
 		if errors.Is(err, clients.ErrReindexCleanupUnsupported) {
 			// An older build cannot answer; waiting would burn the whole
 			// budget to learn nothing.
 			return "node does not serve the cleanup probe"
 		}
-		if err == nil && closed {
+		if err == nil && gateClosed {
 			return ""
 		}
 		select {
@@ -1110,7 +1116,9 @@ type backupActivityScan struct {
 
 // scanBackupActivity probes every node in parallel; results are indexed by
 // position so the reported node is deterministic regardless of answer order.
-func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivityProber, logger logrus.FieldLogger) backupActivityScan {
+func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivityProber,
+	logger logrus.FieldLogger, unsupported *gateWarnBudget,
+) backupActivityScan {
 	ctx, cancel := context.WithTimeout(ctx, backupActivityScanTimeout)
 	defer cancel()
 
@@ -1140,9 +1148,14 @@ func scanBackupActivity(ctx context.Context, nodes []string, prober nodeActivity
 	for i, res := range results {
 		switch {
 		case errors.Is(res.err, clients.ErrNodeActivityUnsupported):
-			logger.WithField("action", "reindex_backup_gate").WithField("node", nodes[i]).
-				Warn("node does not serve the backup activity probe; treating it as free of backups. " +
-					"Expected while a rolling upgrade is in progress.")
+			// Budgeted like the other fail-open gate WARNs: during a rolling
+			// upgrade every node answers this way on every submission.
+			node := nodes[i]
+			unsupported.sample(logger).WithSampling(func(l logrus.FieldLogger) {
+				l.WithField("action", "reindex_backup_gate").WithField("node", node).
+					Warn("node does not serve the backup activity probe; treating it as free of backups. " +
+						"Expected while a rolling upgrade is in progress.")
+			})
 		case res.err != nil:
 			if scan.UnreachableNode == "" {
 				scan.UnreachableNode = nodes[i]
@@ -1197,7 +1210,9 @@ func backupBusyResponder(principal *models.Principal, activity backup.NodeActivi
 // this node's own slots already settle the question. Only this node is visible
 // to it, so it is a pre-check and not a replacement: it exists so the caller is
 // turned away before the submit gate closes the backup gate on the collection.
-func (h *indexesHandlers) refuseOnLocalBackupActivity(principal *models.Principal) middleware.Responder {
+func (h *indexesHandlers) refuseOnLocalBackupActivity(principal *models.Principal,
+	collection, propertyName string,
+) middleware.Responder {
 	if h.localBackupActivity == nil {
 		return nil
 	}
@@ -1206,9 +1221,12 @@ func (h *indexesHandlers) refuseOnLocalBackupActivity(principal *models.Principa
 		return nil
 	}
 
-	h.appState.Logger.WithField("action", "reindex_backup_gate").
-		WithField("backup_id", activity.ID).
-		Infof("refusing reindex submission before the submit gate: this node is running a %s", activity.Kind)
+	h.appState.Logger.WithFields(logrus.Fields{
+		"action":     "reindex_backup_gate",
+		"backup_id":  activity.ID,
+		"collection": collection,
+		"property":   propertyName,
+	}).Infof("refusing reindex submission before the submit gate: this node is running a %s", activity.Kind)
 
 	return backupBusyResponder(principal, activity)
 }
@@ -1217,7 +1235,9 @@ func (h *indexesHandlers) refuseOnLocalBackupActivity(principal *models.Principa
 // or restore slot, mirroring backups refusing to start under a running reindex.
 // It returns the scan as well as the refusal, for the post-commit caller that
 // must tell a definite "busy" apart from "nobody answered".
-func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *models.Principal) (backupActivityScan, middleware.Responder) {
+func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *models.Principal,
+	collection, propertyName string,
+) (backupActivityScan, middleware.Responder) {
 	var nodes []string
 	if h.cluster != nil {
 		nodes = h.cluster.AllNames()
@@ -1233,10 +1253,14 @@ func (h *indexesHandlers) probeBackupActivity(ctx context.Context, principal *mo
 	}
 
 	// A node that left the cluster isn't probed; its slots died with its process.
-	scan := scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger)
+	scan := scanBackupActivity(ctx, nodes, h.backupActivity, h.appState.Logger, &h.unsupportedProbeWarn)
 
 	// Detail withheld from the response body (see backupActivityResponder) goes here.
-	entry := h.appState.Logger.WithField("action", "reindex_backup_gate")
+	entry := h.appState.Logger.WithFields(logrus.Fields{
+		"action":     "reindex_backup_gate",
+		"collection": collection,
+		"property":   propertyName,
+	})
 	switch {
 	case scan.BusyNode != "":
 		entry.WithField("node", scan.BusyNode).WithField("backup_id", scan.Activity.ID).
@@ -1295,7 +1319,15 @@ const auditEventCancelAuthorizerUnavailable = "reindex_task_cancel_unattributabl
 // Every non-terminal status counts, so cancel stays available for the whole
 // window the conflict guards block on. Tasks whose payload will not decode
 // are skipped here; the caller's unreadable-payload pass handles them.
-func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload, bool) {
+//
+// unknownType carries a live task on this collection and property whose
+// migration type this build cannot map to index types (a newer node submitted
+// it). It matches no index type, so it can neither be cancelled nor ruled out
+// here, and the caller must say so rather than answer NO_OP.
+func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string) (
+	target *distributedtask.Task, targetPayload db.ReindexTaskPayload, found bool,
+	unknownType *distributedtask.Task,
+) {
 	for _, task := range tasks {
 		if task.Status.IsTerminal() {
 			continue
@@ -1310,12 +1342,34 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if !slices.Contains(payload.Properties, propertyName) {
 			continue
 		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+		matches, isKnown := migrationTypeTargetsIndex(payload.MigrationType, indexType)
+		if !matches {
+			if !isKnown && unknownType == nil {
+				unknownType = task
+			}
 			continue
 		}
-		return task, payload, true
+		return task, payload, true, unknownType
 	}
-	return nil, db.ReindexTaskPayload{}, false
+	return nil, db.ReindexTaskPayload{}, false, unknownType
+}
+
+// reindexUnknownTypeCancelResponder answers the cancel this node cannot
+// decide: a live task on the caller's property carries a migration type
+// missing from [db.ReindexTargetIndexes], so this build cannot say which
+// indexes it writes and therefore cannot say whether the caller's index type
+// is one of them. Unlike the submit-side conflict, routing helps here — the
+// match runs in this handler on the receiving node, not in the FSM — so the
+// advice names the other node.
+func reindexUnknownTypeCancelResponder(principal *models.Principal,
+	collection, propertyName string, migrationType db.ReindexMigrationType,
+) middleware.Responder {
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, fmt.Sprintf(
+		"cancel refused: collection %q property %q has a live migration of type %q, which this node's build "+
+			"does not recognize (most likely submitted by a newer node), so it cannot tell whether your cancel "+
+			"targets it. Send the same request to a node whose build knows the type, or wait for the migration "+
+			"to finish. Until then it keeps refusing backups and restores of this collection.",
+		collection, propertyName, migrationType)))
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting
@@ -1356,7 +1410,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	var unattributable bool
 	// Set only by the strict pass. False means the property, index type and
 	// owning nodes below are the URL's guess, not the task's own.
-	target, targetPayload, payloadReadable := findCancelTarget(
+	target, targetPayload, payloadReadable, unknownTypeTask := findCancelTarget(
 		tasks[db.ReindexNamespace], collection, propertyName, indexType)
 
 	if target == nil {
@@ -1465,6 +1519,23 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				unattributable = true
 			}
 		}
+	}
+
+	if target == nil && unknownTypeTask != nil {
+		// Answered before the NO_OP below: "nothing to cancel" would be a lie
+		// while this task holds the backup and restore gate on the collection.
+		unknownPayload, _, _ := db.DecodeReindexTaskPayload(unknownTypeTask.Payload)
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event":    "reindex_task_cancel_unknown_migration_type",
+			"taskID":         unknownTypeTask.ID,
+			"collection":     collection,
+			"property":       propertyName,
+			"index_type":     indexType,
+			"migration_type": unknownPayload.MigrationType,
+			"principal":      principalUsername(principal),
+		}).Warn("cancel: a live task on this property has a migration type this build does not recognize, " +
+			"so this node cannot tell whether the cancel targets it; refusing rather than answering NO_OP")
+		return reindexUnknownTypeCancelResponder(principal, collection, propertyName, unknownPayload.MigrationType)
 	}
 
 	if target == nil {
@@ -2145,6 +2216,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // payload will not decode names this collection, and reports whether it did.
 // Every index of the collection carries it, matching the backup gate, which
 // blocks the whole collection for the same reason.
+//
+// The reason does not reach the caller: models.IndexStatus has no message
+// field, and widening the response schema for a state only an operator can
+// resolve is not worth it. The taskID and the decode error are logged instead
+// (see the unreadable-payload arms in the cancel handler).
 func markUnreadablePayload(idx *models.IndexStatus, collection string, parsedTasks []parsedReindexTask) bool {
 	for _, pt := range parsedTasks {
 		if pt.unreadable && strings.EqualFold(pt.payload.Collection, collection) {
@@ -2305,8 +2381,9 @@ const maxConcurrentReindexPerCollection = 32
 // the service went unhealthy).
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
 	body := errorResponse(principal, fmt.Sprintf(
-		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
-		collection, inflight, capLimit))
+		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another "+
+			"(poll GET /v1/schema/%s/indexes to see them)",
+		collection, inflight, capLimit, collection))
 	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		if err := producer.Produce(w, body); err != nil {

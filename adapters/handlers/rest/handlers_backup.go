@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type backupHandlers struct {
@@ -187,11 +188,14 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 
 	strStatus := string(status.Status)
 	payload := models.BackupCreateStatusResponse{
-		Status:      &strStatus,
-		ID:          params.ID,
-		Path:        status.Path,
-		Backend:     params.Backend,
-		Error:       status.Err,
+		Status:  &strStatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
+		// The sync refusal path strips the caller's own namespace prefix from
+		// error text; this async one has to do it too, or a namespaced
+		// principal is handed remediation URLs its own API rejects.
+		Error:       namespacing.StripErrorMessage(principal, status.Err),
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
 		Size:        status.Size,
@@ -292,7 +296,8 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		ID:      params.ID,
 		Path:    status.Path,
 		Backend: params.Backend,
-		Error:   status.Err,
+		// Same reason as the create-status path above.
+		Error: namespacing.StripErrorMessage(principal, status.Err),
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)

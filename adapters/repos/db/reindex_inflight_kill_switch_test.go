@@ -82,9 +82,9 @@ func TestRefuseIfAnyReindexInFlight_RuntimeReindexDisabled(t *testing.T) {
 			var lookups, cleanups atomic.Int64
 			logger, _ := logrustest.NewNullLogger()
 			db := &DB{logger: logger, config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetAnyReindexActivityLookup(func(context.Context, []string) (bool, error) {
+			db.SetAnyReindexActivityLookup(func(context.Context, []string) (*ReindexActivityHold, error) {
 				lookups.Add(1)
-				return true, nil
+				return &ReindexActivityHold{Collection: "MyClass", TaskID: "t1"}, nil
 			})
 			db.SetAnyCleanupInProgressLookup(func([]string) bool {
 				cleanups.Add(1)

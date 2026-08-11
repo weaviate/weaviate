@@ -271,9 +271,14 @@ func TestAnyReindexActivityLookupScopesByCollection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			live, err := lookup(context.Background(), tt.collections)
+			hold, err := lookup(context.Background(), tt.collections)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantLive, live)
+			assert.Equal(t, tt.wantLive, hold != nil)
+			if tt.wantLive {
+				assert.Equal(t, "Logs", hold.Collection,
+					"the refusal names the blocking collection, so the lookup has to report it")
+				assert.Equal(t, "t1", hold.TaskID)
+			}
 		})
 	}
 }
@@ -312,13 +317,15 @@ func TestAnyReindexActivityLookupScopesUndecodablePayloads(t *testing.T) {
 				}, logger)
 
 			for collection, want := range tc.probes {
-				live, err := lookup(context.Background(), []string{collection})
+				hold, err := lookup(context.Background(), []string{collection})
 				require.NoError(t, err)
-				assert.Equalf(t, want, live, "restore of %q", collection)
+				assert.Equalf(t, want, hold != nil, "restore of %q", collection)
 			}
-			live, err := lookup(context.Background(), nil)
+			hold, err := lookup(context.Background(), nil)
 			require.NoError(t, err)
-			assert.True(t, live, "a restore with no class list yet must still be refused")
+			require.NotNil(t, hold, "a restore with no class list yet must still be refused")
+			assert.Equal(t, "t1", hold.TaskID,
+				"the task id is the operator's only handle on a payload that will not decode")
 			require.NotEmpty(t, hook.AllEntries(),
 				"the operator has to be told which restores are being refused and why")
 		})
@@ -334,7 +341,7 @@ func TestAnyReindexActivityLookupFailsOnUnreachableDTM(t *testing.T) {
 			return nil, errors.New("raft: not leader")
 		}, logger)
 
-	live, err := lookup(context.Background(), []string{"Docs"})
+	hold, err := lookup(context.Background(), []string{"Docs"})
 	require.Error(t, err)
-	assert.False(t, live, "the refusal must come from the error, not from a made-up live task")
+	assert.Nil(t, hold, "the refusal must come from the error, not from a made-up live task")
 }

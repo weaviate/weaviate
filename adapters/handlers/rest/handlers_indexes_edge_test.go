@@ -876,7 +876,7 @@ func TestFindCancelTarget_MatchesEveryNonTerminalStatus(t *testing.T) {
 		t.Run(string(tc.status), func(t *testing.T) {
 			task := buildTask(t, "T1", tc.status, payload, nil)
 
-			target, gotPayload, found := findCancelTarget(
+			target, gotPayload, found, _ := findCancelTarget(
 				[]*distributedtask.Task{task}, "C", "foo", "filterable")
 
 			require.Equal(t, tc.want, found,

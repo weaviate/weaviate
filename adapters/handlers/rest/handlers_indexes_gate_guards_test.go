@@ -167,7 +167,7 @@ func TestScanBackupActivityVerdicts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 
-			scan := scanBackupActivity(context.Background(), nodes, tc.prober, logger)
+			scan := scanBackupActivity(context.Background(), nodes, tc.prober, logger, &gateWarnBudget{})
 
 			require.Equal(t, tc.wantBusy, scan.BusyNode)
 			require.Equal(t, tc.wantUnreachable, scan.UnreachableNode)

@@ -73,8 +73,9 @@ func TestUpdateIndexWithoutClusterServiceIsUnavailable(t *testing.T) {
 
 	prober.mu.Lock()
 	defer prober.mu.Unlock()
-	require.Equal(t, 1, prober.calls,
-		"the pre-commit gate runs before the task service is needed; only it can have probed")
+	require.Zero(t, prober.calls,
+		"a submission that cannot succeed must be turned away before it fans out a probe, "+
+			"closes the submit gate, and lets the pre-submit sweep delete on-disk state")
 }
 
 // Cluster membership is nil before a node joins. There is no one to probe then,

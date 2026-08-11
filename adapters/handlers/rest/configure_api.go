@@ -1185,10 +1185,10 @@ func newAnyReindexActivityLookup(
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error),
 	logger logrus.FieldLogger,
 ) db.AnyReindexActivityLookup {
-	return func(ctx context.Context, collections []string) (bool, error) {
+	return func(ctx context.Context, collections []string) (*db.ReindexActivityHold, error) {
 		tasksByNamespace, err := listTasks(ctx)
 		if err != nil {
-			return false, fmt.Errorf("ListDistributedTasks: %w", err)
+			return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 		}
 		wanted := make(map[string]bool, len(collections))
 		for _, c := range collections {
@@ -1203,7 +1203,7 @@ func newAnyReindexActivityLookup(
 				logger.WithField("action", "restore_reindex_gate").
 					WithField("task_id", task.ID).
 					Warnf("restore-reindex gate: cannot read task payload and it names no collection; refusing all restores until it is readable or evicted: %v", decodeErr)
-				return true, nil
+				return &db.ReindexActivityHold{TaskID: task.ID}, nil
 			}
 			if len(wanted) > 0 && !wanted[strings.ToLower(collection)] {
 				continue
@@ -1214,9 +1214,9 @@ func newAnyReindexActivityLookup(
 					WithField("collection", collection).
 					Warnf("restore-reindex gate: cannot read task payload; refusing restores of this collection until it is readable or evicted: %v", decodeErr)
 			}
-			return true, nil
+			return &db.ReindexActivityHold{Collection: collection, TaskID: task.ID}, nil
 		}
-		return false, nil
+		return nil, nil
 	}
 }
 
