@@ -178,6 +178,33 @@ func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
+// DeleteClassFromDB is the store half of a DELETE_CLASS.
+func (s *SchemaManager) DeleteClassFromDB(class string) error {
+	if s.replicationFSM == nil {
+		return fmt.Errorf("replication deleter is not set, this should never happen")
+	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		// Logged, not returned: a stuck replication op must not block the
+		// delete.
+		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+	return s.db.DeleteClass(class, s.HasFrozenTenants(class))
+}
+
+// HasFrozenTenants reports whether the class has tenants on cloud storage, which
+func (s *SchemaManager) HasFrozenTenants(class string) bool {
+	tenants, err := s.schema.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return NewSchemaReader(
 		s.schema,
@@ -626,20 +653,6 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	var hasFrozen bool
-	tenants, err := s.schema.getTenants(cmd.Class, nil)
-	if err != nil {
-		hasFrozen = false
-	}
-
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			hasFrozen = true
-			break
-		}
-	}
-
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -654,13 +667,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
-				}
-				return s.db.DeleteClass(cmd.Class, hasFrozen)
+				return s.DeleteClassFromDB(cmd.Class)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
