@@ -1600,8 +1600,21 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// evidence rather than being trusted mid-write.
 				drained := p.autoCleanupAfterTerminal(task, payload, logger)
 				if !IsSemanticMigration(payload.MigrationType) {
-					// Positive allowlist: an unknown type lands here too, so
-					// abstain rather than claim a schema-flip consequence.
+					// No repair guidance for a format-only cancel. Not
+					// because none of them touch the schema —
+					// enable-rangeable sets indexRangeFilters as its first
+					// shard commits — but because the shards that never
+					// built a rangeable bucket keep answering range filters
+					// off the filterable walk
+					// ([Shard.IsRangeableLocallyReady]), so the half-applied
+					// state is slow rather than wrong, and the gate remedy
+					// already names the re-submit that finishes it. Nothing
+					// here matches the bucket↔schema inversion the guidance
+					// exists for.
+					//
+					// IsSemanticMigration is a positive allowlist, so an
+					// unknown type lands here too and abstains rather than
+					// claiming a consequence this build cannot name.
 					break
 				}
 				if len(task.PostCompletionAcks) > 0 ||

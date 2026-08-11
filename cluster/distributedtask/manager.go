@@ -451,9 +451,15 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// to SWAPPING and run the schema flip on a half-failed migration.
 			task.Status = TaskStatusFailed
 			// Name a reason: FAILED with an empty Error leaves the operator
-			// nothing to act on. Error is version-dependent (older nodes may
-			// leave it empty), but readers only append/set this field, never
-			// branch a status on it — so divergence across nodes is safe.
+			// nothing to act on.
+			//
+			// Accepted cross-version cost: an older peer replaying this same
+			// entry leaves Error empty, so during a rolling upgrade GET
+			// /v1/tasks answers differently depending on which node serves
+			// it. The status transition is identical on both binaries, no
+			// production code outside serialization reads Task.Error, and the
+			// field is snapshot-serialized, so a leader snapshot install
+			// converges it. A version gate would buy nothing but delay.
 			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {

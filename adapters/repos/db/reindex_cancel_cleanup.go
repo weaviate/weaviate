@@ -92,10 +92,16 @@ func (db *DB) cleanStalePartialReindexState(
 // [FinalizeCompletedMigrations] would promote on next restart. Read-only;
 // works on unloaded shards too.
 //
-// Over-approximates on purpose (any matching generation and any unreadable
-// dir count as promotable). Fails open when there's no local index to
-// promote into, or when it's closing ([Index.HasPromotableReindexState]
-// walks no shards then); every other case fails closed to true.
+// Over-approximates on purpose: any matching generation and any unreadable
+// dir count as promotable, so every shard it looks at fails closed to true.
+//
+// Three cases fail open instead, and answer false while promotable state
+// exists: no local index to promote into, an index that is closing (then
+// [Index.HasPromotableReindexState] walks no shards), and a deactivated
+// (COLD) tenant, which Migrator.UpdateTenants removes from the shard map so
+// no walk can reach the merged generation it still holds on disk. That last
+// one is why [ReindexProvider.CheckTenantMutation] refuses the deactivation
+// while the migration is in flight in the first place.
 func (db *DB) HasPromotableReindexState(collection, propName, indexType string) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {

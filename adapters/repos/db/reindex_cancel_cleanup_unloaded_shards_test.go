@@ -927,8 +927,12 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 				}
 			}()
 
+			// Registered but not loaded, which is what a cold tenant looks
+			// like while it stays in the shard map. A DEACTIVATED tenant is
+			// removed from that map and is invisible to this predicate — see
+			// [DB.HasPromotableReindexState] for why that is fail-open.
 			assert.Equal(t, tc.want, idx.HasPromotableReindexState(propName, indexType),
-				"the only shard carrying the state is not loaded")
+				"the only shard carrying the state is registered but not loaded")
 			assert.False(t, cold.isLoaded(),
 				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
 		})
