@@ -291,7 +291,8 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 // because its Error field is a slice of pointers that renders as
 // "&{Error:[0xc000acd5a0]}" -- the address, not the reason the server rejected
 // the request. Use it in assertion messages so a failure is diagnosable from
-// the test log alone.
+// the test log alone. When there is no message to add it returns err.Error()
+// unchanged, so the output never ends in a bare separator.
 func ErrorDetail(err error) string {
 	if err == nil {
 		return "<nil>"
@@ -306,7 +307,7 @@ func ErrorDetail(err error) string {
 	}
 	msgs := make([]string, 0, len(payload.Error))
 	for _, item := range payload.Error {
-		if item != nil {
+		if item != nil && item.Message != "" {
 			msgs = append(msgs, item.Message)
 		}
 	}

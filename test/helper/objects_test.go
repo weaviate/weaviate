@@ -34,9 +34,11 @@ func TestErrorDetail(t *testing.T) {
 	nilPayload := &objects.ObjectsCreateInternalServerError{}
 	noItems := carrier()
 	onlyNilItems := carrier(nil, nil)
+	onlyEmptyItems := carrier(item(""), item(""))
 	single := carrier(item("import into non-existing index for AutoCreated"))
 	multiple := carrier(item("first"), item("second"))
 	nilAmongItems := carrier(nil, item("second"), nil)
+	emptyAmongItems := carrier(item(""), item("second"), item(""))
 	wrapped := fmt.Errorf("put object: %w", single)
 
 	tests := []struct {
@@ -70,6 +72,11 @@ func TestErrorDetail(t *testing.T) {
 			want: onlyNilItems.Error(),
 		},
 		{
+			name: "carrier whose items all carry an empty message falls back to the error string",
+			err:  onlyEmptyItems,
+			want: onlyEmptyItems.Error(),
+		},
+		{
 			name: "single server message is appended",
 			err:  single,
 			want: single.Error() + ": import into non-existing index for AutoCreated",
@@ -83,6 +90,11 @@ func TestErrorDetail(t *testing.T) {
 			name: "nil items are skipped, real ones kept",
 			err:  nilAmongItems,
 			want: nilAmongItems.Error() + ": second",
+		},
+		{
+			name: "empty messages are skipped, real ones kept",
+			err:  emptyAmongItems,
+			want: emptyAmongItems.Error() + ": second",
 		},
 		{
 			name: "carrier reached through a wrapped error",

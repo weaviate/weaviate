@@ -136,7 +136,12 @@ func TestMain(m *testing.M) {
 		cancelDump()
 	}
 
-	if err := sharedCompose.Terminate(ctx); err != nil {
+	// Teardown gets its own context for the same reason. Terminate passes it to
+	// docker; on an expired one it fails and the panic below replaces the test
+	// failure the run was about.
+	termCtx, cancelTerm := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancelTerm()
+	if err := sharedCompose.Terminate(termCtx); err != nil {
 		panic(errors.Wrap(err, "failed to terminate shared compose"))
 	}
 	os.Exit(code)
