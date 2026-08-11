@@ -980,9 +980,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"this build does not know that status",
 		"read the task on a node that knows the status",
 	}
-	// The two data-dropping gates get told to cancel and retry instead of
-	// being handed a follow-up call that would 404 once the collection or
-	// the tenants are gone.
+	// Data-dropping gates get told to cancel and retry, not a follow-up
+	// call that would 404 once the collection/tenants are gone.
 	noFollowUp := []string{
 		"re-submit it via",
 		"re-running the migration",
@@ -1013,9 +1012,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		payload   []byte
 		want      []string
 		notWant   []string
-		// wantDropping / notWantDropping replace want / notWant on the gates
-		// whose caller destroys the data (delete class, tenant mutation).
-		// Nil means the remedy does not depend on that.
+		// wantDropping / notWantDropping replace want / notWant on data-dropping
+		// gates; nil means the remedy doesn't depend on that.
 		wantDropping    []string
 		notWantDropping []string
 	}{
@@ -1124,8 +1122,8 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 type schemaMutationGate struct {
 	name string
 	call func(className string, tasks []*distributedtask.Task) error
-	// dropsTheData marks the gates whose caller destroys the shards the
-	// migration works on, which changes the remedy they render.
+	// dropsTheData marks gates whose caller destroys the shards the
+	// migration works on, changing the remedy rendered.
 	dropsTheData bool
 }
 
@@ -1296,9 +1294,8 @@ func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 			out = append(out, ReindexMigrationType(m[1]))
 		}
 	}
-	// Each known value asserted by name, not just counted: a regex that
-	// stopped matching one constant and started matching a new one would
-	// keep the count at 9 while covering the wrong set.
+	// Assert each known value by name: a regex that swapped which
+	// constants it matches would still pass a count-only check.
 	for _, known := range []ReindexMigrationType{
 		ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
 		ReindexTypeRebuildSearchable, ReindexTypeEnableFilterable,
