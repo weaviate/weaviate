@@ -18,11 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shortView returns a buffer of n readable bytes backed by a much larger array.
-// This is the shape the checked readers exist for: the unchecked ones slice as
-// Buffer[Position:Position+n], which Go bounds against capacity, so an overrun
-// that stays inside the backing array returns the following bytes instead of
-// panicking.
+// shortView returns a buffer of n readable bytes backed by a much larger array —
+// the shape the checked readers exist for, where an overrun that stays inside the
+// backing array returns the following bytes instead of panicking.
 func shortView(n int) []byte {
 	backing := make([]byte, n+1024)
 	for i := range backing {
@@ -82,9 +80,8 @@ func TestCheckedReadsRejectOverrun(t *testing.T) {
 }
 
 // TestZeroLengthReadsRespectCursor pins the one case a Remaining()-only bound
-// misses: Remaining() saturates at 0, so a zero-length read past the end looks
-// satisfiable and then slices at the invalid position. A checked reader must
-// report, never panic, whatever the cursor holds.
+// misses: it saturates at 0, so a zero-length read past the end looks satisfiable
+// and then slices at the invalid position.
 func TestZeroLengthReadsRespectCursor(t *testing.T) {
 	zeroLengthReads := []struct {
 		name string

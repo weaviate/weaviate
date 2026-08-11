@@ -132,16 +132,15 @@ func (bo *ReadWriter) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
 // ErrBufferOverrun signals that a length or offset decoded out of a buffer runs
 // past that buffer's end.
 //
-// The unchecked readers above slice as Buffer[Position : Position+n], and Go
-// bounds a two-index slice against capacity rather than length. Buffers here are
-// routinely subslices of a larger allocation — an mmapped segment, a pooled
-// read buffer — so an overrun that stays within capacity does not panic: it
-// yields whatever bytes follow the value. Any decoder whose lengths come from
-// the data it is decoding must use the checked readers.
+// The unchecked readers above slice as Buffer[Position : Position+n], which Go
+// bounds against capacity rather than length. A buffer here is routinely a
+// subslice of a larger allocation — an mmapped segment, a pooled read buffer —
+// so an overrun that stays within capacity does not panic: it yields whatever
+// bytes follow the value. Any decoder whose lengths come from the data it is
+// decoding must use the checked readers.
 var ErrBufferOverrun = errors.New("read exceeds buffer")
 
-// Remaining reports the number of readable bytes left after Position, and 0 once
-// Position has run past the end of the buffer.
+// Remaining saturates at 0 once Position has run past the end of the buffer.
 func (bo *ReadWriter) Remaining() uint64 {
 	length := uint64(len(bo.Buffer))
 	if bo.Position >= length {
@@ -151,10 +150,10 @@ func (bo *ReadWriter) Remaining() uint64 {
 }
 
 func (bo *ReadWriter) checkRead(length uint64) error {
-	// a cursor already past the end has to be rejected on its own: Remaining()
-	// saturates at 0, which a zero-length read would otherwise satisfy before
-	// slicing at the invalid position. Position == len(Buffer) is the legitimate
-	// end-of-value cursor and still admits a zero-length read.
+	// the cursor needs its own test because Remaining() saturates: past the end
+	// it reports 0, which a zero-length read would satisfy before slicing at the
+	// invalid position. Position == len(Buffer) is the legitimate end-of-value
+	// cursor and still admits a zero-length read.
 	if bo.Position > uint64(len(bo.Buffer)) || length > bo.Remaining() {
 		return fmt.Errorf("%w: %d bytes at offset %d of a %d byte buffer",
 			ErrBufferOverrun, length, bo.Position, len(bo.Buffer))
@@ -220,8 +219,8 @@ func (bo *ReadWriter) ReadBytesFromBufferWithUint64LengthIndicatorChecked() ([]b
 	return bo.ReadBytesFromBufferChecked(length)
 }
 
-// SkipChecked is MoveBufferPositionForward bounded by the end of the buffer, so
-// that a length read out of the data cannot park the cursor past it.
+// SkipChecked bounds MoveBufferPositionForward, so a length read out of the data
+// cannot park the cursor past the buffer.
 func (bo *ReadWriter) SkipChecked(length uint64) error {
 	if err := bo.checkRead(length); err != nil {
 		return err
@@ -230,9 +229,8 @@ func (bo *ReadWriter) SkipChecked(length uint64) error {
 	return nil
 }
 
-// SeekChecked is MoveBufferToAbsolutePosition bounded by the end of the buffer.
-// Seeking to exactly len(Buffer) is allowed: that is the end-of-value position
-// every sequential decoder finishes at.
+// SeekChecked bounds MoveBufferToAbsolutePosition. Seeking to exactly
+// len(Buffer) is allowed: every sequential decoder finishes there.
 func (bo *ReadWriter) SeekChecked(pos uint64) error {
 	if pos > uint64(len(bo.Buffer)) {
 		return fmt.Errorf("%w: offset %d of a %d byte buffer", ErrBufferOverrun, pos, len(bo.Buffer))

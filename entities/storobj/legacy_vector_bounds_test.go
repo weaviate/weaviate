@@ -44,10 +44,8 @@ func legacyVectorTestObject(docID uint64, vec []float32) *Object {
 }
 
 // TestLegacyVectorRoundTrip covers the dimension counts that straddle the uint16
-// scaling boundary: the on-disk length field is a uint16 and the writer permits up to
-// maxVectorLength (65535) dims, so scaling it to bytes without widening first wraps
-// from 16384 dims upwards — 16384 wraps to zero (all-zero vector), higher counts wrap
-// to a partial length (silently truncated vector), both without an error.
+// scaling boundary: unwidened, 16384 dims scale to zero bytes and higher counts to
+// a partial length, so the vector comes back empty or truncated without an error.
 func TestLegacyVectorRoundTrip(t *testing.T) {
 	dimsList := []int{1, 1000, 16383, 16384, 20000, 65535}
 
@@ -74,11 +72,10 @@ func TestLegacyVectorRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMultiVectorFromBinaryPastOversizedLegacyVector pins the same overflow in
-// MultiVectorFromBinary, which uses the legacy vector's end offset as the start
-// of a pos-cursor walk (classNameLength, schemaLength, ...) to reach the
-// multivector segment. A wrong vecEnd misaligns that whole walk, not just the
-// legacy vector itself.
+// TestMultiVectorFromBinaryPastOversizedLegacyVector pins the same widening in
+// skipToVectorSections, which skips the legacy vector to reach the sections
+// behind it. A wrong vector length misaligns every field after it, not just the
+// vector.
 func TestMultiVectorFromBinaryPastOversizedLegacyVector(t *testing.T) {
 	dimsList := []int{16383, 16384, 20000, 65535}
 	multiVec := [][]float32{{1, 2, 3}, {4, 5, 6}}
@@ -92,9 +89,8 @@ func TestMultiVectorFromBinaryPastOversizedLegacyVector(t *testing.T) {
 			data, err := obj.MarshalBinary()
 			require.NoError(t, err)
 
-			// Assert the multivector decode independently of VectorFromBinary (already
-			// pinned in TestLegacyVectorRoundTrip) so a wrong pos-cursor walk here isn't
-			// masked by the legacy vector's own bounds bug.
+			// asserted independently of VectorFromBinary, which walks to the sections
+			// by a different route
 			gotMV, err := MultiVectorFromBinary(data, "mv")
 			require.NoError(t, err)
 			require.Equal(t, multiVec, gotMV)
@@ -102,11 +98,10 @@ func TestMultiVectorFromBinaryPastOversizedLegacyVector(t *testing.T) {
 	}
 }
 
-// truncatedView returns data cut to n bytes but backed by a larger array whose
-// tail holds a 0xAA sentinel. A value handed back by an mmapped LSM segment has
-// capacity well past its length, and Go bounds a two-index slice against
-// capacity, so an unchecked read past the value's end yields the sentinel —
-// standing in here for a neighbouring object's bytes — rather than panicking.
+// truncatedView cuts data to n bytes but backs it with a larger array whose tail
+// holds a 0xAA sentinel, the way an mmapped LSM segment hands back a value with
+// capacity past its length. An unchecked read then yields the sentinel — standing
+// in for a neighbouring object's bytes — rather than panicking.
 func truncatedView(data []byte, n int) []byte {
 	backing := make([]byte, len(data)+70_000)
 	copy(backing, data[:n])
@@ -117,9 +112,8 @@ func truncatedView(data []byte, n int) []byte {
 }
 
 // TestTruncatedObjectDecodersError runs every decoder that reads a vector out of
-// an object value over the same truncation matrix. Each entry point reaches the
-// vector sections by its own walk over the length-prefixed fields, so each needs
-// its own coverage: a bound on one of them says nothing about the others.
+// an object value over one truncation matrix. Each reaches the vector sections by
+// its own walk, so a bound on one says nothing about the others.
 func TestTruncatedObjectDecodersError(t *testing.T) {
 	const (
 		dims      = 500
@@ -203,9 +197,7 @@ func TestTruncatedObjectDecodersError(t *testing.T) {
 
 // TestZeroLengthNamedVectorDecodesNonNil pins readVectorInto: a nil buffer must
 // allocate even for a zero-length vector, because nil[:0] is nil and a caller
-// holding the result in a map would see an absent vector rather than an
-// explicitly empty one. The single-vector path takes the nil buffer, so it has
-// to be exercised directly — the full-object decode never reaches it.
+// holding the result in a map would see an absent vector rather than an empty one.
 func TestZeroLengthNamedVectorDecodesNonNil(t *testing.T) {
 	obj := legacyVectorTestObject(1, nil)
 	obj.Vectors = map[string][]float32{

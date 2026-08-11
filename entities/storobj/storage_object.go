@@ -223,8 +223,8 @@ func fromBinaryOptionalInternal(data []byte, className string,
 		return nil, errors.Errorf("unsupported binary marshaller version %d", ko.MarshallerVersion)
 	}
 
-	// the fixed-width header is read unchecked below; everything after it is
-	// length-prefixed by the data itself and goes through the checked readers
+	// only the fixed-width header may be read unchecked; every length past it
+	// comes from the data itself
 	if len(data) < marshallerV1HeaderLen {
 		return nil, errors.Errorf("object of %d bytes is too short to hold a header", len(data))
 	}
@@ -1427,8 +1427,8 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 	}
 	ko.MarshallerVersion = version
 
-	// the fixed-width header is read unchecked below; everything after it is
-	// length-prefixed by the data itself and goes through the checked readers
+	// only the fixed-width header may be read unchecked; every length past it
+	// comes from the data itself
 	if len(data) < marshallerV1HeaderLen {
 		return errors.Errorf("object of %d bytes is too short to hold a header", len(data))
 	}
@@ -1533,22 +1533,19 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 // sections: a msgpack name->offset map, then a run of vectors whose declared
 // length delimits the section. Offsets are relative to start.
 //
-// Reads inside a section are bounded by end rather than by the buffer. That is
-// the tighter limit and the only one that distinguishes a corrupt offset from a
-// vector that legitimately runs up to the end of the value.
+// Reads are bounded by end, not by the buffer. It is the tighter limit, and the
+// only one that tells a corrupt offset apart from a vector that legitimately
+// runs to the end of the value.
 type vectorSegment struct {
 	offsetsBlob []byte
 	start, end  uint64
 }
 
-// readVectorSegment reads a section's framing and validates that the section
-// fits in the buffer, leaving the cursor at start.
-//
-// present is false when there is nothing to decode: either the value ends
-// before the section — objects written before this vector kind existed have no
-// section at all — or the section declares no offsets. In the latter case the
-// cursor is advanced past the declared section, so that whatever follows is
-// parsed from the right place.
+// readVectorSegment leaves the cursor at start. present is false when there is
+// nothing to decode — the value ends before the section, as it does for objects
+// written before this vector kind existed, or the section declares no offsets —
+// and the cursor is left past the declared section so the next one starts in the
+// right place.
 func readVectorSegment(rw *byteops.ReadWriter, kind string) (vectorSegment, bool, error) {
 	if rw.Remaining() == 0 {
 		return vectorSegment{}, false, nil
@@ -1588,7 +1585,6 @@ func (seg vectorSegment) decodeOffsets(kind string) (map[string]uint32, error) {
 	return offsets, nil
 }
 
-// skipVectorSegment advances past a section without decoding its offsets.
 func skipVectorSegment(rw *byteops.ReadWriter, kind string) error {
 	seg, present, err := readVectorSegment(rw, kind)
 	if err != nil {
@@ -1600,14 +1596,13 @@ func skipVectorSegment(rw *byteops.ReadWriter, kind string) error {
 	return nil
 }
 
-// These readers name no vector in their errors: they sit under the multi-vector
-// loop, where formatting a label per document would allocate on every successful
-// passage. Callers hold the names and wrap.
+// The three readers below name no vector in their errors: they run per document
+// inside the multi-vector loop, where building a label would allocate on every
+// successful passage. Callers hold the names and wrap.
 
-// seekToVector positions the cursor at the vector stored at seg.start+offset,
-// requiring room for its headerLen-byte count prefix. Offsets are read out of
-// the value itself, so one that lands outside the section must fail here rather
-// than decode the neighbouring section's bytes as a vector.
+// seekToVector requires room for the vector's headerLen-byte count prefix.
+// Offsets are read out of the value itself, so one landing outside the section
+// must fail here rather than decode the neighbouring section as a vector.
 func seekToVector(rw *byteops.ReadWriter, seg vectorSegment, offset uint32, headerLen uint64) error {
 	start := seg.start + uint64(offset)
 	if start+headerLen > seg.end {
@@ -1617,10 +1612,9 @@ func seekToVector(rw *byteops.ReadWriter, seg vectorSegment, offset uint32, head
 	return nil
 }
 
-// readVectorBytes decodes the uint16-length-prefixed vector at the cursor and
-// returns its raw little-endian float32 bytes. dims is widened before scaling:
-// the on-disk field is a uint16 and the writer permits maxVectorLength
-// dimensions, so a uint16 multiplication wraps from 16384 dimensions upwards.
+// readVectorBytes widens dims before scaling it to bytes: the on-disk field is a
+// uint16 and the writer permits maxVectorLength dimensions, so a uint16
+// multiplication wraps from 16384 dimensions upwards.
 func readVectorBytes(rw *byteops.ReadWriter, seg vectorSegment) ([]byte, uint64, error) {
 	if rw.Position+byteops.Uint16Len > seg.end {
 		return nil, 0, errors.New("truncated at segment end")
@@ -1632,10 +1626,9 @@ func readVectorBytes(rw *byteops.ReadWriter, seg vectorSegment) ([]byte, uint64,
 	return rw.ReadBytesFromBuffer(dims * byteops.Uint32Len), dims, nil
 }
 
-// readVectorInto decodes the vector at the cursor, reusing buffer when it has
-// the capacity. A nil buffer always allocates, even for a zero-length vector:
-// nil[:0] is nil, which a caller holding the result in a map cannot tell apart
-// from an absent vector.
+// readVectorInto reuses buffer when it has the capacity. A nil buffer always
+// allocates, even for a zero-length vector: nil[:0] is nil, which a caller
+// holding the result in a map cannot tell apart from an absent vector.
 func readVectorInto(rw *byteops.ReadWriter, seg vectorSegment, buffer []float32) ([]float32, error) {
 	vecBytes, dims, err := readVectorBytes(rw, seg)
 	if err != nil {
@@ -1806,10 +1799,9 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	return out, nil
 }
 
-// legacyVectorBounds locates the legacy vector's byte range and dimension count.
-// dims is widened before scaling: the on-disk field is a uint16 and the writer
-// permits maxVectorLength dimensions, so a uint16 multiplication wraps from
-// 16384 dimensions upwards.
+// legacyVectorBounds widens dims before scaling it to bytes: the on-disk field
+// is a uint16 and the writer permits maxVectorLength dimensions, so a uint16
+// multiplication wraps from 16384 dimensions upwards.
 func legacyVectorBounds(in []byte) (start, end, dims int, err error) {
 	if len(in) < marshallerV1HeaderLen+2 {
 		return 0, 0, 0, fmt.Errorf("object of %d bytes is too short to hold a vector length", len(in))
@@ -1826,9 +1818,8 @@ func legacyVectorBounds(in []byte) (start, end, dims int, err error) {
 	return start, end, dims, nil
 }
 
-// skipToVectorSections advances the cursor from the end of the fixed header to
-// the start of the target-vector section, over the five length-prefixed fields
-// that sit in between.
+// skipToVectorSections walks the five length-prefixed fields between the fixed
+// header and the target-vector section.
 func skipToVectorSections(rw *byteops.ReadWriter) error {
 	vectorLength, err := rw.ReadUint16Checked()
 	if err != nil {

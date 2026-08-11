@@ -56,9 +56,8 @@ func buildVectorSection(t *testing.T, offsets map[string]uint32, segLen uint32, 
 }
 
 // TestUnmarshalTargetVectorsCorruptOffsets pins that a corrupt offsets map or
-// segment length fails with an error on both target-vector parsers, instead of
-// silently decoding bytes of the following section (or panicking past the
-// buffer, as unmarshalTargetVectors previously did).
+// segment length errors on both target-vector parsers, rather than decoding the
+// following section's bytes or slicing past the buffer.
 func TestUnmarshalTargetVectorsCorruptOffsets(t *testing.T) {
 	vecA := encodeTargetVec(1, 2, 3) // 14 bytes at offset 0
 	vecB := encodeTargetVec(4, 5)    // 10 bytes at offset 14
@@ -152,9 +151,8 @@ func TestUnmarshalTargetVectorsCorruptOffsets(t *testing.T) {
 }
 
 // TestVectorSectionFramingCorrupt pins the two fields that frame a section — the
-// offsets blob length and the segment length. Both are read out of the value
-// itself, one field earlier than any segment bound can apply, so they need their
-// own check: a corrupt offsets length is as reachable as a corrupt offset.
+// offsets blob length and the segment length. Both are read out of the value one
+// field earlier than any segment bound can apply, so they need their own check.
 func TestVectorSectionFramingCorrupt(t *testing.T) {
 	cases := []struct {
 		name string
@@ -200,10 +198,10 @@ func TestVectorSectionFramingCorrupt(t *testing.T) {
 	}
 }
 
-// TestEmptyOffsetsSegment pins the cursor hand-off between the two sections. A
-// section that declares no offsets still declares a length, and the multi-vector
-// parser starts wherever the target-vector parser stopped — so stopping at the
-// segment start makes it read target-vector payload as multi-vector framing.
+// TestEmptyOffsetsSegment pins the cursor hand-off between the sections. A
+// section with no offsets still declares a length, and the multi-vector parser
+// starts wherever the target-vector parser stopped: stopping at the segment start
+// makes it read target-vector payload as multi-vector framing.
 func TestEmptyOffsetsSegment(t *testing.T) {
 	t.Run("advances past the declared segment", func(t *testing.T) {
 		mvSegment := encodeMultiVec([]float32{7, 8})
@@ -235,8 +233,8 @@ func TestEmptyOffsetsSegment(t *testing.T) {
 	})
 }
 
-// TestExportVectorJSONCorruptOffsets: the export path decodes the same two
-// sections straight to JSON, so it needs the same bounds as the object decoders.
+// TestExportVectorJSONCorruptOffsets: the export path decodes the same sections
+// straight to JSON, so it needs the same bounds as the object decoders.
 func TestExportVectorJSONCorruptOffsets(t *testing.T) {
 	trailing := encodeTargetVec(9, 9, 9, 9)
 
@@ -273,8 +271,7 @@ func TestExportVectorJSONCorruptOffsets(t *testing.T) {
 }
 
 // TestUnmarshalMultiVectorsCorruptOffsets: same guarantees for the multi-vector
-// parser, whose per-document inner reads must also stay inside the declared
-// segment.
+// parser, whose per-document reads must also stay inside the declared segment.
 func TestUnmarshalMultiVectorsCorruptOffsets(t *testing.T) {
 	validSegment := encodeMultiVec([]float32{1, 2}, []float32{3, 4}) // 24 bytes
 	trailing := encodeTargetVec(9, 9, 9, 9)
