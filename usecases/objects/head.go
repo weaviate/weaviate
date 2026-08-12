@@ -27,7 +27,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
 	className, _ = m.resolveAlias(className)
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 

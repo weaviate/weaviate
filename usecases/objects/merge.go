@@ -52,7 +52,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	className, aliasName := m.resolveAlias(schema.UppercaseClassName(updates.Class))
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

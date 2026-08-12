@@ -38,7 +38,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	className, _ = m.resolveAlias(className)
 	updates.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant)); err != nil {
 		return nil, err
 	}
 
