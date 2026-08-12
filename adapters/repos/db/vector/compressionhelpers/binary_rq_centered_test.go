@@ -267,3 +267,16 @@ func TestCenteredRQ1Validation(t *testing.T) {
 	_, err = NewCenteredBinaryRotationalQuantizer(128, 42, make([]float32, 5), cos)
 	assert.Error(t, err, "mean dimension mismatch must be rejected")
 }
+
+// TestRestoreRQCompressorRejectsCenteredBits1 pins the restore boundary: the
+// AddRQ/AddRQCentered record does not persist the query-encoder rounding
+// that centered rq1 needs, so restoring a centered bits=1 index must fail
+// loudly rather than reconstruct a quantizer whose query codes differ from
+// the ones the graph was built with. Companion of
+// compact.TestWALRoundTrip_AddRQCenteredBits1.
+func TestRestoreRQCompressorRejectsCenteredBits1(t *testing.T) {
+	_, err := RestoreRQCompressor(distancer.NewCosineDistanceProvider(), 1e6, nil,
+		4, 1, 256, 3, nil, nil, []float32{0.1}, []float32{0.5, 0.5, 0.5, 0.5},
+		nil, nil, nil, "", nil)
+	require.Error(t, err, "centered bits=1 restore must be rejected until rounding persists")
+}

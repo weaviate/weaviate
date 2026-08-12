@@ -1011,7 +1011,7 @@ func NewCenteredRQ1Compressor(
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	dim int,
 	mean []float32,
-	targetVector string,
+	bucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewCenteredBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, mean, distance)
@@ -1023,7 +1023,7 @@ func NewCenteredRQ1Compressor(
 		compressedStore:   store,
 		storeId:           binary.BigEndian.PutUint64,
 		loadId:            binary.BigEndian.Uint64,
-		targetVector:      targetVector,
+		bucketName:        bucketName,
 		logger:            logger,
 		makeBucketOptions: makeBucketOptions,
 		vectorForID:       vectorForID,
