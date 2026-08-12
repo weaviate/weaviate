@@ -44,16 +44,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		// Every non-terminal status counts as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]). PREPARING and SWAPPING
-		// are the subtle ones: every unit has reached terminal state, but
-		// the post-completion callbacks (per-node PREP, cluster-wide
-		// PrepCompleteAck barrier, per-node swap, cluster-wide schema
-		// flip) have not yet committed. Submitting a new migration on the
-		// same property during either window could land before
-		// MarkDistributedTaskFinalized commits the schema flip, leaving
-		// the new task and the unfinished swap of the prior one racing on
-		// the same bucket pointers.
+		// PREPARING and SWAPPING are the subtle ones: every unit has
+		// reached terminal state, but the post-completion callbacks have
+		// not yet committed. A new migration on the same property could
+		// land before the schema flip commits, leaving it and the
+		// unfinished swap racing on the same bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -148,6 +143,16 @@ func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 //
 // Public so REST handlers can use the same predicate as the
 // FSM-deterministic conflict check.
+//
+// Every caller acts on a match: refusing a conflicting submit, refusing
+// a schema mutation, or picking the task an operator asked to cancel.
+// Over-matching costs a retryable conflict error or one extra cancel
+// candidate; under-matching lets a schema change race an in-flight
+// migration on shared on-disk state. That asymmetry, not the literal
+// reading of an empty list, is why empty means "all" here.
+//
+// The status endpoint reads the same field the opposite way on purpose;
+// see mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go.
 func ReindexPropsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return true
@@ -209,26 +214,9 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 }
 
 // MutationRemedy is the tail of a mutation refusal: what the operator can
-// actually do about it. Every one of these guards otherwise tells them to
-// cancel the reindex, and the cancel API accepts that for one status only
-// ([distributedtask.TaskStatus.IsCancellable], i.e. STARTED). For the
-// coordination phases and for a status this build cannot classify it
-// answers 409, so naming a cancel there sends the operator down a road
-// that dead-ends.
-//
-// whenCancellable is the caller's own phrasing for the one status where a
-// cancel is the answer. The other two arms are shared, because what they
-// describe is the cancel API's verdict rather than the mutation being
-// refused.
-//
-// Only called for a task the caller has already read as in flight, so the
-// recognized arm is PREPARING or SWAPPING. A terminal status lands in
-// that same arm and reads as "past the point where a cancel is accepted"
-// — true, but not an answer any caller should be asking for: nothing
-// refuses a mutation for a task that has already finished.
-//
-// Only the wording branches on the local vocabulary. The reject itself
-// does not, so the apply stays deterministic.
+// actually do about it. The cancel API accepts STARTED and nothing else,
+// so a refusal that names a cancel unconditionally sends the operator
+// down a road that dead-ends in a 409.
 func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
 	switch {
 	case status.IsCancellable():
@@ -248,8 +236,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
 // migration on the same (collection, property) is in any non-terminal
-// state (via [distributedtask.TaskStatus.IsActive], which includes a
-// status this build does not recognize).
+// state (via [distributedtask.TaskStatus.IsActive]).
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable

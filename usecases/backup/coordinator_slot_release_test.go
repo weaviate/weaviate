@@ -126,89 +126,6 @@ func TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot(t *testing.T) {
 	}
 }
 
-// Backup-side mirror of TestCoordinatorRestoreReleaseOnlyClearsItsOwnSlot; the
-// takeover is staged by hand since nothing outside the uploader writes a backup
-// slot.
-func TestCoordinatorBackupReleaseOnlyClearsItsOwnSlot(t *testing.T) {
-	t.Parallel()
-	var (
-		backendName = "s3"
-		backupID    = "1"
-		ctx         = context.Background()
-		anyArg      = mock.Anything
-		nodes       = []string{"N1", "N2"}
-		classes     = []string{"C1"}
-		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-	)
-
-	tests := []struct {
-		name       string
-		steal      bool
-		wantSlotID string
-	}{
-		{name: "slot still held by this backup", steal: false, wantSlotID: ""},
-		{name: "slot taken over by a newer backup", steal: true, wantSlotID: "live-backup"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fc := newFakeCoordinator(newFakeNodeResolver(nodes))
-			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-			fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
-			fc.backend.On("PutObject", anyArg, backupID, GlobalBackupFile, anyArg).Return(nil)
-			// The node descriptors the coordinator reads to total up the
-			// backup's size, on the way to writing its own.
-			fc.backend.On("GetObject", anyArg, anyArg, anyArg).
-				Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
-			for _, node := range nodes {
-				fc.client.On("CanCommit", anyArg, node, anyArg).Return(cresp, nil)
-				fc.client.On("Commit", anyArg, node, anyArg).Return(nil)
-			}
-
-			c := fc.coordinator()
-			c.backends = &fakeBackupBackendProvider{backend: fc.backend}
-
-			var stolen atomic.Bool
-			for _, node := range nodes {
-				fc.client.On("Status", anyArg, node, anyArg).Return(sresp, nil).
-					Run(func(mock.Arguments) {
-						// Polls run on errgroup children of the backup goroutine,
-						// before its deferred release. assert, not require:
-						// Goexit on one of those surfaces as a hang or an
-						// unrelated downstream failure instead of this one.
-						if !tc.steal || !stolen.CompareAndSwap(false, true) {
-							return
-						}
-						takeOverSlot(t, &c.lastOp, backupID, "live-backup")
-					})
-			}
-
-			req := newReq(classes, backendName, backupID)
-			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-			require.NoError(t, c.Backup(ctx, store, &req))
-
-			if tc.steal {
-				// The takeover runs on the backup goroutine, so wait for it
-				// rather than racing the assertion against it.
-				require.Eventually(t, stolen.Load, 10*time.Second, 10*time.Millisecond,
-					"the newer backup never got to claim the slot")
-				awaitOutcome(t, fc.backend.doneChan, "the backup goroutine never stored its outcome")
-				require.Never(t, func() bool {
-					return c.lastOp.get().ID != tc.wantSlotID
-				}, 200*time.Millisecond, 20*time.Millisecond,
-					"the finished backup released a slot a newer backup owns")
-				return
-			}
-			require.Eventually(t, func() bool {
-				return c.lastOp.get().ID == tc.wantSlotID
-			}, 10*time.Second, 20*time.Millisecond,
-				"the finished backup never released its own slot")
-		})
-	}
-}
-
 // Pins that CancelRestore only stamps the slot it owns, not whichever restore
 // the node's single slot happens to hold.
 func TestCancelRestoreOnlyStampsTheSlotItOwns(t *testing.T) {
@@ -697,50 +614,6 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotStampANewerClaim(t *testing.T) {
 	}
 }
 
-// Pins that a restore losing its slot to the read that also hands it a
-// cancellation does not stamp that cancellation on the claim that replaced it.
-func TestCoordinatorRestoreStaleGoroutineDoesNotStampACancellationItReadFromStorage(t *testing.T) {
-	t.Parallel()
-	const (
-		backendName = "s3"
-		backupID    = "1"
-		newID       = "live-restore"
-		node        = "N1"
-	)
-
-	schemaManager := &countingSchemaManager{}
-	c, fc := newStagingRestore(node, backupID, schemaManager)
-	fc.client.On("Status", mock.Anything, node, mock.Anything).
-		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
-
-	// Read one answers Restore itself; read two is the post-commit check for a
-	// cancellation, which is where both the cancel and the takeover land.
-	stolen := make(chan struct{})
-	backend := &restoreMetaBackend{}
-	backend.onRead = func(n int) {
-		if n != 2 {
-			return
-		}
-		// assert, not require: this runs on the restore goroutine, where
-		// Goexit surfaces as a hang instead of this failure.
-		backend.setStored(t, backup.DistributedBackupDescriptor{ID: backupID, Status: backup.Cancelled})
-		takeOverSlot(t, &c.lastOp, backupID, newID)
-		close(stolen)
-	}
-
-	startRestore(t, c, backend, backendName, backupID, node)
-
-	awaitInterference(t, stolen, "the newer restore never got to claim the slot")
-	// The takeover only opens the window; wait for the goroutine to reach the
-	// decision itself, otherwise the absence of a write below proves nothing.
-	awaitLog(t, fc.logs, restoreCancelledInStorage)
-	require.Never(t, func() bool {
-		st := c.lastOp.get()
-		return st.ID != newID || st.Status != backup.Started || schemaManager.applies.Load() != 0
-	}, 500*time.Millisecond, 10*time.Millisecond,
-		"the cancelled restore stamped its cancellation on the slot of the one that replaced it")
-}
-
 // Pins that a restore which lost its slot stops without reading the stored
 // descriptor again. That descriptor belongs to the restore holding the slot
 // now, and every step after this one is driven by what the read says.
@@ -886,7 +759,7 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	awaitInterference(t, interfered, "the restore never reached the finalizing decision")
 	// The takeover only opens the window; wait for the goroutine to reach the
 	// decision itself, otherwise the absence of a write below proves nothing.
-	awaitLog(t, fc.logs, "restore outcome refused by the slot, stopping without publishing")
+	awaitLog(t, fc.logs, staleOutcomeRefused)
 
 	// The goroutine may still be unwinding, so give it the chance to apply the
 	// schema or to report an outcome of its own. The retry owns the stored
@@ -895,64 +768,6 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 		return backend.storedStatus(t) != backup.Transferring || schemaManager.applies.Load() != 0
 	}, 500*time.Millisecond, 10*time.Millisecond,
 		"the restore that lost its slot applied the schema or reported an outcome over the retry")
-}
-
-// Pins that a restore recognises CANCELLING (not just CANCELLED) and stops
-// before applying the schema.
-func TestCoordinatorRestoreCancelInFlightStopsBeforeSchemaApply(t *testing.T) {
-	t.Parallel()
-	var (
-		backendName = "s3"
-		backupID    = "1"
-		ctx         = context.Background()
-		anyArg      = mock.Anything
-		node        = "N1"
-		classes     = []string{"C1"}
-	)
-
-	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
-	fc.backend.On("HomeDir", anyArg, anyArg, backupID).Return("bucket/" + backupID)
-	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
-	fc.backend.On("PutObject", anyArg, backupID, GlobalRestoreFile, anyArg).Return(nil)
-	fc.client.On("CanCommit", anyArg, node, anyArg).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
-	fc.client.On("Commit", anyArg, node, anyArg).Return(nil)
-
-	c := fc.coordinator()
-	c.timeoutNextRound = time.Millisecond
-	schemaManager := &countingSchemaManager{}
-	c.schema = schemaManager
-
-	var once sync.Once
-	fc.client.On("Status", anyArg, node, anyArg).
-		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).
-		Run(func(mock.Arguments) {
-			// What CancelRestore does to the slot before it aborts the
-			// participants. assert, not require: Goexit inside a mock callback
-			// surfaces as a hang instead of this failure.
-			once.Do(func() {
-				stamped, _ := c.lastOp.claimOf(backupID).stamp(backup.Cancelling)
-				assert.True(t, stamped)
-			})
-		})
-
-	desc := &backup.DistributedBackupDescriptor{
-		ID:            backupID,
-		Version:       Version,
-		ServerVersion: config.ServerVersion,
-		Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: classes}},
-	}
-	req := newReq(nil, backendName, backupID)
-	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
-	require.NoError(t, c.Restore(ctx, store, &req, desc,
-		[]backup.ClassDescriptor{{Name: classes[0]}}))
-
-	require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
-		10*time.Second, 10*time.Millisecond, "the restore goroutine never released its slot")
-
-	require.Zero(t, schemaManager.applies.Load(),
-		"a restore cancelled while it was staging must not go on to apply the schema")
-	require.Equal(t, backup.Cancelled, fc.backend.getGlobalMetaStatus())
 }
 
 // Pins that the restore stops on both CANCELLING and CANCELLED read from

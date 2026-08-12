@@ -198,9 +198,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
 	} else {
-		// The slot only answers for this backup while it still holds it; once
-		// it has moved on, the caller gets STARTED (the response reflects
-		// acceptance, not completion).
+		// The slot only answers for this backup while it still holds it. Once it
+		// has moved on the caller gets STARTED, which means accepted, not done.
 		status := string(backup.Started)
 		if st := s.backupper.lastOp.get(); st.ID == req.ID {
 			status = string(st.Status)
@@ -477,8 +476,6 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
-// logCancelStamp records whether a cancel reached this node's restore slot;
-// held is the slot's state at the time, used to explain a miss.
 func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
 	entry := logger.WithFields(logrus.Fields{
 		"action":        "cancel_restore",
@@ -504,9 +501,7 @@ func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status
 	}
 }
 
-// errRestoreFinalizing is the refusal a cancel gets once schema apply has
-// begun. It is one message because a caller must not be able to tell the four
-// places it is raised from apart, they all mean the same thing.
+// errRestoreFinalizing is one message: its raise sites all mean the same thing.
 func errRestoreFinalizing(backupID string) error {
 	return backup.NewErrUnprocessable(
 		fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
@@ -546,19 +541,16 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		return backup.NewErrUnprocessable(idErr)
 	}
 
-	// The claim on the restore the descriptor read above describes. Taken here,
-	// next to that read, because everything below keys on the id alone, which
-	// cannot tell that restore from a retry started under the same id while
-	// this cancel was busy with object storage and the network; see [slotOwner].
+	// Taken next to the descriptor read above, because everything below keys on
+	// the id alone, which cannot tell that restore from a retry under the same id.
 	claim := s.restorer.lastOp.claimOf(backupID)
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return fmt.Errorf("init uploader: %w", err)
 	}
 
-	// The stored descriptor can still read TRANSFERRING during schema apply,
-	// so the node-local slot is checked here too. This only closes the window
-	// for a cancel sent to the coordinating node.
+	// The stored descriptor can still read TRANSFERRING during schema apply, so
+	// the local slot is checked too. Only helps on the coordinating node.
 	if held := s.restorer.lastOp.get(); held.ID == backupID && held.Status == backup.Finalizing {
 		return errRestoreFinalizing(backupID)
 	}
@@ -566,27 +558,21 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	if metaErr == nil {
 		switch meta.Status {
 		case backup.Cancelled:
-			// Nothing left to do, the cancellation is complete.
 			return nil
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
 		case backup.Finalizing:
 			return errRestoreFinalizing(backupID)
 		case backup.Cancelling:
-			// Claimed already, by another coordinator or an earlier call that
-			// never wrote CANCELLED. Falling through repeats the abort below,
-			// the only way to clear a descriptor stuck on CANCELLING.
+			// Falling through repeats the abort below, the only way to clear a
+			// descriptor stuck on CANCELLING. Not when a restore this cancel has
+			// no claim on holds the id and the stored descriptor has moved on:
+			// that is a retry, and stopping it is wrong.
 			//
-			// Unless a restore this cancel has no claim on holds the slot and
-			// the stored descriptor no longer reads CANCELLING: then that
-			// cancellation completed after this call read the descriptor, and
-			// what runs under the id now is a retry. Aborting it would stop a
-			// restore nobody asked to stop.
-			//
-			// The slot alone does not say that. It says a different restore
-			// runs under the id, which is also what a restore that started
-			// while the descriptor was stuck on CANCELLING looks like, and
-			// that one is what the repeat exists to clear.
+			// The slot alone does not say that. It says a different restore runs
+			// under the id, which is also what a restore that started while the
+			// descriptor was stuck on CANCELLING looks like, and that one is what
+			// the repeat exists to clear.
 			if owned, held := claim.state(); !owned && held.ID == backupID &&
 				!s.descriptorStillCancelling(ctx, store, backupID, overrideBucket, overridePath) {
 				s.logger.WithFields(logrus.Fields{
@@ -605,9 +591,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			if !won {
 				return nil
 			}
-			// The restore began finalizing between the pre-check above and the
-			// claim. Aborting every node for a cancel that can no longer land
-			// is work whose only outcome is the same 422.
+			// The restore began finalizing since the pre-check above. Aborting
+			// every node for a cancel that can no longer land is wasted work.
 			if held.ID == backupID && held.Status == backup.Finalizing {
 				return errRestoreFinalizing(backupID)
 			}
@@ -627,13 +612,11 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
-	// Update the slot to prevent stale reads from OnStatus(). Through the claim,
-	// so a retry that took the slot over in the meantime is left alone.
+	// Update the slot to prevent stale reads from OnStatus().
 	stamped, held := claim.stamp(backup.Cancelled)
 	logCancelStamp(s.logger, backupID, backup.Cancelled, stamped, held)
-	// The restore reached schema apply after the pre-check above. Stamping
-	// CANCELLED here would be overwritten by the restore's real outcome, so
-	// report failure instead of a false 204.
+	// The restore reached schema apply since the pre-check above, so the slot
+	// refuses CANCELLED. Report the failure rather than a false 204.
 	if held.ID == backupID && held.Status == backup.Finalizing {
 		return errRestoreFinalizing(backupID)
 	}
@@ -653,10 +636,8 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			s.logger.WithField("action", "cancel_restore").
 				WithField("backup_id", backupID).
 				Errorf("failed to write canceled status to restore_config.json: %v", err)
-			// The nodes have been told to stop, but the descriptor is stuck on
-			// CANCELLING, which refuses every later restore of this id. The
-			// caller has to know that, because repeating the cancel is what
-			// clears it.
+			// The descriptor is stuck on CANCELLING, which refuses every later
+			// restore of this id, and repeating the cancel is what clears it.
 			return fmt.Errorf("the cancellation of restore %q was sent to every node but could not be recorded, "+
 				"restores of this id are refused until the cancel is repeated: %w", backupID, err)
 		}
@@ -691,10 +672,8 @@ func (s *Scheduler) descriptorStillCancelling(ctx context.Context, store coordSt
 	return meta.Status == backup.Cancelling
 }
 
-// claimCancellation writes CANCELLING to the descriptor, the lock
-// coordinators race for. won is false if another coordinator already won or
-// the write failed; held is the slot's state at the attempt, valid only
-// when won is true.
+// claimCancellation writes CANCELLING to the descriptor, the lock coordinators
+// race for. held is the slot's state at the attempt, valid only when won.
 func (s *Scheduler) claimCancellation(ctx context.Context, store coordStore,
 	meta *backup.DistributedBackupDescriptor, backupID string, claim slotOwner,
 	overrideBucket, overridePath string,

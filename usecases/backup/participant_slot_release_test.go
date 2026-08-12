@@ -213,12 +213,17 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 	)
 
 	tests := []struct {
-		name       string
-		steal      bool
+		name  string
+		steal bool
+		// abort fails the backup before it reaches the snapshot step, so the
+		// failure it publishes is a write by a goroutine that has already lost
+		// the slot.
+		abort      bool
 		wantSlotID string
 	}{
 		{name: "slot still held by this backup", wantSlotID: ""},
 		{name: "slot taken over by a newer backup", steal: true, wantSlotID: newID},
+		{name: "backup fails after a newer backup took the slot", abort: true, wantSlotID: newID},
 	}
 
 	for _, tc := range tests {
@@ -242,7 +247,7 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).
 				Run(func(mock.Arguments) { storedOnce.Do(func() { close(stored) }) })
 
-			logger, _ := test.NewNullLogger()
+			logger, logs := test.NewNullLogger()
 			var b *backupper
 			stolen := make(chan struct{})
 			rbac := &hookSnapshotter{fn: func() {
@@ -256,8 +261,28 @@ func TestBackupperBackupReleasesOnlyItsOwnSlot(t *testing.T) {
 				&fakeBackupBackendProvider{backend: backend})
 
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			_, err := b.backup(store, &Request{Method: OpCreate, ID: backupID, Backend: "s3"})
+			req := &Request{Method: OpCreate, ID: backupID, Backend: "s3"}
+			if tc.abort {
+				// Non-zero, so the goroutine waits for the coordinator instead
+				// of walking straight into the upload.
+				req.Duration = time.Minute
+			}
+			_, err := b.backup(store, req)
 			require.NoError(t, err)
+
+			if tc.abort {
+				takeOverSlot(t, &b.lastOp, backupID, newID)
+				// Sent after the takeover, so the failure the abort produces is
+				// published by a goroutine whose claim is already stale.
+				b.coordChan <- AbortRequest{ID: backupID}
+				awaitLog(t, logs, "coordinator aborted operation")
+				require.Never(t, func() bool {
+					st := b.lastOp.get()
+					return st.ID != tc.wantSlotID || st.Status == backup.Failed
+				}, 200*time.Millisecond, 10*time.Millisecond,
+					"the failed backup reported its failure on a slot a newer backup owns")
+				return
+			}
 
 			if tc.steal {
 				select {

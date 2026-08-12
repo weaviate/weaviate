@@ -65,6 +65,8 @@ func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
 	// Documented semantic: an empty Properties list means "all properties".
 	// That branch is reserved for future whole-collection migrations; the
 	// REST handler today always submits a single-property task.
+	// TestMergeReindexStatus_EmptyProperties_* pins the opposite rule on the
+	// status path. Both are correct; do not make them agree.
 	require.True(t, db.ReindexPropsOverlap(nil, []string{"x"}))
 	require.True(t, db.ReindexPropsOverlap([]string{"x"}, nil))
 	require.True(t, db.ReindexPropsOverlap(nil, nil))

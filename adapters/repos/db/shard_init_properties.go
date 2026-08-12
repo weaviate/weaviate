@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -69,6 +70,18 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
+	initValueIndex := func(prop *models.Property) error {
+		if err := s.createPropertyValueIndex(ctx, prop, makeBucketOptions); err != nil {
+			return fmt.Errorf("init prop %q: value index: %w", prop.Name, err)
+		}
+		return nil
+	}
+
+	// when the server waits for cache prefill (the default), each geo prop's init
+	// blocks on a 2*GOMAXPROCS-cursor scan of the objects bucket, so they run one
+	// at a time rather than joining the fan-out below
+	var geoProps []*models.Property
+
 	for _, prop := range props {
 		propCopy := *prop // prevent loop variable capture
 
@@ -94,12 +107,13 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, &propCopy, makeBucketOptions); err != nil {
-				return fmt.Errorf("init prop %q: value index: %w", propCopy.Name, err)
-			}
-			return nil
-		})
+		if createsGeoIndex(prop) {
+			geoProps = append(geoProps, &propCopy)
+		} else {
+			eg.Go(func() error {
+				return initValueIndex(&propCopy)
+			})
+		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
 			eg.Go(func() error {
@@ -119,6 +133,32 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			})
 		}
 	}
+
+	if len(geoProps) > 0 {
+		eg.Go(func() error {
+			// one prop failing must not skip the rest, which each own a separate
+			// index the shard would otherwise come up without
+			ec := errorcompounder.New()
+			for _, prop := range geoProps {
+				if err := ctx.Err(); err != nil {
+					ec.Add(err)
+					break
+				}
+				ec.Add(initValueIndex(prop))
+			}
+			return ec.ToError()
+		})
+	}
+}
+
+// createsGeoIndex reports whether createPropertyValueIndex builds a geo index
+// for prop rather than inverted buckets.
+func createsGeoIndex(prop *models.Property) bool {
+	if !inverted.HasFilterableIndex(prop) {
+		return false
+	}
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	return dt == schema.DataTypeGeoCoordinates
 }
 
 func (s *Shard) updatePropertyBuckets(ctx context.Context,
@@ -503,11 +543,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
-	if inverted.HasFilterableIndex(prop) {
-		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
-			return s.initGeoProp(prop)
-		}
+	if createsGeoIndex(prop) {
+		return s.initGeoProp(prop)
+	}
 
+	if inverted.HasFilterableIndex(prop) {
 		if schema.IsRefDataType(prop.DataType) {
 			if err := s.store.CreateOrLoadBucket(ctx,
 				helpers.BucketFromPropNameMetaCountLSM(prop.Name),

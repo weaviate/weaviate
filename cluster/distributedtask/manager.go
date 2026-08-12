@@ -443,9 +443,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt = when units completed — for PREPARING and SWAPPING alike.
-		// The scheduler's TTL cleanup excludes every non-terminal status
-		// (IsActive), so this stamp cannot clean a task mid-coordination.
+		// FinishedAt = when units completed, for PREPARING and SWAPPING
+		// alike. The TTL cleanup skips both, so this cannot clean a task
+		// mid-coordination.
 		task.FinishedAt = finishedAt
 	}
 
@@ -820,16 +820,8 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// [TaskStatus.IsCancellable] is a literal, so every binary that
-	// replays this entry writes CANCELLED under exactly the same
-	// condition. Classifying instead would let a node that has never
-	// heard of the status cancel a migration a newer node is still
-	// coordinating, and follower apply errors are discarded, so the
-	// divergence would be silent.
-	//
-	// The operator-facing message for the coordination phases lives in
-	// the REST layer, which is free to classify because nothing
-	// downstream replays its answer.
+	// Follower apply errors are discarded, so two binaries disagreeing on
+	// what may be cancelled would diverge here silently.
 	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
@@ -859,27 +851,14 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Refuse for every status this build both declared and calls live —
-	// not just STARTED. A non-terminal task's FinishedAt is either zero
-	// (STARTED) or the units-completion moment (PREPARING/SWAPPING); both
-	// clear the age check below, so only this check stands between a task
-	// mid-coordination and deletion.
+	// This check is all that stands between a STARTED task and deletion:
+	// such a task never had its FinishedAt stamped, so the age check below
+	// reads it as long expired.
 	//
-	// A status this build cannot name is deleted instead. The only
-	// proposer is the Scheduler's TTL sweep, which reads the leader's
-	// view (pinned by TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer),
-	// so a CLEAN_UP for such a task exists only once the cluster already
-	// considers it done. Nothing else can move the entry: no transition
-	// advances a status this build cannot name (MarkTaskFinalized refuses
-	// every status but FINISHED and SWAPPING) and no later sweep sees it,
-	// while it keeps blocking schema mutations and backups on its
-	// collection through the local map.
-	//
-	// So the exit fires only when some node in the cluster classifies the
-	// status as terminal. For a new non-terminal status nothing ever
-	// proposes a CLEAN_UP and this node stays pinned either way — which
-	// is the cheap direction, and the one IsTerminal's godoc says a new
-	// status has to be introduced in.
+	// A status this build cannot name is deliberately not refused. The
+	// scheduler's TTL sweep is the only proposer and it reads the leader's
+	// view, so a clean-up for such a task means the rest of the cluster
+	// already considers it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
@@ -932,11 +911,6 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = every non-terminal status (via
-		// [TaskStatus.IsActive]): units still running, OR units done
-		// but per-node PREP / cluster-wide barrier / per-node SWAP /
-		// schema flip not yet committed. All display ahead of terminal
-		// tasks so the freshest user-relevant task surfaces first.
 		iStarted := tasks[i].Status.IsActive()
 		jStarted := tasks[j].Status.IsActive()
 		if iStarted != jStarted {
@@ -962,13 +936,9 @@ func sortTasksForDisplay(tasks []*Task) {
 // LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
 // status this build never declared, grouped by namespace.
 //
-// Only [Manager.Restore] can put one here — every other write to
-// Task.Status is a literal from this build's vocabulary — so the source
-// is always a snapshot from a node running a newer release. It matters
-// because the leader-routed list stops carrying such a task once the
-// peers clean their copies up, which is exactly when a leftover local
-// copy starts silently refusing schema mutations. Returns clones; the
-// map is empty in the ordinary case.
+// The leader-routed list stops carrying such a task once the peers clean
+// their copies up, which is exactly when a leftover local copy starts
+// silently refusing schema mutations.
 func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

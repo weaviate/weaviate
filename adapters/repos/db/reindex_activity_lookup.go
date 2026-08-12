@@ -29,9 +29,8 @@ type ShardReindexActivityLookup func(collection, shardName string) bool
 type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 
 // NewShardReindexActivityLookup snapshots which shards a reindex is
-// working on, indexing [IsLiveReindexTaskStatus] by (collection, shard):
-// a shard whose migration this build cannot prove is finished would
-// otherwise be captured half-migrated.
+// working on. A shard whose migration this build cannot prove is finished
+// would otherwise be captured half-migrated.
 func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) ShardReindexActivityLookup {
 	type shardKey struct {
 		collection string

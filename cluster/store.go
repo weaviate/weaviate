@@ -438,10 +438,8 @@ func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]
 	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
 }
 
-// LocalUnrecognizedDistributedTasks exposes this node's own FSM copies of
-// tasks whose status this build never declared. Local on purpose: the
-// leader-routed task query cannot see a task only this node still holds,
-// which is the case the caller reports on.
+// LocalUnrecognizedDistributedTasks backs
+// [distributedtask.LocalTaskInspector] on [Raft].
 func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
 }

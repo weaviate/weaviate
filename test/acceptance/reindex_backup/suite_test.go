@@ -188,8 +188,14 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"error body must name the affected collection; got: %s", errMsg)
 	require.Contains(t, errMsg, "active runtime-reindex task in DTM",
 		"error body must explain the gate consulted DTM; got: %s", errMsg)
-	require.Contains(t, errMsg, "retry after the migration finishes",
-		"error body must include an actionable next step")
+	require.Contains(t, errMsg, "retry once that task reaches a terminal state",
+		"error body must include an actionable next step; got: %s", errMsg)
+	// The gate answers from a shard-keyed snapshot and never sees the task's
+	// status, so the cancel it names has to carry the condition under which
+	// the API accepts one. Without it the message sends an operator whose
+	// task is past STARTED at a cancel that answers 409.
+	require.Contains(t, errMsg, "accepted only while the task is STARTED",
+		"the cancel remedy must state its precondition; got: %s", errMsg)
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
 	// "Status != Cancelled"). The 422 fires before any write so none exists;
@@ -566,8 +572,29 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 		"400 body must explain that a task is in flight; got: %s", bodyStr)
 	assert.Contains(t, bodyStr, className,
 		"400 body must name the class being deleted; got: %s", bodyStr)
-	assert.Contains(t, bodyStr, "cancel",
-		"400 body must point operators at the cancel remedy; got: %s", bodyStr)
+	// The refusal names the status it read, so the body itself says which
+	// remedy it owes the operator: a cancel is accepted for STARTED alone,
+	// and a coordination phase has to be told that rather than sent at a
+	// cancel the API answers 409 to. Asserting the bare word "cancel" would
+	// pass on either, including on a body that says a cancel is refused.
+	const (
+		cancelRemedy = "cancel the reindex via the REST API before deleting the class"
+		pastCancel   = "past the point where a cancel is accepted"
+	)
+	switch {
+	case strings.Contains(bodyStr, "status=STARTED"):
+		assert.Contains(t, bodyStr, cancelRemedy,
+			"400 body for a STARTED task must point operators at the cancel remedy; got: %s", bodyStr)
+		assert.NotContains(t, bodyStr, pastCancel,
+			"a cancel is accepted while STARTED, so the body must not say otherwise; got: %s", bodyStr)
+	case strings.Contains(bodyStr, "status=PREPARING"), strings.Contains(bodyStr, "status=SWAPPING"):
+		assert.Contains(t, bodyStr, pastCancel,
+			"400 body for a coordination phase must say the cancel is refused; got: %s", bodyStr)
+		assert.NotContains(t, bodyStr, cancelRemedy,
+			"a cancel in a coordination phase answers 409, so the body must not name one; got: %s", bodyStr)
+	default:
+		t.Fatalf("400 body must name the in-flight status it read; got: %s", bodyStr)
+	}
 
 	getURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
 	resp, err = http.Get(getURL)
@@ -646,11 +673,10 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
 	// is completion-driven, not cancel-driven, so log which one we got.
 	//
-	// Not a t.Skip like TestMultiNode_CancelClearsAcrossReplicas, for the
-	// same reason as the singlenode cancel test: each arm here checks
-	// something only that answer can satisfy. A regression to "the cancel
-	// is always refused" would still be green here; the per-status answer
-	// is pinned in TestCancelPreflight_WireResponsePerStatus.
+	// Each arm here checks something only that answer can satisfy. A
+	// regression to "the cancel is always refused" would still be green
+	// here; the per-status answer is pinned in
+	// TestCancelPreflight_WireResponsePerStatus.
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result models.IndexUpdateResponse

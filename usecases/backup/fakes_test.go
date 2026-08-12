@@ -91,15 +91,6 @@ func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
 	return fb.meta.Status, fb.meta.Error
 }
 
-// getGlobalMetaStatus is the status of the last global backup or restore
-// descriptor stored, which is the operation's outcome as a poll sees it once
-// the slot is gone.
-func (fb *fakeBackend) getGlobalMetaStatus() backup.Status {
-	fb.RLock()
-	defer fb.RUnlock()
-	return fb.glMeta.Status
-}
-
 func (fb *fakeBackend) getMetaBaseBackupID() string {
 	fb.RLock()
 	defer fb.RUnlock()

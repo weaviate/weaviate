@@ -533,15 +533,16 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 	}
 }
 
-// Edge case 7: A task whose payload.Properties is empty.
-// Previously this branch was asymmetric: repair-* matched every property
-// in the collection (fan-out: a single payload could mark dozens of
-// properties "indexing"), while enable-* and change-tokenization matched
-// nothing. After the fix every migration type rejects empty Properties
-// consistently — the task is treated as targeting nothing, producing no
-// synthetic entry. The current REST handler always populates Properties
-// with exactly one entry, so the empty-means-all branch was only
-// reachable via direct cluster payload authoring.
+// Edge case 7: A task whose payload.Properties is empty. Every migration
+// type treats it as targeting nothing, so no synthetic entry appears. The
+// current REST handler always populates Properties with exactly one entry,
+// so an empty list only arrives via direct cluster payload authoring.
+//
+// This agrees across migration types but deliberately disagrees with
+// db.ReindexPropsOverlap, which reads the same empty list as "all
+// properties" (see TestPropsOverlap_EmptyMeansAllProperties). Making the
+// two agree fans a synthetic "indexing" entry across the whole collection
+// for a task that does no work on any property.
 //
 // Test split into two parts to assert symmetry:
 //

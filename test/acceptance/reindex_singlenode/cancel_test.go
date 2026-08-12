@@ -128,12 +128,9 @@ func testCancelReindex(t *testing.T, restURI string) {
 		// decides the code: 202 CANCELLED (still STARTED), 409 (every unit
 		// finished, cluster-wide swap under way), 202 NO_OP (terminal).
 		//
-		// Not a t.Skip like TestMultiNode_CancelClearsAcrossReplicas: that
-		// test's post-cancel assertions hold for a plain completion too, so
-		// skipping costs it nothing, while each arm here checks something
-		// only that answer can satisfy. The price is that a regression to
-		// "the cancel is always refused" would still be a green run; the
-		// per-status answer is pinned in
+		// Each arm checks something only that answer can satisfy. The price
+		// is that a regression to "the cancel is always refused" would still
+		// be a green run; the per-status answer is pinned in
 		// TestCancelPreflight_WireResponsePerStatus instead.
 		switch resp.StatusCode {
 		case http.StatusAccepted:

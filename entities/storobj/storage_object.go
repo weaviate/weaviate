@@ -1331,6 +1331,12 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+		if idx < 0 {
+			// data the parser cannot walk at all: it reports that without a path
+			returnError = fmt.Errorf("malformed property json: %w", err)
+			return
+		}
+
 		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
 
 		switch dataType {

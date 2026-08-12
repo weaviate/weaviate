@@ -88,6 +88,7 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		WithText2VecContextionary().
 		WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 		With1NodeCluster().
+		WithWeaviateExposeGRPCPort().
 		Start(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to start docker compose")

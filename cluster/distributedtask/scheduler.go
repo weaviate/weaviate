@@ -124,27 +124,22 @@ type Scheduler struct {
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
 
-	// Steady-state reporters get a sampler each. Both re-report on every
+	// A steady-state reporter gets its own sampler: it re-reports every
 	// tick until something outside the scheduler clears the condition, so
-	// sharing sampledLogger's budget would crowd out the one-off errors
-	// that budget exists for.
+	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
-	// tasksUnrecognizedStatus is the alertable form of the
-	// unrecognized-status warn: the warn is sampled, so it cannot carry a
-	// condition that persists for the life of a node's data directory.
+	// The alertable form of the unrecognized-status warn, which is sampled
+	// and so cannot carry a condition that outlives a node's data dir.
 	tasksUnrecognizedStatus *prometheus.GaugeVec
 
-	// unrecognizedStatusNamespaces is the label set the gauge carried
-	// last tick, so a namespace that stopped reporting can be dropped
-	// one series at a time. Written only from the tick loop.
+	// The label set the gauge carried last tick, so a namespace that
+	// stopped reporting can be dropped one series at a time. Tick loop only.
 	unrecognizedStatusNamespaces map[string]struct{}
 
-	// localTaskInspector reads this node's own FSM copies. nil in unit
-	// tests that don't exercise the unrecognized-status warn.
 	localTaskInspector LocalTaskInspector
 
 	// perTaskState holds all per-scheduler-instance per-task state for
@@ -200,9 +195,7 @@ type SchedulerParams struct {
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
 	AckRecorder PostCompletionAckRecorder
-	// LocalTaskInspector reads this node's own FSM copies, which the
-	// leader-routed TaskLister cannot report once the peers have deleted
-	// theirs. nil in unit tests that don't exercise the warn.
+	// nil in unit tests that don't exercise the unrecognized-status warn.
 	LocalTaskInspector LocalTaskInspector
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
@@ -255,6 +248,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 			Name: "weaviate_distributed_tasks_unrecognized_status",
 			Help: "Number of distributed tasks in a status this build does not recognize, per namespace",
 		}, []string{"namespace"}),
+		unrecognizedStatusNamespaces: map[string]struct{}{},
 
 		stopCh: make(chan struct{}),
 		wakeCh: make(chan struct{}, 1),
@@ -503,26 +497,24 @@ func (s *Scheduler) loop() {
 	}
 }
 
-// unrecognizedStatusWarnWindow is the sampling window for the
-// unrecognized-status warn. Long, because the condition holds until an
-// operator acts on it and every replicated progress update wakes the tick
-// loop.
+// Long, because the condition holds until an operator acts on it and
+// every replicated progress update wakes the tick loop.
 const unrecognizedStatusWarnWindow = time.Hour
 
 // warnOnUnrecognizedStatuses reports the tasks in a status this build
-// never declared. Such a task counts as in flight, which is why the DTM
-// guards keep refusing schema mutations and backups for it.
+// never declared.
 //
-// One aggregated line per tick, sorted, covering every listed namespace:
-// naming the tasks one at a time let the sampler's budget pick an
-// arbitrary three by map-iteration order, which is not a set an operator
-// can act on. The gauge carries the same condition for alerting, since a
-// sampled log line cannot.
+// One aggregated sorted line per tick: naming the tasks one at a time let
+// the sampler's budget pick an arbitrary three by map-iteration order,
+// which is not a set an operator can act on.
 //
-// Reads this node's own FSM copies as well as the leader-routed list. A
-// task the peers have already cleaned up is gone from the latter, and
-// that is exactly the task still wedged here.
-func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+// leaderListAvailable says whether tasksByNamespace is the cluster's task
+// list or nothing at all. It gates the metric prune: only the cluster's
+// list knows which namespaces exist.
+func (s *Scheduler) warnOnUnrecognizedStatuses(
+	tasksByNamespace map[string]map[TaskDescriptor]*Task,
+	leaderListAvailable bool,
+) {
 	counts := make(map[string]int, len(tasksByNamespace))
 	var named []string
 	for namespace, tasks := range tasksByNamespace {
@@ -542,31 +534,46 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 				counts[namespace] = 0
 			}
 			for _, task := range tasks {
-				if _, alreadyNamed := tasksByNamespace[namespace][task.TaskDescriptor]; alreadyNamed {
+				// Skip only what the loop above already counted. Skipping on
+				// the leader having any copy at all loses the task whose copy
+				// the leader can name and this node cannot — counted nowhere,
+				// while this node keeps refusing schema mutations for it.
+				leaderCopy, onLeaderList := tasksByNamespace[namespace][task.TaskDescriptor]
+				if onLeaderList && !leaderCopy.Status.IsRecognized() {
 					continue
 				}
 				counts[namespace]++
-				named = append(named, fmt.Sprintf("%s/%s@%d=%s (this node only)",
-					namespace, task.ID, task.Version, task.Status))
+				// Naming the cluster's status is what makes the line
+				// actionable: it says this node has fallen behind the rest,
+				// rather than that the task exists nowhere else.
+				where := "this node only"
+				if onLeaderList {
+					where = fmt.Sprintf("this node only; cluster reports %s", leaderCopy.Status)
+				}
+				named = append(named, fmt.Sprintf("%s/%s@%d=%s (%s)",
+					namespace, task.ID, task.Version, task.Status, where))
 			}
 		}
 	}
 
-	// Write every namespace's value before dropping the ones that
-	// stopped reporting. Reset-then-Set drops every series first, and a
-	// scrape landing in that window reads the metric as absent — the
-	// same thing an alert reads when the node is down.
+	// Write every namespace's value before dropping the ones that stopped
+	// reporting. Reset-then-Set drops every series first, and a scrape in
+	// that window reads the metric the way it reads a node that is down.
 	for namespace, count := range counts {
 		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
-	}
-	for namespace := range s.unrecognizedStatusNamespaces {
-		if _, stillReporting := counts[namespace]; !stillReporting {
-			s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
-		}
-	}
-	s.unrecognizedStatusNamespaces = make(map[string]struct{}, len(counts))
-	for namespace := range counts {
 		s.unrecognizedStatusNamespaces[namespace] = struct{}{}
+	}
+	// A tick without the cluster's list saw only this node's own
+	// unrecognized copies, which say nothing about the namespaces that
+	// have none. Pruning off that view drops the series reporting zero
+	// and the ones reporting a real count alike.
+	if leaderListAvailable {
+		for namespace := range s.unrecognizedStatusNamespaces {
+			if _, stillReporting := counts[namespace]; !stillReporting {
+				s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
+				delete(s.unrecognizedStatusNamespaces, namespace)
+			}
+		}
 	}
 
 	if len(named) == 0 {
@@ -590,11 +597,10 @@ func (s *Scheduler) tick() {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
 		})
-		// This node's own copies need no leader, and a list that keeps
-		// failing is exactly when a task only this node still holds
-		// matters. Returning here instead would freeze the gauge at its
-		// last value for as long as the failure lasts.
-		s.warnOnUnrecognizedStatuses(nil)
+		// Warn on the error path rather than returning: returning would
+		// freeze the gauge at its last value for as long as the failure
+		// lasts, and this node's own copies need no leader anyway.
+		s.warnOnUnrecognizedStatuses(nil, false)
 		return
 	}
 
@@ -622,7 +628,7 @@ func (s *Scheduler) tick() {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
 
-	s.warnOnUnrecognizedStatuses(tasksByNamespace)
+	s.warnOnUnrecognizedStatuses(tasksByNamespace, true)
 
 	for namespace, provider := range providers {
 		tasks := tasksByNamespace[namespace]
@@ -657,14 +663,9 @@ func (s *Scheduler) tick() {
 				// authoritative status, not a hidden in-tick mutation.
 				effectiveStatus := task.Status
 
-				// State-machine dispatch by effectiveStatus. CANCELLED
-				// skips the ack barriers because [Manager.CancelTask]
-				// refuses the coordination phases this build can name, so
-				// the cancel landed before them. The gap is a cancel from a
-				// status this build cannot name: a newer node may already
-				// have swapped, which OnTaskCompleted reports as repair
-				// guidance. Every other status falls through to the
-				// in-flight ack pipeline and then Phase 2.
+				// State-machine dispatch by effectiveStatus. CANCELLED skips
+				// the ack barriers: [Manager.CancelTask] accepts a cancel
+				// only from STARTED, so the barriers cannot have opened.
 				switch effectiveStatus {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
@@ -736,10 +737,7 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. The age check never protects a
-		// non-terminal task: its FinishedAt is either zero or stamped at
-		// units-completion, and both clear the TTL. The liveness test is
-		// what stands between a task mid-coordination and deletion.
+		// TTL-cleanup of finished tasks.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

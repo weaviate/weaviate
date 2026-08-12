@@ -1136,10 +1136,7 @@ func initReindexAndDistributedTasks(
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder: appState.ClusterService.Raft,
-		// Deliberately not leader-routed: a task only this node still
-		// holds is invisible to the query above and is exactly the one
-		// the operator needs named.
+		AckRecorder:        appState.ClusterService.Raft,
 		LocalTaskInspector: appState.ClusterService.Raft,
 		Providers:          providers,
 		Logger:             appState.Logger,

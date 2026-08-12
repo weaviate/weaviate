@@ -95,7 +95,7 @@ func NewSchemaObjectsIndexesUpdateAccepted() *SchemaObjectsIndexesUpdateAccepted
 /*
 SchemaObjectsIndexesUpdateAccepted describes a response with status code 202, with default header values.
 
-Reindex task submitted.
+Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.
 */
 type SchemaObjectsIndexesUpdateAccepted struct {
 	Payload *models.IndexUpdateResponse
@@ -355,7 +355,7 @@ func NewSchemaObjectsIndexesUpdateNotFound() *SchemaObjectsIndexesUpdateNotFound
 /*
 SchemaObjectsIndexesUpdateNotFound describes a response with status code 404, with default header values.
 
-Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
+Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.
 */
 type SchemaObjectsIndexesUpdateNotFound struct {
 	Payload *models.ErrorResponse
