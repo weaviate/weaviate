@@ -404,7 +404,7 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("NonMT_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, nonMTClass, "text",
+		got := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, nonMTClass, "text",
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"t1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-MT class with tenants should reject as 400: %s", got.Body)
@@ -426,21 +426,21 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("ChangeTokenization_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, mtClass, "text",
+		got := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, mtClass, "text",
 			`{"searchable":{"tokenization":"field"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-tokenization should reject as 400: %s", got.Body)
 	})
 
 	t.Run("ChangeAlgorithm_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, mtClass, "text",
+		got := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, mtClass, "text",
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, mtClass, "text",
+		got := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, mtClass, "text",
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-existent tenant should reject as 400: %s", got.Body)

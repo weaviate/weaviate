@@ -90,11 +90,19 @@ type IndexUpdateErrorResponse struct {
 	Body       string
 }
 
-// SubmitIndexUpdateExpectRefusal submits a PUT /indexes request and returns
-// the response status and body. Despite the name, 202 also passes — gate-probing
-// callers poll until the refusal window opens; only a 5xx fails here, so every
-// caller must assert the exact status it expects.
-func SubmitIndexUpdateExpectRefusal(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
+// SubmitIndexUpdateExpectRefusalOrAdmission submits a PUT /indexes request and
+// returns the response status and body. It asserts only that the endpoint
+// reached a verdict: admitted (202), or refused with a client error (4xx).
+// Anything else, a 5xx above all, fails here.
+//
+// Both outcomes pass because a gate-probing caller submits on a loop and cannot
+// say in advance which side of the window it lands on. Deciding which of the two
+// this call had to get is therefore the caller's job, and every caller does
+// assert its exact status.
+//
+// Use [SubmitIndexUpdate] instead when the submission must be admitted: it
+// requires the 202 and hands back the task id.
+func SubmitIndexUpdateExpectRefusalOrAdmission(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
 	t.Helper()
 	o := applyOptions(opts)
 

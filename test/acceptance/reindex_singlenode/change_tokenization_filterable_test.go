@@ -137,7 +137,7 @@ func testSearchableTokenizationOnFilterableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, className, "name",
+	resp := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, className, "name",
 		`{"searchable":{"tokenization":"word"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {searchable:{tokenization:X}} on filterable-only must 400, not 5xx or 202")
@@ -164,7 +164,7 @@ func testFilterableTokenizationOnSearchableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, className, "body",
+	resp := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, className, "body",
 		`{"filterable":{"tokenization":"field"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {filterable:{tokenization:X}} on searchable-only must 400")
@@ -228,7 +228,7 @@ func testFilterableTokenizationOnNonText(t *testing.T, restURI string) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpectRefusal(t, restURI, className, "score",
+	resp := reindexhelpers.SubmitIndexUpdateExpectRefusalOrAdmission(t, restURI, className, "score",
 		`{"filterable":{"tokenization":"word"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {filterable:{tokenization:X}} on a non-text property must 400")
