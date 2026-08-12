@@ -16,9 +16,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func makeVersionMap(t *testing.T) *VersionMap {
@@ -378,6 +381,50 @@ func TestVersionMapWarmup(t *testing.T) {
 	count, err = m.Warmup(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
+}
+
+// TestVersionMapWarmupConcurrentWithInserts pins that the posting-map pass
+// of the warmup holds the per-posting lock: inserts mutate posting metadata
+// in place, so an unlocked read is a data race (caught by -race).
+func TestVersionMapWarmupConcurrentWithInserts(t *testing.T) {
+	const preload, total = 200, 400
+	vectors, _ := testinghelpers.RandomVecs(total, 1, 32)
+
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	logger, _ := test.NewNullLogger()
+	cfg.Logger = logger
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		func(ctx context.Context, id uint64, _ string) ([]float32, error) {
+			return vectors[id], nil
+		})
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	ctx := t.Context()
+	for i := range preload {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				index.warmVersionMap()
+			}
+		}
+	}, logger)
+
+	for i := preload; i < total; i++ {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+	close(stop)
+	wg.Wait()
 }
 
 func TestVersionMapEnsureDefault(t *testing.T) {
