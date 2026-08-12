@@ -628,11 +628,15 @@ dropping schema mutations the rest of the cluster has already committed.
 That window normally closes at `completedTaskTTL` — a node that does
 recognize the status proposes the clean-up, the entry replicates, and
 the unrecognized arm of `CleanUpTask` above deletes the old node's copy.
-Two cases have no such bound: a **full rollback**, where no node
-recognizes the status so nothing ever proposes a clean-up, and a node
+Three cases have no such bound: a **full rollback**, where no node
+recognizes the status so nothing ever proposes a clean-up; a node
 that misses the clean-up entry and is caught up by a snapshot instead,
 because `Manager.Restore` merges into the existing task map rather than
-replacing it (weaviate/0-weaviate-issues#245, fixed by #11416).
+replacing it (weaviate/0-weaviate-issues#245, fixed by #11416); and a
+node whose `completedTaskTTL` is longer than the proposer's, because
+`CleanUpTask` re-checks the age against that node's own clock and TTL
+inside the apply, and an apply that refuses is logged and dropped rather
+than retried.
 Adding a new **non-terminal** status is cheaper,
 because the fail-closed reading is the correct one, but it is not free:
 such a node still refuses backups on the collection and reports the index

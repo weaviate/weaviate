@@ -1135,14 +1135,17 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			}
 
 			body := rec.Body.String()
-			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
-			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
-			require.Contains(t, body, tc.wantReason)
 			// Nothing on this node advances a status it cannot name, so
 			// the coordination-phase advice must not leak onto that arm.
+			// Asserted first on purpose: a Contains failing ahead of it
+			// would abort the subtest and leave the advice unchecked on
+			// exactly the arm that leaked it.
 			if !tc.status.IsRecognized() {
 				require.NotContains(t, body, "wait for it to reach a terminal state")
 			}
+			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
+			require.Contains(t, body, tc.wantReason)
 			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
 		})
 	}
