@@ -68,7 +68,7 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(ctx))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -90,7 +90,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(ctx))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -141,7 +141,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(ctx))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -205,7 +205,7 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	t.Run("populate", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(ctx))
 	})
 
 	t.Run("check files", func(t *testing.T) {
@@ -236,7 +236,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		defer b.Shutdown(ctx)
 
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(ctx))
 	})
 
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -273,10 +273,10 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	t.Run("populate, compact", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(ctx))
 
 		require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(ctx))
 
 		compacted, err := b.disk.compactOnce(context.Background())
 		require.NoError(t, err)

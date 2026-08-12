@@ -157,7 +157,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 3", func(t *testing.T) {
@@ -191,7 +191,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {

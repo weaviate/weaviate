@@ -65,12 +65,12 @@ func TestCleanupReplace_InPlaceSwitch_CrashRecovery(t *testing.T) {
 			require.NoError(t, bucket.Put([]byte("keyKeep"), []byte("v1")))
 			require.NoError(t, bucket.Put([]byte("keyUpdated"), []byte("v1")))
 			require.NoError(t, bucket.Put([]byte("keyGone"), []byte("v1")))
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(ctx))
 
 			// upper segment: update one key, delete another.
 			require.NoError(t, bucket.Put([]byte("keyUpdated"), []byte("v2")))
 			require.NoError(t, bucket.Delete([]byte("keyGone")))
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(ctx))
 
 			// cleaning the bottom segment removes keyUpdated (superseded) and
 			// keyGone (superseded by the tombstone above), keeping keyKeep.
@@ -168,11 +168,11 @@ func TestCleanupReplace_InPlaceSwitch_MidSwitchCrashRecovery(t *testing.T) {
 				require.NoError(t, b.Put([]byte("keyKeep"), []byte("v1")))
 				require.NoError(t, b.Put([]byte("keyUpdated"), []byte("v1")))
 				require.NoError(t, b.Put([]byte("keyGone"), []byte("v1")))
-				require.NoError(t, b.FlushAndSwitch())
+				require.NoError(t, b.FlushAndSwitch(ctx))
 
 				require.NoError(t, b.Put([]byte("keyUpdated"), []byte("v2")))
 				require.NoError(t, b.Delete([]byte("keyGone")))
-				require.NoError(t, b.FlushAndSwitch())
+				require.NoError(t, b.FlushAndSwitch(ctx))
 
 				require.NoError(t, b.Shutdown(context.Background()))
 				return dir

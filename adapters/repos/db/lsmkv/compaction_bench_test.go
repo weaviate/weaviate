@@ -52,7 +52,7 @@ func BenchmarkCompaction(b *testing.B) {
 					for j := 0; j < valuesPerSegment; j++ {
 						addData(b, bu, i, j, "key", "key2", strategy)
 					}
-					require.NoError(b, bu.FlushMemtable())
+					require.NoError(b, bu.FlushMemtable(context.Background()))
 
 					fileTypes := getFiles(b, tmpDir)
 					require.Equal(b, 1, fileTypes[".db"])
@@ -60,7 +60,7 @@ func BenchmarkCompaction(b *testing.B) {
 					for j := 0; j < valuesPerSegment; j++ {
 						addData(b, bu, i, j, "key2", "key", strategy)
 					}
-					require.NoError(b, bu.FlushMemtable())
+					require.NoError(b, bu.FlushMemtable(context.Background()))
 
 					fileTypes = getFiles(b, tmpDir)
 					require.Equal(b, 2, fileTypes[".db"])

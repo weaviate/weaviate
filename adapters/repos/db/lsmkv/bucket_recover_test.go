@@ -333,7 +333,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, count)
 
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	require.NoError(t, b.Shutdown(ctx))
 

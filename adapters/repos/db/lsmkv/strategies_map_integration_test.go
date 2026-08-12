@@ -199,7 +199,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace an existing map key", func(t *testing.T) {
@@ -295,7 +295,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace an existing map key", func(t *testing.T) {
@@ -306,7 +306,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			require.Nil(t, err)
 
 			// Flush again!
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 			row1Updated := []MapPair{
 				{
@@ -596,7 +596,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete some keys, re-add one of them", func(t *testing.T) {
@@ -612,7 +612,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("validate the results", func(t *testing.T) {
@@ -994,7 +994,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("second third (%3==1)", func(t *testing.T) {
@@ -1036,7 +1036,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("third third (%3==2) memtable only", func(t *testing.T) {
@@ -1225,7 +1225,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("one final flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("verify update is contained - after flushing the update", func(t *testing.T) {

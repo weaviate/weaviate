@@ -206,7 +206,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(b.GetDir())
 	require.Nil(t, err)
@@ -321,7 +321,7 @@ func TestBucketGetBySecondary(t *testing.T) {
 	_, err = b.GetBySecondary(ctx, 1, []byte("bonjour"))
 	require.Error(t, err)
 
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	value, err = b.Get([]byte("hello"))
 	require.Nil(t, err)
@@ -390,7 +390,7 @@ func TestBucketDelete(t *testing.T) {
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 			err = bucket.Delete(key)
 			require.NoError(t, err)
@@ -415,7 +415,7 @@ func TestBucketDelete(t *testing.T) {
 			require.NoError(t, err)
 			err = bucket.Delete(key)
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 
 			t.Run("retrieve by primary key", func(t *testing.T) {
@@ -437,11 +437,11 @@ func TestBucketDelete(t *testing.T) {
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 			err = bucket.Delete(key)
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 
 			t.Run("retrieve by primary key", func(t *testing.T) {
@@ -485,7 +485,7 @@ func TestBucketDelete(t *testing.T) {
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
@@ -510,7 +510,7 @@ func TestBucketDelete(t *testing.T) {
 			require.NoError(t, err)
 			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 
 			t.Run("retrieve by primary key", func(t *testing.T) {
@@ -531,11 +531,11 @@ func TestBucketDelete(t *testing.T) {
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
-			err = bucket.FlushAndSwitch()
+			err = bucket.FlushAndSwitch(context.Background())
 			require.NoError(t, err)
 
 			t.Run("retrieve by primary key", func(t *testing.T) {
@@ -566,7 +566,7 @@ func TestBucketInfoInFileName(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			dbFiles, _ := countDbAndWalFiles(t, dirName)
 			require.Equal(t, dbFiles, 1)
 		})
@@ -597,7 +597,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			require.NoError(t, b.Shutdown(ctx))
 			dbFiles, _ := countDbAndWalFiles(t, dirName)
 			require.Equal(t, dbFiles, 1)
@@ -608,7 +608,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			require.NoError(t, b.Shutdown(ctx))
 
 			dbFiles, _ = countDbAndWalFiles(t, dirName)
@@ -675,13 +675,13 @@ func TestNetCountComputationAtInit(t *testing.T) {
 
 	// create separate segments for each entry
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	count, err := b.Count(ctx)
 	require.NoError(t, err)
@@ -2600,7 +2600,7 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		err := b.Put(key, value)
 		require.NoError(t, err)
 
-		err = b.FlushAndSwitch()
+		err = b.FlushAndSwitch(context.Background())
 		require.NoError(t, err)
 	})
 
@@ -2658,7 +2658,7 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		err := b.Put(key, value)
 		require.NoError(t, err)
 
-		err = b.FlushAndSwitch()
+		err = b.FlushAndSwitch(context.Background())
 		require.NoError(t, err)
 
 		// Delete in memtable (creates tombstone)
@@ -2697,7 +2697,7 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(b.GetDir())
 	require.Nil(t, err)
@@ -2710,7 +2710,7 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("olá"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	b.Shutdown(ctx)
 
