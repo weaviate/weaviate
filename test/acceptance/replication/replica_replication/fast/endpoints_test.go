@@ -250,7 +250,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t.Run("wait for replication operation to be cancelled", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-			require.Nil(t, err)
+			require.Nil(ct, err)
 			assert.Equal(ct, string(api.CANCELLED), details.Payload.Status.State)
 		}, 30*time.Second, 1*time.Second, "replication operation should be cancelled")
 	})

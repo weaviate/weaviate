@@ -157,7 +157,7 @@ func Test_UploadS3JourneyHappyPath(t *testing.T) {
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
@@ -336,7 +336,7 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
@@ -489,7 +489,7 @@ func Test_UploadS3JourneyUnhappyPath_CloudProviderIsDown(t *testing.T) {
 		t.Run("verify tenant is reset to HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
