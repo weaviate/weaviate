@@ -147,9 +147,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated: true,
 		},
 		{
-			// The delete removes this sweep's state along with it, so this must
-			// not report truncation or promise a retry.
-			name:        "a collection being deleted has nothing left to sweep",
+			// Nothing the walk skipped is reachable once the class is gone, so
+			// this must not report truncation or promise a retry.
+			name:        "a collection being deleted leaves nothing worth sweeping",
 			shards:      []string{"shard-a", "shard-b"},
 			closing:     true,
 			closeCause:  errIndexDropped,
@@ -258,8 +258,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			}
 			if tc.wantDropped {
 				require.ErrorIs(t, err, ErrCleanupCollectionDropped,
-					"a collection being deleted takes its state with it, and the caller must not "+
-						"report unswept shards or promise a retry for it")
+					"a collection being deleted puts its leftover state out of reach, and the "+
+						"caller must not report unswept shards or promise a retry for it")
 			} else {
 				require.NotErrorIs(t, err, ErrCleanupCollectionDropped,
 					"the collection is not being deleted, so its state outlives this sweep")

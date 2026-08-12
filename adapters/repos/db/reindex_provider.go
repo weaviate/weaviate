@@ -1750,7 +1750,8 @@ type terminalSweepOutcome int
 
 const (
 	// terminalSweepClean: the walk reached every shard in the map. A shard
-	// the gate skipped counts as reached — it had nothing to sweep.
+	// the gate skipped counts as reached — the gate found nothing to sweep,
+	// up to the staleness [dirNamesCache] names.
 	terminalSweepClean terminalSweepOutcome = iota
 	// terminalSweepDropped: the collection is not on this node — though shards
 	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
@@ -1788,7 +1789,7 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 // collection directory, and the files an in-flight backup holds back are
 // reclaimed when that backup is released or on the next restart. Failed and
 // unknown both warrant one — neither confirms the state is gone, and nothing
-// else is coming to remove it.
+// removes it before the next submit for the tuple or the next-restart audit.
 func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
 	switch outcome {
 	case terminalSweepFailed:
@@ -2086,8 +2087,9 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
-// Returns false iff at least one tracker dir on this node is started but
-// neither tidied nor merged — the signature of a swap interrupted mid-flight.
+// Returns false when a tracker dir on this node is neither tidied nor merged,
+// or when unreadable state could hide one — the signature of a swap
+// interrupted mid-flight; see [hasUntidiedTracker].
 // Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
 // the rehydrate path completes the swap; without it, a half-applied local
 // swap could leave this node at OLD tokenization after a cluster-wide
@@ -2188,7 +2190,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	return nil
 }
 
-// hasUntidiedTracker returns true iff at least one tracker dir in scope carries
+// hasUntidiedTracker returns true when at least one tracker dir in scope carries
 // neither tidied.mig nor merged.mig — a swap that began and did not commit, or
 // a tracker dir written before iteration ever started. Trackers that have
 // tidied/merged are NOT a recovery signal (they are completed migrations

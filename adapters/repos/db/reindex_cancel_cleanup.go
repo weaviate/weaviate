@@ -150,10 +150,10 @@ func classifyIncompleteWalk(err error) error {
 // bounded set of shard failures.
 //
 // A closing index is truncated too (the walk visits nothing); a deleted
-// collection is [ErrCleanupCollectionDropped] instead, since its state is
-// gone along with it. Cancellation reported from inside the walk wins over a
-// collection delete landing during it, so that race reads as truncated —
-// one spurious Error log at teardown, nothing more.
+// collection is [ErrCleanupCollectionDropped] instead, since what it leaves
+// behind is harmless — see that error. Cancellation reported from inside the
+// walk wins over a collection delete landing during it, so that race reads as
+// truncated — one spurious Error log at teardown, nothing more.
 //
 // An unloaded shard is only hydrated if it actually has on-disk state to
 // remove, to avoid hydrating every unloaded tenant of a large collection.

@@ -39,7 +39,8 @@ func droppedAfterAShardFailed() error {
 }
 
 // A collection deleted mid-sweep must not be logged as an operator-facing
-// failure: it left no stale state and there's no new task to warn about.
+// failure: with the class gone, nothing it left behind is reachable, and there
+// is no new task to warn about.
 func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	// change-tokenization submits both index types, which is the case where a
 	// concurrent delete can be seen by one sweep and not the other.

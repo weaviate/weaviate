@@ -184,7 +184,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "a tracker dir from before generations existed",
+			name: "a tracker dir with no generation suffix is its own base",
 			dir:  "enable_filterable_cat",
 			want: true,
 		},
@@ -274,11 +274,12 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_b_a_1",
 			propName: "a", preserve: true, want: true,
 		},
-		// The swept property as a middle "_"-token of a payload-less name (a
-		// dir from before property sorting could also carry it unsorted); only
-		// the middle-token clause of namesPropertyToken catches this shape.
+		// The swept property as a middle "_"-token of a payload-less name. No
+		// sorted multi-property name has this shape, but a single property
+		// named "x_a_y" does; only the middle-token clause of
+		// namesPropertyToken catches it.
 		{
-			name:     "a three-property task naming this property mid-list, with no payload, in the preserve set",
+			name:     "a single property carrying this property mid-token, with no payload, in the preserve set",
 			dir:      "enable_filterable_x_a_y_1",
 			propName: "a", preserve: true, want: true,
 		},

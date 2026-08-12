@@ -235,7 +235,7 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 					[]byte("{not json"), 0o644))
 			}
 		}
-		// A dir predating the generation suffix carries the prefix as its name.
+		// Plus a name with no generation suffix: its base is the whole name.
 		noGen := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{"cat"})
 		mkTrackerDir(t, lsm, noGen)
 		dirs = append(dirs, noGen)

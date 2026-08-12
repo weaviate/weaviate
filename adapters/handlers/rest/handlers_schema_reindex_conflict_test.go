@@ -122,15 +122,17 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				return
 			}
 			require.NotContains(t, remedy, "cancel",
-				"the cancel verb answers 409 for %q, so no remedy may name one", tc.status)
+				"the cancel verb answers 409 for %q, so the closing advice must not "+
+					"send the operator to it", tc.status)
 			require.NotContains(t, restReason, cancellableRemedy,
 				"the cancel advice has to be gone, not joined by a caveat")
 		})
 	}
 }
 
-// remedyOf returns the tail of a mutation refusal: everything from the last
-// em-dash separator on, which is where both surfaces put the remedy.
+// remedyOf returns the closing advice of a mutation refusal: everything from
+// its last em-dash on. A non-cancellable remedy carries an em-dash of its own,
+// so this is the clause the operator acts on, not the whole remedy.
 func remedyOf(t *testing.T, refusal string) string {
 	t.Helper()
 	i := strings.LastIndex(refusal, "— ")

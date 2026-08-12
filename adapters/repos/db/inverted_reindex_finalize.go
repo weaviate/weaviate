@@ -98,11 +98,10 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 }
 
 // completedMigrationGens returns the set of generation numbers whose
-// migration tracker dir (for any of the strategy prefixes in `prefixes`)
-// has `tidied.mig` or `merged.mig` on disk — i.e., migrations that
-// completed successfully in-process and whose sidecar dirs are LIVE data
-// pointed at by the in-memory bucket pointers, awaiting next-restart
-// finalize to be promoted to canonical names.
+// migration tracker dir in `scope` has `tidied.mig` or `merged.mig` on disk
+// — i.e., migrations that completed successfully in-process and whose sidecar
+// dirs are LIVE data pointed at by the in-memory bucket pointers, awaiting
+// next-restart finalize to be promoted to canonical names.
 //
 // Called from the submit-handler and cancel-handler pre-submit cleanup
 // path ([Shard.CleanStalePartialReindexState]) so the cleanup can skip
@@ -149,9 +148,10 @@ func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool 
 // carries tidied.mig or merged.mig (completed in-process, awaiting
 // next-restart finalize).
 //
-// The dir listing comes from the scope's cache, so a run of calls over one
-// shard reads its .migrations dir once; the sentinel Stats per matching dir
-// are not cached.
+// The dir listing goes through the scope's cache, so a run of calls over one
+// shard reads its .migrations dir once; a nil cache reads the filesystem every
+// time, which is what most callers pass. The sentinel Stats per matching dir
+// are never cached.
 func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) {
 	migrationsDir := filepath.Join(scope.lsmPath, ".migrations")
 	names, err := scope.dirs.list(migrationsDir)
