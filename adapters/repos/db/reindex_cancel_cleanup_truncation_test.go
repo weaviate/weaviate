@@ -526,3 +526,112 @@ func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T)
 	require.True(t, IsCleanupCollectionDropped(err),
 		"the caller has nothing to act on, and no later sweep to retry")
 }
+
+// Pins the answer the CANCELLED evidence gate gives when the walk behind it
+// never happened. A shutdown racing a swap is how a promotable generation
+// gets left behind, and it is also what empties the walk: ForEachShard
+// reports a closing index as one that reached every shard. Answering
+// "nothing promotable here" off that is what suppresses the operator's
+// repair guidance, and no later run makes up for it — the next restart
+// promotes the generation onto the canonical bucket and says nothing.
+//
+// Covers the close causes only. The other thing strictness buys — a shard
+// that leaves the map mid-walk — has no deterministic trigger from out here,
+// so it stays pinned on the primitive by
+// TestForEachShardStrictReportsACloseThatLandsMidWalk. Swapping this walk
+// back to ForEachShard plus a closeCause check would still pass every row
+// below and lose that arm.
+func TestIndexAnyPromotableReindexStateOnAWalkThatCouldNotLook(t *testing.T) {
+	const (
+		propName  = "title"
+		indexType = "filterable"
+		tracker   = "enable_filterable_title_1"
+	)
+
+	for _, tc := range []struct {
+		name       string
+		closing    bool
+		closeCause error
+		promotable bool
+		want       bool
+	}{
+		{
+			name:       "a walk that reached every shard and found the generation",
+			promotable: true,
+			want:       true,
+		},
+		{
+			// The one answer that earns silence: the shards were read.
+			name: "a walk that reached every shard and found nothing",
+		},
+		{
+			name:       "a node shutting down over a promotable generation",
+			closing:    true,
+			closeCause: errIndexShutdown,
+			promotable: true,
+			want:       true,
+		},
+		{
+			// Nothing on disk here either, but the walk did not establish
+			// that, and the caller cannot tell the two apart.
+			name:       "a node shutting down over shards holding nothing",
+			closing:    true,
+			closeCause: errIndexShutdown,
+			want:       true,
+		},
+		{
+			name:       "a close nobody named a cause for",
+			closing:    true,
+			promotable: true,
+			want:       true,
+		},
+		{
+			// The one stop that is not a gap: Index.drop renames the
+			// collection's directory away, so the generation on disk here has
+			// nothing left to be promoted onto. Answering true would name a
+			// collection the operator just deleted, and would do it only
+			// during the delete — the walk before it and the nil index after
+			// it both answer false.
+			name:       "a collection being deleted",
+			closing:    true,
+			closeCause: errIndexDropped,
+			promotable: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			closingCtx, closeIndex := context.WithCancel(context.Background())
+			defer closeIndex()
+			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+			defer signalCloseRequested(nil)
+			idx := &Index{
+				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				closingCtx:           closingCtx,
+				closeRequestedCtx:    closeRequestedCtx,
+				signalCloseRequested: signalCloseRequested,
+				logger:               logger,
+			}
+			for _, name := range []string{"shard-a", "shard-b"} {
+				if tc.promotable {
+					mkTrackerDir(t, shardPathLSM(idx.path(), name), tracker,
+						"started.mig", "merged.mig")
+				}
+				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
+					shardOpts: &deferredShardOpts{
+						name: name, index: idx, class: &models.Class{Class: "Movies"},
+					},
+				})
+			}
+			if tc.closing {
+				if tc.closeCause != nil {
+					signalCloseRequested(tc.closeCause)
+				}
+				closeIndex()
+			}
+
+			require.Equal(t, tc.want,
+				idx.anyPromotableReindexState(propName, indexType, nil))
+		})
+	}
+}
