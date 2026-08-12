@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -23,14 +24,19 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -416,4 +422,88 @@ func TestIndexDropLocalShard(t *testing.T) {
 		}
 		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
 	})
+}
+
+// addProperty and updateProperty only schedule the bucket work onto an error
+// group, so the pins must outlive the walk and drop after eg.Wait().
+//
+// Two shards because shardMap.Range is sequential: the second callback firing
+// proves the first returned, which is when a per-shard release would happen.
+func TestPropertyWorkPinsShardAgainstTeardown(t *testing.T) {
+	prop := &models.Property{
+		Name:         "pinned",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWord,
+	}
+
+	const shardCount = 2
+
+	tests := []struct {
+		name   string
+		expect func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper))
+		run    func(idx *Index) error
+	}{
+		{
+			name: "addProperty",
+			expect: func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper)) {
+				shard.EXPECT().initPropertyBuckets(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ bool, _ ...*models.Property) {
+						schedule(eg)
+					})
+			},
+			run: func(idx *Index) error { return idx.addProperty(context.Background(), prop) },
+		},
+		{
+			name: "updateProperty",
+			expect: func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper)) {
+				shard.EXPECT().updatePropertyBuckets(mock.Anything, mock.Anything, mock.Anything).
+					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ *models.Property) {
+						schedule(eg)
+					})
+			},
+			run: func(idx *Index) error { return idx.updateProperty(context.Background(), prop) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+
+			var (
+				activePins atomic.Int32
+				remaining  atomic.Int32
+				allWalked  = make(chan struct{})
+			)
+			remaining.Store(shardCount)
+
+			schedule := func(eg *enterrors.ErrorGroupWrapper) {
+				eg.Go(func() error {
+					<-allWalked
+					if pins := activePins.Load(); pins != shardCount {
+						return fmt.Errorf("%d of %d pins released before the scheduled bucket work ran",
+							shardCount-pins, shardCount)
+					}
+					return nil
+				})
+			}
+
+			for i := range shardCount {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+					activePins.Add(1)
+					return func() { activePins.Add(-1) }, nil
+				})
+				tt.expect(shard, func(eg *enterrors.ErrorGroupWrapper) {
+					schedule(eg)
+					if remaining.Add(-1) == 0 {
+						close(allWalked)
+					}
+				})
+				idx.shards.Store(fmt.Sprintf("t%d", i), shard)
+			}
+
+			require.NoError(t, tt.run(idx))
+			require.Zero(t, activePins.Load(), "%s leaked a pin", tt.name)
+		})
+	}
 }
