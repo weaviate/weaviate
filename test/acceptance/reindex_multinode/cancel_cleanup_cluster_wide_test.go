@@ -82,8 +82,16 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		return map[string]interface{}{propName: paths[i%len(paths)]}
 	})
 
+	// Shard names do not depend on the migration, so read them before it
+	// starts. Everything between STARTED and the cancel eats into the
+	// window the cancel has to land in.
+	allShards := collectShardNamesForClass(t, uri, className)
+	require.GreaterOrEqual(t, len(allShards), 3,
+		"sanity: expected ≥3 shards on a 3-shard class; got %v", allShards)
+
 	// Tokenization-changing migration creates both searchable and
 	// filterable trackers per (shard, replica).
+	submittedAt := time.Now()
 	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, propName,
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
@@ -92,29 +100,42 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// would let the migration finish on fast hardware and stop
 	// reproducing the race.
 	awaitTaskStartedFast(t, uri, taskID, 30*time.Second)
-
-	allShards := collectShardNamesForClass(t, uri, className)
-	require.GreaterOrEqual(t, len(allShards), 3,
-		"sanity: expected ≥3 shards on a 3-shard class; got %v", allShards)
+	startedObservedAt := time.Now()
 
 	// Sanity: must observe at least one mid-flight tracker dir before
 	// the cancel. Otherwise the migration finished early and the
 	// post-cancel assertions pass trivially without exercising the fix.
-	preCancelSurvivors := scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
+	// One node answers this in a third of the container execs; the
+	// cluster-wide scan only runs when that comes up empty, because it
+	// is the single most expensive thing inside the race window.
+	preCancelSurvivors := scanBodyMigrationsOnNode(ctx, t, compose, classDirLower, allShards, propName, 1)
+	if len(preCancelSurvivors) == 0 {
+		preCancelSurvivors = scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
+	}
 	require.NotEmptyf(t, preCancelSurvivors,
 		"sanity: expected at least 1 .migrations/*_%s_* dir on disk mid-flight before cancel; got 0 — migration likely finished before cancel reached the cluster, so the post-cancel R5/R6 assertions would PASS trivially without exercising the fix",
 		propName)
 
-	cancelled := cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
-	t.Logf("issued cancel for searchable migration on %s/%s (pre-cancel survivors: %d)",
-		className, propName, len(preCancelSurvivors))
-	if !cancelled {
-		// Everything below holds for a plain completion too, so passing
-		// here would say nothing about the cancel. Skip rather than pass,
-		// so "the cancel never lands any more" shows up in CI instead of
-		// hiding behind a green run.
-		t.Skip("cancel lost the race to task completion; the assertions below cannot tell the two apart")
-	}
+	cancelled, arm := cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
+	startedToCancel := time.Since(startedObservedAt)
+	t.Logf("issued cancel for searchable migration on %s/%s (pre-cancel survivors: %d, arm: %s, STARTED→cancel: %s)",
+		className, propName, len(preCancelSurvivors), arm, startedToCancel)
+
+	// Everything below holds for a plain completion too, so a run where
+	// the cancel never landed proves nothing about cancel-cleanup. This
+	// is the only multi-node cancel-cleanup journey in the repo, so it
+	// fails rather than skips: a skip here reads as green in CI.
+	require.Truef(t, cancelled,
+		"cancel did not land: got %s, %s after STARTED was observed. The assertions below cannot tell a cancel-driven cleanup from a completion-driven one, so this run proves nothing.",
+		arm, startedToCancel)
+
+	// Both margins, logged every run: how long the cancel took to reach
+	// the cluster after STARTED was observed, against how long the task
+	// stayed alive in total. A run where those two converge is a run
+	// where this test is about to start losing the race.
+	terminalStatus := awaitTaskTerminal(t, uri, taskID, cancelTimeout)
+	t.Logf("margins: STARTED→cancel %s, submit→%s %s",
+		startedToCancel, terminalStatus, time.Since(submittedAt))
 
 	// Every replica on every node must drain its .migrations/*_body_*
 	// dirs within cancelTimeout.
@@ -169,15 +190,51 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 	}, timeout, 50*time.Millisecond, "task %s should reach STARTED", taskID)
 }
 
+// awaitTaskTerminal polls /v1/tasks until the named task reaches a
+// terminal status and returns it. Exists so the total migration duration
+// can be logged next to the STARTED→cancel latency: the gap between
+// those two is what decides whether this test still exercises the
+// cancel, and it has to be readable in CI rather than inferred.
+func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			var tasks models.DistributedTasks
+			if err := json.Unmarshal(body, &tasks); err == nil {
+				for _, task := range tasks["reindex"] {
+					if task.ID != taskID {
+						continue
+					}
+					switch task.Status {
+					case "FINISHED", "FAILED", "CANCELLED":
+						return task.Status
+					}
+				}
+			}
+		}
+		require.Truef(t, time.Now().Before(deadline),
+			"task %s should reach a terminal status within %s", taskID, timeout)
+		<-ticker.C
+	}
+}
+
 // cancelReindexProperty sends {<indexType>: {cancel: true}} to
 // PUT /v1/schema/<class>/indexes/<prop> and checks the cancel contract
-// for taskID. Reports whether the cancel actually landed: all three arms
-// are legal outcomes of the race, but only one of them leaves the
-// caller's post-cancel assertions cancel-driven rather than
-// completion-driven.
-func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) bool {
+// for taskID. Reports whether the cancel actually landed, and which of
+// the three legal arms answered: all three are legal outcomes of the
+// race, but only one of them leaves the caller's post-cancel assertions
+// cancel-driven rather than completion-driven, and a caller that fails
+// on the other two has to name the one it got.
+func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) (bool, string) {
 	t.Helper()
 	cancelled := false
+	arm := ""
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
 	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
@@ -203,8 +260,9 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 			require.Equalf(t, taskID, result.TaskID,
 				"cancel CANCELLED must name the cancelled task; body: %s", string(respBody))
 			cancelled = true
+			arm = "202 CANCELLED"
 		case "NO_OP":
-			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
+			arm = "202 NO_OP (task was already terminal)"
 		default:
 			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
 				result.Status, string(respBody))
@@ -212,11 +270,11 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 	case http.StatusConflict:
 		require.Containsf(t, string(respBody), taskID,
 			"cancel 409 must name the task it refuses to cancel; body: %s", string(respBody))
-		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
+		arm = "409 (task is past its units, cluster-wide swap under way)"
 	default:
 		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(respBody))
 	}
-	return cancelled
+	return cancelled, arm
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by
@@ -264,24 +322,39 @@ func scanBodyMigrationsAllReplicas(
 	t.Helper()
 	var survivors []string
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		container := compose.GetWeaviateNode(nodeIdx).Container()
-		for _, shard := range shards {
-			migsPath := fmt.Sprintf("/data/%s/%s/lsm/.migrations", classDirLower, shard)
-			cmd := []string{
-				"sh", "-c",
-				fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`,
-					migsPath, propName),
-			}
-			code, reader, err := container.Exec(ctx, cmd)
-			require.NoError(t, err, "exec on node %d for shard %s", nodeIdx, shard)
-			out := new(strings.Builder)
-			if reader != nil {
-				_, _ = io.Copy(out, reader)
-			}
-			matches := strings.TrimSpace(out.String())
-			if code == 0 && matches != "" {
-				survivors = append(survivors, fmt.Sprintf("node%d:%s [%s]", nodeIdx, shard, matches))
-			}
+		survivors = append(survivors,
+			scanBodyMigrationsOnNode(ctx, t, compose, classDirLower, shards, propName, nodeIdx)...)
+	}
+	return survivors
+}
+
+// scanBodyMigrationsOnNode is the single-node half of
+// scanBodyMigrationsAllReplicas. Split out because the pre-cancel
+// evidence check sits inside the race window and one node is enough to
+// answer it; the caller widens to the cluster only when this is empty.
+func scanBodyMigrationsOnNode(
+	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
+	classDirLower string, shards []string, propName string, nodeIdx int,
+) []string {
+	t.Helper()
+	var survivors []string
+	container := compose.GetWeaviateNode(nodeIdx).Container()
+	for _, shard := range shards {
+		migsPath := fmt.Sprintf("/data/%s/%s/lsm/.migrations", classDirLower, shard)
+		cmd := []string{
+			"sh", "-c",
+			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`,
+				migsPath, propName),
+		}
+		code, reader, err := container.Exec(ctx, cmd)
+		require.NoError(t, err, "exec on node %d for shard %s", nodeIdx, shard)
+		out := new(strings.Builder)
+		if reader != nil {
+			_, _ = io.Copy(out, reader)
+		}
+		matches := strings.TrimSpace(out.String())
+		if code == 0 && matches != "" {
+			survivors = append(survivors, fmt.Sprintf("node%d:%s [%s]", nodeIdx, shard, matches))
 		}
 	}
 	return survivors

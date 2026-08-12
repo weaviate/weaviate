@@ -491,10 +491,9 @@ func (t TaskStatus) IsActive() bool {
 // task is in, IsActive reports whether this build has to assume the task
 // is still running.
 //
-// Nothing in production calls it. It stays because its switch is one of
-// the tripwires that make a newly declared status fail the build until
-// someone places it, and because it is the phase question the docs'
-// predicate table answers.
+// It stays because its switch is one of the tripwires that make a newly
+// declared status fail the build until someone places it, and because it
+// is the phase question the docs' predicate table answers.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
