@@ -12,11 +12,15 @@
 package db
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -167,4 +171,109 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestShard_PropertyIndicesSnapshot(t *testing.T) {
+	tests := []struct {
+		name    string
+		props   []string
+		wantNil bool
+	}{
+		{
+			name:    "uninitialized",
+			wantNil: true,
+		},
+		{
+			name:    "no properties",
+			props:   []string{},
+			wantNil: true,
+		},
+		{
+			name:  "single geo property",
+			props: []string{"location"},
+		},
+		{
+			name:  "several geo properties",
+			props: []string{"location", "home", "work"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var live propertyspecific.Indices
+			if test.props != nil {
+				live = propertyspecific.Indices{}
+				for _, propName := range test.props {
+					live[propName] = propertyspecific.Index{
+						Name: propName,
+						Type: schema.DataTypeGeoCoordinates,
+					}
+				}
+			}
+			shard := &Shard{propertyIndices: live}
+
+			snapshot := shard.propertyIndicesSnapshot()
+
+			if test.wantNil {
+				require.Nil(t, snapshot)
+			}
+
+			// a later initGeoProp / DropAll must not reach the handed-out copy
+			if live != nil {
+				shard.propertyIndicesLock.Lock()
+				for _, propName := range test.props {
+					delete(shard.propertyIndices, propName)
+				}
+				shard.propertyIndices["added"] = propertyspecific.Index{Name: "added"}
+				shard.propertyIndicesLock.Unlock()
+			}
+
+			got := make([]string, 0, len(snapshot))
+			for propName := range snapshot {
+				got = append(got, propName)
+			}
+			require.ElementsMatch(t, test.props, got)
+		})
+	}
+}
+
+// A searcher reads the indices long after it was handed them, so the snapshot
+// has to survive writers running the whole time.
+func TestShard_PropertyIndicesSnapshotDuringConcurrentWrites(t *testing.T) {
+	shard := &Shard{propertyIndices: propertyspecific.Indices{
+		"location": {Name: "location", Type: schema.DataTypeGeoCoordinates},
+	}}
+
+	const rounds = 500
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			propName := fmt.Sprintf("prop%d", i)
+			shard.propertyIndicesLock.Lock()
+			shard.propertyIndices[propName] = propertyspecific.Index{
+				Name: propName,
+				Type: schema.DataTypeGeoCoordinates,
+			}
+			delete(shard.propertyIndices, propName)
+			shard.propertyIndicesLock.Unlock()
+		}
+	}()
+
+	for reader := 0; reader < 4; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				snapshot := shard.propertyIndicesSnapshot()
+				for range snapshot {
+				}
+				snapshot.ByProp("location")
+			}
+		}()
+	}
+
+	wg.Wait()
 }
