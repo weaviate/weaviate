@@ -49,6 +49,10 @@ func putTargetedObject(t *testing.T, bucket *lsmkv.Bucket, keyID, docID uint64,
 	require.NoError(t, bucket.Put(keyForDocID(keyID), data))
 }
 
+// targetedGatePayload clears prefillTargetedMinAvgEntrySize, so a test that means to
+// exercise the targeted path is not silently routed to the cursor scan instead.
+const targetedGatePayload = 160 << 10
+
 func newTargetedTestIndex(store *lsmkv.Store, c cache.Cache[float32], id string,
 	liveNodes map[uint64]bool, nodesLen int,
 ) *hnsw {
@@ -197,7 +201,7 @@ func TestPrefillHNSWExclusions(t *testing.T) {
 			live := map[uint64]bool{}
 			for i := uint64(0); i < 10; i++ {
 				vec := []float32{float32(i), float32(i) + 0.5}
-				putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
+				putTargetedObject(t, bucket, i, i, targetedGatePayload, nil, map[string][]float32{"custom": vec})
 				exp[i] = vec
 				live[i] = true
 			}
@@ -273,17 +277,17 @@ func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 			live := map[uint64]bool{foreignDocID: true}
 			for i := uint64(0); i < indexedCount; i++ {
 				vec := []float32{float32(i), float32(i) + 0.5}
-				putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
+				putTargetedObject(t, bucket, i, i, targetedGatePayload, nil, map[string][]float32{"custom": vec})
 				want[i] = vec
 				live[i] = true
 			}
 			// served by the bucket, excluded by both scans: never indexed, tombstoned
-			putTargetedObject(t, bucket, unindexedID, unindexedID, 16<<10, nil,
+			putTargetedObject(t, bucket, unindexedID, unindexedID, targetedGatePayload, nil,
 				map[string][]float32{"custom": {5, 5}})
 			delete(want, tombstonedID)
 
 			foreignVec := []float32{7, 7}
-			putMismatchedRow(t, bucket, foreignKeyID, foreignKeyID+1, foreignDocID, 16<<10,
+			putMismatchedRow(t, bucket, foreignKeyID, foreignKeyID+1, foreignDocID, targetedGatePayload,
 				map[string][]float32{"custom": foreignVec})
 			if !tc.targeted {
 				want[foreignDocID] = foreignVec
@@ -324,7 +328,7 @@ func TestUseTargetedPrefillScanGate(t *testing.T) {
 	}
 	// enough entries that per-segment fixed overhead does not dominate the average
 	small := build(200, 100)
-	large := build(20, 16<<10)
+	large := build(20, 160<<10)
 
 	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
 
@@ -379,7 +383,7 @@ func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
 		require.NotZero(t, admitted, "no payload cleared the gate; the sweep proved nothing")
 	})
 
-	for _, payload := range []int{100, 1000, 3000, 5000, 7000, 9000, 16 << 10} {
+	for _, payload := range []int{100, 5000, 9000, 16 << 10, 64 << 10, 160 << 10, 256 << 10} {
 		t.Run(fmt.Sprintf("payload=%d", payload), func(t *testing.T) {
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -413,4 +417,35 @@ func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
 				prefillTargetedMinAvgEntrySize, rows-tailReads, rows)
 		})
 	}
+}
+
+// TestTargetedGateRejectsUnreachableTail: a collection carrying a legacy vector next
+// to its named ones pushes the schema-length field past the 512-byte peek once the
+// legacy vector is around 116 dimensions, so no row can resolve a tail. The targeted
+// scan would then read a peek and the whole value for every row — strictly more work
+// than the cursor scan, at any row size — so the gate has to refuse it.
+func TestTargetedGateRejectsUnreachableTail(t *testing.T) {
+	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+
+	build := func(legacyDims int) *lsmkv.Bucket {
+		store := newTestObjectsStore(t)
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		legacy := make([]float32, legacyDims)
+		for i := uint64(0); i < 20; i++ {
+			putTargetedObject(t, bucket, i, i, targetedGatePayload, legacy,
+				map[string][]float32{"custom": {1, 2}})
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+		return bucket
+	}
+
+	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
+	require.True(t, h.useTargetedPrefillScan(build(0)),
+		"named vectors with no legacy vector resolve a tail and should be admitted")
+	require.False(t, h.useTargetedPrefillScan(build(200)),
+		"a 200-dim legacy vector puts the schema length past the peek; no row can take the tail read")
+
+	// the legacy target itself is unaffected: it reads a bounded front prefix, never a tail
+	legacyIdx := newTargetedTestIndex(nil, nil, "main", nil, 0)
+	require.True(t, legacyIdx.useTargetedPrefillScan(build(200)))
 }

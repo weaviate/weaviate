@@ -34,13 +34,19 @@ const (
 	// prefillTargetedMinSchemaLen gates the two-read path: below it, skipping the
 	// properties schema saves too little to justify a second read.
 	prefillTargetedMinSchemaLen = 8 << 10
-	// prefillTargetedMinAvgEntrySize keeps small-object buckets on the cursor scan.
-	// Derived from the per-row gate rather than picked independently: a schema cannot
-	// exceed the row holding it, so a bucket admitted below this would take the
-	// whole-value fallback for most of its rows — paying the peek on top of the read
-	// the cursor scan already did. Necessary, not sufficient: rows whose own schema
-	// falls short still fall back individually, which is the intended behaviour.
-	prefillTargetedMinAvgEntrySize = prefillTargetedMinSchemaLen
+	// prefillTargetedMinAvgEntrySize is where the targeted scan starts paying on a
+	// network volume. Measured cold on gp3 under pread: the cursor scan is
+	// throughput-bound at ~130 MB/s whatever the row size, while the targeted scan
+	// costs two reads per row and is IOPS-bound, so it loses 2.9x at 16KB rows,
+	// breaks even near 40KB and wins 5.4x at 128KB. The crossover tracks the volume's
+	// throughput-to-IOPS ratio rather than anything about the data, so this sits well
+	// above the measured point: admitting too early costs a multiple, admitting too
+	// late only leaves a win unclaimed. Necessarily at or above the per-row schema
+	// gate, since a schema cannot exceed the row holding it.
+	prefillTargetedMinAvgEntrySize = 128 << 10
+	// prefillTailProbeRows is how many rows the gate samples to check the tail read
+	// will actually fire; enough to tell a uniform collection apart from a stray row.
+	prefillTailProbeRows = 16
 )
 
 func prefillTargetedReadsEnabled() bool {
@@ -48,8 +54,55 @@ func prefillTargetedReadsEnabled() bool {
 }
 
 func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
-	return prefillTargetedReadsEnabled() &&
-		bucket.EstimatedEntrySize() >= prefillTargetedMinAvgEntrySize
+	if !prefillTargetedReadsEnabled() ||
+		bucket.EstimatedEntrySize() < prefillTargetedMinAvgEntrySize {
+		return false
+	}
+	// A legacy vector sits at a fixed front offset, so it is always served from the
+	// peek or a bounded prefix; only the named-vector tail can fail to resolve.
+	if h.getTargetVector() == "" {
+		return true
+	}
+	return h.tailReadsFire(bucket)
+}
+
+// tailReadsFire reports whether this bucket's rows will actually take the tail read.
+// VectorTailOffsetFromPeek resolves only when the peek reaches the schema-length
+// field, which a legacy vector alongside the named ones pushes out of range from
+// about 116 dimensions up. Every row then falls back to a whole-value read, so the
+// peek is paid for and nothing is skipped — slower than the cursor scan it replaced,
+// at any row size, which is why this is a gate rather than a per-row concern.
+func (h *hnsw) tailReadsFire(bucket *lsmkv.Bucket) bool {
+	c := bucket.CursorReplaceReusable()
+	defer c.Close()
+
+	seen, firing := 0, 0
+	for k, v := c.First(); k != nil && seen < prefillTailProbeRows; k, v = c.Next() {
+		if len(v) == 0 {
+			continue
+		}
+		seen++
+		peek := v
+		if len(peek) > prefillPeekBytes {
+			peek = peek[:prefillPeekBytes]
+		}
+		_, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(peek)
+		if err == nil && ok && schemaLen >= prefillTargetedMinSchemaLen {
+			firing++
+		}
+	}
+	if seen == 0 {
+		return false
+	}
+	if firing*2 <= seen {
+		h.logger.WithFields(logrus.Fields{
+			"action":  "hnsw_vector_cache_prefill",
+			"sampled": seen,
+			"firing":  firing,
+		}).Debug("targeted scan disabled: rows do not resolve a vector tail from the peek")
+		return false
+	}
+	return true
 }
 
 // scanObjectVectorsTargeted reads a bounded peek per row plus, for large
