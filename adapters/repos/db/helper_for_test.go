@@ -447,8 +447,24 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
 		}, nil,
 	).Maybe()
+	mockRouter.EXPECT().
+		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(tenant, shard string, cl types.ConsistencyLevel, direct string) types.RoutingPlanBuildOptions {
+			return types.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
+		}).
+		Maybe()
+	mockRouter.EXPECT().
+		BuildReadRoutingPlan(mock.Anything).
+		Return(types.ReadRoutingPlan{
+			LocalHostname: "127.0.0.1",
+			ReplicaSet: types.ReadReplicaSet{
+				Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+			},
+		}, nil).
+		Maybe()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.1", true).Maybe()
 
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
