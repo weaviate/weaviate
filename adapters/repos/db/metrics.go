@@ -596,6 +596,16 @@ func NewMetrics(
 	return m, nil
 }
 
+// UpdateShardStatus moves one shard between the buckets of the per-status shard
+// gauge. The empty string is not a status but the absence of one, at either end:
+// `old == ""` registers a shard that was not counted yet, and `new == ""`
+// removes one for good. Without that second case the gauge only ever transitions
+// and never releases, so every shard torn down leaks its bucket until the
+// process restarts.
+//
+// Both labels must be the ones this shard is actually counted under. Callers
+// should go through Shard.setCountedStatus rather than passing a status read
+// from the shard, which can drift from the gauge (see Shard.countedStatus).
 func (m *Metrics) UpdateShardStatus(old, new string) {
 	if m.shardsCount == nil {
 		return
@@ -605,7 +615,9 @@ func (m *Metrics) UpdateShardStatus(old, new string) {
 		m.shardsCount.WithLabelValues(old).Dec()
 	}
 
-	m.shardsCount.WithLabelValues(new).Inc()
+	if new != "" {
+		m.shardsCount.WithLabelValues(new).Inc()
+	}
 }
 
 func (m *Metrics) ObserveUpdateShardStatus(status string, duration time.Duration) {

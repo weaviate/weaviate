@@ -36,6 +36,29 @@ type ShardStatus struct {
 	Reason string
 }
 
+// setCountedStatus moves this shard's entry in the per-status shard gauge to
+// next, or releases it entirely when next is "". It is idempotent: re-releasing
+// an already-released shard is a no-op, which is what lets both teardown paths
+// (shutdown and drop, in either order, plus the partial-init cleanup) call it
+// unconditionally without double-decrementing.
+func (s *Shard) setCountedStatus(next string) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.setCountedStatusLocked(next)
+}
+
+// setCountedStatusLocked is setCountedStatus for callers already holding
+// statusLock.
+func (s *Shard) setCountedStatusLocked(next string) {
+	if s.countedStatus == next {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, next)
+	s.countedStatus = next
+}
+
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -117,7 +140,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
+	s.setCountedStatusLocked(targetStatus.String())
 
 	lvl := logrus.DebugLevel
 	if targetStatus == storagestate.StatusReadOnly {
