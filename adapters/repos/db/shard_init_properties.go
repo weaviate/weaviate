@@ -302,14 +302,6 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 // a bucket can't be cleanly disconnected from the LSM layer — proceeding
 // to remove its files would corrupt the store.
 func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
-	return s.cleanStalePartialReindexState(ctx, propName, indexType, &taskPropsCache{})
-}
-
-// cleanStalePartialReindexState is [Shard.CleanStalePartialReindexState] with
-// the payload memo passed in, so a test can see what the sweep had to read.
-func (s *Shard) cleanStalePartialReindexState(
-	ctx context.Context, propName, indexType string, props *taskPropsCache,
-) error {
 	// Step 1: shut down the per-prop sidecar buckets for this index type.
 	// Only the buckets that share the relevant main bucket's prefix are
 	// touched, so other in-flight reindex tasks on the same shard are not
@@ -327,6 +319,7 @@ func (s *Shard) cleanStalePartialReindexState(
 		"operation":   "CleanStalePartialReindexState",
 	})
 
+	props := &taskPropsCache{}
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
 	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props)
@@ -492,7 +485,8 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 // The role word is too weak: any property named "a__<word>_<role>" reads as a
 // sidecar of "a" on all three index types, so sweeping "a" deletes that
 // property's live bucket. Whole-suffix matching against [migrationSuffixes],
-// as [sidecarDirsForOrphan] does, closes it. weaviate/weaviate#12621
+// as [sidecarDirsForOrphan] does, closes it without an on-disk rename.
+// weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {

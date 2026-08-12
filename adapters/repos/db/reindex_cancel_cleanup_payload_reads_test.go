@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -120,8 +121,11 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			ctx := testCtx()
 			className := "PayloadReads_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, tc.classProps)
+			// The sweep reports its read count on a log field, so give the
+			// index a logger whose entries the test can read back.
+			hookLogger, hook := test.NewNullLogger()
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false, false, func(i *Index) { i.logger = hookLogger })
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
@@ -150,14 +154,13 @@ func TestSweepPayloadReadCount(t *testing.T) {
 					"match must keep reporting the unreadable payload the gate fails open on")
 			}
 
-			reads := 0
+			hook.Reset() // drop whatever shard startup logged
 			for _, indexType := range tc.indexTypes {
-				props := &taskPropsCache{}
 				require.NoError(t,
-					shard.cleanStalePartialReindexState(ctx, tc.propName, indexType, props))
-				reads += props.count()
+					shard.CleanStalePartialReindexState(ctx, tc.propName, indexType))
 			}
-			require.Equal(t, tc.wantReads, reads, "payload.mig reads across the sweep")
+			require.Equal(t, tc.wantReads, loggedPayloadReads(t, hook, len(tc.indexTypes)),
+				"payload.mig reads across the sweep")
 
 			for _, tr := range tc.trackers {
 				require.True(t, dirExistsAt(t, lsm, filepath.Join(".migrations", tr.dir)),
@@ -165,6 +168,27 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// loggedPayloadReads sums the payload counts the sweeps reported on their
+// completion line. Requiring one line per sweep keeps a sweep that returned
+// early, or a renamed message, from reading as zero reads.
+func loggedPayloadReads(t *testing.T, hook *test.Hook, wantSweeps int) int {
+	t.Helper()
+	const sweepDone = "partial-reindex cleanup: sidecar dirs + migration dir cleaned"
+
+	total, sweeps := 0, 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Message != sweepDone {
+			continue
+		}
+		reads, ok := entry.Data["payload_reads"].(int)
+		require.True(t, ok, "sweep completion line carries an int payload_reads")
+		total += reads
+		sweeps++
+	}
+	require.Equal(t, wantSweeps, sweeps, "one completion line per sweep")
+	return total
 }
 
 // TestMatchByNameAgreesWithMatch pins that where the name alone decides, it
