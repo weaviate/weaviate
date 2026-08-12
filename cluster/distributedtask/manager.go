@@ -856,27 +856,14 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Refuse for every status this build both declared and calls live —
-	// not just STARTED. A non-terminal task's FinishedAt is either zero
-	// (STARTED) or the units-completion moment (PREPARING/SWAPPING); both
-	// clear the age check below, so only this check stands between a task
-	// mid-coordination and deletion.
+	// This check is all that stands between a STARTED task and deletion:
+	// such a task never had its FinishedAt stamped, so the age check below
+	// reads it as long expired.
 	//
-	// A status this build cannot name is deleted instead. The only
-	// proposer is the Scheduler's TTL sweep, which reads the leader's
-	// view (pinned by TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer),
-	// so a CLEAN_UP for such a task exists only once the cluster already
-	// considers it done. Nothing else can move the entry: no transition
-	// advances a status this build cannot name (MarkTaskFinalized refuses
-	// every status but FINISHED and SWAPPING) and no later sweep sees it,
-	// while it keeps blocking schema mutations and backups on its
-	// collection through the local map.
-	//
-	// So the exit fires only when some node in the cluster classifies the
-	// status as terminal. For a new non-terminal status nothing ever
-	// proposes a CLEAN_UP and this node stays pinned either way — which
-	// is the cheap direction, and the one IsTerminal's godoc says a new
-	// status has to be introduced in.
+	// A status this build cannot name is deliberately not refused. The
+	// scheduler's TTL sweep is the only proposer and it reads the leader's
+	// view, so a clean-up for such a task means the rest of the cluster
+	// already considers it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}

@@ -1678,7 +1678,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
-// teardown sees [distributedtask.TaskStatus.IsActive]==false but the on-disk
+// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
 // __reindex / __ingest sidecars are still being torn out. Registering
 // every shard the task touched in [cleanupInProgress] before
 // CleanStalePartialReindexState fires (and unregistering after) makes
@@ -1686,9 +1686,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 //
-// Callers that need to know whether this node holds post-merge tracker
-// state run [ReindexProvider.probeLocalPostMergeState] first — the probe
-// has to read the evidence this routine is about to wipe.
+// Tracker generations a swap already merged or tidied survive this: they
+// are live deferred-finalize state, not the partial state it wipes.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()

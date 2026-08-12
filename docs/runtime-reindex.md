@@ -33,7 +33,9 @@ typical journeys it unlocks:
   upgrade), `repair-rangeable`.
 - Cancel a migration while it is still running its units, before the
   cluster-wide coordination phase; the cluster cleans up the partial
-  state and the property is back to its pre-submit on-disk shape.
+  state and the property is back to its pre-submit on-disk shape —
+  unless a node had already merged its rewritten buckets, which needs an
+  operator rebuild instead (§12).
 
 The whole feature is built on top of three substrates:
 
@@ -566,7 +568,7 @@ it to, since this one refuses the cancel too — the node:
 - refuses to cancel it — `IsCancellable()` is `== STARTED`, so the REST
   verb answers `409` and `Manager.CancelTask` refuses the apply (§12);
 - never proposes a TTL clean-up for it: the `Scheduler` sweep skips every
-  non-terminal status, and the age check alone would not stop it.
+  non-terminal status.
 
 `Manager.CleanUpTask` is the one exit. It refuses every non-terminal
 status this build *recognizes*, and deletes an unrecognized one, because
@@ -598,7 +600,7 @@ Three cases have no such bound: a **full rollback**, where no node
 recognizes the status so nothing ever proposes a clean-up; a node
 that misses the clean-up entry and is caught up by a snapshot instead,
 because `Manager.Restore` merges into the existing task map rather than
-replacing it (weaviate/0-weaviate-issues#245, fixed by #11416); and a
+replacing it (weaviate/0-weaviate-issues#245); and a
 node whose `completedTaskTTL` is longer than the proposer's, because
 `CleanUpTask` re-checks the age against that node's own clock and TTL
 inside the apply, and an apply that refuses is logged and dropped rather
@@ -1277,11 +1279,10 @@ phases of different concerns and don't share state.
 2. If that task is not `STARTED`, return 409 and stop
    (`TaskStatus.IsCancellable()`, §4.2). Two conditions land here and
    they get different bodies:
-   - **A coordination phase** (`PREPARING` / `SWAPPING`). Some nodes may
-     already have swapped their bucket directories; stopping the rest
-     would leave the cluster serving migrated buckets under the
-     pre-migration schema, repairable only by an operator following the
-     guidance the provider logs. The task has to run through to
+   - **A coordination phase** (`PREPARING` / `SWAPPING`). Nodes may
+     already have written merged state or renamed bucket directories;
+     stopping the rest would leave the cluster serving migrated buckets
+     under the pre-migration schema. The task has to run through to
      `FINISHED` or `FAILED`.
    - **A status this build does not recognize.** It cannot tell whether
      stopping is safe, so it refuses rather than guess — and every other
@@ -1298,8 +1299,10 @@ phases of different concerns and don't share state.
 4. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
-5. `CleanStalePartialReindexState` — wipe sidecars + migration dir
-   so the next submit starts from a clean slate.
+5. `CleanStalePartialReindexState` — wipe sidecars + migration dir so
+   the next submit starts from a clean slate. Tracker generations a swap
+   already merged or tidied are preserved, so a property that got that
+   far needs an operator rebuild rather than a resubmit.
 6. 202 with `Status: CANCELLED` + the cancelled task ID.
 
 If the drain times out, return 202 anyway — the next submit's

@@ -657,14 +657,9 @@ func (s *Scheduler) tick() {
 				// authoritative status, not a hidden in-tick mutation.
 				effectiveStatus := task.Status
 
-				// State-machine dispatch by effectiveStatus. CANCELLED
-				// skips the ack barriers because [Manager.CancelTask]
-				// refuses the coordination phases this build can name, so
-				// the cancel landed before them. The gap is a cancel from a
-				// status this build cannot name: a newer node may already
-				// have swapped, which OnTaskCompleted reports as repair
-				// guidance. Every other status falls through to the
-				// in-flight ack pipeline and then Phase 2.
+				// State-machine dispatch by effectiveStatus. CANCELLED skips
+				// the ack barriers: [Manager.CancelTask] accepts a cancel
+				// only from STARTED, so the barriers cannot have opened.
 				switch effectiveStatus {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
@@ -736,10 +731,7 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. The age check never protects a
-		// non-terminal task: its FinishedAt is either zero or stamped at
-		// units-completion, and both clear the TTL. The liveness test is
-		// what stands between a task mid-coordination and deletion.
+		// TTL-cleanup of finished tasks.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {
 				return false

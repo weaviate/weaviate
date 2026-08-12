@@ -666,11 +666,10 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
 	// is completion-driven, not cancel-driven, so log which one we got.
 	//
-	// Not a t.Skip like TestMultiNode_CancelClearsAcrossReplicas, for the
-	// same reason as the singlenode cancel test: each arm here checks
-	// something only that answer can satisfy. A regression to "the cancel
-	// is always refused" would still be green here; the per-status answer
-	// is pinned in TestCancelPreflight_WireResponsePerStatus.
+	// Each arm here checks something only that answer can satisfy. A
+	// regression to "the cancel is always refused" would still be green
+	// here; the per-status answer is pinned in
+	// TestCancelPreflight_WireResponsePerStatus.
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result models.IndexUpdateResponse
