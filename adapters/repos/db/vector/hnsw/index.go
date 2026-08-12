@@ -64,11 +64,6 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
-	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
-	// The prefiller reads the shard's objects bucket, and the shard tears that
-	// bucket down as soon as the vector indexes report they are shut.
-	prefillWg sync.WaitGroup
-
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -125,6 +120,12 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
+	// prefillMu serializes registration against teardown; see stopPrefill
+	prefillMu      sync.Mutex
+	prefillStopped bool
+	prefillCancel  context.CancelFunc
+	prefillWG      sync.WaitGroup
+	hfreshMode     bool
 
 	commitLog CommitLogger
 
@@ -373,8 +374,9 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
-		shardName: cfg.ShardName,
+		metrics:    newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
+		hfreshMode: cfg.HFreshMode,
+		shardName:  cfg.ShardName,
 
 		randFunc:                          rand.Float64,
 		compressActionLock:                &sync.RWMutex{},
@@ -765,7 +767,40 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// stopPrefill ends any cache prefill and blocks further ones. Must run before the
+// cache is dropped or the store shut down: a scan reading a closed lsmkv segment
+// reads unmapped memory.
+//
+// Cancelling is not enough on its own — a scan polls its context only between rows,
+// so it can be blocked inside a read — hence the wait. Holding prefillMu across that
+// wait is what stops a concurrent registerPrefill from slipping in behind it.
+func (h *hnsw) stopPrefill() {
+	h.prefillMu.Lock()
+	defer h.prefillMu.Unlock()
+
+	h.prefillStopped = true
+	if h.prefillCancel != nil {
+		h.prefillCancel()
+	}
+	h.prefillWG.Wait()
+}
+
+// registerPrefill reports false once stopPrefill has run: the index is torn down.
+func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
+	h.prefillMu.Lock()
+	defer h.prefillMu.Unlock()
+
+	if h.prefillStopped {
+		return false
+	}
+	h.prefillCancel = cancel
+	h.prefillWG.Add(1)
+	return true
+}
+
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	h.stopPrefill()
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -787,7 +822,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
-	h.prefillWg.Wait()
+	h.stopPrefill()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

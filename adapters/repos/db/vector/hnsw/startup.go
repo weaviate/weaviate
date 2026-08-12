@@ -537,38 +537,51 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	ctx, cancelPrefill := context.WithCancel(ctx)
-	stopOnIndexShutdown := context.AfterFunc(h.shutdownCtx, cancelPrefill)
+	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
+	// PostStartup can also arrive after teardown — dynamic's flat->hnsw upgrade
+	// drives one on its own context, and Drop never cancels shutdownCtx — so a
+	// refusal here is the only thing keeping a scan off a closed store.
+	prefillCtx, cancel := context.WithCancel(ctx)
+	if !h.registerPrefill(cancel) {
+		cancel()
+		h.logger.WithFields(logrus.Fields{
+			"action":   "hnsw_vector_cache_prefill",
+			"index_id": h.id,
+		}).Debug("skipping vector cache prefill: index is shutting down")
+		return
+	}
 
 	prefillCacheFunc := func() {
-		defer stopOnIndexShutdown()
-		defer cancelPrefill()
-
-		h.logger.WithFields(logrus.Fields{
-			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
-		}).Debug("context.WithTimeout")
+		defer h.prefillWG.Done()
+		defer cancel()
+		// deferred, not trailing: GoWrapper recovers panics, and a false cachePrefilled
+		// permanently disables tombstone cleanup and every compression path. LIFO runs
+		// it before Done, so stopPrefill still guarantees it is set on return.
+		defer h.cachePrefilled.Store(true)
 
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache(ctx)
+				h.compressor.PrefillCache(prefillCtx)
 			} else {
-				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
+				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
 		} else if h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
-			err = h.prefillCacheParallel(ctx)
+			err = h.prefillCacheParallel(prefillCtx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
 		}
 
 		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
+			if prefillStoppedByShutdown(err, prefillCtx) {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").
+					Debug("vector cache prefill stopped: context canceled")
+			} else {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
+			}
 		}
-
-		h.cachePrefilled.Store(true)
 	}
 
 	if h.waitForCachePrefill {
@@ -582,10 +595,6 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		h.prefillWg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer h.prefillWg.Done()
-			prefillCacheFunc()
-		}, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }
