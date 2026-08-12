@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
@@ -166,12 +167,16 @@ func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	return ""
 }
 
-// liveReindexStatus mirrors db.IsLiveReindexTaskStatus for wire status strings.
+// liveReindexStatus reports whether a wire status names a DTM status that this
+// build declares and that production counts as in flight. It asks the
+// production predicates rather than listing the statuses again, so a status
+// added there is classified here the same way and the two cannot drift.
+//
+// A string no declared status matches reads as not live, which is the opposite
+// of what [distributedtask.TaskStatus.IsActive] answers on its own. The only
+// caller checks a claim that the migration was still running, so a status this
+// build cannot name has to fail that claim rather than satisfy it.
 func liveReindexStatus(status string) bool {
-	switch status {
-	case "STARTED", "PREPARING", "SWAPPING":
-		return true
-	default:
-		return false
-	}
+	s := distributedtask.TaskStatus(status)
+	return s.IsRecognized() && s.IsActive()
 }
