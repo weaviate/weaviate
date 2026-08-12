@@ -282,9 +282,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_x_a_y_1",
 			propName: "a", preserve: true, want: true,
 		},
-		// The same clause on the name a writer actually leaves:
-		// [migrationDirWithProps] sorts, so the only way to land mid-list is
-		// to be the middle property of the task's own set.
+		// [migrationDirWithProps] sorts, so the only name a writer leaves that
+		// matches mid-list is the task's own middle property.
 		{
 			name:     "the middle property of a three-property task, with no payload, in the preserve set",
 			dir:      "enable_filterable_a_b_c_1",

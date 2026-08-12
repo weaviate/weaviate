@@ -92,7 +92,7 @@ Submit a migration. Body shape selects which one:
 | `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | WAND → BlockMax upgrade. `flipSemanticMigrationSchema` flips the class-level `UsingBlockMaxWAND` once every searchable property is on BlockMax. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when the task is `STARTED`, the only cancellable status; 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled); 409 when the pre-flight finds a status other than `STARTED` (a coordination phase (`PREPARING` / `SWAPPING`), or one this build does not recognize), and 409 again when the target leaves `STARTED` between that read and the cancel. See §12. |
+| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when the task is `STARTED`, the only cancellable status; 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled); 409 when the pre-flight finds a status other than `STARTED`, i.e. a coordination phase (`PREPARING` / `SWAPPING`) or one this build does not recognize; 409 again when the target leaves `STARTED` between that read and the cancel. See §12. |
 
 Query parameters:
 
@@ -117,15 +117,14 @@ Response shapes:
 - `404 Not Found` — class or property doesn't exist.
 - `409 Conflict` — two distinct meanings on this operation. On a submit,
   an in-flight task already touches this property; the error names the
-  offending task ID and migration type. On the cancel verb, two arms. The
-  pre-flight refuses a target that is not `STARTED` — either a coordination
-  phase (`PREPARING` / `SWAPPING`), where nodes may already have swapped,
-  or a status this build does not recognize, where this build cannot tell
-  — and names the task ID and that status. The apply refuses a target that
-  left `STARTED` between the read and the cancel, and names no status,
-  because this side cannot tell a coordination phase from a task that has
-  already finished; the caller re-reads the index status to see where it
-  landed.
+  offending task ID and migration type. On the cancel verb, either arm can
+  refuse. The pre-flight refuses a status other than `STARTED` (`PREPARING`
+  or `SWAPPING`, where nodes may already have swapped, or one this build
+  does not recognize) and names the task ID and that status. The
+  apply refuses a target that left `STARTED` after that read, and names no
+  status, since it cannot tell a coordination phase from a task that has
+  already finished. Either way the task is not cancelled; re-read the index
+  status to see where it landed.
 - `429` — per-collection in-flight cap reached (default 32).
 - `503` — an in-flight task carries a payload this build cannot decode, so
   the conflict check cannot prove the new submit is safe. On the cancel

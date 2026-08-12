@@ -1085,11 +1085,9 @@ func (l *LazyLoadShard) blockLoading() func() {
 }
 
 // canSkipUnloadedSweep reports whether the cleanup sweep can leave this shard
-// alone. A loaded shard is never skipped: sweeping it costs no load.
-//
-// The loading mutex is held across the disk read so a load landing mid-read
-// cannot split the answer, and released before returning because the caller
-// hydrates next, which takes the same mutex.
+// alone; a loaded shard is never skipped, since sweeping it costs no load.
+// The loading mutex covers the disk read so a concurrent load cannot split the
+// answer, and is dropped before returning: the hydration that follows takes it.
 func (l *LazyLoadShard) canSkipUnloadedSweep(
 	propName, indexType string, dirs *dirNamesCache,
 ) bool {

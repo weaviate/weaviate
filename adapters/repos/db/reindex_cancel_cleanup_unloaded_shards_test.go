@@ -154,9 +154,8 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 // direction: whenever the gate says "nothing here", the hydrated sweep must
 // find nothing either, so a skipped shard never hides removable state. The
 // stale direction is deliberately not compared — several stale rows are
-// fail-open answers (unreadable dirs, unmappable index types) that the
-// hydrated sweep decides for itself; see [hasStalePartialReindexState] for
-// what failing open costs.
+// fail-open answers (unreadable dirs, unmappable index types) the hydrated
+// sweep decides for itself, at the cost [hasStalePartialReindexState] names.
 func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing.T) {
 	// A completed-but-deferred migration: the tracker carries tidied.mig and
 	// its ingest sidecar is the live bucket, which the sweep preserves.
@@ -621,9 +620,8 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 		"a loaded shard is swept whatever the gate would have said about it")
 }
 
-// The gate decides whether the sweep pays to hydrate a shard, so its answer
-// may depend on nothing but that shard's own disk, and it must leave the
-// loading mutex free for the hydration that follows a "no".
+// The gate's answer must depend on nothing but this shard's own disk, and must
+// leave the loading mutex free for the hydration that follows a "no".
 func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 	const (
 		propName   = "category"
@@ -673,8 +671,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			defer shd.Shutdown(context.Background())
 
 			if tc.staleOnGateShard {
-				// Derived from the index, not from the shard, so a gate reading
-				// anyone else's path answers "skip" here.
+				// A gate reading any other shard's path would answer "skip" here.
 				mkTrackerDir(t, shardPathLSM(idx.path(), gateShard), tracker, "started.mig")
 			}
 			if tc.staleOnOtherShard {

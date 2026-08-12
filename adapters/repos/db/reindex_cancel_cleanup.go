@@ -111,10 +111,8 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // sweep it. A delete landing mid-walk after a shard already failed carries
 // both this and [ErrCleanupCollectionDropped].
 //
-// Exported because [DB.NewStalePartialReindexSweep] hands this error across
-// the package boundary, where callers can only classify it with errors.Is.
-// Today REST classifies through [IsCleanupCollectionDropped] alone;
-// [classifyIncompleteWalk] and [classifyTerminalSweep] do the rest in-package.
+// Exported because [DB.NewStalePartialReindexSweep] hands this error across the
+// package boundary, where callers can only classify it with errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
@@ -184,11 +182,9 @@ func (i *Index) cleanStalePartialReindexState(
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
-				// Skipped, not failed: the next submit for this tuple sweeps
-				// again before it starts.
-				// Unreachable in production (only the two implementations exist);
-				// were a third to appear, this shard would count as visited
-				// without having been looked at.
+				// Unreachable in production (only the two implementations exist).
+				// A third would count as visited without being looked at: skipped,
+				// not failed, since the next submit for this tuple sweeps again.
 				return nil
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
@@ -224,10 +220,9 @@ func (i *Index) cleanStalePartialReindexState(
 // read or parsed — since a false "clean" would leave a stale started.mig for
 // the next task to resume against.
 //
-// Failing open costs a hydration for most of those inputs, but not for an
-// unlistable .migrations: the sweep it hands the shard to reads that same
-// directory, finds no completed migration to preserve, and removes sidecars a
-// deferred finalize still needs.
+// Failing open costs only a hydration, except on an unlistable .migrations:
+// the hydrated sweep reads that same directory, finds no completed migration
+// to preserve, and removes sidecars a deferred finalize still needs.
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
@@ -237,7 +232,7 @@ func (i *Index) cleanStalePartialReindexState(
 //
 // A deactivated (COLD) tenant is absent from the map too, and reactivating it
 // changes nothing: the stale-sentinel check runs from the task path, not from
-// a shard load. Its state waits for the next reindex task to reach it.
+// a shard load, so its state waits for the next reindex task.
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
@@ -308,10 +303,9 @@ const maxCachedDirNames = 100_000
 // A name removed since caching makes the gate over-report "state here": an
 // extra hydration, never a skipped shard.
 //
-// A name added since caching makes it under-report, so a shard with new
-// state may be skipped — bounded by the cache's lifetime (one HTTP request
-// or one [reindexTerminalCleanupTimeout] window) and by the next submit for
-// the tuple, which sweeps again from a fresh listing.
+// A name added since caching makes it under-report, so a shard with new state
+// may be skipped — bounded by the cache's lifetime (one HTTP request or one
+// [reindexTerminalCleanupTimeout] window) and by the next submit's fresh sweep.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].

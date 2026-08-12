@@ -48,8 +48,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 		// unlistable removes read permission from .migrations, so listing it
 		// fails without the dir being absent.
 		unlistable bool
-		// classLevel asks with the scope change-algorithm uses: one tracker
-		// dir the whole collection shares, with no property in its name.
+		// classLevel uses change-algorithm's scope: one tracker dir the whole
+		// collection shares, with no property in its name.
 		classLevel bool
 		want       bool
 	}{
@@ -172,10 +172,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 			corruptPayloads: []string{"filterable_retokenize_text_1"},
 			want:            false,
 		},
-		// A dir from before [genSuffix]: the sweep deletes it, so the
-		// recovery probe must see it too. The class-level blockmax tracker is
-		// the one that shipped before generations existed, so it is the shape
-		// a real disk can still hold.
+		// A dir from before [genSuffix]: the sweep deletes it, so the recovery
+		// probe must see it too. The class-level blockmax tracker shipped before
+		// generations existed, so it is the shape a real disk can still hold.
 		{
 			name: "a generation-less tracker, started only → recovery NEEDED",
 			trackers: map[string][]string{
@@ -200,9 +199,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 			classLevel: true,
 			want:       false,
 		},
-		// The dir exists but iteration never started, which this probe cannot
-		// tell from an interrupted swap and does not try to: it reports
-		// recovery either way.
+		// A dir with no sentinels: the probe cannot tell "never started" from
+		// an interrupted swap, and reports recovery either way.
 		{
 			name: "a class-level tracker with no sentinels at all → recovery NEEDED",
 			trackers: map[string][]string{

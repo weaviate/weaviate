@@ -1743,10 +1743,9 @@ func sweepTerminalTuples(
 // sweeps is what's reported.
 //
 // "Every shard" means every shard in the index's shard map — a tenant already
-// COLD when the sweep starts isn't in it, so its state is neither swept nor
-// reported until a later reindex task reaches that shard; reactivating the
-// tenant does not clear it. A tenant deactivated mid-walk was in the map and
-// reports [terminalSweepUnknown].
+// COLD when the sweep starts isn't in it, so its state waits for a later
+// reindex task; reactivation does not clear it. A tenant deactivated mid-walk
+// was in the map and reports [terminalSweepUnknown].
 type terminalSweepOutcome int
 
 const (
@@ -2189,13 +2188,12 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	return nil
 }
 
-// hasUntidiedTracker returns true iff at least one tracker dir in scope
-// carries neither tidied.mig nor merged.mig — a swap that began and did not
-// commit, and equally a tracker dir written before iteration ever started.
-// Trackers that have tidied/merged are NOT a
-// recovery signal (they are completed migrations waiting for the next
-// restart's FinalizeCompletedMigrations to promote them to canonical).
-// A completely missing tracker dir is also NOT a recovery signal: a
+// hasUntidiedTracker returns true iff at least one tracker dir in scope carries
+// neither tidied.mig nor merged.mig — a swap that began and did not commit, or
+// a tracker dir written before iteration ever started. Trackers that have
+// tidied/merged are NOT a recovery signal (they are completed migrations
+// waiting for the next restart's FinalizeCompletedMigrations to promote them to
+// canonical). A completely missing tracker dir is also NOT a recovery signal: a
 // prior FinalizeCompletedMigrations already promoted-and-removed it.
 //
 // Generation-less dirs (from before [genSuffix]) count too, matching what

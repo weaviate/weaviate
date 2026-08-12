@@ -289,22 +289,18 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
-// DeleteIndex signals the delete, then queues behind db.indexLock and
-// dropIndex before the teardown cancels closingCtx. A sweep that starts in
-// that window would hydrate cold tenants of a collection that is already going
-// away, and report the result as a clean sweep.
+// A sweep starting in the window between the delete signal and the teardown's
+// closingCtx cancel must not hydrate cold tenants and report a clean sweep.
 func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.T) {
 	tests := []struct {
 		name string
-		// requestedCause is what DeleteIndex or Shutdown signalled; nil leaves
-		// the index open.
+		// requestedCause is what DeleteIndex or Shutdown signalled; nil stays open.
 		requestedCause error
 		wantDropped    bool
 		wantTruncated  bool
 	}{
 		{
-			// The control: without a close, the same fixture does hydrate, so
-			// the rows below are about the close and nothing else.
+			// The control: the same fixture hydrates when nothing is closing.
 			name: "an open index hydrates the shards with state on them",
 		},
 		{
@@ -345,8 +341,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 				})
 			}
 
-			// Signalled only: the teardown has not reached the index, so
-			// closingCtx is still live, as it is for the whole window.
+			// Signalled only: closingCtx stays live for the whole window.
 			if tc.requestedCause != nil {
 				signalCloseRequested(tc.requestedCause)
 			}
