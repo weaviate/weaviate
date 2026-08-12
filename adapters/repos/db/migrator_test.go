@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -950,4 +951,70 @@ func newDropTestMigrator(idx *Index, className string, cloud modulecapabilities.
 	m.nodeId = "node1"
 	m.cloud = cloud
 	return m
+}
+
+func TestShardHasProperty(t *testing.T) {
+	locationProp := &models.Property{
+		Name:     "location",
+		DataType: []string{string(schema.DataTypeGeoCoordinates)},
+	}
+	nameProp := &models.Property{
+		Name:     "name",
+		DataType: schema.DataTypeText.PropString(),
+	}
+
+	// a mock fails the test on an unexpected call, so a geo prop that still
+	// probes the bucket is caught here
+	mockShard := func(setup func(*MockShardLike)) func(*testing.T) ShardLike {
+		return func(t *testing.T) ShardLike {
+			s := NewMockShardLike(t)
+			setup(s)
+			return s
+		}
+	}
+
+	tests := []struct {
+		name  string
+		prop  *models.Property
+		shard func(*testing.T) ShardLike
+		want  bool
+	}{
+		{
+			name: "geo property with a registered index",
+			prop: locationProp,
+			shard: mockShard(func(s *MockShardLike) {
+				s.EXPECT().hasGeoIndexForProp("location").Return(true)
+			}),
+			want: true,
+		},
+		{
+			name: "geo property with no index yet",
+			prop: locationProp,
+			shard: mockShard(func(s *MockShardLike) {
+				s.EXPECT().hasGeoIndexForProp("location").Return(false)
+			}),
+			want: false,
+		},
+		{
+			name: "non-geo property with no filterable bucket",
+			prop: nameProp,
+			shard: mockShard(func(s *MockShardLike) {
+				s.EXPECT().Store().Return(&lsmkv.Store{})
+			}),
+			want: false,
+		},
+		{
+			// this shard carries no dependencies, so any attempt to load it panics
+			name:  "geo property on a cold shard reports missing without loading",
+			prop:  locationProp,
+			shard: func(*testing.T) ShardLike { return &LazyLoadShard{} },
+			want:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, shardHasProperty(test.shard(t), test.prop))
+		})
+	}
 }

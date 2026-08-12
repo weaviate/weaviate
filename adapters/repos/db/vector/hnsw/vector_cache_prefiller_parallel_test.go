@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -56,9 +57,18 @@ func newTestObjectsBucket(t *testing.T) *lsmkv.Bucket {
 // scan reads real on-disk data rather than a hand-rolled encoding.
 func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
 	t.Helper()
+	putTestObjectWithProps(t, bucket, docID, legacyVec, named, nil)
+}
+
+// putTestObjectWithProps also stores properties, for an index whose cached vector
+// is derived from one rather than stored verbatim.
+func putTestObjectWithProps(t *testing.T, bucket *lsmkv.Bucket, docID uint64,
+	legacyVec []float32, named map[string][]float32, props map[string]interface{},
+) {
+	t.Helper()
 	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
 	obj := storobj.New(docID)
-	obj.Object = models.Object{ID: id, Class: "Test"}
+	obj.Object = models.Object{ID: id, Class: "Test", Properties: props}
 	obj.Vector = legacyVec
 	if named != nil {
 		obj.Vectors = named
@@ -82,7 +92,7 @@ func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][
 	logger, _ := test.NewNullLogger()
 	var mu sync.Mutex
 	got := map[uint64][]float32{}
-	err := scanObjectVectorsParallel(context.Background(), bucket, target,
+	err := scanObjectVectorsParallel(context.Background(), bucket, targetVectorFromObject(target),
 		func(id uint64, vec []float32) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -169,7 +179,7 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		logger, _ := test.NewNullLogger()
-		err := scanObjectVectorsParallel(ctx, bucket, "", func(uint64, []float32) {}, logger)
+		err := scanObjectVectorsParallel(ctx, bucket, targetVectorFromObject(""), func(uint64, []float32) {}, logger)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -345,6 +355,83 @@ func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
 		2: {2, 2},
 		4: {2, 4},
 	}, collectScan(t, bucket, "body"))
+}
+
+// TestPrefillCacheParallelUsesConfiguredDecode covers the geo case: the cached
+// vector is derived from a property, not stored verbatim. The objects carry a
+// vector of their own, so a prefill that ignored vectorFromObject would fill the
+// cache with vectors that are not coordinates instead of failing loudly.
+func TestPrefillCacheParallelUsesConfiguredDecode(t *testing.T) {
+	const n = 300
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	// every third object carries no coordinate, and one payload cannot be decoded
+	// at all — both must be skipped without taking the rest of the scan down
+	want := map[uint64][]float32{}
+	for i := uint64(0); i < n; i++ {
+		props := map[string]interface{}{"name": "no coordinates here"}
+		if i%3 != 0 {
+			props = map[string]interface{}{"lat": float64(i), "lon": float64(i) + 0.5}
+			want[i] = []float32{float32(i), float32(i) + 0.5}
+		}
+		putTestObjectWithProps(t, bucket, i, []float32{-1, -2}, nil, props)
+	}
+	require.NoError(t, bucket.Put(keyForDocID(n), undecodablePayload(n)))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(uint64(n))
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+		vectorFromObject:  coordinatesFromTestProps,
+	}
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	requireCacheContains(t, c, want)
+}
+
+// undecodablePayload carries a readable doc id but an unsupported marshaller
+// version, so the scan reaches the decode and fails there rather than earlier.
+func undecodablePayload(docID uint64) []byte {
+	payload := make([]byte, 9)
+	payload[0] = 2
+	binary.LittleEndian.PutUint64(payload[1:], docID)
+	return payload
+}
+
+// coordinatesFromTestProps stands in for the geo decoder: it builds the cached
+// vector out of properties, and reports an object without them as having none.
+func coordinatesFromTestProps(objectBytes []byte) ([]float32, error) {
+	obj, err := storobj.FromBinaryOptionalNetwork(objectBytes, additional.Properties{},
+		storobj.NewPropExtraction().Add("lat", "lon"))
+	if err != nil {
+		return nil, err
+	}
+
+	props, ok := obj.Properties().(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+	lat, ok := props["lat"].(float64)
+	if !ok {
+		return nil, nil
+	}
+	lon, ok := props["lon"].(float64)
+	if !ok {
+		return nil, nil
+	}
+	return []float32{float32(lat), float32(lon)}, nil
 }
 
 // TestPrefillCacheParallelNormalizesForCosine guards the normalization invariant:

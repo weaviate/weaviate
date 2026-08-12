@@ -1035,6 +1035,16 @@ func (l *LazyLoadShard) hasGeoIndex() bool {
 	return l.shard.hasGeoIndex()
 }
 
+// A cold shard reports false rather than loading: the only caller reaches this
+// through ForEachLoadedShard, and the addProperty that false triggers skips cold
+// shards too.
+func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
+	if !l.isLoaded() {
+		return false
+	}
+	return l.shard.hasGeoIndexForProp(propName)
+}
+
 func (l *LazyLoadShard) Metrics() *Metrics {
 	l.mustLoad()
 	return l.shard.Metrics()

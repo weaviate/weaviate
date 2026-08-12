@@ -355,6 +355,11 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
+	// With async indexing on, NewShard reads the checkpoint store from a
+	// goroutine, so a missing one surfaces on an unrelated test.
+	require.False(t, withAsyncIndexingEnabled && !withCheckpoints,
+		"async indexing needs withCheckpoints")
+
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
