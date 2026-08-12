@@ -396,11 +396,8 @@ func (c *coordinator) Restore(
 		}
 
 		// Check storage for cancellation before transitioning to Finalizing.
-		// This handles the case where CancelRestore was called (possibly on a different node)
-		// and wrote CANCELLED status to storage while we were in commit phase.
 		if checkStorageCancelled() {
 			c.log.WithField("backup_id", desc.ID).Info("restore cancelled (detected from storage after commit)")
-			// Don't write to storage - CancelRestore already wrote the CANCELLED status
 			return
 		}
 
