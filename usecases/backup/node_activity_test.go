@@ -1,0 +1,364 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/clusterprobe"
+)
+
+func TestNodeActivityProbe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		claim func(participant *Handler, scheduler *Scheduler)
+		want  NodeActivity
+	}{
+		{
+			name: "coordinator backup",
+			claim: func(_ *Handler, s *Scheduler) {
+				s.backupper.lastOp.renew("coord-backup", "path", "", "")
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
+		},
+		{
+			name: "coordinator restore",
+			claim: func(_ *Handler, s *Scheduler) {
+				s.restorer.lastOp.renew("coord-restore", "path", "", "")
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "coord-restore"},
+		},
+		{
+			name: "participant backup",
+			claim: func(h *Handler, _ *Scheduler) {
+				h.backupper.lastOp.renew("part-backup", "path", "", "")
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "part-backup"},
+		},
+		{
+			name: "participant restore",
+			claim: func(h *Handler, _ *Scheduler) {
+				h.restorer.lastOp.renew("part-restore", "path", "", "")
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "part-restore"},
+		},
+		{
+			name: "coordinator outranks participant",
+			claim: func(h *Handler, s *Scheduler) {
+				h.restorer.lastOp.renew("part-restore", "path", "", "")
+				s.backupper.lastOp.renew("coord-backup", "path", "", "")
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
+		},
+		{
+			name: "past Started, still held",
+			claim: func(h *Handler, _ *Scheduler) {
+				_, slot := h.backupper.lastOp.renew("part-backup", "path", "", "")
+				slot.set(backup.Transferring)
+			},
+			want: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "part-backup"},
+		},
+		{
+			name: "released after reset",
+			claim: func(h *Handler, s *Scheduler) {
+				_, backupSlot := h.backupper.lastOp.renew("part-backup", "path", "", "")
+				_, restoreSlot := s.restorer.lastOp.renew("coord-restore", "path", "", "")
+				backupSlot.release()
+				restoreSlot.release()
+			},
+			want: NodeActivity{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			participant := createManager(nil, nil, nil, nil)
+			probe := NewNodeActivityProbe(participant)
+			// Built the production way: the constructor registers it, so a
+			// coordinator row also pins that registration.
+			scheduler := newFakeScheduler(nil).schedulerReportingTo(probe)
+			tt.claim(participant, scheduler)
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
+
+// TestNodeActivityResponseRoundTrip pins that [NewNodeActivityResponse] and
+// [NodeActivityResponse.Activity] agree on the wire form.
+func TestNodeActivityResponseRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		activity NodeActivity
+	}{
+		{name: "idle", activity: NodeActivity{}},
+		{
+			name:     "backup",
+			activity: NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "backup-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var decoded NodeActivityResponse
+			encoded, err := json.Marshal(NewNodeActivityResponse(tt.activity))
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(encoded, &decoded))
+
+			got, err := decoded.Activity()
+			require.NoError(t, err)
+			assert.Equal(t, tt.activity, got)
+		})
+	}
+}
+
+// TestNodeActivityResponseRejects covers answers that must error rather than
+// be read as "node free".
+func TestNodeActivityResponseRejects(t *testing.T) {
+	t.Parallel()
+
+	busy, idle := true, false
+	tests := []struct {
+		name            string
+		resp            NodeActivityResponse
+		wantErrContains string
+	}{
+		{
+			name: "wrong marker",
+			resp: NodeActivityResponse{Probe: "something-else", Busy: &idle},
+		},
+		{
+			// The peer controls the marker, so the error must not echo it whole.
+			name:            "oversized marker is truncated in the error",
+			resp:            NodeActivityResponse{Probe: strings.Repeat("x", 300), Busy: &idle},
+			wantErrContains: "…(truncated)",
+		},
+		{
+			name: "no busy field",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker},
+		},
+		{
+			name: "busy without a kind",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, ID: "1"},
+		},
+		{
+			name: "busy without an id",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &busy, Kind: NodeActivityKindBackup},
+		},
+		{
+			// The kind reaches an operator verbatim in the 409 a gated caller
+			// returns, so only the two this package emits are accepted.
+			name: "busy with a kind this package never emits",
+			resp: NodeActivityResponse{
+				Probe: clusterprobe.BackupNodeActivityMarker,
+				Busy:  &busy, Kind: "compaction", ID: "1",
+			},
+		},
+		{
+			// Only a held slot has a kind, so this did not come from a node.
+			name: "idle but names a kind",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, Kind: NodeActivityKindRestore},
+		},
+		{
+			name: "idle but names an id",
+			resp: NodeActivityResponse{Probe: clusterprobe.BackupNodeActivityMarker, Busy: &idle, ID: "backup-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.resp.Activity()
+			require.Error(t, err)
+			if tt.wantErrContains != "" {
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+			}
+			assert.Equal(t, NodeActivity{}, got)
+		})
+	}
+}
+
+func TestNodeActivityProbeMissingSlots(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil participant", func(t *testing.T) {
+		probe := NewNodeActivityProbe(nil)
+		assert.Equal(t, NodeActivity{}, probe.Activity())
+	})
+
+	t.Run("nil coordinators", func(t *testing.T) {
+		probe := NewNodeActivityProbe(createManager(nil, nil, nil, nil))
+		probe.attachScheduler(&Scheduler{})
+		assert.Equal(t, NodeActivity{}, probe.Activity())
+	})
+
+	t.Run("nil participant with busy coordinator", func(t *testing.T) {
+		probe := NewNodeActivityProbe(nil)
+		scheduler := newFakeScheduler(nil).schedulerReportingTo(probe)
+		scheduler.backupper.lastOp.renew("coord-backup", "path", "", "")
+
+		assert.Equal(t, NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
+			probe.Activity())
+	})
+}
+
+// Every answer a probe gives while slots are being taken and released is a
+// whole slot: the ID that names an operation and the kind that names its role
+// always travel together. (Run under -race this also covers the two locks.)
+func TestNodeActivityProbeConcurrent(t *testing.T) {
+	t.Parallel()
+
+	participant := createManager(nil, nil, nil, nil)
+	scheduler := newFakeScheduler(nil).scheduler()
+	probe := NewNodeActivityProbe(participant)
+
+	var (
+		wg   sync.WaitGroup
+		seen []NodeActivity
+	)
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		probe.attachScheduler(scheduler)
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			_, slot := participant.backupper.lastOp.renew("part-backup", "path", "", "")
+			slot.release()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			_, slot := scheduler.restorer.lastOp.renew("coord-restore", "path", "", "")
+			slot.release()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			seen = append(seen, probe.Activity())
+		}
+	}()
+
+	wg.Wait()
+
+	whole := []NodeActivity{
+		{},
+		{Busy: true, Kind: NodeActivityKindBackup, ID: "part-backup"},
+		{Busy: true, Kind: NodeActivityKindRestore, ID: "coord-restore"},
+	}
+	require.Len(t, seen, 500)
+	for _, activity := range seen {
+		assert.Contains(t, whole, activity)
+	}
+}
+
+// A Scheduler the probe cannot see makes this node report "not busy" for every
+// backup or restore it coordinates, which is the answer a caller gating on the
+// probe acts on. So registration belongs to the constructor, not to a call the
+// wiring can leave out.
+func TestNewSchedulerRegistersItsSlotsWithTheProbe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		claim func(s *Scheduler)
+		want  NodeActivity
+	}{
+		{
+			name:  "coordinating a backup",
+			claim: func(s *Scheduler) { s.backupper.lastOp.renew("coord-backup", "path", "", "") },
+			want:  NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: "coord-backup"},
+		},
+		{
+			name:  "coordinating a restore",
+			claim: func(s *Scheduler) { s.restorer.lastOp.renew("coord-restore", "path", "", "") },
+			want:  NodeActivity{Busy: true, Kind: NodeActivityKindRestore, ID: "coord-restore"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			probe := NewNodeActivityProbe(nil)
+			require.False(t, probe.Activity().Busy)
+
+			tt.claim(newFakeScheduler(nil).schedulerReportingTo(probe))
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
+
+// TestNodeActivityProbeSlotExpiresWithPreCommit pins that the slot self-clears
+// when the pre-commit window lapses, with no coordinator follow-up needed.
+func TestNodeActivityProbeSlotExpiresWithPreCommit(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx      = context.Background()
+		backupID = "expiring-1"
+		nodeHome = backupID + "/" + nodeName
+		path     = "bucket/backups/" + nodeHome
+	)
+
+	sourcer := &fakeSourcer{}
+	sourcer.On("Backupable", ctx, []string{"Class-A"}).Return(nil)
+	sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(nil))
+	sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	backend := &fakeBackend{}
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+	backend.On("Initialize", ctx, nodeHome).Return(nil)
+
+	participant := createManager(sourcer, nil, backend, nil)
+	probe := NewNodeActivityProbe(participant)
+
+	resp := participant.OnCanCommit(ctx, &Request{
+		Method:   OpCreate,
+		ID:       backupID,
+		Classes:  []string{"Class-A"},
+		Backend:  "gcs",
+		Duration: 20 * time.Millisecond,
+	})
+	require.Empty(t, resp.Err)
+	require.Equal(t, NodeActivity{Busy: true, Kind: NodeActivityKindBackup, ID: backupID}, probe.Activity())
+
+	assert.Eventually(t, func() bool { return !probe.Activity().Busy },
+		5*time.Second, 5*time.Millisecond,
+		"pre-commit window lapsed but the backup slot is still held")
+}

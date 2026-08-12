@@ -1090,7 +1090,11 @@ function run_go_client_group() {
   for pattern in "${package_paths[@]}"; do
     for pkg in $(go list ./... | grep -v 'acceptance_tests_with_client/named_vectors_tests' | grep "${pattern}$"); do
       echo_green "Running $pkg"
-      if ! go test -count 1 -race "$pkg"; then
+      # Explicit timeout: these packages run race-instrumented, and the
+      # heaviest of them needs more than Go's 10m default. Without this the
+      # package is killed mid-test, which reads as a hang rather than as the
+      # budget being too small.
+      if ! go test -count 1 -race -timeout=30m "$pkg"; then
         echo "Test for $pkg failed" >&2
         testFailed=1
       fi

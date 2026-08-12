@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -33,6 +34,17 @@ const (
 	MAX_CONCURRENT_STREAMS = 250
 	MAX_READ_FRAME_SIZE    = (16 * 1024 * 1024) // 16 MB
 )
+
+// RegisterProbeRoutes mounts the read-only cluster-internal probe routes on
+// mux, kept separate so a test can drive the real registration with the real
+// clients. It takes the handler owners rather than http.Handler values so a
+// swapped call cannot compile: a swap would put the reindex handler's
+// not-wired 503 on the backup route, which clients read as the terminal
+// "older build" answer.
+func RegisterProbeRoutes(mux *http.ServeMux, backups *backups, reindexCleanup *ReindexCleanup) {
+	mux.Handle(clusterprobe.BackupNodeActivityPath, backups.NodeActivity())
+	mux.Handle(clusterprobe.ReindexCleanupActivityPath, reindexCleanup.Activity())
+}
 
 // Server represents the cluster API server
 type Server struct {
@@ -44,15 +56,10 @@ type Server struct {
 // Ensure Server implements interfaces.ClusterServer
 var _ types.ClusterServer = (*Server)(nil)
 
-// NewServer creates a new cluster API server instance
-func NewServer(appState *state.State) *Server {
-	port := appState.ServerConfig.Config.Cluster.DataBindPort
-	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
-
-	appState.Logger.WithField("port", port).
-		WithField("action", "cluster_api_startup").
-		Debugf("serving cluster api on port %d", port)
-
+// newClusterMux builds the route table the internal server serves. Split out of
+// NewServer so a test can drive the real table — the real handlers on the real
+// paths — without the gRPC and RAFT wiring the rest of NewServer needs.
+func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
 		appState.DB,
@@ -63,7 +70,7 @@ func NewServer(appState *state.State) *Server {
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
-	backups := NewBackups(appState.BackupManager, auth)
+	backups := NewBackups(appState.BackupManager, appState.BackupActivity, auth, appState.Logger)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
@@ -83,6 +90,10 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	// No resolver until the reindex teardown side exists; the route reports
+	// "not wired" rather than "nothing running" until then.
+	// TODO(#12474): pass the resolver that reads the reindex provider.
+	RegisterProbeRoutes(mux, backups, NewReindexCleanup(nil, auth, appState.Logger))
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())
@@ -90,6 +101,20 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/exports/status", exportsHandler.Status())
 
 	mux.Handle("/", index())
+
+	return mux
+}
+
+// NewServer creates a new cluster API server instance
+func NewServer(appState *state.State) *Server {
+	port := appState.ServerConfig.Config.Cluster.DataBindPort
+	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
+
+	appState.Logger.WithField("port", port).
+		WithField("action", "cluster_api_startup").
+		Debugf("serving cluster api on port %d", port)
+
+	mux := newClusterMux(appState, auth)
 
 	grpcServer := grpc.NewServer(grpc.Config{
 		State:                              appState,

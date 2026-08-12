@@ -18,6 +18,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -29,16 +32,72 @@ type backupManager interface {
 }
 
 type backups struct {
-	manager backupManager
-	auth    auth
+	manager  backupManager
+	activity *backup.NodeActivityProbe
+	auth     auth
+	logger   logrus.FieldLogger
 }
 
-func NewBackups(manager backupManager, auth auth) *backups {
-	return &backups{manager: manager, auth: auth}
+func NewBackups(manager backupManager, activity *backup.NodeActivityProbe, auth auth,
+	logger logrus.FieldLogger,
+) *backups {
+	if logger == nil {
+		// Production always passes app state's logger; the integration fakes
+		// and the tolerance tests do not, and a probe must not die over it.
+		discard := logrus.New()
+		discard.Out = io.Discard
+		logger = discard
+	}
+	return &backups{manager: manager, activity: activity, auth: auth, logger: logger}
 }
 
 func (b *backups) CanCommit() http.Handler {
 	return b.auth.handleFunc(b.canCommitHandler())
+}
+
+// NodeActivity handles GET /backups/node-activity: is this node part of a backup or restore?
+func (b *backups) NodeActivity() http.Handler {
+	return b.auth.handleFunc(b.nodeActivityHandler())
+}
+
+func (b *backups) nodeActivityHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		if r.Method != http.MethodGet {
+			http.Error(w, "/backups/node-activity only serves GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Built before the fault branch so both of the probe's answers reach
+		// the log, not just the one that carries a verdict.
+		log := b.logger.WithField("action", "backup_node_activity_probe")
+
+		// nil means a fault, not an unwired build (this probe is always wired),
+		// so answer a plain, retryable 503 rather than the other probe's
+		// terminal "not wired" wording.
+		if b.activity == nil {
+			log.Warn("backup node activity probe answered: unavailable on this node")
+			http.Error(w, "backup activity probe unavailable on this node", http.StatusServiceUnavailable)
+			return
+		}
+
+		activity := b.activity.Activity()
+		log.WithField("busy", activity.Busy).
+			WithField("kind", activity.Kind).
+			WithField("id", clusterprobe.Loggable(activity.ID)).
+			Debug("backup node activity probe answered")
+
+		data, err := json.Marshal(backup.NewNodeActivityResponse(activity))
+		if err != nil {
+			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}
 }
 
 func (b *backups) canCommitHandler() http.HandlerFunc {
