@@ -1200,9 +1200,7 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// Ensure async replication is started (an override forces it on). The apply
-	// lock serializes against concurrent fan-outs; the config lock must not span
-	// the enable (see withAsyncReplicationApply).
+	// An override forces async on; apply-lock serialized (see withAsyncReplicationApply).
 	return s.index.withAsyncReplicationApply(func() error {
 		return s.enableAsyncReplication(ctx, s.index.AsyncReplicationConfig())
 	})
@@ -1243,9 +1241,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		// Restore the shard to the index's configured async-replication state under
-		// the apply lock; the config lock must not span the apply (see
-		// withAsyncReplicationApply).
+		// Restore the configured state; apply-lock serialized (see withAsyncReplicationApply).
 		return s.index.withAsyncReplicationApply(func() error {
 			enabled, config := s.index.asyncReplicationStateForShard(s.name)
 			if enabled {
@@ -1270,8 +1266,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	// Restore the shard to the index's configured async-replication state; see
-	// removeTargetNodeOverride for the locking rationale.
+	// Restore the configured state; apply-lock serialized (see withAsyncReplicationApply).
 	return s.index.withAsyncReplicationApply(func() error {
 		enabled, config := s.index.asyncReplicationStateForShard(s.name)
 		if enabled {

@@ -46,8 +46,7 @@ type Scheduler struct {
 	chans     []chan *Batch
 	triggerCh chan chan struct{}
 
-	// closeOnce guards OnClose: it must fire exactly once whether or not the
-	// scheduler was ever started — owners count it in a shutdown WaitGroup.
+	// closeOnce: OnClose fires exactly once, started or not (owners count it in a shutdown WaitGroup).
 	closeOnce sync.Once
 }
 
@@ -202,8 +201,7 @@ func (s *Scheduler) Close(ctx context.Context) error {
 		return nil
 	}
 	if s.ctx == nil {
-		// Never started: nothing to stop, but the OnClose contract must still
-		// hold or the owner's shutdown WaitGroup is pinned forever.
+		// Never started: still fire OnClose or the owner's shutdown WaitGroup pins forever.
 		s.runOnClose()
 		return nil
 	}

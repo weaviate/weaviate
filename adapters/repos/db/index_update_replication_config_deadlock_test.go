@@ -358,9 +358,7 @@ func TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter(t *testing.T
 	var shardName string
 	require.NoError(t, index.shards.Range(func(name string, _ ShardLike) error { shardName = name; return nil }))
 
-	// The shard must pass the reconcile's Loaded() check, then be swapped to
-	// mid-load underneath it: load fully, park the reconcile at its config
-	// read (test-held writer), unload, and park a fresh Load on the gate.
+	// Load fully so Loaded() passes, then swap the shard to mid-load underneath the parked reconcile.
 	require.NoError(t, lazy.Load(ctx))
 
 	index.replicationConfigLock.Lock()
@@ -382,8 +380,7 @@ func TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter(t *testing.T
 
 	index.replicationConfigLock.Unlock()
 
-	// The reconcile now proceeds into the shard apply and blocks on the parked
-	// shard's mutex; pre-fix it still holds the config read lock there.
+	// The reconcile now blocks on the parked shard's mutex.
 	select {
 	case <-reconcileDone:
 		t.Fatal("reconcile completed while Load held the shard mutex — the apply no longer touches it")
@@ -395,9 +392,7 @@ func TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter(t *testing.T
 		updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{Factor: 1})
 	}()
 
-	// Two observable states qualify: the updater queued on the config write lock
-	// (pre-fix: reconcile pins the read side), or the new factor already
-	// published (post-fix: the config lock was free).
+	// Qualifying states: updater queued on the write lock, or the new factor already published.
 	require.Eventually(t, func() bool {
 		if !index.replicationConfigLock.TryRLock() {
 			return true

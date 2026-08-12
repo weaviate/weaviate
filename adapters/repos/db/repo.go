@@ -644,8 +644,7 @@ type job struct {
 }
 
 func (db *DB) batchWorker(first bool) {
-	// Unconditional: a panic below is recovered at the goroutine boundary, and a
-	// worker that dies without settling shutDownWg pins DB.Shutdown forever.
+	// Unconditional: a recovered panic must not leak the count and pin DB.Shutdown forever.
 	defer db.shutDownWg.Done()
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
