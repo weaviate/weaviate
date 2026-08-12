@@ -143,6 +143,16 @@ func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 //
 // Public so REST handlers can use the same predicate as the
 // FSM-deterministic conflict check.
+//
+// Every caller acts on a match: refusing a conflicting submit, refusing
+// a schema mutation, or picking the task an operator asked to cancel.
+// Over-matching costs a retryable conflict error or one extra cancel
+// candidate; under-matching lets a schema change race an in-flight
+// migration on shared on-disk state. That asymmetry, not the literal
+// reading of an empty list, is why empty means "all" here.
+//
+// The status endpoint reads the same field the opposite way on purpose;
+// see mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go.
 func ReindexPropsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return true

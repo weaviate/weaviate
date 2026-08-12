@@ -1150,6 +1150,17 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // to the repair-* migration types if they accepted an empty list as
 // "match all").
 //
+// db.ReindexPropsOverlap reads that same empty list as "all properties";
+// the disagreement is deliberate, not drift. A guard picks the answer
+// that refuses, a status report picks the answer it can substantiate.
+// Reconciling this side onto the guard's rule would publish a synthetic
+// "indexing" entry across every property of the collection on behalf of
+// a task createReindexTasks refuses to run at all. Skipping is the
+// cheaper wrong answer: the entry stays "ready" when the flag is on and
+// is dropped from the response when it is off — the same two outcomes
+// this endpoint already produces when it cannot read the task list, so
+// "ready" here means "no evidence of a reindex", never "idle".
+//
 // The logger is used to flag unknown migration types: a future ReindexType
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
@@ -1185,7 +1196,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// populates this with one entry; an empty list only happens via
 		// direct cluster payload authoring and is treated as "match
 		// nothing" so we never silently fan out a synthetic entry to
-		// every property in the collection.
+		// every property in the collection — which is why this line
+		// disagrees with db.ReindexPropsOverlap on purpose.
 		if !slices.Contains(payload.Properties, propName) {
 			continue
 		}
