@@ -48,6 +48,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 		// unlistable removes read permission from .migrations, so listing it
 		// fails without the dir being absent.
 		unlistable bool
+		// classLevel asks with the scope change-algorithm uses: one tracker
+		// dir the whole collection shares, with no property in its name.
+		classLevel bool
 		want       bool
 	}{
 		{
@@ -170,13 +173,51 @@ func TestHasUntidiedTracker(t *testing.T) {
 			want:            false,
 		},
 		// A dir from before [genSuffix]: the sweep deletes it, so the
-		// recovery probe must see it too.
+		// recovery probe must see it too. The class-level blockmax tracker is
+		// the one that shipped before generations existed, so it is the shape
+		// a real disk can still hold.
 		{
 			name: "a generation-less tracker, started only → recovery NEEDED",
 			trackers: map[string][]string{
-				"searchable_retokenize_text": {"started.mig"},
+				MigrationDirSearchableMapToBlockmax: {"started.mig"},
 			},
-			want: true,
+			classLevel: true,
+			want:       true,
+		},
+		{
+			name: "a class-level tracker, started only → recovery NEEDED",
+			trackers: map[string][]string{
+				MigrationDirSearchableMapToBlockmax + "_1": {"started.mig"},
+			},
+			classLevel: true,
+			want:       true,
+		},
+		{
+			name: "a class-level tracker with tidied.mig → completed, no recovery",
+			trackers: map[string][]string{
+				MigrationDirSearchableMapToBlockmax + "_1": {"started.mig", "tidied.mig"},
+			},
+			classLevel: true,
+			want:       false,
+		},
+		// The dir exists but iteration never started, which this probe cannot
+		// tell from an interrupted swap and does not try to: it reports
+		// recovery either way.
+		{
+			name: "a class-level tracker with no sentinels at all → recovery NEEDED",
+			trackers: map[string][]string{
+				MigrationDirSearchableMapToBlockmax + "_1": {},
+			},
+			classLevel: true,
+			want:       true,
+		},
+		{
+			name: "a per-property tracker is not the class-level scope's → no recovery",
+			trackers: map[string][]string{
+				"enable_searchable_text_1": {"started.mig"},
+			},
+			classLevel: true,
+			want:       false,
 		},
 		{
 			name: "two of this index type's prefixes, one tidied + one started → recovery NEEDED",
@@ -237,8 +278,11 @@ func TestHasUntidiedTracker(t *testing.T) {
 			if indexType == "" {
 				indexType = "searchable"
 			}
-			got := hasUntidiedTracker(migrationDirsOf(tmp, nil, "text", indexType))
-			require.Equal(t, tc.want, got)
+			scope := migrationDirsOf(tmp, nil, "text", indexType)
+			if tc.classLevel {
+				scope = classLevelMigrationDirsOf(tmp, MigrationDirSearchableMapToBlockmax)
+			}
+			require.Equal(t, tc.want, hasUntidiedTracker(scope))
 		})
 	}
 }
@@ -345,6 +389,9 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 		sentinels []string
 		// hostedElsewhere maps the unit to a node that is not this one.
 		hostedElsewhere bool
+		// changeAlgorithm runs the migration whose tracker is class-level, so
+		// the probe has to look somewhere the per-property scope never does.
+		changeAlgorithm bool
 		want            bool
 	}{
 		{
@@ -367,6 +414,18 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			hostedElsewhere: true,
 			want:            true,
 		},
+		{
+			name:            "a cold tenant whose class-level blockmax swap started and never committed",
+			sentinels:       []string{"started.mig"},
+			changeAlgorithm: true,
+			want:            false,
+		},
+		{
+			name:            "a cold tenant whose class-level blockmax swap tidied",
+			sentinels:       []string{"started.mig", "tidied.mig"},
+			changeAlgorithm: true,
+			want:            true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
@@ -376,9 +435,14 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				false, false, false)
 			defer hot.Shutdown(context.Background())
 
+			migrationType := ReindexTypeChangeTokenization
+			trackerDir := postMergeTrackerDir(t, prop)
+			if tc.changeAlgorithm {
+				migrationType = ReindexTypeChangeAlgorithm
+				trackerDir = MigrationDirSearchableMapToBlockmax + "_1"
+			}
 			if tc.sentinels != nil {
-				mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
-					postMergeTrackerDir(t, prop), tc.sentinels...)
+				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir, tc.sentinels...)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
@@ -396,7 +460,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			}
 			payload, err := json.Marshal(ReindexTaskPayload{
 				Collection:    className,
-				MigrationType: ReindexTypeChangeTokenization,
+				MigrationType: migrationType,
 				Properties:    []string{prop},
 				UnitToShard:   map[string]string{"u1": tenant},
 				UnitToNode:    map[string]string{"u1": owner},
