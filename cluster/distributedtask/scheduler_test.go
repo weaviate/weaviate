@@ -1843,6 +1843,19 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 			wantNamed:  "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE",
 			wantGauges: map[string]float64{"tasks-namespace": 1},
 		},
+		{
+			// What a node one release behind sees: the leader finalized
+			// the task into a status this node cannot name, so its own
+			// copy is stuck there while the cluster considers it done.
+			// FINISHED rather than STARTED because that is the state the
+			// refused SWAPPING→FINISHED transition leaves behind.
+			name:       "the leader's copy is recognized and this node's is not",
+			tasks:      []taskSpec{{"tasks-namespace", "diverged", 7, TaskStatusFinished}},
+			localTasks: []taskSpec{{"tasks-namespace", "diverged", 7, unknownFutureStatus}},
+			wantNamed: "tasks-namespace/diverged@7=UNKNOWN_FUTURE_STATE " +
+				"(this node only; cluster reports FINISHED)",
+			wantGauges: map[string]float64{"tasks-namespace": 1},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer leaktest.Check(t)()
@@ -1864,7 +1877,12 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 
 			for _, spec := range tc.tasks {
 				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
-				h.manager.tasks[spec.namespace][spec.id].Status = spec.status
+				task := h.manager.tasks[spec.namespace][spec.id]
+				task.Status = spec.status
+				// A terminal task whose FinishedAt was never stamped reads
+				// as long expired, and the TTL sweep deletes it before the
+				// assertions run.
+				task.FinishedAt = h.clock.Now()
 			}
 
 			h.startScheduler(t)

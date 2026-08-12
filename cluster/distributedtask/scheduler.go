@@ -526,12 +526,24 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 				counts[namespace] = 0
 			}
 			for _, task := range tasks {
-				if _, alreadyNamed := tasksByNamespace[namespace][task.TaskDescriptor]; alreadyNamed {
+				// Skip only what the loop above already counted. Skipping on
+				// the leader having any copy at all loses the task whose copy
+				// the leader can name and this node cannot — counted nowhere,
+				// while this node keeps refusing schema mutations for it.
+				leaderCopy, onLeaderList := tasksByNamespace[namespace][task.TaskDescriptor]
+				if onLeaderList && !leaderCopy.Status.IsRecognized() {
 					continue
 				}
 				counts[namespace]++
-				named = append(named, fmt.Sprintf("%s/%s@%d=%s (this node only)",
-					namespace, task.ID, task.Version, task.Status))
+				// Naming the cluster's status is what makes the line
+				// actionable: it says this node has fallen behind the rest,
+				// rather than that the task exists nowhere else.
+				where := "this node only"
+				if onLeaderList {
+					where = fmt.Sprintf("this node only; cluster reports %s", leaderCopy.Status)
+				}
+				named = append(named, fmt.Sprintf("%s/%s@%d=%s (%s)",
+					namespace, task.ID, task.Version, task.Status, where))
 			}
 		}
 	}
