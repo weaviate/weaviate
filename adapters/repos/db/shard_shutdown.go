@@ -170,12 +170,24 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // every one of them that forgot would leak a shard in shards_unloaded until the
 // process restarted.
 func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, shard ShardLike, logger logrus.FieldLogger) error {
+	// Deferred rather than called on each outcome so a panic in Shutdown is
+	// covered too: the caller has already removed the shard from the map, and a
+	// panic means the restore below never ran, so the shard is evicted for good.
+	// Callers run inside error-group wrappers that recover, so the process
+	// carries on and the stranded count would outlive the shard.
+	restored := false
+	defer func() {
+		if !restored {
+			releaseShardLifecycleMetrics(shard)
+		}
+	}()
+
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
-		releaseShardLifecycleMetrics(shard)
 		return err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
+		restored = true
 		if terr := shardTeardownError(shard); terr != nil {
 			logger.WithField("action", "shard_shutdown").
 				WithField("shard", name).
@@ -193,7 +205,6 @@ func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, 
 	// outcome the caller asked for happened. Report it as the benign
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
-	releaseShardLifecycleMetrics(shard)
 	return errAlreadyShutdown
 }
 
@@ -292,6 +303,16 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	// teardown that panics or grows an early return later must still not strand
 	// this shard's bucket. Deferred after the point of no return, so the
 	// still-in-use rejection above (which leaves the shard live) never reaches it.
+	//
+	// This releases on shutdown rather than on eviction, so a shard that is
+	// restored to the map by shutdownOrRestoreShard — a torn one holding its
+	// leaked handles, or one whose deferred ref-drain completed it in place —
+	// stops being counted while it is technically still in the map. That is
+	// deliberate: the gauge counts shards this node can serve, and a shut shard
+	// serves nothing but errAlreadyShutdown / errTeardownFailed. Tying the
+	// release to eviction instead would mean repeating it at every site that
+	// evicts a known-shut entry (both re-init paths, each drop path), which is
+	// the scattered bookkeeping that leaked in the first place.
 	defer s.setCountedStatus("")
 
 	start := time.Now()

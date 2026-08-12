@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -372,6 +373,48 @@ func TestShardLifecycleMetricReleasedOnTenantDeactivation(t *testing.T) {
 			h.requireNoLiveShards(t, "after deactivating the tenant")
 		})
 	}
+}
+
+// TestShardLifecycleMetricReleasedOnFailedLazyDrop covers the unloaded drop path
+// failing part way. The caller has already removed the wrapper from the shard
+// map by then, so releasing only on the success tail would strand the count for
+// the life of the process — the same reason Shard.drop releases from a defer.
+func TestShardLifecycleMetricReleasedOnFailedLazyDrop(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, which ignores the directory permissions this test relies on")
+	}
+
+	const tenant = "tenant-0"
+	h := newStatusMetricsHarnessWithState(t, false, tenantState(tenant))
+
+	idx := h.addClassWith(t, &models.Class{
+		Class:               "StatusMetricFailedDrop",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
+	})
+
+	lazy, ok := idx.shards.Load(tenant).(*LazyLoadShard)
+	require.True(t, ok, "a multi-tenant class registers its tenant shards lazily")
+	require.Equal(t, float64(1), h.unloaded(t))
+
+	// A never-loaded shard has no directory yet, and the drop skips the rename
+	// entirely when there is nothing to rename. Create it so the drop has real
+	// work to fail at.
+	indexPath := idx.path()
+	require.NoError(t, os.MkdirAll(shardPath(indexPath, tenant), 0o755))
+
+	// Make the index directory read-only so the drop fails somewhere in the
+	// middle — which step exactly does not matter, only that it returns early.
+	info, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(indexPath, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(indexPath, info.Mode()) })
+
+	require.Error(t, lazy.drop(false), "the drop should fail with the index directory read-only")
+
+	require.Equal(t, float64(0), h.unloaded(t),
+		"a shard whose drop failed is still gone from the shard map and must not stay counted")
 }
 
 // TestShardStatusMetricFollowsCountedLabel guards the subtler desync: GetStatus
