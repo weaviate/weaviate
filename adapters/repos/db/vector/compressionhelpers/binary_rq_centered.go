@@ -117,15 +117,15 @@ type crqHeader struct {
 
 func (rq *CenteredBinaryRotationalQuantizer) putHeader(c []uint64, step, norm2, muX float32) {
 	c[0] = uint64(math.Float32bits(step)) |
-		uint64(float32ToBF16(norm2))<<32 |
-		uint64(float32ToBF16(muX))<<48
+		uint64(float32ToBFloat16(norm2))<<32 |
+		uint64(float32ToBFloat16(muX))<<48
 }
 
 func (rq *CenteredBinaryRotationalQuantizer) header(c []uint64) crqHeader {
 	return crqHeader{
 		step:  math.Float32frombits(uint32(c[0])),
-		norm2: bf16ToFloat32(uint16(c[0] >> 32)),
-		muX:   bf16ToFloat32(uint16(c[0] >> 48)),
+		norm2: bfloat16ToFloat32(uint16(c[0] >> 32)),
+		muX:   bfloat16ToFloat32(uint16(c[0] >> 48)),
 	}
 }
 
