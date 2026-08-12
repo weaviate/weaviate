@@ -255,8 +255,10 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
 		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
-		// an exact fit would leave count == maxSize, which replaceIfFull wipes
-		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, false},
+		// the scan stops one short of maxSize, so an exact fit cannot reach the count
+		// replaceIfFull wipes on; the serial prefiller it would otherwise fall to
+		// caches nothing at all
+		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
 		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
 		// the scan runs alongside live writes, so an overwriting Preload is not enough:
@@ -616,4 +618,140 @@ func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
 
 	h.hfreshMode = false
 	require.True(t, h.useParallelPrefill())
+}
+
+// countingAllocChecker fails every probe once armed, and records how many vectors
+// were preloaded after the first failure.
+type countingAllocChecker struct {
+	aborted *atomic.Bool
+}
+
+func (c *countingAllocChecker) CheckAlloc(size int64) error {
+	c.aborted.Store(true)
+	return fmt.Errorf("simulated memory pressure")
+}
+
+func (c *countingAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
+func (c *countingAllocChecker) Refresh(bool)                            {}
+
+// countingPreloadCache counts stores that land after the alloc probe has failed.
+// Counting at the store itself keeps the measurement exact — sampling a shared
+// counter from inside the probe would race the workers still writing.
+type countingPreloadCache struct {
+	cache.Cache[float32]
+	inner      cache.IfAbsentPreloader[float32]
+	aborted    atomic.Bool
+	afterAbort atomic.Int64
+}
+
+func (c *countingPreloadCache) PreloadIfAbsent(id uint64, vec []float32) bool {
+	ok := c.inner.PreloadIfAbsent(id, vec)
+	if ok && c.aborted.Load() {
+		c.afterAbort.Add(1)
+	}
+	return ok
+}
+
+// TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure: the alloc probe fires on
+// one worker, but every worker must stop at its next row. Returning an error only
+// ends the worker that raised it — its siblings poll the cancelled context once per
+// 1024 rows, so without shared abort state they keep filling the cache long after
+// the probe said to stop, which on large vectors is the memory the probe was
+// defending. Multiple flushed segments give the scan several concurrent ranges.
+func TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure(t *testing.T) {
+	const n = 40_000
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i), float32(i) + 1}, nil)
+		if i%5_000 == 4_999 {
+			require.NoError(t, bucket.FlushAndSwitch())
+		}
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	inner := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 10_000_000, 1, logger, false, 0, nil)
+	inner.Grow(n)
+	counting := &countingPreloadCache{Cache: inner, inner: mustIfAbsentPreloader(t, inner)}
+
+	h := newPrefillTestIndex("main", store, counting, n, distancer.NewDotProductProvider(), logger)
+	h.allocChecker = &countingAllocChecker{aborted: &counting.aborted}
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+
+	// a worker already past the abort check may still finish its row, so allow one
+	// per worker; what must not happen is the ~1023 rows each would otherwise run
+	// before its next context poll
+	after := counting.afterAbort.Load()
+	// Bounded by one worker's poll interval, not by workers x that interval: before
+	// the shared abort, every sibling ran to its next context poll. Observed is a
+	// row or two per worker; the margin absorbs scheduling.
+	require.LessOrEqual(t, after, int64(prefillCtxCheckEvery),
+		"%d vectors were cached after the alloc probe failed", after)
+}
+
+// TestParallelPrefillExactFitTakesTheScan: an exact fit must not be pushed onto the
+// serial prefiller. onVector already stops one short of maxSize, so the scan cannot
+// reach the count replaceIfFull wipes on, and the serial path would cache nothing.
+func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
+	const n = 200
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	exp := map[uint64][]float32{}
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i), float32(i) + 1}
+		putTestObject(t, bucket, i, vec, nil)
+		exp[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, n, 1, logger, false, 0, nil)
+	c.Grow(n)
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+
+	require.True(t, h.useParallelPrefill(), "an exact fit must still take the scan")
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+
+	// the guard stops one short of maxSize, so all but the last vector are resident
+	require.Equal(t, int64(n-1), c.CountVectors())
+	require.Less(t, c.CountVectors(), c.CopyMaxSize())
+}
+
+// TestSerialPrefillerMeasuresOccupancyNotAllocation: the limit must be compared
+// against how many vectors are cached, not against how far the cache is allocated.
+// Restore grows the cache to cover the node range and growTargetFor rounds up beyond
+// it, so measuring Len() means an index whose cache already covers its nodes — every
+// index, after restore — prefills nothing at all.
+func TestSerialPrefillerMeasuresOccupancyNotAllocation(t *testing.T) {
+	cases := []struct {
+		name    string
+		nodes   int
+		maxSize int
+		want    int64
+	}{
+		{"cache exactly fits the nodes", 10, 10, 10},
+		{"cache larger than the nodes", 10, 11, 10},
+		{"bounded cache stops at the limit", 10, 5, 5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			vecFor := func(ctx context.Context, id uint64) ([]float32, error) {
+				return []float32{float32(id), 1}, nil
+			}
+			c := cache.NewShardedFloat32LockCache(vecFor, nil, tc.maxSize, 1, logger, false, 0, nil)
+			c.Grow(uint64(tc.nodes)) // restore covers the node range before any prefill
+			require.Greater(t, c.Len(), int32(tc.maxSize),
+				"the allocated span must exceed the limit, or this test proves nothing")
+
+			h := newPrefillTestIndex("main", nil, c, tc.nodes, distancer.NewDotProductProvider(), logger)
+			require.NoError(t, newVectorCachePrefiller(c, h, logger).
+				Prefill(context.Background(), int(c.CopyMaxSize())))
+
+			require.Equal(t, tc.want, c.CountVectors())
+		})
+	}
 }

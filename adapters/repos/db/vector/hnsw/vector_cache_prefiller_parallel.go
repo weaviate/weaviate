@@ -29,7 +29,12 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-const prefillAllocCheckEvery = 4096
+const (
+	prefillAllocCheckEvery = 4096
+	// how often a scan worker polls its context; a worker between polls only stops
+	// because onVector tells it to
+	prefillCtxCheckEvery = 1024
+)
 
 var (
 	errPrefillMemoryPressure = errors.New("vector cache prefill aborted under memory pressure")
@@ -89,11 +94,12 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	return cacheFitsNodes(in)
 }
 
-// cacheFitsNodes requires headroom beyond the node count rather than an exact fit:
-// filling the last slot leaves count == maxSize, which replaceIfFull reads as a full
-// cache and wipes within one deletion interval, discarding the whole scan.
+// cacheFitsNodes admits an exact fit: onVector stops one short of maxSize, so the
+// scan cannot reach the count replaceIfFull wipes on. Requiring headroom instead
+// would route exact-fit caches to the serial prefiller, which caches nothing at all
+// on a lazily-allocated cache.
 func cacheFitsNodes(in parallelPrefillInputs) bool {
-	return in.cacheMaxSize > in.nodeCount
+	return in.cacheMaxSize >= in.nodeCount
 }
 
 // prefillCacheParallel fills the cache by scanning the objects bucket. The by-id
@@ -131,31 +137,53 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 		return fmt.Errorf("prefill cache: %T cannot preload if-absent", h.cache)
 	}
 
-	var loaded atomic.Int64
-	onVector := func(id uint64, vec []float32) error {
-		if h.compressed.Load() {
-			return errPrefillCompressionActive
+	// How many vectors this scan may add, leaving the last slot free: replaceIfFull
+	// reads count == maxSize as a full cache and wipes it, discarding the scan.
+	// Claimed atomically rather than compared against CountVectors per row, so racing
+	// workers cannot collectively overshoot the way an advisory check allows.
+	budget := h.cache.CopyMaxSize() - 1 - h.cache.CountVectors()
+
+	var (
+		loaded  atomic.Int64
+		claimed atomic.Int64
+		// abortCause stops every worker at its next row. Returning an error only ends
+		// the worker that raised it; its siblings poll the cancelled context once per
+		// prefillCtxCheckEvery rows, so they would keep preloading thousands of vectors
+		// after the alloc probe already said to stop.
+		abortCause atomic.Pointer[error]
+	)
+	stop := func(err error) error {
+		if abortCause.CompareAndSwap(nil, &err) {
+			return err
 		}
-		// stop one short of maxSize: replaceIfFull reads count == maxSize as a full
-		// cache and wipes it, discarding the scan. Racing workers can still overshoot
-		// by their in-flight rows, but only once inserts have eaten the headroom the
-		// scan was admitted with — a wipe those inserts would reach anyway.
-		if h.cache.CountVectors()+1 >= h.cache.CopyMaxSize() {
-			return errPrefillCacheFull
+		return *abortCause.Load()
+	}
+
+	onVector := func(id uint64, vec []float32) error {
+		if cause := abortCause.Load(); cause != nil {
+			return *cause
+		}
+		if h.compressed.Load() {
+			return stop(errPrefillCompressionActive)
 		}
 		if !h.prefillEligible(id) {
 			return nil
+		}
+		if claimed.Add(1) > budget {
+			claimed.Add(-1)
+			return stop(errPrefillCacheFull)
 		}
 		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
 		// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
 		// a fresh per-vector allocation, so normalizing in place is safe.
 		h.normalizeVecInPlace(vec)
 		if !preloader.PreloadIfAbsent(id, vec) {
+			claimed.Add(-1) // slot already populated; hand the reservation back
 			return nil
 		}
 		if n := loaded.Add(1); n%prefillAllocCheckEvery == 0 && h.allocChecker != nil {
 			if err := h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
-				return fmt.Errorf("%w: %w", errPrefillMemoryPressure, err)
+				return stop(fmt.Errorf("%w: %w", errPrefillMemoryPressure, err))
 			}
 		}
 		return nil
@@ -318,14 +346,13 @@ func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 		k, v = c.Seek(start)
 	}
 
-	const checkContextEveryN = 1024
 	n := 0
 	for ; k != nil; k, v = c.Next() {
 		if end != nil && bytes.Compare(k, end) >= 0 {
 			break
 		}
 		n++
-		if n%checkContextEveryN == 0 {
+		if n%prefillCtxCheckEvery == 0 {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
