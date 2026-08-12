@@ -13,8 +13,13 @@ package hashtree
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"math/bits"
 )
+
+// ErrInvalidBsetSerialization rejects wire payloads whose header disagrees with their bits.
+var ErrInvalidBsetSerialization = errors.New("invalid bset serialization")
 
 type Bitset struct {
 	size     int
@@ -106,27 +111,47 @@ func (bset *Bitset) Marshal() ([]byte, error) {
 	return b, nil
 }
 
+// Unmarshal leaves the receiver untouched unless the whole payload validates.
 func (bset *Bitset) Unmarshal(b []byte) error {
 	if len(b) < 8 {
-		return fmt.Errorf("invalid bset serialization")
+		return fmt.Errorf("%w: buffer shorter than header", ErrInvalidBsetSerialization)
 	}
 
-	bset.size = int(binary.BigEndian.Uint32(b))
-	bset.setCount = int(binary.BigEndian.Uint32(b[4:]))
+	size := int(binary.BigEndian.Uint32(b))
+	carriedSetCount := int(binary.BigEndian.Uint32(b[4:]))
 
-	n := (bset.size + 63) / 64
+	n := (size + 63) / 64
 
 	if len(b) != 8+n*8 {
-		return fmt.Errorf("invalid bset serialization")
+		return fmt.Errorf("%w: %d bytes for size %d", ErrInvalidBsetSerialization, len(b), size)
 	}
 
-	bset.bits = make([]int64, n)
+	words := make([]int64, n)
 
 	off := 8
+	setCount := 0
 	for i := 0; i < n; i++ {
-		bset.bits[i] = int64(binary.BigEndian.Uint64(b[off:]))
+		words[i] = int64(binary.BigEndian.Uint64(b[off:]))
 		off += 8
+
+		w := uint64(words[i])
+		if i == n-1 && size%64 != 0 {
+			// SetAll legitimately leaves trailing bits beyond size in the last word
+			lastWordMask := uint64(1)<<(size%64) - 1
+			w &= lastWordMask
+		}
+		setCount += bits.OnesCount64(w)
 	}
+
+	// receivers size digest buffers from the carried count, so it must match the bits
+	if setCount != carriedSetCount {
+		return fmt.Errorf("%w: set count %d, actual set bits %d",
+			ErrInvalidBsetSerialization, carriedSetCount, setCount)
+	}
+
+	bset.size = size
+	bset.setCount = carriedSetCount
+	bset.bits = words
 
 	return nil
 }

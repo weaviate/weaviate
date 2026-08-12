@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,22 +145,27 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			})
 
 			// bridge path: shouldAbort=true exercised through compactOrCleanup;
-			// the bridge inside compactOrCleanup pre-cancels the ctx so the
+			// the bridge inside compactOnceAbortable pre-cancels the ctx so the
 			// compactor sees the abort on its first sample.
 			t.Run("bridge", func(t *testing.T) {
+				var polls atomic.Int64
 				start := time.Now()
-				didWork := bucket.disk.compactOrCleanup(func() bool { return true })
+				didWork := bucket.disk.compactOrCleanup(func() bool {
+					polls.Add(1)
+					return true
+				})
 				elapsed := time.Since(start)
 				assert.False(t, didWork)
+				assert.NotZero(t, polls.Load(), "the bridge must read shouldAbort once there is a pair to merge")
 				assert.Less(t, elapsed, 3*time.Second, "observed %s", elapsed)
 				assertNoTempFiles(t, dirName)
 			})
 
-			// the aborts above must not have compromised the segments
+			// the aborts above must not have compromised the segments. Driven
+			// through compactOrCleanup with a live poller, so the merge runs
+			// alongside the watcher goroutine the bridge starts.
 			t.Run("compaction still succeeds afterwards", func(t *testing.T) {
-				compacted, err := bucket.disk.compactOnce(ctx)
-				require.NoError(t, err)
-				require.True(t, compacted)
+				require.True(t, bucket.disk.compactOrCleanup(func() bool { return false }))
 				require.Len(t, bucket.disk.segments, 1)
 
 				_, err = os.Stat(bucket.disk.segments[0].getPath())

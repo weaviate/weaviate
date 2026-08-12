@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -34,6 +35,15 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	// Drain before anything is torn down.
+	if drainErr := s.drainRefsForDrop(); drainErr != nil {
+		s.index.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  s.class.Class,
+			"shard":  s.name,
+		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
+	}
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 

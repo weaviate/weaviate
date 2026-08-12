@@ -34,6 +34,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	ucfg "github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -48,7 +49,35 @@ type gcsClient struct {
 	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
-func storageOptions(ctx context.Context, logger logrus.FieldLogger) ([]option.ClientOption, error) {
+const (
+	// chunkRetryDeadline budgets all attempts at one chunk, backoff pauses
+	// included. The SDK default of 32s expires partway through the ladder
+	// newClient configures (2s, 6s, 18s, 54s), so its 60s ceiling never applies.
+	chunkRetryDeadline = 5 * time.Minute
+
+	// chunkTransferTimeout bounds one chunk request. chunkRetryDeadline does not:
+	// it is only checked between attempts, so without this a stalled request
+	// hangs until the caller's context expires, and backup uploads run under a
+	// 24h timeout. It is a hard timeout on the request rather than a stall
+	// detector, so it must stay well above the time a full chunk takes on a slow
+	// link, and well below chunkRetryDeadline to leave room for retries. Raising
+	// the writer's ChunkSize means revisiting both. HTTP only; the gRPC writer
+	// ignores it.
+	chunkTransferTimeout = time.Minute
+)
+
+// newChunkWriter returns a writer for one backup chunk, tuned for the
+// multi-chunk uploads Write streams.
+func newChunkWriter(ctx context.Context, obj *storage.ObjectHandle, backupID string) *storage.Writer {
+	writer := obj.NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	writer.Metadata = map[string]string{"backup-id": backupID}
+	writer.ChunkRetryDeadline = chunkRetryDeadline
+	writer.ChunkTransferTimeout = chunkTransferTimeout
+	return writer
+}
+
+func storageOptions(ctx context.Context, logger logrus.FieldLogger, transport ucfg.BackupGCS) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
@@ -74,6 +103,16 @@ func storageOptions(ctx context.Context, logger logrus.FieldLogger) ([]option.Cl
 		opts = append(opts, option.WithoutAuthentication())
 	}
 
+	if transport.UseGRPC {
+		// The SDK exports gRPC client metrics to Cloud Monitoring by default. That
+		// needs monitoring.timeSeries.create and reports its own failures through
+		// the standard library, bypassing our logger.
+		opts = append(opts,
+			option.WithGRPCConnectionPool(transport.GRPCConnPool),
+			storage.WithDisabledClientMetrics(),
+		)
+	}
+
 	return opts, nil
 }
 
@@ -90,12 +129,18 @@ func projectID() string {
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
-	opts, err := storageOptions(ctx, logger)
+	opts, err := storageOptions(ctx, logger, config.Transport)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := storage.NewClient(ctx, opts...)
+	var client *storage.Client
+	if config.Transport.UseGRPC {
+		logger.Infof("backup-gcs: using gRPC transport with a connection pool of %d per client", config.Transport.GRPCConnPool)
+		client, err = storage.NewGRPCClient(ctx, opts...)
+	} else {
+		client, err = storage.NewClient(ctx, opts...)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
@@ -321,62 +366,6 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 	return nil
 }
 
-// WriteToFile downloads an object and store its content in destPath
-// The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
-	bucket, err := g.findBucket(ctx, overrideBucket)
-	if err != nil {
-		return fmt.Errorf("writetofile: find bucket: %w ", err)
-	}
-
-	// validate destination path
-	if st, err := os.Stat(destPath); err == nil {
-		if st.IsDir() {
-			return fmt.Errorf("file is a directory")
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	// create empty file
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("os.mkdir for writetofile %q: %w", dir, err)
-	}
-	file, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("os.create for writetofile %q: %w", destPath, err)
-	}
-
-	// make sure to close and delete in case we return early
-	closeAndRemove := true
-	defer func() {
-		if closeAndRemove {
-			file.Close()
-			os.Remove(destPath)
-		}
-	}()
-
-	// create reader
-	object := g.makeObjectName(overridePath, []string{backupID, key})
-	rc, err := bucket.Object(object).NewReader(ctx)
-	if err != nil {
-		return fmt.Errorf("create reader for writetofile %q: %w", object, err)
-	}
-	defer rc.Close()
-
-	// transfer content to the file
-	if _, err := io.Copy(file, rc); err != nil {
-		return fmt.Errorf("io.Copy for writetofile:%q %q: %w", destPath, object, err)
-	}
-	closeAndRemove = false
-	if err = file.Close(); err != nil {
-		return fmt.Errorf("f.Close for writetofile %q: %w", destPath, err)
-	}
-
-	return nil
-}
-
 func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	// Close the reader when done. Use CloseWithError to signal any error to the
 	// producer so it sees the actual error instead of "closed pipe".
@@ -391,14 +380,19 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 
 	// create a new writer
 	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(objectPath).NewWriter(ctx)
-	writer.ContentType = "application/octet-stream"
-	writer.Metadata = map[string]string{"backup-id": backupID}
+	writeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	writer := newChunkWriter(writeCtx, bucket.Object(objectPath), backupID)
 
 	// copy
 	written, err = io.Copy(writer, r)
 	if err != nil {
-		writer.Close() // ignore error here as copy already failed
+		// Cancelling abandons the upload. Closing the writer instead would finalize it,
+		// storing the bytes copied so far as a complete object. Closing afterwards is
+		// what ends the writer's trace span, and cannot revive the upload: the request
+		// it would take needs the context that was just cancelled.
+		cancel()
+		writer.Close()
 		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
@@ -418,8 +412,8 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
-		err = fmt.Errorf("read: find bucker: %w", err)
-		if errors.Is(err, storage.ErrObjectNotExist) {
+		err = fmt.Errorf("read: find bucket: %w", err)
+		if errors.Is(err, storage.ErrBucketNotExist) {
 			err = backup.NewErrNotFound(err)
 		}
 		return 0, err

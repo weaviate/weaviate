@@ -14,6 +14,7 @@ package segmentindex
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"runtime/debug"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // A corrupt or truncated on-disk index must never crash the node: every read
@@ -161,11 +164,16 @@ func FuzzDiskTreeRead(f *testing.F) {
 	cyclic := bytes.Clone(veb)
 	binary.LittleEndian.PutUint64(cyclic[childBase:], 0)
 
+	// a segment written with checksums leaves a 4-byte trailer on the index blob
+	// when no secondary index bounds it
+	withChecksumTail := append(bytes.Clone(veb), 0xDE, 0xAD, 0xBE, 0xEF)
+
 	blobs := [][]byte{
 		nil,
 		{},
 		{0x01, 0x02, 0x03},
 		veb,
+		withChecksumTail,
 		cyclic,
 		levelBuf.Bytes(),
 		veb[:len(veb)-1],
@@ -189,22 +197,52 @@ func FuzzDiskTreeRead(f *testing.F) {
 		tree := NewDiskTree(data)
 
 		var (
-			allKeys    [][]byte
-			allKeysErr error
-			eachKeys   [][]byte
-			keyCount   int
+			allKeys     [][]byte
+			allKeysErr  error
+			eachKeys    [][]byte
+			keyCount    int
+			getErr      error
+			getFound    bool
+			contains    bool
+			containsErr error
+			ranged      [][]byte
+			rangedErr   error
 		)
 		requireTerminates(t, func() {
-			_, _ = tree.Get(query)
+			_, getErr = tree.Get(query)
+			getFound = getErr == nil
 			_, _ = tree.Seek(query)
 			_, _ = tree.Next(query)
+			contains, containsErr = tree.Contains(query)
 			allKeys, allKeysErr = tree.AllKeys()
 			keyCount = tree.KeyCount()
 			tree.ForEachKey(func(key []byte) {
 				eachKeys = append(eachKeys, key)
 			})
 			_ = tree.QuantileKeys(8)
+
+			// the ranges must tile the blob, so walking them all visits every node
+			for _, r := range tree.SplitNodeRanges(4) {
+				if err := tree.ForEachNodeInRange(r[0], r[1], func(key []byte, _, _ uint64) error {
+					ranged = append(ranged, key)
+					return nil
+				}); err != nil {
+					rangedErr = err
+					break
+				}
+			}
 		})
+
+		// Contains shares Get's descent, so their verdicts cannot diverge
+		if getFound {
+			assert.NoError(t, containsErr)
+			assert.True(t, contains, "Contains missed a key Get found")
+		} else if errors.Is(getErr, lsmkv.NotFound) {
+			assert.NoError(t, containsErr)
+			assert.False(t, contains, "Contains found a key Get reported absent")
+		} else {
+			assert.Error(t, containsErr, "Get errored but Contains did not")
+		}
 
 		if allKeysErr != nil {
 			// AllKeys reports a node header it cannot parse, where KeyCount and
@@ -215,6 +253,12 @@ func FuzzDiskTreeRead(f *testing.F) {
 		// arithmetic, so they must agree on what the blob holds.
 		assert.Equal(t, len(allKeys), keyCount, "KeyCount disagrees with AllKeys")
 		assert.Equal(t, allKeys, eachKeys, "ForEachKey disagrees with AllKeys")
+
+		// SplitNodeRanges tiles the blob and both walkers stop at the same tail, so
+		// the ranges must reproduce AllKeys exactly — no node skipped at a boundary,
+		// none visited twice.
+		assert.NoError(t, rangedErr, "range walk rejected a blob AllKeys accepted")
+		assert.Equal(t, allKeys, ranged, "ForEachNodeInRange disagrees with AllKeys")
 	})
 }
 

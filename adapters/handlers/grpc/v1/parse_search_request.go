@@ -1338,6 +1338,13 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 func parseNearVec(nv *pb.NearVector, targetVectors []string,
 	class *models.Class, targetCombination *dto.TargetCombination,
 ) (*searchparams.NearVector, *dto.TargetCombination, error) {
+	// targetCombination is nil for aggregates and for searches without a
+	// targets message; fall back to the default type instead of dereferencing.
+	combinationType := dto.DefaultTargetCombinationType
+	if targetCombination != nil {
+		combinationType = targetCombination.Type
+	}
+
 	var vector models.Vector
 	var err error
 	// vectors has precedent for being more efficient
@@ -1393,7 +1400,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 			targetVectorsTmp = deduplicatedTargetVectorsTmp
 			vectors = make([]models.Vector, len(targetVectorsTmp))
 
-			switch targetCombination.Type {
+			switch combinationType {
 			case dto.ManualWeights, dto.RelativeScore:
 				// do nothing, Manual and Relative Scores don't need adjustment
 			default:
@@ -1476,7 +1483,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		}
 
 		if detectCombinationWeights {
-			switch targetCombination.Type {
+			switch combinationType {
 			case dto.Average:
 				fixedWeights := extractTargetCombinationAverageWeights(detectedTargetVectorNames)
 				adjustedTargetCombination = &dto.TargetCombination{
@@ -1489,7 +1496,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 				}
 			default:
 				adjustedTargetCombination = &dto.TargetCombination{
-					Type: targetCombination.Type, Weights: make([]float32, len(detectedTargetVectorNames)),
+					Type: combinationType, Weights: make([]float32, len(detectedTargetVectorNames)),
 				}
 			}
 		}

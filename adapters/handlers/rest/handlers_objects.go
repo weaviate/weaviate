@@ -908,13 +908,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 			e.logUserError(className)
 		}
 	default:
-		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
-			errors.As(err, &uco.ErrMultiTenancy{}) ||
-			errors.As(err, &authzerrors.Forbidden{}) {
-			e.logUserError(className)
-		} else {
-			e.logServerError(className, err)
-		}
+		e.logServerError(className, err)
 	}
 }
 

@@ -531,11 +531,23 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 		return true, errors.Wrap(err, "sync commit log")
 	}
 
+	// The new log is named after a second strictly later than the one the
+	// rotated-out file is named for — see nextCommitLogFileName. The name is
+	// derived from the old file rather than from the clock alone, because two
+	// switches inside one second would otherwise both land on the same name and
+	// keep appending to the file the first switch just rotated out.
+	//
 	// Open the new file BEFORE closing the old one. If this fails, the old file
 	// is still open and l.currentFile/currentWriter are unchanged, so the next
 	// AddNode keeps writing to a healthy fd instead of a closed one; the rotation
 	// is simply retried on the next maintenance cycle.
-	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	fileName, derived := nextCommitLogFileName(info.Name())
+	if !derived {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			Warn("commit log file name carries no timestamp, naming the next log after the current second instead")
+	}
 	filePath := commitLogFileName(l.rootPath, l.id, fileName)
 	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -577,6 +589,32 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// nextCommitLogFileName picks the name for the log that follows current. Logs
+// are named after the second they were created in, so two switches within one
+// second would land on the name of the file just closed and carry on writing to
+// it. A backup only copies closed logs — ListFiles deliberately excludes the
+// active one — so everything that file already held would be left out.
+//
+// current is a bare file name, not a path. derived reports whether the name was
+// advanced past current. A name without a timestamp offers nothing to advance
+// past, so the current second is used; it cannot collide with current, which is
+// not a timestamp to begin with.
+func nextCommitLogFileName(current string) (name string, derived bool) {
+	now := time.Now().Unix()
+
+	// The append target is always a raw file, i.e. a bare timestamp with no
+	// ".sorted"/".snapshot" suffix and no "_" range separator.
+	ts, err := strconv.ParseInt(current, 10, 64)
+	if err != nil {
+		return fmt.Sprintf("%d", now), false
+	}
+
+	if now > ts {
+		return fmt.Sprintf("%d", now), true
+	}
+	return fmt.Sprintf("%d", ts+1), true
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {

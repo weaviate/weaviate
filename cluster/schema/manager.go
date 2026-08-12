@@ -178,6 +178,33 @@ func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
+// DeleteClassFromDB is the store half of a DELETE_CLASS.
+func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
+	if s.replicationFSM == nil {
+		return fmt.Errorf("replication deleter is not set, this should never happen")
+	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		// Logged, not returned: a stuck replication op must not block the
+		// delete.
+		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+	return s.db.DeleteClass(class, hasFrozen)
+}
+
+// HasFrozenTenants reports whether the class has tenants on cloud storage
+func (s *SchemaManager) HasFrozenTenants(class string) bool {
+	tenants, err := s.schema.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return NewSchemaReader(
 		s.schema,
@@ -505,6 +532,18 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
+		//
+		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
+		// a deterministic apply, so a mixed-version cluster diverges on this
+		// very log entry — a node without this code neither purges nor refuses,
+		// and the two FSMs stay disagreeing after the upgrade completes. The
+		// AddTask apply has the same exposure (CheckConflict's claim re-check
+		// rejects on new binaries, accepts on old). An in-apply version check
+		// cannot fix it: reading node-local version state during apply is
+		// itself non-deterministic, so any fence has to sit proposal-side.
+		// Accepted while the endpoint is experimental
+		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
+		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -572,23 +611,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 	)
 }
 
-// DropVectorMarkerPurgeMinVersion is the minimum cluster version at which a
-// drop-vector marker introduction is safe to accept: the record purge/refusal
-// in the UpdateClass apply is new behavior, so a mixed-version cluster
-// diverges on the same log entry (a pre-purge node neither purges nor
-// refuses). The AddTask apply has the same exposure: the enqueue-time
-// CleanedShards/DropEpochID claim re-check (CheckConflict) can reject on new
-// binaries while old binaries accept blindly. Both are fenced only
-// PROPOSAL-side — an in-apply version check would read node-local state and
-// be non-deterministic itself — so the rolling-upgrade min-version gate
-// (#11901, at the top of EnqueueDropVectorIndex) MUST consume this constant
-// to fence marker introductions until every node runs at least this version —
-// it exists so the release dependency is code-visible, not PR-description
-// prose. NOTE for the gate implementation: builds carry pre-release suffixes
-// ("1.39.0-rc.0"), and under semver rc.0 < 1.39.0 — the comparison must be
-// pre-release-tolerant or a homogeneous rc cluster would wrongly refuse.
-const DropVectorMarkerPurgeMinVersion = "1.39.0"
-
 // introducedDroppedVectorConfigs returns the names of VectorConfig entries that
 // are dropped ("none") in next but were live or absent in prev — i.e. markers
 // this update introduces.
@@ -631,19 +653,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	var hasFrozen bool
-	tenants, err := s.schema.getTenants(cmd.Class, nil)
-	if err != nil {
-		hasFrozen = false
-	}
-
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			hasFrozen = true
-			break
-		}
-	}
+	// Sampled here, not inside updateStore: apply() runs updateSchema (which
+	// drops the class from the schema)
+	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
 	return s.apply(
 		applyOp{
@@ -659,13 +671,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
-				}
-				return s.db.DeleteClass(cmd.Class, hasFrozen)
+				return s.DeleteClassFromDB(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
@@ -861,14 +867,19 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}
 	}
 
+	// apply() runs updateSchema before updateStore, so this is complete when the DB reads it
+	preFreezeStatuses := make(map[string]string)
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			updateSchema: func() error {
+				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM, preFreezeStatuses)
+			},
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req, preFreezeStatuses) },
 			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},

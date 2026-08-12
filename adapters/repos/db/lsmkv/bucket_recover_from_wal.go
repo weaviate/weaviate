@@ -107,14 +107,21 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	// pre-strip bytes OUTSIDE the pending-segment bookkeeping, and a drop that
 	// already recorded those bytes as stripped would see them resurrect — with
 	// nothing left to re-clean them once its op is gone. With ops present,
-	// flush EVERY recovered WAL into a segment; the sidecar recovery that runs
-	// after this (see newSegmentGroup) then re-pends them all.
+	// every recovered WAL is flushed into a segment, and that segment is
+	// durably pended for every op BEFORE the flush deletes the WAL
+	// (PendForAllOps below). The pend is load-bearing: a WAL can hold PRE-ARM
+	// bytes the arm's snapshot never covered — sidecars written by an older
+	// binary whose b.flushing clobber (since fixed by flushAndSwitchLocked's
+	// leftover drain) orphaned a failed flush's memtable, or any future
+	// regression of that shape. Without the pend such a segment reads as
+	// clean and the dropped vector survives finalize.
 	sidecarHasOps := false
+	sidecarUsable := false
 	if sg.editOps != nil {
 		hasOps, opsErr := sg.editOps.HasOps()
 		switch {
 		case opsErr == nil:
-			sidecarHasOps = hasOps
+			sidecarHasOps, sidecarUsable = hasOps, true
 		case errors2.Is(opsErr, bolterrors.ErrTimeout):
 			// Still flocked by a previous instance — same hard-fail as the
 			// sidecar recovery in newSegmentGroup: loading blind is how a
@@ -124,7 +131,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			// Torn/corrupt-but-unlocked sidecar: mirror recoverEditOps's
 			// policy — never brick the shard over drop-progress bookkeeping.
 			// Fail-safe direction: assume ops exist, so every WAL flushes to
-			// segments (only the keep-last-WAL optimization is lost).
+			// segments; the pending cover cannot be recorded through the
+			// broken sidecar (sidecarUsable stays false), so the drop stalls
+			// on this shard — every sidecar read fails too, which blocks the
+			// drain poll and the finalize-time drained check from ever
+			// reporting success falsely.
 			b.logger.WithField("path", b.dir).
 				Warnf("probe edit-ops sidecar before WAL recovery failed; flushing all WALs as a precaution: %v", opsErr)
 			sidecarHasOps = true
@@ -189,6 +200,31 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				}
 				b.active = mt
 			} else {
+				switch {
+				case sidecarHasOps && sidecarUsable:
+					// Durably cover the flush target BEFORE mt.flush deletes
+					// the WAL — its segment ID derives from the WAL name, so
+					// it is known up front. Committing the row after the
+					// flush would leave a crash window in which the WAL is
+					// gone and the segment reads clean; a startup crash-loop
+					// would run that window repeatedly. A row whose flush
+					// never produced a segment is pruned by the sidecar
+					// recovery that follows. Fatal on failure: the probe just
+					// read this sidecar cleanly, so a write error is a real
+					// anomaly, and flushing without the cover is exactly the
+					// escape this exists to close.
+					if perr := sg.editOps.PendForAllOps(segmentID(path)); perr != nil {
+						return errors.Wrap(perr, "pend WAL-recovery flush target")
+					}
+				case sidecarHasOps:
+					// Torn sidecar: the cover cannot be recorded, and failing
+					// the load would brick the shard over bookkeeping. Flush
+					// anyway — the broken sidecar blocks every drain/finalize
+					// read, so the drop stalls loudly instead of completing
+					// falsely.
+					b.logger.WithField("path", b.dir).
+						Warnf("flushing WAL %s without recording pending cover (sidecar unreadable); drop-vector cleanup on this shard is stalled until the sidecar is repaired", fname)
+				}
 				segmentPath, err := mt.flush()
 				if err != nil {
 					return errors.Wrap(err, "flush memtable after WAL recovery")

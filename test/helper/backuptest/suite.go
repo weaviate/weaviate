@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -255,6 +256,9 @@ func (s *BackupTestSuite) SetupCompose(ctx context.Context) error {
 	if s.config.WithVectorizer {
 		compose = compose.WithText2VecContextionary()
 	}
+
+	// VerifyGeoSearch queries over gRPC
+	compose = compose.WithWeaviateExposeGRPCPort()
 
 	// Start cluster or single node
 	var err error
@@ -567,6 +571,64 @@ func (s *BackupTestSuite) VerifyObjectDataIntegrity(t *testing.T) {
 		})
 	}
 	require.NoError(t, g.Wait())
+}
+
+// VerifyGeoSearch runs a withinGeoRange filter per tenant and compares the hits
+// against the objects that were placed inside the queried range.
+//
+// The filter is answered by a separate index kept per geo property, which is
+// stored in files of its own rather than alongside the objects. A backup that
+// misses those files restores an empty index, and an empty index returns nothing
+// at all without reporting an error — which neither a count nor an
+// object-by-object comparison can notice.
+func (s *BackupTestSuite) VerifyGeoSearch(t *testing.T) {
+	t.Helper()
+
+	helper.SetupGRPCClient(t, s.compose.GetWeaviate().GrpcURI())
+	client := helper.ClientGRPC(t)
+
+	for tenant, objects := range s.dataGen.ObjectsByTenant(s.objects) {
+		want := make([]string, 0, len(objects))
+		var outside int
+		for _, obj := range objects {
+			if inGeoRange(obj) {
+				want = append(want, obj.ID.String())
+			} else {
+				outside++
+			}
+		}
+		// unless both groups have objects, a search returning everything or
+		// nothing would satisfy the comparison below without proving anything
+		require.NotEmpty(t, want, "tenant %q has no object inside the geo range", tenant)
+		require.NotZero(t, outside, "tenant %q has no object outside the geo range", tenant)
+
+		resp, err := client.Search(context.Background(), &pb.SearchRequest{
+			Collection: s.config.ClassName,
+			Tenant:     tenant,
+			Limit:      uint32(len(objects)),
+			Metadata:   &pb.MetadataRequest{Uuid: true},
+			Filters: &pb.Filters{
+				Operator: pb.Filters_OPERATOR_WITHIN_GEO_RANGE,
+				Target: &pb.FilterTarget{
+					Target: &pb.FilterTarget_Property{Property: geoPropName},
+				},
+				TestValue: &pb.Filters_ValueGeo{ValueGeo: &pb.GeoCoordinatesFilter{
+					Latitude:  *geoInRange.Latitude,
+					Longitude: *geoInRange.Longitude,
+					Distance:  geoRangeDistance,
+				}},
+			},
+		})
+		require.NoError(t, err, "geo range search on tenant %q", tenant)
+
+		got := make([]string, len(resp.Results))
+		for i, result := range resp.Results {
+			got[i] = result.Metadata.Id
+		}
+
+		require.ElementsMatch(t, want, got,
+			"the geo range search on tenant %q did not return the objects inside the range", tenant)
+	}
 }
 
 // VerifyObjectsDoNotExist checks that objects no longer exist (after class deletion).
@@ -884,6 +946,12 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.VerifyObjectsExist(t)
 	})
 
+	// establishes that the geo index answers before the backup, so the same
+	// check after the restore can only fail on what the backup carried
+	t.Run("verify geo search", func(t *testing.T) {
+		s.VerifyGeoSearch(t)
+	})
+
 	if s.config.MultiTenant.Enabled {
 		t.Run("deactivate some tenants", func(t *testing.T) {
 			s.DeactivateTestTenants(t)
@@ -923,6 +991,10 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 
 	t.Run("verify object data integrity", func(t *testing.T) {
 		s.VerifyObjectDataIntegrity(t)
+	})
+
+	t.Run("verify geo search restored", func(t *testing.T) {
+		s.VerifyGeoSearch(t)
 	})
 
 	// For compressed backups, verify vectors are restored correctly

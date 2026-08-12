@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 // IMPORTANT:
@@ -45,12 +44,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "drop vector index")
 	}
 
-	var newConfig schemaConfig.VectorIndexConfig
-	if targetVector == "" {
-		newConfig = s.index.vectorIndexUserConfig
-	} else {
-		newConfig = s.index.vectorIndexUserConfigs[targetVector]
-	}
+	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
 	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig, false)
 	if err != nil {

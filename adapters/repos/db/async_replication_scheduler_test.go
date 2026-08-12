@@ -143,6 +143,25 @@ func newSchedulerForUnitTest(t *testing.T) *AsyncReplicationScheduler {
 	return sched
 }
 
+// newWorkerPoolTestScheduler builds a scheduler at the given target with no running pool, so adjustWorkers' token/spawn accounting can be driven deterministically.
+func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationScheduler {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &AsyncReplicationScheduler{
+		ctx:           ctx,
+		cancel:        cancel,
+		targetWorkers: target,
+		scaleDownCh:   make(chan struct{}, maxMaxWorkers),
+		workCh:        make(chan *[]*asyncSchedulerEntry, maxMaxWorkers),
+		logger:        logrus.New(),
+	}
+	t.Cleanup(func() {
+		cancel()
+		s.wg.Wait()
+	})
+	return s
+}
+
 // TestAsyncSchedulerHeap verifies the min-heap invariants:
 //   - entries are popped in ascending nextRunAt order
 //   - heapIdx is correct after Push, Pop, Fix, and Remove
@@ -558,6 +577,39 @@ func TestAdjustWorkersUpdatesTargetWorkers(t *testing.T) {
 		sched.workersMu.Unlock()
 		assert.Equal(t, 8, got, "after down-then-up, targetWorkers must be 8")
 	})
+}
+
+// TestAdjustWorkersGrowReclaimsPendingTokensBeforeSpawning pins the grow-path leak: growing must reclaim at most delta stale scale-down tokens and spawn only the shortfall, never drain all tokens and spawn delta on top.
+func TestAdjustWorkersGrowReclaimsPendingTokensBeforeSpawning(t *testing.T) {
+	cases := []struct {
+		name          string
+		initialTarget int
+		pending       int
+		growTo        int
+		wantSpawned   int64
+		wantRemaining int
+	}{
+		{"full_reclaim_no_spawn", 2, 8, 10, 0, 0},
+		{"partial_reclaim", 2, 4, 10, 4, 0},
+		{"no_pending_spawns_all", 2, 0, 10, 8, 0},
+		{"reclaim_capped_at_delta", 2, 8, 6, 0, 4},
+		{"cap_then_reclaim", 2, 8, maxMaxWorkers + 50, int64(maxMaxWorkers - 2 - 8), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newWorkerPoolTestScheduler(t, tc.initialTarget)
+			for range tc.pending {
+				sched.scaleDownCh <- struct{}{}
+			}
+
+			sched.adjustWorkers(tc.growTo)
+
+			assert.Equal(t, tc.wantSpawned, sched.liveWorkers.Load(),
+				"grow must spawn only the shortfall after reclaiming pending tokens")
+			assert.Equal(t, tc.wantRemaining, len(sched.scaleDownCh),
+				"grow must reclaim at most delta tokens, not all of them")
+		})
+	}
 }
 
 // Deleted: TestAdjustWorkersScaleDownUpdatesTargetAndSendsTokens,
@@ -2277,4 +2329,37 @@ func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
 		awaitAsyncRepWg(t, s, "asyncRepWg must drain after Deregister without Close")
 	}
 	sched.Close()
+}
+
+// TestRunEntrySkipHashbeatRecordsNoDiffStatus pins that a root-prefilter skip surfaces in asyncReplicationStatus like the ErrNoDiffFound descent it replaces.
+func TestRunEntrySkipHashbeatRecordsNoDiffStatus(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	s := &Shard{asyncRepCtx: context.Background(), class: &models.Class{Class: "C"}, name: "S"}
+	s.asyncRepWg.Add(1)
+
+	sched.runEntry(&asyncSchedulerEntry{shard: s}, true)
+
+	stats := s.getAsyncReplicationStats(context.Background())
+	require.Len(t, stats, 1, "a prefilter-skipped cycle proves in-sync and must be visible in asyncReplicationStatus")
+	require.Empty(t, stats[0].TargetNode)
+	require.Positive(t, stats[0].StartDiffTimeUnixMillis)
+}
+
+// TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty pins that the cancellation check runs under the stats lock: a disable's cancel+clear landing while the recorder awaits the lock must not leave a phantom entry, in every interleaving.
+func TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Shard{}
+
+	s.asyncReplicationStatsMux.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.recordRootPrefilterNoDiff(ctx)
+	}()
+	cancel()
+	s.asyncReplicationStatsByTargetNode = nil
+	s.asyncReplicationStatsMux.Unlock()
+	<-done
+
+	require.Empty(t, s.getAsyncReplicationStats(context.Background()))
 }

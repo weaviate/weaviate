@@ -359,7 +359,15 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+// objectByIndexIDWithProps resolves a doc ID to an object holding only the
+// properties in propExtraction; vectors and unrequested properties stay
+// undecoded. A nil propExtraction decodes every property. Read and decode
+// failures keep their own type and only a missing object is reported as
+// storobj.ErrNotFound, because the geo index takes that as "the doc is gone"
+// and tombstones it.
+func (s *Shard) objectByIndexIDWithProps(ctx context.Context, indexID uint64,
+	propExtraction *storobj.PropertyExtraction,
+) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
@@ -380,9 +388,9 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinaryDisk(bytes, className)
+	obj, err := storobj.FromBinaryOptionalDisk(bytes, className, additional.Properties{}, propExtraction)
 	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal kind object")
+		return nil, errors.Wrapf(err, "unmarshal object of docID %d", indexID)
 	}
 
 	return obj, nil
@@ -949,7 +957,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return err
+	}
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]

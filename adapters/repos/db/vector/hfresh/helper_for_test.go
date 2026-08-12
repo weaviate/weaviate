@@ -69,8 +69,11 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 		scheduler.Close(t.Context())
 	})
 
+	setDelegatingTempThunk(cfg)
+
 	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
+	createObjectsBucket(t, store)
 
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)

@@ -325,7 +325,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 			Name: "source object internal error", Req: req,
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
-			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+			WantErr:      anyErr,
 			Stage:        1,
 		},
 		{
@@ -484,7 +484,7 @@ func Test_ReferenceDelete(t *testing.T) {
 			Name: "source object internal error", Req: req,
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
-			WantErr:      NewErrInternal("repo: object by id: %v", anyErr), Stage: 2,
+			WantErr:      anyErr, Stage: 2,
 		},
 		{
 			Name: "source object missing", Req: req,

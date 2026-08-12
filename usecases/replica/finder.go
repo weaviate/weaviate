@@ -359,12 +359,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
+	// reused across levels and targets; only safe while targets are probed sequentially
+	var digests []hashtree.Digest
+
 	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
 		height := ht.Height()
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
 		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
 		discriminant.Set(0)                   // seed at root
@@ -372,17 +374,27 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		var leaf *hashtree.Bitset
 
 		for l := 0; l <= height; l++ {
-			if _, err := ht.Level(l, discriminant, digests); err != nil {
+			need := discriminant.SetCount()
+			digests = hashtree.SizeDigests(digests, need)
+
+			n, err := ht.Level(l, discriminant, digests)
+			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+			// a short local write would leave stale digests from a previous level or target
+			if n != need {
+				return nil, fmt.Errorf("%q: local hashtree level %d wrote %d digests, expected %d",
+					targetNodeAddress, l, n, need)
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
-			if len(levelDigests) == 0 {
-				// peer agrees at this level
-				break
+			// anything but one digest per set bit reads as a failed target, never as convergence
+			if len(levelDigests) != need {
+				return nil, fmt.Errorf("%q: hashtree level %d returned %d digests, expected %d",
+					targetNodeAddress, l, len(levelDigests), need)
 			}
 
 			nextDiscriminant, levelDiffCount, err := hashtree.LevelDiff(l, height, discriminant, digests, levelDigests)

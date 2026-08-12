@@ -14,7 +14,9 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -261,27 +263,72 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	require.False(t, got)
 }
 
-// TestLiveOpIDs_ReturnsActiveOpIDs pins the sweep input: LiveOpIDs returns op IDs
-// of active drop tasks and excludes terminal ones (whose ops should be swept).
-func TestLiveOpIDs_ReturnsActiveOpIDs(t *testing.T) {
-	active := &distributedtask.Task{
-		Namespace: db.DropVectorIndexNamespace,
-		Payload:   mustPayloadWithOp(t, "C", "opActive", "v1"),
-		Status:    distributedtask.TaskStatusStarted,
+// TestLiveOpIDs_SpansRoundsWhileMarkerPending pins the liveness contract the
+// strip-resume feature leans on: active rounds' ops are live, and a TERMINAL
+// round's op stays live while its target's marker still stands (its pending
+// set is the next round's resume point). Once the marker is gone — finalize,
+// or a re-created live name — the op is sweepable. A failed leader read
+// keeps ops alive (fail open: liveness feeds a destructive sweep).
+func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
+	task := func(collection, op string, status distributedtask.TaskStatus, targets ...string) *distributedtask.Task {
+		return &distributedtask.Task{
+			Namespace: db.DropVectorIndexNamespace,
+			Payload:   mustPayloadWithOp(t, collection, op, targets...),
+			Status:    status,
+		}
 	}
-	done := &distributedtask.Task{
-		Namespace: db.DropVectorIndexNamespace,
-		Payload:   mustPayloadWithOp(t, "C", "opDone", "v2"),
-		Status:    distributedtask.TaskStatusFinished,
-	}
-	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
-		db.DropVectorIndexNamespace: {active, done},
+	failed := distributedtask.TaskStatusFailed
+	tasks := map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: {
+		task("C", "opActive", distributedtask.TaskStatusStarted, "v1"),
+		task("C", "opFailedPending", failed, "v1"),                                            // marker for v1 stands → resume point
+		task("C", "opDoneFinalized", distributedtask.TaskStatusFinished, "v2"),                // v2 absent from the class → finalized
+		task("C", "opCancelledLive", distributedtask.TaskStatusCancelled, "v3"),               // v3 re-created live → fenced + sweepable
+		task("C", "opSubsetPending", failed, "v3", "v1"),                                      // one target live, one still marked → keep
+		task("Gone", "opClassGone", failed, "v1"),                                             // whole class deleted → nothing to resume
+		{Namespace: db.DropVectorIndexNamespace, Payload: []byte("not json"), Status: failed}, // undecodable → skipped, not fatal
 	}}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster}
+	cluster := &fakeClusterDropClient{tasks: tasks}
+	state := &fakeShardingState{
+		vectorCfg: map[string]models.VectorConfig{
+			"v1": dropped(),
+			"v3": {VectorIndexType: "hnsw"},
+		},
+		missingClasses: []string{"Gone"},
+	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	live, err := enq.LiveOpIDs(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, map[string]struct{}{"opActive": {}}, live)
+	require.Equal(t, map[string]struct{}{
+		"opActive":        {},
+		"opFailedPending": {},
+		"opSubsetPending": {},
+	}, live)
+	require.Equal(t, 2, state.classReads,
+		"one leader read per collection per call — terminal records share it, they don't fan out")
+
+	t.Run("leader read failure keeps terminal ops alive", func(t *testing.T) {
+		state := &fakeShardingState{err: errors.New("no leader")}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.NoError(t, err)
+		require.Contains(t, live, "opFailedPending")
+		require.Contains(t, live, "opDoneFinalized",
+			"an unverifiable marker must not authorize a sweep")
+		require.Equal(t, 2, state.classReads,
+			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
+	})
+
+	t.Run("no tasks at all: empty non-nil set means sweep everything", func(t *testing.T) {
+		enq := &dropVectorIndexEnqueuer{
+			clusterService: &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{}},
+			schemaState:    &fakeShardingState{},
+		}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, live, "nil means 'liveness unknown, sweep disabled' — a clean empty answer must not be conflated with it")
+		require.Empty(t, live)
+	})
 }
 
 func mustPayloadWithOp(t *testing.T, collection, opID string, targets ...string) []byte {
@@ -304,7 +351,12 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 type fakeShardingState struct {
 	state     *sharding.State
 	vectorCfg map[string]models.VectorConfig
-	err       error
+	// missingClasses lists collection names QueryReadOnlyClasses reports as
+	// absent (deleted class). Without it the fake fabricates a class for ANY
+	// name, and the class-gone sweep arm of LiveOpIDs is untestable.
+	missingClasses []string
+	classReads     int
+	err            error
 }
 
 func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -312,6 +364,7 @@ func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, u
 }
 
 func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	f.classReads++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -321,6 +374,9 @@ func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]
 	}
 	out := map[string]versioned.Class{}
 	for _, name := range classes {
+		if slices.Contains(f.missingClasses, name) {
+			continue
+		}
 		out[name] = versioned.Class{Class: &models.Class{Class: name, VectorConfig: cfg}}
 	}
 	return out, nil
@@ -381,6 +437,87 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
 }
 
+// TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly pins the escape
+// for MT collections with NO tenants at all (never created, or all deleted
+// after the marker landed): no cleanup task can ever exist to drive the
+// finalize, so the enqueuer removes the dropped entries directly — the FSM
+// removal gate allows the empty-shard-set case for exactly this. Tenants
+// that merely exist-but-inactive must NOT trigger it.
+func TestEnqueueDropVectorIndex_ZeroTenants_FinalizesDirectly(t *testing.T) {
+	coldTenant := map[string]sharding.Physical{
+		"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
+	}
+	tests := []struct {
+		name          string
+		shards        map[string]sharding.Physical
+		finalizer     *fakeEnqueuerFinalizer // nil = not wired
+		wantErr       string
+		wantFinalized bool
+	}{
+		{
+			name:          "no tenants: direct finalize, no task",
+			shards:        map[string]sharding.Physical{},
+			finalizer:     &fakeEnqueuerFinalizer{},
+			wantFinalized: true,
+		},
+		{
+			// A cold tenant's data must not be stranded by a premature finalize.
+			name:      "inactive tenants exist: marker stays, no finalize",
+			shards:    coldTenant,
+			finalizer: &fakeEnqueuerFinalizer{},
+		},
+		{
+			// A wiring regression must surface as an error, not a 200 over
+			// a marker nothing can ever remove.
+			name:    "no finalizer wired: error, not silent success",
+			shards:  map[string]sharding.Physical{},
+			wantErr: "no finalizer is wired",
+		},
+		{
+			name:      "finalize failure surfaces",
+			shards:    map[string]sharding.Physical{},
+			finalizer: &fakeEnqueuerFinalizer{err: errors.New("gate refused")},
+			wantErr:   "gate refused",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &fakeClusterDropClient{}
+			state := &fakeShardingState{state: shardingState(true, tt.shards)}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+			if tt.finalizer != nil {
+				enq.finalizer = tt.finalizer
+			}
+
+			err := enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, cluster.gotTaskID, "no task may be enqueued on the zero/inactive-tenant paths")
+			if tt.finalizer == nil {
+				return
+			}
+			if tt.wantFinalized {
+				require.Equal(t, [][]string{{"v1"}}, tt.finalizer.calls, "the marker must be finalized directly")
+			} else {
+				require.Empty(t, tt.finalizer.calls)
+			}
+		})
+	}
+}
+
+type fakeEnqueuerFinalizer struct {
+	calls [][]string
+	err   error
+}
+
+func (f *fakeEnqueuerFinalizer) RemoveDroppedVectorConfig(_ context.Context, _ string, targets []string) error {
+	f.calls = append(f.calls, targets)
+	return f.err
+}
+
 // TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors confirms the empty
 // no-op is scoped to MT: a non-MT collection with no shards is a real error.
 func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
@@ -417,6 +554,8 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.Equal(t, "C", p.Collection)
 	require.Equal(t, []string{"v1"}, p.Targets)
 	require.NotEmpty(t, p.OpID)
+	require.Equal(t, p.DropEpochID, p.OpID,
+		"op identity is the drop epoch, not a per-round value — resume depends on it")
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
 }
@@ -461,6 +600,23 @@ func failedEpochTask(t *testing.T, collection, id, epoch string, version uint64,
 		}
 		task.Units[fmt.Sprintf("%s__u%d", shard, i)] = &distributedtask.Unit{Status: status}
 	}
+	return task
+}
+
+// failedEpochTaskInheriting is failedEpochTask carrying an inherited cleaned
+// set — the shape a later round leaves behind when its own finalize is vetoed
+// after its units completed.
+func failedEpochTaskInheriting(t *testing.T, collection, id, epoch string, version uint64,
+	completedShards, otherShards, cleaned []string,
+) *distributedtask.Task {
+	t.Helper()
+	task := failedEpochTask(t, collection, id, epoch, version, completedShards, otherShards)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(task.Payload, &p))
+	p.CleanedShards = cleaned
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	task.Payload = b
 	return task
 }
 
@@ -589,6 +745,27 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantEpoch:   "E1",
 			wantCleaned: []string{"s1"},
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+		},
+		{
+			// A quarantine on an inherited-coverage shard (s1) is unreachable
+			// within its epoch: no later round arms s1, so nothing refreshes its
+			// retry budget, and s1's rows veto the finalize of the round that
+			// completes s2. That veto fails the round (bounded callback retries)
+			// rather than looping — and two FAILED rounds whose COMPLETED units
+			// together span every shard read as closed-epoch residue. So the epoch
+			// closes and s1 IS re-armed, under a fresh epoch whose new op takes a
+			// new snapshot with a new budget. Note t2 claims s1 as CleanedShards
+			// and still does not vouch it: a terminal round vouches only the work
+			// it finished, which is exactly what lets the chain read as complete
+			// here rather than inheriting forward.
+			name: "two FAILED rounds spanning every shard close the epoch and re-arm the cleaned shard",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}),
+				failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, nil, []string{"s1"}),
+			},
+			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch: "",
+			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
 		},
 		{
 			name: "a FAILED round's completed units do not cross epochs",
@@ -734,10 +911,117 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			} else {
 				require.Equal(t, tt.wantEpoch, p.DropEpochID)
 			}
+			// Every recorded sibling here carries OpID "op-<id>" != epoch —
+			// the pre-upgrade per-round shape — so this also pins the rolling
+			// upgrade: inheriting an epoch from an old record yields the EPOCH
+			// as the new op id, never the old record's OpID. uuid-recorded
+			// progress is not resumed (a fresh snapshot re-covers it); the
+			// stale uuid op is swept once the marker falls.
+			require.Equal(t, p.DropEpochID, p.OpID,
+				"every round of one drop must run under the epoch as its op ID, or a re-arm cannot resume the recorded pending set")
 			require.Equal(t, tt.wantCleaned, p.CleanedShards)
 			require.Equal(t, tt.wantUnits, p.UnitToShard)
 		})
 	}
+}
+
+// deferringEpochTask is epochTask that also recorded shards the round did not
+// cover — what a round leaves behind when a tenant was inactive at enqueue.
+func deferringEpochTask(t *testing.T, collection, id, epoch string, version uint64,
+	status distributedtask.TaskStatus, unitShards, deferred []string,
+) *distributedtask.Task {
+	t.Helper()
+	task := epochTask(t, collection, id, epoch, version, status, unitShards, nil)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(task.Payload, &p))
+	p.DeferredShards = deferred
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	task.Payload = b
+	return task
+}
+
+// TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean
+// pins the tenant-deletion path: round one cleaned the hot tenants and
+// recorded owing the cold one; deleting that tenant leaves the recorded
+// coverage spanning every shard that still exists, so the drop finalizes on it
+// instead of minting a fresh epoch and re-stripping shards already clean.
+func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {
+			deferringEpochTask(t, "C", "t1", "E1", 1,
+				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, []string{"s3"}),
+		},
+	}}
+	// s3 deleted since round one.
+	state := &fakeShardingState{
+		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	finalizer := &fakeEnqueuerFinalizer{}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, cluster.gotTaskID,
+		"no cleanup round may be enqueued: every remaining shard is already clean")
+	require.Equal(t, [][]string{{"v1"}}, finalizer.calls,
+		"the marker must be removed on the recorded coverage")
+}
+
+// TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead is the
+// safety twin: the same complete-coverage shape, but the chain owed nothing.
+// That is indistinguishable from a finalized drop's residue beside a
+// re-created name's marker, so it must re-clean rather than finalize.
+func TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {
+			epochTask(t, "C", "t1", "E1", 1,
+				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, nil),
+		},
+	}}
+	state := &fakeShardingState{
+		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	finalizer := &fakeEnqueuerFinalizer{}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, finalizer.calls, "a chain that owed nothing must never finalize a standing marker")
+	p := decodeEnqueuedPayload(t, cluster)
+	require.NotEqual(t, "E1", p.DropEpochID, "closed-epoch residue starts a fresh epoch")
+	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard)
+}
+
+// TestEnqueueDropVectorIndex_RecordsDeferredShards pins that a round writes
+// down what it did not cover; without it a later round cannot tell a deleted
+// tenant's vanished work from a chain that owed nothing.
+func TestEnqueueDropVectorIndex_RecordsDeferredShards(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cold := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusCOLD, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{}}
+	state := &fakeShardingState{
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1"), "s4": cold("n1"),
+		}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	p := decodeEnqueuedPayload(t, cluster)
+	require.Equal(t, []string{"s3", "s4"}, p.DeferredShards,
+		"the cold tenants are the work this round still owes")
 }
 
 // TestEnqueueDropVectorIndex_BatchesLargeCollections pins the round cap: a
