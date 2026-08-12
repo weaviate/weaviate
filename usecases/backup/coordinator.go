@@ -149,11 +149,9 @@ func newCoordinator(
 	return c
 }
 
-// operation holds the descriptor and per-participant status for a single
-// backup or restore call. It belongs to the call, not the coordinator: a
-// cancelled operation's goroutine keeps running after its slot is handed to
-// the next one (see [slotOwner]), and coordinator-owned state would let the
-// two race on the same map.
+// operation is per call, not per coordinator: a cancelled operation's goroutine
+// keeps running after the next one starts, and coordinator-owned state would
+// let the two race on the same map.
 type operation struct {
 	descriptor   *backup.DistributedBackupDescriptor
 	participants map[string]participantStatus
@@ -209,9 +207,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
-	// From here the slot is ours until the goroutine below takes over, so
-	// every error return must release it or it blocks later backups until
-	// restart. Restores use their own coordinator and slot, unaffected.
+	// From here the slot is ours until the goroutine below takes over, so every
+	// error return must release it or it blocks later backups until restart.
 	defer func() {
 		if err != nil {
 			slot.release()
@@ -298,8 +295,7 @@ func (c *coordinator) Restore(
 				"slot_status": held.Status,
 			}).Info("restore cancellation already in progress, nothing started")
 			// Returning nil would surface as STARTED. A cancel whose final write
-			// failed leaves this stuck on CANCELLING forever, so tell the caller
-			// to repeat the cancel rather than just wait.
+			// failed leaves this stuck forever, so tell the caller to repeat it.
 			return backup.NewErrUnprocessable(fmt.Errorf(
 				"restore %s cancellation in progress, please wait for it to complete; "+
 					"if it does not, repeat the cancel to clear it", desc.ID))
@@ -313,8 +309,6 @@ func (c *coordinator) Restore(
 	}
 	// The slot is ours until the goroutine below takes over, so every error
 	// return must release it or it blocks later restores until restart.
-	// release() refuses once a cancel has handed the slot to a retry, so this
-	// path can't free that retry's slot.
 	defer func() {
 		if err != nil {
 			slot.release()
@@ -392,12 +386,9 @@ func (c *coordinator) Restore(
 			return
 		}
 
-		// Block cancellation by setting status to Finalizing before schema apply.
-		// Only proceed if staging was successful (Transferred = staging complete).
-		// The slot's set() is the check-and-set: it refuses a write that would
-		// walk back a cancellation (in flight or already landed), closing the
-		// race a separate read-then-write would leave open. A schema apply over
-		// RAFT can't be undone once started; see [backupStat.canAdvanceTo].
+		// Writing Finalizing is what blocks a later cancel, and set() does it as a
+		// check-and-set, closing the race a separate read then write would leave
+		// open. It has to hold: a schema apply over RAFT cannot be undone.
 		if op.descriptor.Status == backup.Transferred {
 			if !slot.set(backup.Finalizing) {
 				op.descriptor.Status = backup.Cancelled
@@ -788,8 +779,8 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	op.descriptor.Status = status
-	// Respect external cancellation from CancelRestore() - if the slot was
-	// already stamped, propagate that to descriptor so storage writes are consistent
+	// Respect external cancellation from CancelRestore(): if the slot already
+	// reads cancelled, propagate that to the descriptor so storage agrees.
 	if cancelledExternally(slot) {
 		op.descriptor.Status = backup.Cancelled
 		if reason == "" {
@@ -801,10 +792,8 @@ func (c *coordinator) commit(ctx context.Context,
 	op.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
 
-// cancelledExternally reports whether this operation's own slot has been
-// cancelled, counting a cancel still in flight (Cancelling). A slot this
-// operation no longer holds reads as not cancelled: its status belongs to
-// whichever operation claimed it next.
+// cancelledExternally counts a cancel still in flight. A slot this operation no
+// longer holds reads as not cancelled: its status belongs to the next operation.
 func cancelledExternally(slot slotOwner) bool {
 	st, ok := slot.status()
 	return ok && st.IsCancellation()
