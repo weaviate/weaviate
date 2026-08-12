@@ -91,3 +91,26 @@ func TestHTTPStatusForNamespaceErr(t *testing.T) {
 		})
 	}
 }
+
+func TestNamespaceErrRendersUnprocessable(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		// Gone is outside the 422 family above, so a handler reading the status
+		// alone answers 500 for it.
+		{name: "gone renders 422", err: namespaces.ErrNamespaceGone, want: true},
+		{name: "wrapped gone renders 422", err: fmt.Errorf("apply: %w", namespaces.ErrNamespaceGone), want: true},
+		{name: "suspended renders 422", err: namespaces.ErrNamespaceSuspended, want: true},
+		{name: "deleting renders 422", err: namespaces.ErrNamespaceDeleting, want: true},
+		// Resuming asks for 503, which most operations have no responder for.
+		{name: "resuming does not render 422", err: namespaces.ErrNamespaceResuming, want: false},
+		{name: "untyped error does not render 422", err: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, NamespaceErrRendersUnprocessable(tt.err))
+		})
+	}
+}
