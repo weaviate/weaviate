@@ -75,16 +75,16 @@ func waitFor(t *testing.T, done <-chan struct{}, timeout time.Duration, msg stri
 	}
 }
 
-func stopPrefillAsync(h *hnsw) <-chan struct{} {
+func stopPostStartupAsync(h *hnsw) <-chan struct{} {
 	returned := make(chan struct{})
 	enterrors.GoWrapper(func() {
-		h.stopPrefill()
+		h.stopPostStartup()
 		close(returned)
 	}, h.logger)
 	return returned
 }
 
-// TestStopPrefillWaitsForInFlightScan is the shutdown-safety contract: stopPrefill must
+// TestStopPrefillWaitsForInFlightScan is the shutdown-safety contract: stopPostStartup must
 // not return while a scan worker is still running, because Drop/Shutdown close the lsmkv
 // segments right after and a live cursor would then read unmapped memory. Cancellation
 // alone does not provide this — a worker between context checks keeps reading.
@@ -111,20 +111,20 @@ func TestStopPrefillWaitsForInFlightScan(t *testing.T) {
 
 	waitFor(t, blocking.entered, 10*time.Second, "no scan worker reached the cache")
 
-	returned := stopPrefillAsync(h)
+	returned := stopPostStartupAsync(h)
 	select {
 	case <-returned:
-		t.Error("stopPrefill returned while a scan worker was still inside the cache write")
+		t.Error("stopPostStartup returned while a scan worker was still inside the cache write")
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	blocking.Release()
-	waitFor(t, returned, 10*time.Second, "stopPrefill did not return after the scan was released")
+	waitFor(t, returned, 10*time.Second, "stopPostStartup did not return after the scan was released")
 	require.True(t, h.cachePrefilled.Load(), "a stopped prefill must still mark the cache prefilled")
 }
 
 // TestStopPrefillWaitsForPrefillRegisteredBeforeReturn: prefillCache must have joined
-// the WaitGroup before it returns, so a stopPrefill arriving before the goroutine is
+// the WaitGroup before it returns, so a stopPostStartup arriving before the goroutine is
 // scheduled still waits. Moving the join into the goroutine passes every other test
 // here. cachePrefilled is deferred ahead of Done, so it is set once the wait returns.
 func TestStopPrefillWaitsForPrefillRegisteredBeforeReturn(t *testing.T) {
@@ -145,14 +145,14 @@ func TestStopPrefillWaitsForPrefillRegisteredBeforeReturn(t *testing.T) {
 	h.waitForCachePrefill = false
 
 	h.prefillCache(context.Background())
-	h.stopPrefill()
+	h.stopPostStartup()
 
 	require.True(t, h.cachePrefilled.Load(),
-		"stopPrefill returned before the prefill goroutine finished: it was not registered by the time prefillCache returned")
+		"stopPostStartup returned before the prefill goroutine finished: it was not registered by the time prefillCache returned")
 }
 
 // TestStopPrefillCancelsBlockedPrefill: the wait alone would deadlock a prefill that is
-// blocked on its own work, so stopPrefill must also cancel. Nothing here releases the
+// blocked on its own work, so stopPostStartup must also cancel. Nothing here releases the
 // prefiller except context cancellation.
 func TestStopPrefillCancelsBlockedPrefill(t *testing.T) {
 	const n = 50
@@ -176,18 +176,18 @@ func TestStopPrefillCancelsBlockedPrefill(t *testing.T) {
 	h.prefillCache(context.Background())
 	waitFor(t, started, 10*time.Second, "prefill never started")
 
-	waitFor(t, stopPrefillAsync(h), 10*time.Second,
-		"stopPrefill did not cancel a prefill blocked on its context")
+	waitFor(t, stopPostStartupAsync(h), 10*time.Second,
+		"stopPostStartup did not cancel a prefill blocked on its context")
 }
 
-// TestStopPrefillWithoutPrefill: Drop/Shutdown call stopPrefill unconditionally, including
+// TestStopPrefillWithoutPrefill: Drop/Shutdown call stopPostStartup unconditionally, including
 // on indexes whose prefill was skipped or never started.
 func TestStopPrefillWithoutPrefill(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("never registered", func(t *testing.T) {
 		h := newLifecycleTestIndex(t, nil, 0)
-		waitFor(t, stopPrefillAsync(h), 10*time.Second, "stopPrefill hung with no prefill registered")
+		waitFor(t, stopPostStartupAsync(h), 10*time.Second, "stopPostStartup hung with no prefill registered")
 	})
 
 	t.Run("prefill skipped as already done", func(t *testing.T) {
@@ -196,7 +196,7 @@ func TestStopPrefillWithoutPrefill(t *testing.T) {
 		h.cachePrefilled.Store(true)
 
 		h.prefillCache(context.Background())
-		waitFor(t, stopPrefillAsync(h), 10*time.Second, "stopPrefill hung after a skipped prefill")
+		waitFor(t, stopPostStartupAsync(h), 10*time.Second, "stopPostStartup hung after a skipped prefill")
 		require.Equal(t, int64(0), c.CountVectors())
 	})
 }
@@ -225,11 +225,11 @@ func TestPrefillCancelPropagatesFromCallerContext(t *testing.T) {
 	waitFor(t, started, 10*time.Second, "prefill never started")
 
 	cancel()
-	waitFor(t, stopPrefillAsync(h), 10*time.Second,
+	waitFor(t, stopPostStartupAsync(h), 10*time.Second,
 		"canceling the caller context did not stop the prefill")
 }
 
-// TestPrefillRefusedAfterStop: once stopPrefill has run, no later prefill may start.
+// TestPrefillRefusedAfterStop: once stopPostStartup has run, no later prefill may start.
 // Drop reaches this directly — it never cancels shutdownCtx, so a PostStartup arriving
 // after it has nothing in its own context saying the index is gone.
 func TestPrefillRefusedAfterStop(t *testing.T) {
@@ -250,16 +250,16 @@ func TestPrefillRefusedAfterStop(t *testing.T) {
 	h.waitForCachePrefill = true // a started prefill would run to completion inline
 	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
 
-	h.stopPrefill() // stands in for Drop, which does not cancel shutdownCtx
+	h.stopPostStartup() // stands in for Drop, which does not cancel shutdownCtx
 	h.prefillCache(context.Background())
 
 	require.Equal(t, int64(0), c.CountVectors(),
-		"a prefill started after stopPrefill would read a store the caller is closing")
+		"a prefill started after stopPostStartup would read a store the caller is closing")
 	require.False(t, h.cachePrefilled.Load(), "a refused prefill must not claim to have run")
 }
 
 // TestPrefillRegistrationSerializedWithStop: the check for "already stopped" and the
-// registration that follows must be one atomic step. A stopPrefill landing between
+// registration that follows must be one atomic step. A stopPostStartup landing between
 // them observes an empty WaitGroup and returns while the prefill goes on to start, so
 // this drives the two concurrently and requires that they cannot both win.
 func TestPrefillRegistrationSerializedWithStop(t *testing.T) {
@@ -277,17 +277,40 @@ func TestPrefillRegistrationSerializedWithStop(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(2)
 		enterrors.GoWrapper(func() { defer wg.Done(); h.prefillCache(context.Background()) }, logger)
-		enterrors.GoWrapper(func() { defer wg.Done(); h.stopPrefill() }, logger)
+		enterrors.GoWrapper(func() { defer wg.Done(); h.stopPostStartup() }, logger)
 		wg.Wait()
 
-		// Either the prefill registered first — stopPrefill then cancelled and waited
+		// Either the prefill registered first — stopPostStartup then cancelled and waited
 		// for it — or it was refused and never ran. What must never happen is
-		// stopPrefill returning while a prefill is still touching the cache.
-		h.prefillMu.Lock()
-		require.True(t, h.prefillStopped, "stopPrefill must leave registration closed")
-		h.prefillMu.Unlock()
+		// stopPostStartup returning while a prefill is still touching the cache.
+		h.lifecycleMu.Lock()
+		require.True(t, h.tornDown, "stopPostStartup must leave registration closed")
+		h.lifecycleMu.Unlock()
 
-		h.stopPrefill() // idempotent
+		h.stopPostStartup() // idempotent
 		require.Equal(t, int64(0), c.CountVectors())
 	}
+}
+
+// TestPostStartupRefusedAfterStop: the refusal has to cover the whole entry point,
+// not just the prefill. Drop unregisters the commit log's maintenance callbacks and
+// then removes its directory, so a late InitMaintenance re-registers switch_logs and
+// maintain_logs against files that are gone — and Drop has already run, so nothing
+// unregisters them again.
+func TestPostStartupRefusedAfterStop(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+
+	h := newLifecycleTestIndex(t, c, 10)
+	cl := &countingCommitLogger{}
+	h.commitLog = cl
+
+	h.PostStartup(context.Background())
+	require.Equal(t, int32(1), cl.initMaintenanceCall.Load(), "a live index must register maintenance")
+
+	h.stopPostStartup() // stands in for Drop, which does not cancel shutdownCtx
+	h.PostStartup(context.Background())
+
+	require.Equal(t, int32(1), cl.initMaintenanceCall.Load(),
+		"maintenance was re-registered after teardown; Drop has already removed the commit log directory")
 }

@@ -205,9 +205,9 @@ func objectRowMatchesKey(key, peek []byte) error {
 	return nil
 }
 
-// prefillStoppedByShutdown tells a prefill that was stopped from one that failed. A
+// tornDownByShutdown tells a prefill that was stopped from one that failed. A
 // parallel scan reports context.Canceled for both — a failing worker cancels its
 // siblings and their error is the one latched — so only its own context separates them.
-func prefillStoppedByShutdown(err error, prefillCtx context.Context) bool {
+func tornDownByShutdown(err error, prefillCtx context.Context) bool {
 	return errors.Is(err, context.Canceled) && prefillCtx.Err() != nil
 }

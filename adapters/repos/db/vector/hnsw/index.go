@@ -120,12 +120,12 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
-	// prefillMu serializes registration against teardown; see stopPrefill
-	prefillMu      sync.Mutex
-	prefillStopped bool
-	prefillCancel  context.CancelFunc
-	prefillWG      sync.WaitGroup
-	hfreshMode     bool
+	// lifecycleMu serializes registration against teardown; see stopPostStartup
+	lifecycleMu   sync.Mutex
+	tornDown      bool
+	prefillCancel context.CancelFunc
+	prefillWG     sync.WaitGroup
+	hfreshMode    bool
 
 	commitLog CommitLogger
 
@@ -767,30 +767,46 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-// stopPrefill ends any cache prefill and blocks further ones. Must run before the
-// cache is dropped or the store shut down: a scan reading a closed lsmkv segment
-// reads unmapped memory.
+// stopPostStartup ends any cache prefill and closes the index to further PostStartup
+// work. Must run before the cache is dropped or the store shut down: a scan reading a
+// closed lsmkv segment reads unmapped memory.
 //
 // Cancelling is not enough on its own — a scan polls its context only between rows,
-// so it can be blocked inside a read — hence the wait. Holding prefillMu across that
-// wait is what stops a concurrent registerPrefill from slipping in behind it.
-func (h *hnsw) stopPrefill() {
-	h.prefillMu.Lock()
-	defer h.prefillMu.Unlock()
+// so it can be blocked inside a read — hence the wait. Holding lifecycleMu across that
+// wait is what stops a concurrent PostStartup from slipping in behind it.
+func (h *hnsw) stopPostStartup() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 
-	h.prefillStopped = true
+	h.tornDown = true
 	if h.prefillCancel != nil {
 		h.prefillCancel()
 	}
 	h.prefillWG.Wait()
 }
 
-// registerPrefill reports false once stopPrefill has run: the index is torn down.
-func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
-	h.prefillMu.Lock()
-	defer h.prefillMu.Unlock()
+// initMaintenanceUnlessTornDown registers the commit log's maintenance callbacks,
+// reporting false once the index is torn down. Under the same lock as the teardown
+// so the two cannot interleave: Drop unregisters those callbacks and then removes the
+// commit log directory, and a registration landing after that leaves cycles running
+// against deleted files with nothing left to unregister them.
+func (h *hnsw) initMaintenanceUnlessTornDown() bool {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 
-	if h.prefillStopped {
+	if h.tornDown {
+		return false
+	}
+	h.commitLog.InitMaintenance()
+	return true
+}
+
+// registerPrefill reports false once stopPostStartup has run: the index is torn down.
+func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	if h.tornDown {
 		return false
 	}
 	h.prefillCancel = cancel
@@ -799,7 +815,7 @@ func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
 }
 
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	h.stopPrefill()
+	h.stopPostStartup()
 
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
@@ -822,7 +838,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
-	h.stopPrefill()
+	h.stopPostStartup()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

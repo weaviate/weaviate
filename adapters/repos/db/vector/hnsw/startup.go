@@ -517,8 +517,17 @@ func (h *hnsw) resetTombstoneMetric() {
 // the shard creation. Some post-startup routines, such as prefilling the
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
+// Nothing here may start after Drop or Shutdown. PostStartup can arrive that late —
+// dynamic's flat->hnsw upgrade drives one on its own context, which a shard teardown
+// does not cancel, and Drop never cancels shutdownCtx at all.
 func (h *hnsw) PostStartup(ctx context.Context) {
-	h.commitLog.InitMaintenance()
+	if !h.initMaintenanceUnlessTornDown() {
+		h.logger.WithFields(logrus.Fields{
+			"action":   "hnsw_post_startup",
+			"index_id": h.id,
+		}).Debug("skipping post-startup: index is torn down")
+		return
+	}
 	h.prefillCache(ctx)
 }
 
@@ -538,9 +547,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	}
 
 	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
-	// PostStartup can also arrive after teardown — dynamic's flat->hnsw upgrade
-	// drives one on its own context, and Drop never cancels shutdownCtx — so a
-	// refusal here is the only thing keeping a scan off a closed store.
+	// Teardown can also land between here and PostStartup's own check.
 	prefillCtx, cancel := context.WithCancel(ctx)
 	if !h.registerPrefill(cancel) {
 		cancel()
@@ -556,7 +563,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		defer cancel()
 		// deferred, not trailing: GoWrapper recovers panics, and a false cachePrefilled
 		// permanently disables tombstone cleanup and every compression path. LIFO runs
-		// it before Done, so stopPrefill still guarantees it is set on return.
+		// it before Done, so stopPostStartup still guarantees it is set on return.
 		defer h.cachePrefilled.Store(true)
 
 		var err error
@@ -575,7 +582,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}
 
 		if err != nil {
-			if prefillStoppedByShutdown(err, prefillCtx) {
+			if tornDownByShutdown(err, prefillCtx) {
 				h.logger.WithField("action", "hnsw_vector_cache_prefill").
 					Debug("vector cache prefill stopped: context canceled")
 			} else {
