@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -619,45 +621,47 @@ func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
 	require.True(t, h.useParallelPrefill())
 }
 
-// countingAllocChecker fails every probe once armed, and records how many vectors
-// were preloaded after the first failure.
-type countingAllocChecker struct {
-	aborted *atomic.Bool
+// TestPrefillFromScanAbortIsSharedAcrossWorkers: when one worker's alloc probe fails,
+// every other worker must refuse at its next row rather than run on until it notices
+// cancellation. Driven as two sequential calls instead of a real concurrent scan: the
+// property is that a call which never saw the failure is still refused, and asserting
+// that directly avoids measuring how quickly a real worker happens to be scheduled.
+func TestPrefillFromScanAbortIsSharedAcrossWorkers(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const nodes = prefillAllocCheckEvery + 10
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(nodes)
+
+	h := newPrefillTestIndex("main", nil, c, nodes, distancer.NewDotProductProvider(), logger)
+	h.allocChecker = failingAllocChecker{}
+
+	// memory pressure is a graceful stop: the scan aborts and the prefill reports nil
+	require.NoError(t, h.prefillFromScan(context.Background(),
+		func(ctx context.Context, onVector prefillOnVector) error {
+			var abort error
+			for i := 0; i < prefillAllocCheckEvery && abort == nil; i++ {
+				abort = onVector(uint64(i), []float32{float32(i), 1})
+			}
+			require.ErrorIs(t, abort, errPrefillMemoryPressure,
+				"the probe fires on the %dth store", prefillAllocCheckEvery)
+			stored := c.CountVectors()
+
+			sibling := onVector(uint64(prefillAllocCheckEvery+1), []float32{1, 2})
+			require.ErrorIs(t, sibling, errPrefillMemoryPressure,
+				"a worker that did not see the probe fail must still be refused")
+			require.Equal(t, stored, c.CountVectors(),
+				"the refused worker cached a vector anyway")
+			return abort
+		}))
 }
 
-func (c *countingAllocChecker) CheckAlloc(size int64) error {
-	c.aborted.Store(true)
-	return fmt.Errorf("simulated memory pressure")
-}
-
-func (c *countingAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
-func (c *countingAllocChecker) Refresh(bool)                            {}
-
-// countingPreloadCache counts stores that land after the alloc probe has failed.
-// Counting at the store itself keeps the measurement exact — sampling a shared
-// counter from inside the probe would race the workers still writing.
-type countingPreloadCache struct {
-	cache.Cache[float32]
-	inner      cache.IfAbsentPreloader[float32]
-	aborted    atomic.Bool
-	afterAbort atomic.Int64
-}
-
-func (c *countingPreloadCache) PreloadIfAbsent(id uint64, vec []float32) bool {
-	ok := c.inner.PreloadIfAbsent(id, vec)
-	if ok && c.aborted.Load() {
-		c.afterAbort.Add(1)
-	}
-	return ok
-}
-
-// TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure: the alloc probe fires on
-// one worker, but every worker must stop at its next row. Returning an error only
-// ends the worker that raised it — its siblings poll the cancelled context once per
-// 1024 rows, so without shared abort state they keep filling the cache long after
-// the probe said to stop, which on large vectors is the memory the probe was
-// defending. Multiple flushed segments give the scan several concurrent ranges.
-func TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure(t *testing.T) {
+// TestPrefillCacheParallelAbortPropagatesAcrossRanges is the end-to-end companion:
+// several flushed segments give the scan many concurrent ranges, and the abort has to
+// reach all of them. Deliberately a loose bound — how many rows land between the probe
+// failing and the last worker observing it depends on scheduling, so the mechanism is
+// pinned by the deterministic test above and this one only catches an abort that does
+// not propagate at all.
+func TestPrefillCacheParallelAbortPropagatesAcrossRanges(t *testing.T) {
 	const n = 40_000
 	store := newTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -670,24 +674,15 @@ func TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure(t *testing.T) {
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	logger, _ := test.NewNullLogger()
-	inner := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 10_000_000, 1, logger, false, 0, nil)
-	inner.Grow(n)
-	counting := &countingPreloadCache{Cache: inner, inner: mustIfAbsentPreloader(t, inner)}
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 10_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
 
-	h := newPrefillTestIndex("main", store, counting, n, distancer.NewDotProductProvider(), logger)
-	h.allocChecker = &countingAllocChecker{aborted: &counting.aborted}
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+	h.allocChecker = failingAllocChecker{}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
-
-	// a worker already past the abort check may still finish its row, so allow one
-	// per worker; what must not happen is the ~1023 rows each would otherwise run
-	// before its next context poll
-	after := counting.afterAbort.Load()
-	// A worker already past the abort check may finish the row it is on, so allow a
-	// few per worker. Before the shared abort this measured 10,148: each sibling ran
-	// to its next context poll, 1024 rows away.
-	require.LessOrEqual(t, after, int64(8*prefillScanParallelism()),
-		"%d vectors were cached after the alloc probe failed", after)
+	require.Less(t, c.CountVectors(), int64(n/2),
+		"the abort did not propagate: the scan covered the bucket regardless of memory pressure")
 }
 
 // TestParallelPrefillExactFitTakesTheScan: an exact fit must not be pushed onto the
@@ -765,6 +760,15 @@ func TestSerialPrefillerFillsUpToButBelowTheLimit(t *testing.T) {
 // a fraction of the cache filled. The cursor panics for real on a Seek error that is
 // neither NotFound nor Deleted, so this is a reachable state, not a hypothetical.
 func TestPrefillFromScanSurfacesWorkerPanic(t *testing.T) {
+	// The guarantee under test only exists while recovery is installed. With
+	// DISABLE_RECOVERY_ON_PANIC the wrapper's deferFunc is a no-op by design — the
+	// process is meant to die on a panic — so there is no recovered panic to convert
+	// into an error, and raising one here would just kill the test binary. The
+	// integration runner exports it, which is how this surfaced.
+	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+		t.Skip("panic recovery is disabled; a scan worker panic is meant to end the process")
+	}
+
 	const n = 200
 	store := newTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
