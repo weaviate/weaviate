@@ -247,11 +247,6 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			migrationType := tc.migrationType
-			if migrationType == "" {
-				migrationType = ReindexTypeChangeTokenization
-			}
-
 			lsmPath := t.TempDir()
 			if tc.tracker != "" {
 				mkTrackerDir(t, lsmPath, tc.tracker, tc.sentinel)
