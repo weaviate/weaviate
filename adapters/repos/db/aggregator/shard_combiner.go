@@ -20,10 +20,19 @@ import (
 
 type ShardCombiner struct {
 	params aggregation.Params
+	// cutoffs indexes params.Properties by name, since the merge consults it
+	// once per property per shard
+	cutoffs map[string]int
 }
 
 func NewShardCombiner(params aggregation.Params) *ShardCombiner {
-	return &ShardCombiner{params: params}
+	cutoffs := map[string]int{}
+	for _, prop := range params.Properties {
+		if prop.TopOccurrencesCutoff > 0 {
+			cutoffs[prop.Name.String()] = int(prop.TopOccurrencesCutoff)
+		}
+	}
+	return &ShardCombiner{params: params, cutoffs: cutoffs}
 }
 
 func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
@@ -57,7 +66,7 @@ func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggreg
 		if len(shard.Groups) == 0 { // not every shard has results
 			continue
 		}
-		sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0])
+		sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0], sc.cutoffs)
 	}
 
 	sc.finalizeGroup(&combined.Groups[0])
@@ -74,7 +83,7 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 			if pos < 0 {
 				combined.Groups = append(combined.Groups, shardGroup)
 			} else {
-				sc.mergeIntoCombinedGroupAtPos(combined.Groups, pos, shardGroup)
+				sc.mergeIntoCombinedGroupAtPos(combined.Groups, pos, shardGroup, nil)
 			}
 		}
 	}
@@ -89,8 +98,9 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 	return &combined
 }
 
+// cutoffs is nil for grouped results, which ignore the cutoff entirely.
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
-	pos int, shardGroup aggregation.Group,
+	pos int, shardGroup aggregation.Group, cutoffs map[string]int,
 ) {
 	combinedGroups[pos].Count += shardGroup.Count
 
@@ -135,7 +145,7 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 				&combinedProp.BooleanAggregation, &prop.BooleanAggregation)
 		case aggregation.PropertyTypeText:
 			sc.mergeTextProp(
-				&combinedProp.TextAggregation, &prop.TextAggregation)
+				&combinedProp.TextAggregation, &prop.TextAggregation, cutoffs[propName])
 		case aggregation.PropertyTypeReference:
 			sc.mergeRefProp(
 				&combinedProp.ReferenceAggregation, &prop.ReferenceAggregation)
@@ -296,7 +306,7 @@ func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 	combined.PercentageTrue = float64(combined.TotalTrue) / float64(combined.Count)
 }
 
-func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
+func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text, cutoff int) {
 	// one shard over the cutoff makes the collection's value list incomplete;
 	// keeping the other shards' values would hand out a silently truncated
 	// vocabulary with per-shard counts
@@ -306,14 +316,31 @@ func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
 	}
 
 	first.Count += second.Count
+	if len(second.Items) == 0 {
+		return
+	}
+
+	// a cutoff merge runs lists as long as the cutoff itself, where a scan per
+	// incoming value is quadratic
+	posOf := make(map[string]int, len(first.Items)+len(second.Items))
+	for i, item := range first.Items {
+		posOf[item.Value] = i
+	}
 
 	for _, textOcc := range second.Items {
-		pos := getPosOfTextOcc(first.Items, textOcc.Value)
-		if pos < 0 {
-			first.Items = append(first.Items, textOcc)
-		} else {
-			first.Items[pos].Occurs += textOcc.Occurs
+		if i, ok := posOf[textOcc.Value]; ok {
+			first.Items[i].Occurs += textOcc.Occurs
+			continue
 		}
+		// every shard list is a subset of the values its shard holds, so a
+		// union already past the cutoff stays past it however the rest merge —
+		// whether or not the lists are complete
+		if cutoff > 0 && len(first.Items) == cutoff {
+			*first = aggregation.Text{CutoffExceeded: true}
+			return
+		}
+		posOf[textOcc.Value] = len(first.Items)
+		first.Items = append(first.Items, textOcc)
 	}
 }
 
@@ -330,27 +357,22 @@ func (sc *ShardCombiner) applyTopOccurrencesCutoffs(results []*aggregation.Resul
 	combined *aggregation.Group,
 ) {
 	for _, paramProp := range sc.params.Properties {
-		cutoff := int(paramProp.TopOccurrencesCutoff)
-		if cutoff <= 0 {
+		name := paramProp.Name.String()
+		if sc.cutoffs[name] == 0 {
 			continue
 		}
 
-		name := paramProp.Name.String()
 		prop, ok := combined.Properties[name]
 		if !ok || prop.Type != aggregation.PropertyTypeText ||
 			prop.TextAggregation.CutoffExceeded {
 			continue
 		}
-		if !shardValuesComplete(results, name) {
-			continue
-		}
 
-		if len(prop.TextAggregation.Items) > cutoff {
-			prop.TextAggregation = aggregation.Text{CutoffExceeded: true}
-		} else {
-			prop.TextAggregation = topOccurrences(prop.TextAggregation,
-				extractLimitFromTopOccs(paramProp.Aggregators))
-		}
+		// the shards hand over cutoff-many values rather than the top ones, so
+		// the requested limit is applied here whether or not the cutoff held
+		prop.TextAggregation = topOccurrences(prop.TextAggregation,
+			extractLimitFromTopOccs(paramProp.Aggregators),
+			shardValuesComplete(results, name))
 		combined.Properties[name] = prop
 	}
 }
@@ -373,9 +395,10 @@ func shardValuesComplete(results []*aggregation.Result, propName string) bool {
 	return true
 }
 
-// topOccurrences cuts a complete value list down to the requested limit,
-// through the aggregator the single-shard path uses so both order the same.
-func topOccurrences(text aggregation.Text, limit int) aggregation.Text {
+// topOccurrences cuts a merged value list down to the requested limit, through
+// the aggregator the single-shard path uses so both order the same. complete
+// reports whether the list it cuts held every value of the property.
+func topOccurrences(text aggregation.Text, limit int, complete bool) aggregation.Text {
 	agg := newTextAggregator(limit)
 	for _, item := range text.Items {
 		if err := agg.AddTextCount(item.Value, item.Occurs); err != nil {
@@ -384,7 +407,7 @@ func topOccurrences(text aggregation.Text, limit int) aggregation.Text {
 	}
 
 	out := agg.Res()
-	out.ValuesComplete = true
+	out.ValuesComplete = complete
 	return out
 }
 
@@ -392,16 +415,6 @@ func (sc *ShardCombiner) finalizeText(combined *aggregation.Text) {
 	sort.Slice(combined.Items, func(a, b int) bool {
 		return combined.Items[a].Occurs > combined.Items[b].Occurs
 	})
-}
-
-func getPosOfTextOcc(haystack []aggregation.TextOccurrence, needle string) int {
-	for i, elem := range haystack {
-		if elem.Value == needle {
-			return i
-		}
-	}
-
-	return -1
 }
 
 func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) {

@@ -369,15 +369,28 @@ func TestShardCombinerTopOccurrencesCutoffAcrossShards(t *testing.T) {
 		{
 			// the object-scan fallback lists top values, not all of them, so
 			// the union proves nothing about the collection's cardinality
-			name:   "a shard that could not evaluate the cutoff drops it",
+			// an incomplete list is still a subset of the shard's values, so a
+			// union past the cutoff proves the collection is past it
+			name:   "a shard that could not evaluate the cutoff still trips it",
 			params: params(2, 10),
+			results: []*aggregation.Result{
+				textShard(complete(occ("a", 2))),
+				textShard(aggregation.Text{Count: 4, Items: []aggregation.TextOccurrence{occ("b", 3), occ("c", 1)}}),
+			},
+			expected: aggregation.Text{CutoffExceeded: true},
+		},
+		{
+			// under the cutoff nothing is proven, so the values stand — cut to
+			// the requested limit, but not claimed to be the whole vocabulary
+			name:   "a shard that could not evaluate the cutoff drops it",
+			params: params(10, 2),
 			results: []*aggregation.Result{
 				textShard(complete(occ("a", 2))),
 				textShard(aggregation.Text{Count: 4, Items: []aggregation.TextOccurrence{occ("b", 3), occ("c", 1)}}),
 			},
 			expected: aggregation.Text{
 				Count: 6,
-				Items: []aggregation.TextOccurrence{occ("b", 3), occ("a", 2), occ("c", 1)},
+				Items: []aggregation.TextOccurrence{occ("b", 3), occ("a", 2)},
 			},
 		},
 		{
@@ -409,6 +422,26 @@ func TestShardCombinerTopOccurrencesCutoffAcrossShards(t *testing.T) {
 			assert.Equal(t, tt.expected.ValuesComplete, text.ValuesComplete)
 		})
 	}
+
+	// group_by ignores the cutoff, so a grouped merge past it must still carry
+	// its values
+	t.Run("grouped results ignore the cutoff", func(t *testing.T) {
+		grouped := func(items ...aggregation.TextOccurrence) *aggregation.Result {
+			res := textShard(complete(items...))
+			res.Groups[0].GroupedBy = &aggregation.GroupedBy{Value: "g", Path: []string{"p"}}
+			return res
+		}
+
+		combined := NewShardCombiner(params(2, 10)).Do([]*aggregation.Result{
+			grouped(occ("a", 2), occ("b", 1)),
+			grouped(occ("c", 2), occ("d", 1)),
+		})
+
+		require.Len(t, combined.Groups, 1)
+		text := combined.Groups[0].Properties[cutoffTestProp].TextAggregation
+		require.False(t, text.CutoffExceeded)
+		assert.Len(t, text.Items, 4)
+	})
 }
 
 func testNumbers(t *testing.T, numbers1, numbers2 []float64, testMode bool) {
