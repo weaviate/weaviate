@@ -398,6 +398,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SearchSearchHybridHandler: search.SearchHybridHandlerFunc(func(params search.SearchHybridParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchHybrid has not yet been implemented")
 		}),
+		SearchSearchNearObjectHandler: search.SearchNearObjectHandlerFunc(func(params search.SearchNearObjectParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearObject has not yet been implemented")
+		}),
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
 		}),
@@ -704,6 +707,8 @@ type WeaviateAPI struct {
 	SearchSearchBm25Handler search.SearchBm25Handler
 	// SearchSearchHybridHandler sets the operation handler for the search hybrid operation
 	SearchSearchHybridHandler search.SearchHybridHandler
+	// SearchSearchNearObjectHandler sets the operation handler for the search near object operation
+	SearchSearchNearObjectHandler search.SearchNearObjectHandler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
@@ -1134,6 +1139,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SearchSearchHybridHandler == nil {
 		unregistered = append(unregistered, "search.SearchHybridHandler")
+	}
+	if o.SearchSearchNearObjectHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearObjectHandler")
 	}
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
@@ -1700,6 +1708,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/search/{collection}/hybrid"] = search.NewSearchHybrid(o.context, o.SearchSearchHybridHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-object"] = search.NewSearchNearObject(o.context, o.SearchSearchNearObjectHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

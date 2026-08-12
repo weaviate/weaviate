@@ -45,6 +45,8 @@ type ClientService interface {
 
 	SearchHybrid(params *SearchHybridParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchHybridOK, error)
 
+	SearchNearObject(params *SearchNearObjectParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearObjectOK, error)
+
 	SearchNearText(params *SearchNearTextParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearTextOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -129,6 +131,47 @@ func (a *Client) SearchHybrid(params *SearchHybridParams, authInfo runtime.Clien
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for search.hybrid: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SearchNearObject searches a collection with near object
+
+Performs a similarity search over the objects of a collection, anchored at an existing object: the stored vector of the source object (referenced by `id`) is searched against the vector index and the closest objects are returned — the source object itself included — each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable.
+*/
+func (a *Client) SearchNearObject(params *SearchNearObjectParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearObjectOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSearchNearObjectParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "search.nearObject",
+		Method:             "POST",
+		PathPattern:        "/search/{collection}/near-object",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SearchNearObjectReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SearchNearObjectOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for search.nearObject: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
