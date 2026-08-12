@@ -5843,7 +5843,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in every case the caller must let it reach a terminal state.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in none of these cases is the task cancelled, and the caller can re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8738,7 +8738,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8757,7 +8757,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8806,7 +8806,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -17400,7 +17400,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in every case the caller must let it reach a terminal state.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in none of these cases is the task cancelled, and the caller can re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20480,7 +20480,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20499,7 +20499,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20548,7 +20548,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In every case it must be left to reach a terminal state. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
