@@ -1752,8 +1752,8 @@ const (
 	// terminalSweepClean: the walk reached every shard in the map. A shard
 	// the gate skipped counts as reached — it had nothing to sweep.
 	terminalSweepClean terminalSweepOutcome = iota
-	// terminalSweepDropped: no shard was swept and none had to be — the
-	// collection is not on this node, so its partial state is not here either.
+	// terminalSweepDropped: the collection is not on this node — though shards
+	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
 	terminalSweepDropped
 	// terminalSweepUnknown: shards were left unvisited. What is on them is
 	// unknown, which is not the same as knowing state is there.
@@ -1799,12 +1799,10 @@ func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool
 	}
 }
 
-// probeLocalPostMergeState bounds [ReindexProvider.hasLocalPostMergeState]
-// the way every other call on this path is bounded: off p.serverCtx, with
-// a timeout. For a multi-tenant collection the payload names every shard
-// the task touched, and each one costs a directory read, so an unbounded
-// probe lets a single wedged shard block the scheduler tick that
-// dispatched it and survive shutdown.
+// probeLocalPostMergeState caps [ReindexProvider.hasLocalPostMergeState] off
+// p.serverCtx. The ctx is read once per shard and nothing below it takes one,
+// so the deadline bounds how many shards the probe visits, not how long it
+// runs: one wedged directory read still blocks past it.
 func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
 	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
 	defer cancel()
@@ -2092,9 +2090,8 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 // swap could leave this node at OLD tokenization after a cluster-wide
 // schema flip already committed (#10675 family).
 //
-// Runs from the scheduler bootstrap, when every tenant of the collection is
-// still unloaded, so the check reads tracker dirs at a path this node joins
-// itself rather than loading a shard to ask it for that path.
+// Reads tracker dirs at a path this node joins itself, so a tenant that is
+// unloaded when the scheduler bootstrap fires stays unloaded.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {

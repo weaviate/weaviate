@@ -933,8 +933,8 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "a generation-suffixed main bucket", dir: main + "__gen2"},
 		{name: "a longer property's main bucket", dir: main + "_x"},
 		{name: "a sidecar", dir: main + "__enable_filterable_ingest_1", want: true},
-		{name: "a sidecar with no generation", dir: main + "__reindex", want: true},
-		{name: "a sidecar a generation-0 bug would leave", dir: main + "__ingest_0", want: true},
+		{name: "category__reindex's own bucket, wrongly accepted", dir: main + "__reindex", want: true},
+		{name: "category__ingest_0's own bucket, wrongly accepted", dir: main + "__ingest_0", want: true},
 		{name: "a property named after a number", dir: main + "__12", want: false},
 		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
@@ -942,8 +942,8 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		// "category__ingest_"'s own main bucket.
 		{name: "a property whose name ends in a role word and a separator", dir: main + "__ingest_", want: false},
 		{name: "a sidecar whose suffix carries a strategy word", dir: main + "__blockmax_ingest", want: true},
-		// Known collision (weaviate/weaviate#12574): sweeping "category"
-		// also removes "category__ingest"'s own bucket.
+		// weaviate/weaviate#12621: "category__<word>_<role>" is a property's own
+		// main bucket on every index type, and sweeping "category" deletes it.
 		{name: "a property whose name ends in a role word", dir: main + "__ingest", want: true},
 	}
 

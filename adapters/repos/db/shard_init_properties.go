@@ -475,11 +475,11 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 // sidecar of "a" — the trailing role word decides instead. Shared with
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
-// The role word narrows the collision family in [mainBucketForPropertyIndex]
-// (weaviate/weaviate#12574) but does not close it: a property named
-// "a__ingest" still reads as a sidecar of "a", so sweeping "a" removes its
-// live bucket. Needs the on-disk rename #12574 asks for;
-// [TestIsSidecarDirOfRejectsOtherPropertiesBuckets] pins the current answer.
+// The role word is too weak: any property named "a__<word>_<role>" reads as a
+// sidecar of "a", so sweeping "a" deletes that property's live bucket, on all
+// three index types. No strategy emits a bare role word, so matching the whole
+// suffix against [migrationSuffixes], as [sidecarDirsForOrphan] does, closes
+// this without an on-disk rename. weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {

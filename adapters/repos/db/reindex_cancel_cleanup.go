@@ -30,7 +30,7 @@ import (
 // counterpart to the cleanup that updatePropertyBuckets does on
 // DELETE→re-enable.
 //
-// Call sites:
+// Call sites of this sweep (the orphan audit calls the per-shard method):
 //
 //  1. Cancel handler, AFTER asking DTM to cancel and AFTER the local reindex
 //     goroutine has exited. Ensures the next submit starts from a clean slate.

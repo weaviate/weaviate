@@ -201,8 +201,8 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //   - Deletion (the plain scope) answers only the single-property shape;
 //     guessing wider would remove another property's tracker. The refusal
 //     leaves a payload-less multi-property tracker behind while its sidecars
-//     — whose deletion is not payload-gated — are removed; the orphan audit
-//     reclaims the leftover dir.
+//     — whose deletion is not payload-gated — are removed, and nothing
+//     reclaims it: the orphan audit skips a tracker with no started.mig.
 //   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
 //     property list carries this property as a whole "_"-delimited token,
 //     because refusing to guess lets sidecar deletion — which is not
