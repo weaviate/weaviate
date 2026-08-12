@@ -18,7 +18,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -55,7 +54,7 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	kw.ChooseSearchableProperties(class)
 
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
-		propertyspecific.Indices{}, a.classSearcher, a.stopwordProvider,
+		a.classSearcher, a.stopwordProvider,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
 	).WithTokenizationResolver(a.tokResolver).
 		WithSearchableBucketPinningResolver(a.bucketPinResolver).

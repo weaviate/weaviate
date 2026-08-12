@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -1187,6 +1188,123 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		// notice the opposite order
 		assert.Equal(t, ids[1], res[0].ID)
 	})
+}
+
+// AddProperty writes the shard's property indices while a geo filter reads
+// them, so the searcher must not be handed the live map.
+func TestGeoFilterDuringConcurrentAddProperty(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer repo.Shutdown(context.Background())
+
+	migrator := NewMigrator(repo, logger, "node1")
+	className := "GeoConcurrentTestClass"
+
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "location",
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			},
+		},
+	}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+
+	lat, lon := float32(7), float32(1)
+	require.Nil(t, repo.PutObject(context.Background(), &models.Object{
+		Class: className,
+		ID:    "4002609e-ee57-4404-a0ad-798af7da0004",
+		Properties: map[string]interface{}{
+			"location": &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+		},
+	}, []float32{0.5}, nil, nil, nil, 0))
+
+	searchQuery := filters.GeoRange{
+		GeoCoordinates: &models.GeoCoordinates{
+			Latitude:  ptFloat32(6.0),
+			Longitude: ptFloat32(-2.0),
+		},
+		Distance: 400000,
+	}
+
+	const rounds = 25
+	var (
+		wg       sync.WaitGroup
+		errsLock sync.Mutex
+		errs     []error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			err := migrator.AddProperty(context.Background(), className, &models.Property{
+				Name:     fmt.Sprintf("location%d", i),
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			})
+			if err != nil {
+				errsLock.Lock()
+				errs = append(errs, err)
+				errsLock.Unlock()
+			}
+		}
+	}()
+
+	for reader := 0; reader < 4; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				_, err := repo.Search(context.Background(),
+					getParamsWithFilter(className, buildFilter(
+						"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
+					)))
+				if err != nil {
+					errsLock.Lock()
+					errs = append(errs, err)
+					errsLock.Unlock()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	require.Empty(t, errs)
 }
 
 // This test prevents a regression on
