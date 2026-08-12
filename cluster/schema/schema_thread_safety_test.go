@@ -685,7 +685,7 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 				}
 				fsm := NewMockreplicationFSM(t)
 				fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
-				_ = s.updateTenants("TestClass", uint64(j), req, fsm)
+				_ = s.updateTenants("TestClass", uint64(j), req, fsm, map[string]string{})
 				time.Sleep(time.Microsecond)
 			}
 		}(i)

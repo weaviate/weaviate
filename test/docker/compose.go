@@ -569,6 +569,14 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+// WithWeaviateExposeGRPCPort publishes the gRPC port on a cluster that is sized
+// separately, which the WithGRPC helpers above cannot do because they pick the
+// node count themselves.
+func (d *Compose) WithWeaviateExposeGRPCPort() *Compose {
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
 func (d *Compose) WithMCP() *Compose {
 	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
 	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")

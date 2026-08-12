@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -140,11 +141,39 @@ func TestExecutor(t *testing.T) {
 	})
 
 	t.Run("UpdateTenants", func(t *testing.T) {
-		migrator := &fakeMigrator{}
-		req := &api.UpdateTenantsRequest{Tenants: tenants}
-		migrator.On("UpdateTenants", Anything, cls, Anything).Return(nil)
-		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.UpdateTenants("A", req))
+		cases := []struct {
+			name              string
+			preFreezeStatuses map[string]string
+			want              map[string]string // tenant name -> expected PreFreezeStatus
+		}{
+			{
+				name:              "freezing tenant carries its recorded status",
+				preFreezeStatuses: map[string]string{"T1": models.TenantActivityStatusCOLD},
+				want:              map[string]string{"T1": models.TenantActivityStatusCOLD, "T2": ""},
+			},
+			{
+				name:              "no freeze recorded, nothing carried",
+				preFreezeStatuses: map[string]string{},
+				want:              map[string]string{"T1": "", "T2": ""},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				migrator := &fakeMigrator{}
+				var got []*UpdateTenantPayload
+				migrator.On("UpdateTenants", Anything, cls, Anything).
+					Run(func(args mock.Arguments) { got = args.Get(2).([]*UpdateTenantPayload) }).
+					Return(nil)
+				x := newMockExecutor(migrator, store)
+
+				require.NoError(t, x.UpdateTenants("A", &api.UpdateTenantsRequest{Tenants: tenants}, tc.preFreezeStatuses))
+
+				require.Len(t, got, len(tc.want))
+				for _, payload := range got {
+					assert.Equal(t, tc.want[payload.Name], payload.PreFreezeStatus, "tenant %q", payload.Name)
+				}
+			})
+		}
 	})
 
 	t.Run("UpdateTenantsClassNotFound", func(t *testing.T) {
@@ -153,7 +182,7 @@ func TestExecutor(t *testing.T) {
 
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
-		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrNotFound)
+		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrNotFound)
 	})
 
 	t.Run("UpdateTenantsError", func(t *testing.T) {
@@ -161,7 +190,7 @@ func TestExecutor(t *testing.T) {
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrAny)
+		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrAny)
 	})
 
 	t.Run("AddTenants", func(t *testing.T) {

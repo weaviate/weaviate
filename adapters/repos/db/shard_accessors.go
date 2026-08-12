@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -178,6 +179,24 @@ func (s *Shard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue)
 		}
 
 		if err := f(propName, q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForEachGeoIndex iterates through each geo index initialized in the shard.
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachGeoIndex(f func(propName string, index *geo.Index) error) error {
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	for propName, idx := range s.propertyIndices {
+		if idx.Type != schema.DataTypeGeoCoordinates || idx.GeoIndex == nil {
+			continue
+		}
+
+		if err := f(propName, idx.GeoIndex); err != nil {
 			return err
 		}
 	}

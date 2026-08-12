@@ -257,6 +257,33 @@ func TestConfigParsing(t *testing.T) {
 		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
 		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
+
+	t.Run("parse backup_gcs config and survive the env pass - yaml", func(t *testing.T) {
+		for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+			t.Setenv(key, "")
+		}
+
+		configFileName := "config.yaml"
+		configYaml := `backup_gcs:
+  use_grpc: true
+  grpc_conn_pool: 32
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+		require.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+
+		// LoadConfig reads the file before the environment, so an unset variable
+		// has to leave the parsed value alone.
+		require.NoError(t, FromEnv(&config))
+		assert.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+	})
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -280,6 +307,11 @@ func TestConfigValidation(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name:     "backup gcs connection pool out of range",
+			config:   &Config{BackupGCS: BackupGCS{GRPCConnPool: 100}},
+			expected: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -290,6 +322,38 @@ func TestConfigValidation(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestBackupGCSValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		connPool int
+		wantErr  string
+	}{
+		{name: "unset takes the default", connPool: 0},
+		{name: "at the cap", connPool: MaxBackupGCSGRPCConnPool},
+		{
+			name:     "past the cap",
+			connPool: MaxBackupGCSGRPCConnPool + 1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: 65",
+		},
+		{
+			name:     "negative",
+			connPool: -1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := BackupGCS{GRPCConnPool: tt.connPool}.Validate()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

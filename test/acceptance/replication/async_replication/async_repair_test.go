@@ -94,12 +94,12 @@ func (suite *AsyncReplicationTestSuite) TearDownSuite() {
 }
 
 // TearDownTest drops the shared classes so the next test starts from a clean
-// schema. Every shared-cluster scenario restarts node 1 if it stops it, so it
-// is reachable here.
+// schema. Node 1 may still be settling right after a scenario restarted it, so
+// the delete is retried until the schema no longer reports the class.
 func (suite *AsyncReplicationTestSuite) TearDownTest() {
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
-	helper.DeleteClassWithoutAssert(suite.T(), "Article", "")
-	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
+	uri := suite.compose.GetWeaviate().URI()
+	helper.DeleteClassEventually(suite.T(), "Article", uri)
+	helper.DeleteClassEventually(suite.T(), "Paragraph", uri)
 }
 
 func TestAsyncReplicationTestSuite(t *testing.T) {
