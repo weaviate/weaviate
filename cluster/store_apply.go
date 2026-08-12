@@ -229,6 +229,12 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
+			// Index.drop renames the whole class directory, taking every tenant
+			// with it, loaded or not.
+			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
@@ -268,6 +274,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
 		f = func() {
+			// The command carries no Class, so the namespace comes off the alias
+			// name. An alias may target a class in another namespace, and
+			// AliasesInNamespace lists by alias prefix, so that is the same key.
+			req := &api.DeleteAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal delete-alias subcommand: %w", err)
+				return
+			}
+			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.DeleteAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
@@ -309,6 +327,12 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		f = func() {
+			// Index.dropShards destroys the data on both arms: shard.drop when the
+			// shard is loaded, os.RemoveAll on its path when it is not.
+			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
 		}
 

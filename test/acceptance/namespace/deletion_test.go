@@ -444,8 +444,18 @@ func TestNamespaces_DeleteSuspendedNamespace(t *testing.T) {
 	userKey := createNamespacedUser(t, "u1", ns, adminKey)
 
 	// Two of each, so the cascade's alias and class loops run over more than one.
-	setupMTClassInNs1(t, ns, mtClassName, userKey)
-	setupClassInNs1(t, ns, stClassName, userKey)
+	// The cleanup asserts nothing: the cascade has usually removed these already,
+	// and a run that failed before the delete leaves the namespace suspended,
+	// where AdmitDestructiveApply refuses a class delete.
+	helper.CreateClassAuth(t, mtClass(mtClassName), userKey)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      stClassName,
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+	}, userKey)
+	t.Cleanup(func() {
+		helper.DeleteClassWithoutAssert(t, qualifiedMT, adminKey)
+		helper.DeleteClassWithoutAssert(t, qualifiedST, adminKey)
+	})
 	require.NoError(t, addTenantsAuth(t, mtClassName, []*models.Tenant{
 		{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT},
 	}, userKey))
