@@ -155,19 +155,61 @@ func TestErrorDetail(t *testing.T) {
 
 // The payload shapes without a message list take the err.Error() fallback. That
 // is acceptable because every field they carry is a scalar, which %+v prints in
-// full -- unlike the pointer slice ErrorDetail exists to unpack.
+// full -- unlike the pointer slice ErrorDetail exists to unpack. Each payload
+// below sets every field it has, and each of those values is asserted.
 func TestErrorDetailFallbackKeepsScalarPayloadsReadable(t *testing.T) {
 	restrictionStructured := &schema.SchemaObjectsCreateUnprocessableEntity{
 		Payload: &models.RestrictionViolationResponse{
-			Message: "vector index type flat is not allowed",
+			Allowed:     []string{"hnsw", "flat"},
+			ErrorCode:   "CONFIG_NOT_ALLOWED",
+			Message:     "vector index type dynamic is not allowed",
+			Restriction: "vector_index_type",
+			Value:       "dynamic",
 		},
 	}
 	usageLimit := &objects.ObjectsCreateTooManyRequests{
 		Payload: &models.UsageLimitExceededResponse{
-			Message: "object limit of 1000 exceeded",
+			ErrorCode: "USAGE_LIMIT_EXCEEDED",
+			Limit:     "objects",
+			Message:   "object limit of 1000 exceeded",
+			Value:     1000,
 		},
 	}
 
-	assert.Contains(t, ErrorDetail(restrictionStructured), "vector index type flat is not allowed")
-	assert.Contains(t, ErrorDetail(usageLimit), "object limit of 1000 exceeded")
+	tests := []struct {
+		name string
+		err  error
+		want []string
+	}{
+		{
+			name: "schema 422 structured fields",
+			err:  restrictionStructured,
+			want: []string{
+				"Allowed:[hnsw flat]",
+				"ErrorCode:CONFIG_NOT_ALLOWED",
+				"Message:vector index type dynamic is not allowed",
+				"Restriction:vector_index_type",
+				"Value:dynamic",
+			},
+		},
+		{
+			name: "429 usage limit",
+			err:  usageLimit,
+			want: []string{
+				"ErrorCode:USAGE_LIMIT_EXCEEDED",
+				"Limit:objects",
+				"Message:object limit of 1000 exceeded",
+				"Value:1000",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ErrorDetail(tt.err)
+			for _, want := range tt.want {
+				assert.Contains(t, got, want)
+			}
+		})
+	}
 }

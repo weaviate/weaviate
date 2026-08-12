@@ -316,8 +316,13 @@ func ErrorDetail(err error) string {
 }
 
 // serverMessages returns the message list carried by err's payload, or nil if
-// err carries neither payload shape. A type has at most one GetPayload method,
-// so the two cases cannot both match.
+// err carries neither payload shape.
+//
+// errors.As stops at the first match in err's tree, so only one payload is ever
+// read even when err carries several. An error joining both shapes reports the
+// ErrorResponse one, since that case comes first; one joining two of the same
+// shape reports the earlier one. No error here carries more than one payload,
+// and reading them all would mean walking the tree by hand.
 func serverMessages(err error) []string {
 	var plain interface {
 		GetPayload() *models.ErrorResponse
@@ -344,6 +349,10 @@ func serverMessages(err error) []string {
 
 // itemMessages reads a message off every non-nil item, substituting "<empty>"
 // for an item that carries none so it stays visible in the joined output.
+//
+// T is unconstrained because nothing here reads a field off it. Which payload
+// shapes get unpacked is decided in serverMessages, and no caller reaches this
+// without writing an extractor for its own item type.
 func itemMessages[T any](items []*T, message func(*T) string) []string {
 	msgs := make([]string, 0, len(items))
 	for _, item := range items {
