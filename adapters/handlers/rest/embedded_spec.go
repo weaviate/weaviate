@@ -5816,7 +5816,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -5837,13 +5837,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8738,7 +8738,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8757,7 +8757,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8787,6 +8787,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -8805,7 +8806,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -17372,7 +17373,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -17393,13 +17394,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20479,7 +20480,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20498,7 +20499,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20528,6 +20529,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -20546,7 +20548,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {

@@ -44,15 +44,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]): every unit has reached
-		// terminal state, but the post-completion callbacks (per-node
-		// PREP, cluster-wide PrepCompleteAck barrier, per-node swap,
-		// cluster-wide schema flip) have not yet committed. Submitting
-		// a new migration on the same property during either window
-		// could land before MarkDistributedTaskFinalized commits the
-		// schema flip, leaving the new task and the unfinished swap of
-		// the prior one racing on the same bucket pointers.
+		// PREPARING and SWAPPING are the subtle ones: every unit has
+		// reached terminal state, but the post-completion callbacks have
+		// not yet committed. A new migration on the same property could
+		// land before the schema flip commits, leaving it and the
+		// unfinished swap racing on the same bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -147,6 +143,16 @@ func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 //
 // Public so REST handlers can use the same predicate as the
 // FSM-deterministic conflict check.
+//
+// Every caller acts on a match: refusing a conflicting submit, refusing
+// a schema mutation, or picking the task an operator asked to cancel.
+// Over-matching costs a retryable conflict error or one extra cancel
+// candidate; under-matching lets a schema change race an in-flight
+// migration on shared on-disk state. That asymmetry, not the literal
+// reading of an empty list, is why empty means "all" here.
+//
+// The status endpoint reads the same field the opposite way on purpose;
+// see mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go.
 func ReindexPropsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return true
@@ -207,12 +213,30 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	}
 }
 
+// MutationRemedy is the tail of a mutation refusal: what the operator can
+// actually do about it. The cancel API accepts STARTED and nothing else,
+// so a refusal that names a cancel unconditionally sends the operator
+// down a road that dead-ends in a 409.
+func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
+	switch {
+	case status.IsCancellable():
+		return whenCancellable
+	case status.IsRecognized():
+		return "the task is past the point where a cancel is accepted — the reindex REST API " +
+			"answers 409 in this phase, so it has to run through to a terminal state first"
+	default:
+		return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+			"refused on every node — the task has to reach a terminal state on the nodes that do " +
+			"recognize it"
+	}
+}
+
 // CheckPropertyUpdate implements
 // [distributedtask.SchemaMutationDetector] for the reindex namespace.
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
 // migration on the same (collection, property) is in any non-terminal
-// state (STARTED, PREPARING, or SWAPPING).
+// state (via [distributedtask.TaskStatus.IsActive]).
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable
@@ -272,11 +296,11 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
-				"reindex completes or is cancelled — wait for the task "+
-				"to reach a terminal state, or cancel it via the reindex "+
-				"REST API before retrying",
+				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status)
+			existP.Collection, propertyName, task.Status,
+			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return nil
 }
@@ -326,9 +350,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
 				"working state and produce a bucket↔schema inversion "+
-				"on every replica — cancel the reindex via the REST "+
-				"API before deleting the class",
-			task.ID, existP.MigrationType, existP.Collection, task.Status)
+				"on every replica — %s",
+			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			MutationRemedy(task.Status,
+				"cancel the reindex via the REST API before deleting the class"))
 	}
 	return nil
 }
@@ -379,11 +404,11 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — "+
-				"cancel the reindex via the REST API before mutating "+
-				"these tenants",
+				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants)
+			task.Status, tenants,
+			MutationRemedy(task.Status,
+				"cancel the reindex via the REST API before mutating these tenants"))
 	}
 	return nil
 }

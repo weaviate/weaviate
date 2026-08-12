@@ -195,10 +195,10 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 
 // cancelInFlightOrSkip submits an index update, polls /indexes until the
 // task shows pending/indexing, then issues cancel. If the cancel races
-// with task completion (404), the sub-test is logged as fast-completed and
-// the caller falls through to the retry submit — which still exercises a
-// useful adjacent path (re-submit after a same-shape FINISHED task) even
-// though it's not the bug we're after.
+// with task completion (409, or 202 NO_OP), the sub-test is logged as
+// fast-completed and the caller falls through to the retry submit — which
+// still exercises a useful adjacent path (re-submit after a same-shape
+// FINISHED task) even though it's not the bug we're after.
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.
@@ -238,62 +238,38 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 	respBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
+	// The cancel lands at an unsynchronized moment, so the task's phase
+	// decides the code: 202 CANCELLED (still STARTED), 409 (every unit
+	// finished, cluster-wide swap under way), 202 NO_OP (terminal).
+	// Every arm waits for a terminal state before returning: re-submitting
+	// while the old task is still non-terminal makes checkReindexConflict
+	// reject the fresh submit with 409.
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result map[string]string
 		require.NoError(t, json.Unmarshal(respBody, &result))
-		require.Equal(t, "CANCELLED", result["status"])
-		require.Equal(t, taskID, result["taskId"])
-
-		// Wait for the task to reach a terminal CANCELLED/FAILED state in
-		// /v1/tasks. Re-submitting too early can race against the DTM
-		// scheduler tick that records the cancel — checkReindexConflict
-		// would then see the old task as still "STARTED" and reject the
-		// fresh submit with 409.
-		require.Eventually(t, func() bool {
-			tasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-			if err != nil {
-				return false
-			}
-			defer tasksResp.Body.Close()
-			b, _ := io.ReadAll(tasksResp.Body)
-			var tasks models.DistributedTasks
-			if err := json.Unmarshal(b, &tasks); err != nil {
-				return false
-			}
-			for _, task := range tasks["reindex"] {
-				if task.ID == taskID {
-					return task.Status == "CANCELLED" || task.Status == "FAILED" || task.Status == "FINISHED"
-				}
-			}
+		switch result["status"] {
+		case "CANCELLED":
+			require.Equal(t, taskID, result["taskId"])
+			awaitTerminal(t, restURI, taskID)
+			t.Logf("first task %s reached terminal state after cancel", taskID)
+			return true
+		case "NO_OP":
+			require.Empty(t, result["taskId"],
+				"cancel NO_OP should not name a TaskID; body: %s", string(respBody))
+			t.Logf("cancel raced with completion of task %s; it was already terminal", taskID)
+			awaitTerminal(t, restURI, taskID)
 			return false
-		}, 60*time.Second, 50*time.Millisecond,
-			"first task did not reach a terminal state after cancel")
-		t.Logf("first task %s reached terminal state after cancel", taskID)
-		return true
-
-	case http.StatusNotFound:
-		// Cancel raced with task completion. Wait for the now-finished
-		// task to be observable as FINISHED so the retry doesn't 409.
-		t.Logf("cancel raced with completion of task %s; waiting for FINISHED", taskID)
-		require.Eventually(t, func() bool {
-			tasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-			if err != nil {
-				return false
-			}
-			defer tasksResp.Body.Close()
-			b, _ := io.ReadAll(tasksResp.Body)
-			var tasks models.DistributedTasks
-			if err := json.Unmarshal(b, &tasks); err != nil {
-				return false
-			}
-			for _, task := range tasks["reindex"] {
-				if task.ID == taskID {
-					return task.Status == "FINISHED" || task.Status == "FAILED" || task.Status == "CANCELLED"
-				}
-			}
+		default:
+			t.Fatalf("unexpected cancel status %q for task %s: %s", result["status"], taskID, string(respBody))
 			return false
-		}, 60*time.Second, 50*time.Millisecond, "race-completed first task not terminal")
+		}
+
+	case http.StatusConflict:
+		require.Contains(t, string(respBody), taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", string(respBody))
+		t.Logf("cancel raced with completion of task %s; it is past its units", taskID)
+		awaitTerminal(t, restURI, taskID)
 		return false
 
 	default:
