@@ -23,10 +23,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -445,9 +448,7 @@ func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
 		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, true)
 	s := concreteShard(t, shardLike)
 
-	// a regular file where the queue dir belongs makes the queue's MkdirAll fail
-	queueDir := filepath.Join(s.path(), geoPropID("location")+".queue.d")
-	require.NoError(t, os.WriteFile(queueDir, []byte("blocked"), 0o644))
+	blockGeoQueueDir(t, s, "location")
 
 	require.Error(t, s.initGeoProp(geoProp("location")))
 
@@ -456,7 +457,7 @@ func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
 	s.propertyIndicesLock.RUnlock()
 	require.False(t, registered, "a failed init must not leave the index registered")
 
-	require.NoError(t, os.Remove(queueDir))
+	require.NoError(t, os.Remove(filepath.Join(s.path(), geoPropID("location")+".queue.d")))
 	require.NoError(t, s.initGeoProp(geoProp("location")), "the retry must be able to run")
 
 	idx, queue := geoIndexAndQueue(t, s, "location")
@@ -497,4 +498,114 @@ func TestInitGeoPropConcurrent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1}, found)
+}
+
+// blockGeoQueueDir puts a regular file where propName's queue directory belongs,
+// so the queue's MkdirAll fails and initGeoProp errors.
+func blockGeoQueueDir(t *testing.T, s *Shard, propName string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(s.path(), geoPropID(propName)+".queue.d"), []byte("blocked"), 0o644))
+}
+
+// geoInitJobs counts the errgroup jobs initPropertyBuckets submits for props.
+// The wrapper reports the count when Wait runs, which is the only place the
+// submission shape is observable from outside.
+func geoInitJobs(t *testing.T, s *Shard, props ...*models.Property) int {
+	t.Helper()
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	s.initPropertyBuckets(context.Background(), eg, false, props...)
+	require.NoError(t, eg.Wait())
+
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "error_group_wait_initiated" {
+			count, ok := entry.Data["jobs_count"].(int64)
+			require.True(t, ok, "jobs_count field missing or not int64")
+			return int(count)
+		}
+	}
+	t.Fatal("error group never logged its job count")
+	return 0
+}
+
+// TestInitPropertyBucketsBatchesGeoProps pins that geo props share one errgroup
+// job. Each of them prefills its cache by scanning the whole objects bucket, so
+// a job apiece is a full scan apiece running at once.
+func TestInitPropertyBucketsBatchesGeoProps(t *testing.T) {
+	textProp := &models.Property{
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
+	}
+
+	tests := []struct {
+		name     string
+		props    []*models.Property
+		wantJobs int
+	}{
+		{
+			name:     "no props",
+			wantJobs: 0,
+		},
+		{
+			name:     "one text prop",
+			props:    []*models.Property{textProp},
+			wantJobs: 1,
+		},
+		{
+			name:     "one geo prop",
+			props:    []*models.Property{geoProp("location")},
+			wantJobs: 1,
+		},
+		{
+			name:     "three geo props share one job",
+			props:    []*models.Property{geoProp("location"), geoProp("home"), geoProp("office")},
+			wantJobs: 1,
+		},
+		{
+			name:     "geo props batch while other props still fan out",
+			props:    []*models.Property{textProp, geoProp("location"), geoProp("home")},
+			wantJobs: 2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
+				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+
+			require.Equal(t, test.wantJobs,
+				geoInitJobs(t, concreteShard(t, shardLike), test.props...))
+		})
+	}
+}
+
+// TestInitPropertyBucketsGeoBatchContinuesAfterError pins that one geo prop
+// failing still leaves the others initialized. Skipping them would bring the
+// shard up accepting writes it never geo-indexes.
+func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
+	ctx := context.Background()
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, true)
+	s := concreteShard(t, shardLike)
+
+	blockGeoQueueDir(t, s, "alpha")
+
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	s.initPropertyBuckets(ctx, eg, false, geoProp("alpha"), geoProp("beta"))
+
+	err := eg.Wait()
+	require.ErrorContains(t, err, `init prop "alpha": value index:`)
+
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	require.NotContains(t, s.propertyIndices, "alpha", "the failed prop must not stay registered")
+	require.Contains(t, s.propertyIndices, "beta", "a later prop must still be initialized")
 }
