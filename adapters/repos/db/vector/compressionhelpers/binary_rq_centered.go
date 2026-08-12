@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // CenteredBinaryRotationalQuantizer is the 1-bit rotational quantizer with
@@ -338,6 +339,98 @@ func (d *CenteredBinaryRQDistancer) DistanceToFloat(x []float32) (float32, error
 		return d.distancer.SingleDist(d.query, x)
 	}
 	return d.Distance(d.rq.Encode(x))
+}
+
+// centeredBinaryRQCompressedDistancer computes distances from a stored
+// centered code (graph reconnection after deletes), always code-to-code.
+type centeredBinaryRQCompressedDistancer struct {
+	rq *CenteredBinaryRotationalQuantizer
+	cq []uint64
+}
+
+func (d *centeredBinaryRQCompressedDistancer) Distance(x []uint64) (float32, error) {
+	return d.rq.DistanceBetweenCompressedVectors(d.cq, x)
+}
+
+func (d *centeredBinaryRQCompressedDistancer) DistanceToFloat(x []float32) (float32, error) {
+	return d.rq.DistanceBetweenCompressedVectors(d.cq, d.rq.Encode(x))
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {
+	return rq.NewDistancer(vec)
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) NewCompressedQuantizerDistancer(c []uint64) quantizerDistancer[uint64] {
+	return &centeredBinaryRQCompressedDistancer{rq: rq, cq: c}
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
+	slice := make([]byte, len(compressed)*8)
+	byteops.CopySliceToBytes(slice, compressed)
+	return slice
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+	slice := make([]uint64, l)
+	byteops.CopyBytesToSlice(slice, compressed)
+	return slice
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+	if len(*buffer) < l {
+		*buffer = make([]uint64, 1000*l)
+	}
+	// take from end so we can address the start of the buffer
+	slice := (*buffer)[len(*buffer)-l:]
+	*buffer = (*buffer)[:len(*buffer)-l]
+	byteops.CopyBytesToSlice(slice, compressed)
+	return slice
+}
+
+// PersistCompression writes the centered RQ record (rotation + mean). KNOWN
+// LIMITATION, load-bearing: the AddRQ/AddRQCentered commit does not persist
+// RQData.Rounding, which the centered 1-bit query encoder needs, so a
+// restart cannot reconstruct this quantizer yet — the restore path rejects
+// centered bits=1 explicitly rather than restoring a quantizer that would
+// encode queries differently from the one that built the graph. Wiring the
+// rounding into the record (or dropping randomized rounding for centered
+// rq1) is a decision for the rq4c branch owners.
+func (rq *CenteredBinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddRQCompression(compression.RQData{
+		InputDim: rq.originalDim,
+		Bits:     1,
+		Rotation: *rq.rotation,
+		Rounding: rq.rounding,
+		Mean:     rq.mean,
+	})
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) Data() compression.RQData {
+	return compression.RQData{
+		InputDim: rq.originalDim,
+		Bits:     1,
+		Rotation: *rq.rotation,
+		Rounding: rq.rounding,
+		Mean:     rq.mean,
+	}
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) Stats() CompressionStats {
+	return BinaryRQStats{
+		dataBits:  1,
+		queryBits: 5,
+	}
 }
 
 // DistanceBetweenCompressedVectors estimates the distance between two
