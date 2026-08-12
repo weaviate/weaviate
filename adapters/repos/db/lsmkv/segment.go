@@ -78,6 +78,12 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
+	// targeted-scan support (bucket_targeted_scan.go): index walk, index split
+	// for weighted task sizing, and a byte-range read that is zero-copy in mmap
+	// mode and fills *buf (grown in place as needed) via pread otherwise.
+	scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error
+	indexNodeSplits(parts int) [][2]int
+	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
@@ -100,7 +106,11 @@ type Segment interface {
 
 	// replace specific
 	getCountNetAdditions() int
-	existsKey(key []byte) (bool, error)
+	// indexContainsKey reports whether this segment holds an entry for the key,
+	// live or tombstoned — not whether the key is live. Callers deciding what a
+	// newer segment supersedes want exactly that: a tombstone hides a lower
+	// segment's row just as a value does.
+	indexContainsKey(key []byte) (bool, error)
 }
 
 type segment struct {
@@ -175,6 +185,19 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeInRange walks the serialized nodes packed in data[from:to) —
+	// on-disk order, not key order — without allocating. The key passed to fn is
+	// a subslice of the underlying data, valid only for the duration of fn.
+	ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error
+
+	// SplitNodeRanges returns node-aligned [from,to) byte ranges partitioning the
+	// whole index into at most parts pieces of roughly equal byte size, for use
+	// with ForEachNodeInRange.
+	SplitNodeRanges(parts int) [][2]int
+
+	// Contains reports whether key is present, without materializing it.
+	Contains(key []byte) (bool, error)
 }
 
 type segmentConfig struct {
@@ -683,6 +706,19 @@ type nodeOffset struct {
 	start, end uint64
 }
 
+// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
+// per call allocates, and read paths that fetch a few bytes per row do this once
+// a row, so the operations used there are pre-joined.
+func readMetricName(operation string) string {
+	switch operation {
+	case targetedScanPeekOp:
+		return "ReadFromSegment" + targetedScanPeekOp
+	case targetedScanRangeOp:
+		return "ReadFromSegment" + targetedScanRangeOp
+	}
+	return "ReadFromSegment" + operation
+}
+
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r       io.Reader
@@ -697,7 +733,7 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
+		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)

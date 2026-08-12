@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -44,6 +45,10 @@ type fakeSearcher struct {
 	lastParams dto.GetParams
 	res        []any
 	err        error
+
+	lastAggregateParams *aggregation.Params
+	aggregateRes        any
+	aggregateErr        error
 }
 
 func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal,
@@ -54,6 +59,16 @@ func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal
 		return nil, f.err
 	}
 	return f.res, nil
+}
+
+func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principal,
+	params *aggregation.Params,
+) (any, error) {
+	f.lastAggregateParams = params
+	if f.aggregateErr != nil {
+		return nil, f.aggregateErr
+	}
+	return f.aggregateRes, nil
 }
 
 type fakeSchemaReader struct {
@@ -150,6 +165,23 @@ func doNearText(t *testing.T, deps *testDeps, principal *models.Principal,
 ) (*models.SearchResponse, *APIError) {
 	t.Helper()
 	return deps.handler.NearText(context.Background(), principal, collection, mustModel(t, body))
+}
+
+// mustBm25Model is mustModel for the bm25 request model.
+func mustBm25Model(t *testing.T, body string) *models.SearchBm25Request {
+	t.Helper()
+	var req models.SearchBm25Request
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doBm25 runs the bm25 handler the way the generated operation wiring does,
+// with the typed, already-decoded request model.
+func doBm25(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Bm25(context.Background(), principal, collection, mustBm25Model(t, body))
 }
 
 func TestIsSearchRoute(t *testing.T) {
@@ -635,6 +667,15 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
+			// a class deleted mid-request, in bm25_searcher's phrasing —
+			// classified 404 by the not-found marker. index.go's twin
+			// ("class ... not found in schema") does not match and stays a
+			// 500 (known residual until an ErrClassNotFound sentinel lands).
+			name:       "class deleted mid-request",
+			err:        pkgerrors.Wrap(fmt.Errorf("could not find class Movie in schema"), "explorer: get class"),
+			wantStatus: http.StatusNotFound,
+		},
+		{
 			// typed rate-limit error via the real constructor (drift-guarded)
 			name:       "rate limit (typed ErrRateLimit)",
 			err:        enterrors.NewErrRateLimit(),
@@ -712,6 +753,243 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
 		})
 	}
+}
+
+// TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
+// as near-text, with KeywordRanking params instead of module params, and the
+// envelope carries score/explainScore metadata. Deliberately the ONLY
+// per-endpoint handler test: Bm25 is a thin execute() wrapper, and the
+// shared gates (disabled, reserved fields, authz order, unknown collection,
+// tenant) are pinned once in TestExecuteIsSearchTypeAgnostic and the
+// near-text handler tests, plus live in the acceptance suite.
+func TestBm25HandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score":        float32(1.5),
+				"explainScore": "BM25F: title term frequency",
+			},
+		},
+	}
+
+	payload, apiErr := doBm25(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"queryProperties":["title"],"returnProperties":["title"],"returnMetadata":["score","explainScore"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(1.5), *obj.Metadata.Score)
+	require.NotNil(t, obj.Metadata.ExplainScore)
+	assert.Equal(t, "BM25F: title term frequency", *obj.Metadata.ExplainScore)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with keyword-ranking params, no module params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.KeywordRanking)
+	assert.Equal(t, "space opera", params.KeywordRanking.Query)
+	assert.Equal(t, []string{"title"}, params.KeywordRanking.Properties)
+	assert.Empty(t, params.ModuleParams)
+}
+
+// mustNearObjectModel is mustModel for the near-object request model.
+func mustNearObjectModel(t *testing.T, body string) *models.SearchNearObjectRequest {
+	t.Helper()
+	var req models.SearchNearObjectRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearObject runs the near-object handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearObject(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearObject(context.Background(), principal, collection, mustNearObjectModel(t, body))
+}
+
+// TestNearObjectHandlerHappyPath: the near-object wrapper drives the same
+// execute() flow as the other search types, with NearObject params instead
+// of module, keyword or hybrid params.
+// Deliberately one of only two near-object handler tests (with the typed
+// source-object error mapping below): NearObject is a thin execute()
+// wrapper; the shared gates are pinned in TestExecuteIsSearchTypeAgnostic,
+// the near-text handler tests and the acceptance suite.
+func TestNearObjectHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearObject(t, deps, nil, "Movie",
+		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-object params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearObject)
+	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", params.NearObject.ID)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
+// TestNearObjectSourceObjectErrorMapping builds the source-object errors via
+// their real producer types, replicating the explorer's wrap chain (it wraps
+// every vector-resolution failure in ErrQueryVectorization): the typed
+// matches must win over the 502 mapping, or an unknown id would surface as
+// an embedding-provider failure. near-object declares no 502 at all, so an
+// untyped failure has to come out as the declared 500.
+func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{
+			name: "unknown source object id",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("vector not found")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "source object has no vector",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 has no vector")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "source object has no vector for the target",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("vector not found for target: title_vec")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// replicated delete conflict on the source object: usecases/replica
+			// mints this inside the fetch the explorer then wraps
+			name: "source object caught in a replicated delete conflict",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", objects.NewErrDirtyReadOfDeletedObject(
+						fmt.Errorf("consistency level %q: conflict: object exists or was deleted", "QUORUM")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// anything the mapping does not type (a shard read failure, a
+			// timeout) must not leave near-object's declared status set
+			name: "untyped source-object failure",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w",
+						fmt.Errorf("get local object: shard=abc: read: connection reset"))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			deps.searcher.err = tt.err
+
+			_, apiErr := doNearObject(t, deps, nil, "Movie", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
+		})
+	}
+}
+
+// mustHybridModel is mustModel for the hybrid request model.
+func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
+	t.Helper()
+	var req models.SearchHybridRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doHybrid runs the hybrid handler the way the generated operation wiring
+// does, with the typed, already-decoded request model.
+func doHybrid(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Hybrid(context.Background(), principal, collection, mustHybridModel(t, body))
+}
+
+// TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
+// flow as near-text and bm25, with HybridSearch params instead of module or
+// keyword params, and the envelope carries score metadata. Deliberately the
+// ONLY per-endpoint handler test — the shared gates are pinned once in
+// TestExecuteIsSearchTypeAgnostic, the near-text handler tests and the
+// acceptance suite.
+func TestHybridHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score": float32(0.9),
+			},
+		},
+	}
+
+	payload, apiErr := doHybrid(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"alpha":0.6,"fusionType":"ranked","returnProperties":["title"],"returnMetadata":["score"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(0.9), *obj.Metadata.Score)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with hybrid params, no module or keyword params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.HybridSearch)
+	assert.Equal(t, "space opera", params.HybridSearch.Query)
+	assert.Equal(t, 0.6, params.HybridSearch.Alpha)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
 }
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {

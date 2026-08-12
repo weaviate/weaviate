@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -210,11 +209,18 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
+	// Sorted: adopting one .tmp adds and removes segments that decide how the next
+	// one is resolved, so a map range would recover the same directory
+	// differently on every start.
+	tmpEntries := make([]string, 0, len(files))
 	for entry := range files {
-		if filepath.Ext(entry) != ".tmp" {
-			continue
+		if filepath.Ext(entry) == ".tmp" {
+			tmpEntries = append(tmpEntries, entry)
 		}
+	}
+	slices.Sort(tmpEntries)
 
+	for _, entry := range tmpEntries {
 		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
@@ -264,13 +270,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 
 		if leftSegmentFound && !rightSegmentFound {
-			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
+			// a switch marks the left segment before the right one, so this state
+			// cannot come from an interrupted switch: the file is a leftover of a
+			// compaction that never switched, and the operator can delete it
+			return nil, fmt.Errorf("compacted segment %q has no right segment with id %s "+
+				"left to replace, delete the compacted segment to recover", entry, jointSegmentsIDs[1])
 		}
 
-		var rightSegmentMetadata *struct {
-			Level    uint16
-			Strategy segmentindex.Strategy
-		}
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
 			// there is no need of bloom filters nor net addition counter re-calculation
@@ -292,14 +298,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
-			}
-
-			rightSegmentMetadata = &struct {
-				Level    uint16
-				Strategy segmentindex.Strategy
-			}{
-				Level:    rightSegment.getLevel(),
-				Strategy: rightSegment.getStrategy(),
 			}
 
 			err = rightSegment.close()
@@ -327,7 +325,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 			delete(files, rightSegmentFilename)
-			// the compacted segment is renamed to the same name below and would
+			// the compacted segment can take over the same name below and would
 			// otherwise try to load the derived files that were just deleted
 			for _, path := range rightSegment.sidecarPaths() {
 				delete(files, filepath.Base(path))
@@ -339,20 +337,20 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 		}
 
-		var newRightSegmentFileName string
-		if cfg.writeSegmentInfoIntoFileName && rightSegmentMetadata != nil {
-			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy))
-		} else {
-			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+		// the same rename a completed switch would have done, which keeps whatever
+		// level and strategy the compaction wrote into the name
+		newRightSegmentPath, err := stripTmpExtension(filepath.Join(sg.dir, entry),
+			jointSegmentsIDs[0], jointSegmentsIDs[1])
+		if err != nil {
+			return nil, fmt.Errorf("adopt compacted segment %q: %w", entry, err)
 		}
-		newRightSegmentPath := filepath.Join(sg.dir, newRightSegmentFileName)
 
-		if err := os.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath); err != nil {
-			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
-		}
+		logger.WithField("action", "lsm_segment_init").
+			WithField("path", newRightSegmentPath).
+			Info("took over the segment of a compaction that was interrupted mid-switch")
 
 		// initialize in correct order in the next iteration
-		files[newRightSegmentFileName] = files[entry]
+		files[filepath.Base(newRightSegmentPath)] = files[entry]
 		delete(files, entry)
 	}
 
@@ -1087,6 +1085,20 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	return sg.status == storagestate.StatusReadOnly
 }
 
+// traceEnabled reports whether the logger emits trace entries, so callers can
+// skip building WithField chains a normal log level would discard. A logger of
+// unknown type is treated as enabled rather than silently losing the line.
+func traceEnabled(logger logrus.FieldLogger) bool {
+	switch l := logger.(type) {
+	case *logrus.Logger:
+		return l.IsLevelEnabled(logrus.TraceLevel)
+	case *logrus.Entry:
+		return l.Logger.IsLevelEnabled(logrus.TraceLevel)
+	default:
+		return true
+	}
+}
+
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -1116,41 +1128,15 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	// bridge shouldAbort → ctx for the compactor inner loops
-	compactCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-compactCtx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, sg.logger)
-		}
-	}
-
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
-		compacted, err := sg.compactOnce(compactCtx)
+		compacted, err := sg.compactOnceAbortable(context.Background(), shouldAbort)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("compaction failed")
-		} else if !compacted {
+		} else if !compacted && traceEnabled(sg.logger) {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				Trace("no segments eligible for compaction")

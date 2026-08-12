@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -151,6 +152,15 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return nil
 	})
 	if err != nil {
+		return err
+	}
+
+	if err := s.ForEachGeoIndex(func(propName string, index *geo.Index) error {
+		if err := index.PrepareForBackup(innerCtx); err != nil {
+			return fmt.Errorf("prepare for backup of geo index %q: %w", propName, err)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -394,6 +404,17 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err != nil {
 		return nil, err
 	}
+
+	if err := s.ForEachGeoIndex(func(propName string, index *geo.Index) error {
+		filesGi, err := index.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo index %q: %w", propName, err)
+		}
+		files = append(files, filesGi...)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -467,6 +488,14 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	})
 	g.Go(func() error {
 		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoIndex(func(_ string, index *geo.Index) error {
 			if err := index.ResumeAfterBackup(ctx); err != nil {
 				return fmt.Errorf("resuming after backup: %w", err)
 			}

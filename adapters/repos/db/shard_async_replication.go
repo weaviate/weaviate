@@ -1280,6 +1280,20 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 	return s.disableAsyncReplication(ctx)
 }
 
+// recordRootPrefilterNoDiff stores the same empty-target stat as an ErrNoDiffFound descent: equal roots proved no differences.
+func (s *Shard) recordRootPrefilterNoDiff(ctx context.Context) {
+	s.asyncReplicationStatsMux.Lock()
+	defer s.asyncReplicationStatsMux.Unlock()
+	// disable cancels before clearing stats, so checking under the lock prevents a phantom entry written after the clear
+	if ctx.Err() != nil {
+		return
+	}
+	if s.asyncReplicationStatsByTargetNode == nil {
+		s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
+	}
+	s.asyncReplicationStatsByTargetNode[""] = &hashBeatHostStats{hashtreeDiffStartTime: time.Now()}
+}
+
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
 	s.asyncReplicationStatsMux.RLock()
 	defer s.asyncReplicationStatsMux.RUnlock()

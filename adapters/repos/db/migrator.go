@@ -408,16 +408,23 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
-		return err
-	}
-	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
+	// the delete runs even when the status update fails: the status update only
+	// touches tenants incomingSS lists and the delete only tenants it omits, and
+	// skipping the delete leaves a tenant dropped from the schema on disk
+	ec := errorcompounder.New()
+	ec.Add(m.updateIndexTenantsStatus(ctx, idx, incomingSS))
+	ec.Add(m.updateIndexDeleteTenants(ctx, idx, incomingSS))
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	nodeName := m.db.schemaGetter.NodeName()
+
+	// one tenant's failure must not skip the rest: Physical iterates in map
+	// order, so which tenants were reconciled would otherwise vary per run
+	ec := errorcompounder.New()
 	for shardName, phys := range incomingSS.Physical {
 		if !phys.IsLocalShard(nodeName) {
 			continue
@@ -425,17 +432,15 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
-				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false),
+				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
+				"shutdown tenant shard %s during update index", shardName)
 		}
 	}
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
@@ -518,8 +523,7 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		errMissingProp := errors.New("missing prop")
 		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
 		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
-			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if !shardHasProperty(shard, prop) {
 				return errMissingProp
 			}
 			return nil
@@ -531,6 +535,16 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		}
 	}
 	return nil
+}
+
+// shardHasProperty reports whether prop's value index exists on this shard. Geo
+// props get a property-specific index and no filterable bucket, so probing that
+// bucket would report them missing forever.
+func shardHasProperty(shard ShardLike, prop *models.Property) bool {
+	if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+		return shard.hasGeoIndexForProp(prop.Name)
+	}
+	return shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)) != nil
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {

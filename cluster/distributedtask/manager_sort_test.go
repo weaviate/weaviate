@@ -121,6 +121,27 @@ func TestSortTasksForDisplay(t *testing.T) {
 		}
 	})
 
+	t.Run("every non-terminal status sorts into the in-flight group", func(t *testing.T) {
+		// The in-flight group is every non-terminal status, so a task in a
+		// status this build cannot name displays with the running work
+		// rather than under the finished list an operator scrolls past.
+		// The terminal task is the more recent one, so recency alone would
+		// put it first.
+		for _, status := range []TaskStatus{
+			TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping, unknownFutureStatus,
+		} {
+			t.Run(string(status), func(t *testing.T) {
+				inFlight := mk("in-flight", status, base, time.Time{})
+				terminal := mk("terminal", TaskStatusFinished, base, base.Add(time.Hour))
+
+				got := []*Task{terminal, inFlight}
+				sortTasksForDisplay(got)
+
+				require.Equal(t, []string{"in-flight", "terminal"}, ids(got))
+			})
+		}
+	})
+
 	t.Run("empty and single-task slices are no-ops", func(t *testing.T) {
 		var empty []*Task
 		sortTasksForDisplay(empty)

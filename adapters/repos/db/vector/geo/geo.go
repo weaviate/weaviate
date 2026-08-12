@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -49,11 +50,13 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Dump(...string)
 	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
+	ListFiles(ctx context.Context, basePath string) ([]string, error)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -63,6 +66,16 @@ type Config struct {
 	DisablePersistence bool
 	RootPath           string
 	Logger             logrus.FieldLogger
+	ClassName          string
+	ShardName          string
+
+	// Store and CoordinatesFromObject let the cache prefill read every
+	// coordinate from the objects bucket in storage order, which it does only
+	// when WaitForCachePrefill is set. A Store without a decoder is rejected;
+	// leaving the Store out keeps the prefill on one lookup per doc ID.
+	Store                 *lsmkv.Store
+	CoordinatesFromObject CoordinatesFromObject
+	WaitForCachePrefill   bool
 
 	HNSWEF int
 
@@ -84,9 +97,33 @@ func (c Config) hnswEF() int {
 func NewIndex(config Config,
 	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Index, error) {
+	// the commit-logger thunk below captures this Config by value, so hnsw.New
+	// substituting a default into its own copy would never reach it
+	config.Logger = common.LoggerOrDiscard(config.Logger)
+
+	// without a decoder the prefill scan would read each object's own vector and
+	// cache it as a coordinate
+	if config.Store != nil && config.CoordinatesFromObject == nil {
+		return nil, errors.Errorf("geo index %q: coordinatesFromObject is required alongside a store", config.ID)
+	}
+
+	// the underlying index identifies its lines by class, shard and target
+	// vector, and a geo index leaves the target vector empty. index_id is the key
+	// its prefill lines already give this id, which also names the files on disk.
+	config.Logger = config.Logger.WithField("index_id", config.ID)
+
+	var vectorFromObject hnsw.VectorFromObject
+	if config.CoordinatesFromObject != nil {
+		vectorFromObject = config.CoordinatesFromObject.VectorFromObject
+	}
+
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
+		VectorFromObject:      vectorFromObject,
+		WaitForCachePrefill:   config.WaitForCachePrefill,
 		ID:                    config.ID,
+		ClassName:             config.ClassName,
+		ShardName:             config.ShardName,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
 		DistanceProvider:      distancer.NewGeoProvider(),
@@ -102,7 +139,7 @@ func NewIndex(config Config,
 		// The cache drops every vector once its entry count reaches this maximum,
 		// so a zero here empties it every few seconds.
 		VectorCacheMaxObjects: vectorIndexCommon.DefaultVectorCacheMaxObjects,
-	}, tombstoneCleanupCallbacks, nil)
+	}, tombstoneCleanupCallbacks, config.Store)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}
@@ -182,6 +219,23 @@ func (i *Index) Flush() error {
 
 func (i *Index) Shutdown(ctx context.Context) error {
 	return i.vectorIndex.Shutdown(ctx)
+}
+
+// PrepareForBackup readies the geo graph for its files to be copied. The graph
+// is an HNSW in its own right, persisted beside the shard rather than inside its
+// LSM buckets, so a backup has to halt, list and resume it like any other vector
+// index.
+func (i *Index) PrepareForBackup(ctx context.Context) error {
+	return i.vectorIndex.PrepareForBackup(ctx)
+}
+
+func (i *Index) ResumeAfterBackup(ctx context.Context) error {
+	return i.vectorIndex.ResumeAfterBackup(ctx)
+}
+
+// ListFiles returns the index files a backup has to copy, relative to basePath.
+func (i *Index) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return i.vectorIndex.ListFiles(ctx, basePath)
 }
 
 // UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
