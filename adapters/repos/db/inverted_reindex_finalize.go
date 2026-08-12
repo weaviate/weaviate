@@ -174,7 +174,8 @@ func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns
-// true iff the named file is present in dirPath as a regular file.
+// true when the named file is present in dirPath and is not a directory. A
+// stat that fails for any other reason reads as absent.
 func fileExistsInDir(dirPath, fileName string) bool {
 	info, err := os.Stat(filepath.Join(dirPath, fileName))
 	return err == nil && !info.IsDir()

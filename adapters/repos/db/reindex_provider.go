@@ -1745,7 +1745,8 @@ func sweepTerminalTuples(
 // "Every shard" means every shard in the index's shard map — a tenant already
 // COLD when the sweep starts isn't in it, so its state waits for a later
 // reindex task; reactivation does not clear it. A tenant deactivated mid-walk
-// was in the map and reports [terminalSweepUnknown].
+// was in the map and reports [terminalSweepUnknown]. A tenant activated
+// mid-walk is out of scope like an already-COLD one.
 type terminalSweepOutcome int
 
 const (
@@ -2088,8 +2089,10 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
 // Returns false when a tracker dir on this node is neither tidied nor merged,
-// or when unreadable state could hide one — the signature of a swap
-// interrupted mid-flight; see [hasUntidiedTracker].
+// or when unreadable tracker state could hide one — the signature of a swap
+// interrupted mid-flight; see [hasUntidiedTracker]. An unreadable *task*
+// payload goes the other way: nothing here can be recovered, so it returns
+// true.
 // Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
 // the rehydrate path completes the swap; without it, a half-applied local
 // swap could leave this node at OLD tokenization after a cluster-wide

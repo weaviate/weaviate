@@ -823,9 +823,12 @@ func (i *Index) closeRequestedCause() error {
 // by diffing unvisited names against the shard set captured before the walk,
 // reported as [errShardsSkipped].
 //
-// The set is captured at the start: a shard already gone is out of scope, but
-// one that leaves mid-walk is reported, since only that case can invalidate a
-// "reached every shard" claim.
+// The set is captured at the start, so "reached every shard" means every shard
+// the index held when the walk began — the same set [terminalSweepOutcome]
+// reports on. A shard already gone is out of scope. So is one that arrives
+// mid-walk: Range makes no consistent-snapshot promise, so it may or may not
+// be handed to f, and either way it is not reported. Only a shard that leaves
+// mid-walk can invalidate the claim, which is what [errShardsSkipped] is for.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeRequestedCause(); cause != nil {
 		return cause

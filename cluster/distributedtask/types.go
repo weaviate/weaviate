@@ -267,13 +267,18 @@ type SchemaMutationDetector interface {
 type RecoveryAwareProvider interface {
 	Provider
 
-	// LocalCallbacksDone returns true iff this provider has verified,
-	// from durable local state, that OnGroupCompleted (and any
-	// follow-up local recovery) has completed successfully for every
-	// unit assigned to localNode. Returning false means "the
-	// bootstrap pre-mark should NOT suppress callback replay for
-	// this task — let OnGroupCompleted re-fire on next tick so the
-	// provider can finish recovery."
+	// LocalCallbacksDone returns false when durable local state shows that
+	// OnGroupCompleted (and any follow-up local recovery) did not complete
+	// for every unit assigned to localNode, or when that state cannot be
+	// read. Returning false means "the bootstrap pre-mark should NOT
+	// suppress callback replay for this task — let OnGroupCompleted re-fire
+	// on next tick so the provider can finish recovery."
+	//
+	// It returns true otherwise, which is weaker than "verified done": a
+	// task the provider has nothing to recover for — one it cannot parse,
+	// one that is not its kind of migration, one with no local shards —
+	// also returns true, because replaying callbacks for it would achieve
+	// nothing.
 	//
 	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under
 	// s.mu, ONCE per terminal task at bootstrap. Implementations
