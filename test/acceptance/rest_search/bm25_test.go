@@ -85,21 +85,7 @@ func TestRESTSearchBm25(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	// no searchable property at all: int only, plus a text property with its
-	// searchable index disabled
-	ledgerClass := &models.Class{
-		Class:      "Ledger",
-		Vectorizer: "none",
-		Properties: []*models.Property{
-			{Name: "year", DataType: schema.DataTypeInt.PropString()},
-			{
-				Name: "code", DataType: schema.DataTypeText.PropString(),
-				IndexSearchable: func() *bool { b := false; return &b }(),
-			},
-		},
-	}
-
-	classes := []*models.Class{bookClass, diaryClass, ledgerClass}
+	classes := []*models.Class{bookClass, diaryClass, unsearchableLedgerClass("none")}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -149,25 +135,7 @@ func TestRESTSearchBm25(t *testing.T) {
 
 		// both books carry the query terms (title of one, description of
 		// the other) — bm25 over all searchable properties finds both
-		res := results(t, out)
-		require.Len(t, res, 2)
-		_, ok := out["tookMs"].(float64)
-		assert.True(t, ok, "tookMs missing or not a number: %v", out)
-
-		prev := float64(-1)
-		for i := range res {
-			h := hit(t, out, i)
-			id := idOf(t, h)
-			require.True(t, strfmt.IsUUID(id), "id is not a UUID: %q", id)
-			metadata := metadataOf(t, h)
-			score, ok := metadata["score"].(float64)
-			require.True(t, ok, "score missing in metadata: %v", metadata)
-			assert.Greater(t, score, float64(0))
-			if prev >= 0 {
-				assert.LessOrEqual(t, score, prev, "scores must descend")
-			}
-			prev = score
-		}
+		assertScoredHits(t, out, 2, true)
 	})
 
 	t.Run("queryProperties restricts the searched properties", func(t *testing.T) {

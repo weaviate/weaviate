@@ -785,6 +785,65 @@ func TestBm25HandlerHappyPath(t *testing.T) {
 	assert.Empty(t, params.ModuleParams)
 }
 
+// mustHybridModel is mustModel for the hybrid request model.
+func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
+	t.Helper()
+	var req models.SearchHybridRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doHybrid runs the hybrid handler the way the generated operation wiring
+// does, with the typed, already-decoded request model.
+func doHybrid(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Hybrid(context.Background(), principal, collection, mustHybridModel(t, body))
+}
+
+// TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
+// flow as near-text and bm25, with HybridSearch params instead of module or
+// keyword params, and the envelope carries score metadata. Deliberately the
+// ONLY per-endpoint handler test — the shared gates are pinned once in
+// TestExecuteIsSearchTypeAgnostic, the near-text handler tests and the
+// acceptance suite.
+func TestHybridHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score": float32(0.9),
+			},
+		},
+	}
+
+	payload, apiErr := doHybrid(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"alpha":0.6,"fusionType":"ranked","returnProperties":["title"],"returnMetadata":["score"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(0.9), *obj.Metadata.Score)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with hybrid params, no module or keyword params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.HybridSearch)
+	assert.Equal(t, "space opera", params.HybridSearch.Query)
+	assert.Equal(t, 0.6, params.HybridSearch.Alpha)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+}
+
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.handler.namespacesEnabled = true
