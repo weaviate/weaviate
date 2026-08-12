@@ -28,7 +28,7 @@ import (
 const SchemaObjectsIndexesUpdateAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexesUpdateAccepted Reindex task submitted.
+SchemaObjectsIndexesUpdateAccepted Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.
 
 swagger:response schemaObjectsIndexesUpdateAccepted
 */
@@ -188,7 +188,7 @@ func (o *SchemaObjectsIndexesUpdateForbidden) WriteResponse(rw http.ResponseWrit
 const SchemaObjectsIndexesUpdateNotFoundCode int = 404
 
 /*
-SchemaObjectsIndexesUpdateNotFound Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
+SchemaObjectsIndexesUpdateNotFound Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.
 
 swagger:response schemaObjectsIndexesUpdateNotFound
 */
