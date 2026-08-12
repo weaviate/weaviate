@@ -960,7 +960,7 @@ func TestHybridMaxVectorDistance(t *testing.T) {
 	})
 
 	t.Run("alpha 0 rejects the cutoff", func(t *testing.T) {
-		// at alpha 0 the vector leg never runs, so the cutoff would be
+		// at alpha 0 the vector part never runs, so the cutoff would be
 		// silently ignored rather than applied
 		_, apiErr := buildHybrid(t, movieClass(), `{"query":"space","alpha":0,"maxVectorDistance":0.4}`)
 		require.NotNil(t, apiErr)
@@ -981,7 +981,7 @@ func TestHybridQueryProperties(t *testing.T) {
 	})
 }
 
-// TestHybridVectorizerOnlyAboveAlphaZero: the vector leg is skipped entirely
+// TestHybridVectorizerOnlyAboveAlphaZero: the vector part is skipped entirely
 // at alpha 0 (engine behavior), so a pure keyword hybrid search runs on
 // collections without any vectorizer module; any alpha above 0 needs one.
 func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
@@ -1004,9 +1004,9 @@ func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
 }
 
 func TestHybridNoSearchableProperties(t *testing.T) {
-	// the keyword leg expands empty queryProperties to all searchable
+	// the keyword part expands empty queryProperties to all searchable
 	// properties; below alpha 1 a collection with none is a 422, at alpha 1
-	// the keyword leg is skipped and the search is legitimately pure-vector
+	// the keyword part is skipped and the search is legitimately pure-vector
 	for name, body := range map[string]string{
 		"default alpha": `{"query":"space"}`,
 		"alpha 0":       `{"query":"space","alpha":0}`,
@@ -1020,7 +1020,7 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 		})
 	}
 
-	t.Run("alpha 1 skips the keyword leg", func(t *testing.T) {
+	t.Run("alpha 1 skips the keyword part", func(t *testing.T) {
 		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":1}`)
 		assert.Nil(t, apiErr)
 	})
