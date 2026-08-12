@@ -799,9 +799,27 @@ func (i *Index) closeCause() error {
 	return errIndexClosed
 }
 
+// closeRequestedCause reports why this index is closing or is about to, or nil
+// if neither. [Index.closeCause] only answers once the teardown reaches the
+// index, and a delete spends the window before that waiting for db.indexLock
+// and dropIndex; a walk starting in the window works on a collection already
+// committed for deletion.
+//
+// Only the strict walkers ask this. A lenient walk over an index that is still
+// open has no reason to refuse.
+func (i *Index) closeRequestedCause() error {
+	if i.closeRequestedCtx != nil {
+		if cause := context.Cause(i.closeRequestedCtx); cause != nil {
+			return cause
+		}
+	}
+	return i.closeCause()
+}
+
 // forEachShardStrict is [Index.ForEachShard] for callers that must not treat
-// a walk that skipped shards as one that reached them all: a closing index or
-// an unvisited shard is reported as an error, not swallowed into a nil.
+// a walk that skipped shards as one that reached them all: an index closing or
+// committed to closing ([Index.closeRequestedCause]), or an unvisited shard,
+// is reported as an error rather than swallowed into a nil.
 //
 // sync.Map.Range can skip entries deleted mid-walk, so the close cause is
 // re-checked after the walk to catch a drop landing mid-range. Removals that
@@ -813,7 +831,7 @@ func (i *Index) closeCause() error {
 // one that leaves mid-walk is reported, since only that case can invalidate a
 // "reached every shard" claim.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
-	if cause := i.closeCause(); cause != nil {
+	if cause := i.closeRequestedCause(); cause != nil {
 		return cause
 	}
 	unvisited := i.shardNameSet()

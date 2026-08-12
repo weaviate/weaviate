@@ -289,6 +289,93 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 	}
 }
 
+// DeleteIndex signals the delete, then queues behind db.indexLock and
+// dropIndex before the teardown cancels closingCtx. A sweep that starts in
+// that window would hydrate cold tenants of a collection that is already going
+// away, and report the result as a clean sweep.
+func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.T) {
+	tests := []struct {
+		name string
+		// requestedCause is what DeleteIndex or Shutdown signalled; nil leaves
+		// the index open.
+		requestedCause error
+		wantDropped    bool
+		wantTruncated  bool
+	}{
+		{
+			// The control: without a close, the same fixture does hydrate, so
+			// the rows below are about the close and nothing else.
+			name: "an open index hydrates the shards with state on them",
+		},
+		{
+			name:           "a delete already requested",
+			requestedCause: errIndexDropped,
+			wantDropped:    true,
+		},
+		{
+			name:           "a shutdown already requested",
+			requestedCause: errIndexShutdown,
+			wantTruncated:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			closingCtx, closeIndex := context.WithCancel(context.Background())
+			defer closeIndex()
+			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+			defer signalCloseRequested(nil)
+			idx := &Index{
+				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				closingCtx:           closingCtx,
+				closeRequestedCtx:    closeRequestedCtx,
+				signalCloseRequested: signalCloseRequested,
+				logger:               logger,
+			}
+
+			monitor := &failToLoadMonitor{}
+			for _, name := range []string{"shard-a", "shard-b"} {
+				mkTrackerDir(t, shardPathLSM(idx.path(), name),
+					"enable_filterable_title_1", "started.mig")
+				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
+					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
+					memMonitor: monitor,
+				})
+			}
+
+			// Signalled only: the teardown has not reached the index, so
+			// closingCtx is still live, as it is for the whole window.
+			if tc.requestedCause != nil {
+				signalCloseRequested(tc.requestedCause)
+			}
+
+			err := idx.cleanStalePartialReindexState(
+				context.Background(), "title", "filterable", nil)
+
+			require.Error(t, err)
+			if tc.requestedCause == nil {
+				require.ErrorIs(t, err, ErrCleanupShardFailed)
+				require.Positive(t, monitor.calls,
+					"the fixture must be one the sweep would otherwise hydrate")
+				return
+			}
+			require.Zero(t, monitor.calls,
+				"a collection on its way out must not be hydrated to sweep state that is about to be deleted")
+			require.ErrorIs(t, err, tc.requestedCause)
+			if tc.wantDropped {
+				require.True(t, IsCleanupCollectionDropped(err),
+					"the state goes away with the collection, so this is not a retryable truncation")
+			}
+			if tc.wantTruncated {
+				require.ErrorIs(t, err, ErrCleanupSweepTruncated,
+					"a shutdown leaves the state on disk, so the caller has to know it was not swept")
+			}
+		})
+	}
+}
+
 func TestClassifyIncompleteWalk(t *testing.T) {
 	unmarked := errors.New("something no close cause covers")
 
