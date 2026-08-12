@@ -34,19 +34,18 @@ const (
 	nsFlipIndex   uint64 = 2
 )
 
-// This file tests the namespace check at the top of store.Apply. The
-// check rejects any command that would create a class, alias, user, or
-// role inside a namespace that is missing or not active, and reports the
-// namespace's actual state.
+// This file tests the namespace checks in store.Apply. Every ApplyRequest type
+// belongs to exactly one of the three maps below. The namespace lifecycle
+// commands stay ungated, so a suspended namespace can still be resumed or
+// deleted.
 //
-// The two maps below split every ApplyRequest type into the commands the
-// check must reject and the commands it must let through (including the
-// namespace lifecycle commands themselves). TestApplyTypeNamespaceGate-
-// Classification fails the build when a new type is added without being
-// placed in one of the two maps, so the author has to pick a side.
+// The maps record intent, not behaviour. The switch in store_apply.go is the
+// authority, so a type listed here but wired to a different check still leaves
+// this test green. The per-state cases in
+// TestApplyGate_RejectsGatedSchemaApplyTypes pin the behaviour.
 
-// Commands the namespace check rejects when the namespace is gone or not active.
-var namespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
+// Commands gated by namespaces.RequireActive.
+var requireActiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
@@ -58,8 +57,12 @@ var namespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
 }
 
-// Commands the namespace check always lets through.
-var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
+// Commands gated by namespaces.AdmitDestructiveApply. Empty while the three
+// delete types are still ungated.
+var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{}
+
+// Commands the apply switch runs with no namespace check.
+var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_DELETE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_ADD_PROPERTY:                                               {},
@@ -115,19 +118,34 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
 }
 
-// TestApplyTypeNamespaceGateClassification fails when a new
-// ApplyRequest_Type value isn't classified in exactly one of the two lists.
+// applyTypeBuckets pairs each classification map with its name, so the drift
+// check can report which ones a misfiled type appears in.
+var applyTypeBuckets = []struct {
+	name  string
+	types map[api.ApplyRequest_Type]struct{}
+}{
+	{"requireActiveApplyTypes", requireActiveApplyTypes},
+	{"destructiveApplyTypes", destructiveApplyTypes},
+	{"ungatedApplyTypes", ungatedApplyTypes},
+}
+
+// TestApplyTypeNamespaceGateClassification fails when an ApplyRequest_Type is
+// classified in none of the buckets or in more than one.
 func TestApplyTypeNamespaceGateClassification(t *testing.T) {
 	for value := range api.ApplyRequest_Type_name {
 		applyType := api.ApplyRequest_Type(value)
 		if applyType == api.ApplyRequest_TYPE_UNSPECIFIED {
 			continue
 		}
-		_, gated := namespaceTouchingApplyTypes[applyType]
-		_, nonGated := nonNamespaceTouchingApplyTypes[applyType]
-		assert.True(t, gated != nonGated,
-			"unclassified or double-classified apply type %s: must appear in exactly one of the two lists in store_apply_namespace_active_test.go",
-			applyType)
+		var found []string
+		for _, b := range applyTypeBuckets {
+			if _, ok := b.types[applyType]; ok {
+				found = append(found, b.name)
+			}
+		}
+		assert.Len(t, found, 1,
+			"apply type %s must appear in exactly one bucket in store_apply_namespace_active_test.go, found %v",
+			applyType, found)
 	}
 }
 
