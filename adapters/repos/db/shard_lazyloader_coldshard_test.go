@@ -66,12 +66,23 @@ type addPropertyLazyFixture struct {
 	schemaClass *models.Class
 }
 
-// newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold.
+// newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold and
+// stay cold, so a test decides when each one loads.
 // It registers no Shutdown cleanup — callers own the repo's lifecycle.
 func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
+	repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, shardState, true, true)
+	return repo, migrator, schemaGetter
+}
+
+// newLazyLoadRepoWithConfig wires a repo with the two lazy-shard knobs set as
+// given, returning the log hook so a test can read what startup logged.
+func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
+	lazyLoad, warmupDisabled bool,
+) (*DB, *Migrator, *fakeSchemaGetter, *test.Hook) {
+	t.Helper()
 	ctx := testCtx()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
 
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
@@ -98,10 +109,11 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      boolPtr(true),
+		RootPath:                    t.TempDir(),
+		QueryMaximumResults:         10000,
+		MaxImportGoroutinesFactor:   1,
+		EnableLazyLoadShards:        boolPtr(lazyLoad),
+		LazyLoadShardWarmupDisabled: warmupDisabled,
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
@@ -115,7 +127,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	require.NoError(t, repo.init(ctx))
 	repo.startupComplete.Store(true)
 
-	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
+	return repo, NewMigrator(repo, logger, "node1"), schemaGetter, hook
 }
 
 func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
@@ -550,6 +562,44 @@ func TestLazyLoadShard_LoadInvalidatesCachedColdCount(t *testing.T) {
 				require.EqualValues(t, tc.wantCount, count,
 					"cold count for shard %q after the load attempt", name)
 			}
+		})
+	}
+}
+
+// background_warmup tells an operator whether this collection's cold shards get
+// loaded by the startup sweep. An eagerly loaded collection has no such sweep,
+// whatever LazyLoadShardWarmupDisabled is set to.
+func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
+	ctx := testCtx()
+
+	cases := []struct {
+		name           string
+		lazyLoad       bool
+		warmupDisabled bool
+		want           bool
+	}{
+		{name: "lazy loading with warmup", lazyLoad: true, want: true},
+		{name: "lazy loading with warmup disabled", lazyLoad: true, warmupDisabled: true},
+		{name: "eager loading with warmup"},
+		{name: "eager loading with warmup disabled", warmupDisabled: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, migrator, _, hook := newLazyLoadRepoWithConfig(t, singleShardState(), tc.lazyLoad, tc.warmupDisabled)
+			t.Cleanup(func() { repo.Shutdown(context.Background()) })
+
+			require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp("WarmupLogging")))
+
+			// Warnings on the same action carry no background_warmup field.
+			var logged []interface{}
+			for _, entry := range hook.AllEntries() {
+				warmup, ok := entry.Data["background_warmup"]
+				if ok && entry.Data["action"] == "lazy_shard_auto_detection" {
+					logged = append(logged, warmup)
+				}
+			}
+			require.Equal(t, []interface{}{tc.want}, logged)
 		})
 	}
 }
