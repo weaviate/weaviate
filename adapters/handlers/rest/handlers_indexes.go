@@ -18,13 +18,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -570,8 +568,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// is unavailable". Returning 503 here misled callers and
 			// monitoring into thinking the cluster was unhealthy rather than
 			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+			if refusal := reindexCapRefusal(principal, collection, tasks[db.ReindexNamespace]); refusal != nil {
+				return refusal
 			}
 		}
 	}
@@ -1373,33 +1371,38 @@ func normalizeSearchableAlgorithm(s string) string {
 // fan-out from a script that loops over hundreds of properties. The
 // original value of 4 was too restrictive: it rejected legitimate batch
 // migrations against modest-sized collections and broke the
-// reindex_concurrent acceptance test which exercises 15 simultaneous
-// non-conflicting submits.
+// reindex_concurrent acceptance test, which keeps 15 non-conflicting tasks
+// in flight at once.
 const maxConcurrentReindexPerCollection = 32
 
-// reindexCapExceededResponder returns a 429 Too Many Requests response with
-// the standard ErrorResponse body shape. The swagger spec for
-// PUT /v1/schema/{class}/indexes/{prop} does not declare a 429 response —
-// it predates the per-collection cap — so we hand-roll the responder
-// instead of adding to the generated code.
+// reindexCapExceededResponder returns the 429 Too Many Requests refusal for
+// the per-collection cap.
 //
 // The status is intentionally 429 and not 503: the rejection is driven by
 // a concurrency limit specific to this caller's collection, not by the
-// cluster being unavailable. Returning 503 misled monitoring (and the
-// reindex_concurrent acceptance test asserts the cap is reached, not that
-// the service went unhealthy).
+// cluster being unavailable. Returning 503 made monitoring read a capped
+// collection as an unhealthy cluster.
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
-	body := errorResponse(principal, fmt.Sprintf(
+	return schema.NewSchemaObjectsIndexesUpdateTooManyRequests().WithPayload(errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
-		collection, inflight, capLimit))
-	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		if err := producer.Produce(w, body); err != nil {
-			// Match the generated swagger responders' behaviour for body
-			// write failures; the recovery middleware logs and returns 500.
-			panic(err)
-		}
-	})
+		collection, inflight, capLimit)))
+}
+
+// reindexCapRefusal returns the 429 refusal when the collection is already at
+// the per-collection cap, or nil when the submit may proceed. It admits at
+// cap-1 tasks in flight and refuses at cap, so a submit it admits brings the
+// count to the cap at most.
+//
+// That bound is per check, not per collection. The submit lock is keyed on
+// (collection, property), so two PUTs on different properties of the same
+// collection can both count in-flight tasks before either has added its own,
+// and both admit at cap-1, leaving cap+1 running.
+func reindexCapRefusal(principal *models.Principal, collection string, tasks []*distributedtask.Task) middleware.Responder {
+	inflight := countStartedTasksForCollection(collection, tasks)
+	if inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+	}
+	return nil
 }
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a
