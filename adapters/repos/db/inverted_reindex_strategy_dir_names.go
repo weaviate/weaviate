@@ -225,6 +225,16 @@ type migrationDirScope struct {
 	// preserve widens the no-payload fallback in [migrationDirScope.matches];
 	// set by [migrationDirScope.preserving].
 	preserve bool
+	// props memoizes payloads across the passes of one sweep; nil reads every
+	// time. Set by [migrationDirScope.cachingProps].
+	props *taskPropsCache
+}
+
+// cachingProps scopes a payload memo to this scope and every scope derived from
+// it. See [taskPropsCache] for why it must not outlive one sweep.
+func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
+	s.props = c
+	return s
 }
 
 // migrationDirsOf returns the tracker dirs a (propName, indexType) cleanup
@@ -268,8 +278,56 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 // only because [ReindexProvider.createReindexTasks] rejects such a payload
 // unless it carries exactly one property.
 func (s migrationDirScope) matches(name string) bool {
+	if matched, decided := s.matchByName(name); decided {
+		return matched
+	}
 	matched, _ := s.match(name)
 	return matched
+}
+
+// matchByName answers the dirs whose name no payload can contradict, so a
+// sweep reads only the payloads it has to. decided=false means ask the payload.
+//
+// A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so a
+// segment holding no "_" came from a single property. Equality with a propName
+// that itself holds no "_" is then unforgeable, and a name that neither equals
+// propName nor carries it as a whole token cannot be rebuilt from any property
+// list holding propName. Every other shape needs the payload.
+//
+// [migrationDirScope.match] stays the authority and keeps reading payloads, so
+// the unloaded-shard gate still fails open on one it cannot parse.
+func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
+	base := migrationDirBase(name)
+	for _, classDir := range s.classDirs {
+		if base == classDir {
+			return true, true
+		}
+	}
+	if !s.hasStrategyPrefix(base) {
+		return false, true
+	}
+	var exact, token bool
+	for _, prefix := range s.prefixes {
+		exact = exact || base == migrationDirWithProps(prefix, []string{s.propName})
+		token = token || namesPropertyToken(base, prefix, s.propName)
+	}
+	switch {
+	case exact && !strings.Contains(s.propName, "_"):
+		return true, true
+	case !exact && !token:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// migrationDirBase strips a tracker dir's generation suffix. A dir with none
+// predates [genSuffix] and carries the prefix as its whole name.
+func migrationDirBase(name string) string {
+	if base, _, ok := parseMigrationDirName(name); ok {
+		return base
+	}
+	return name
 }
 
 // match additionally reports a payload that exists but could not be read or
@@ -286,12 +344,7 @@ func (s migrationDirScope) matches(name string) bool {
 // with an intact one — unreachable from real writers, which derive the name
 // and the payload from the same sorted list.
 func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
-	base, _, ok := parseMigrationDirName(name)
-	if !ok {
-		// A dir with no generation suffix predates [genSuffix] and carries the
-		// prefix as its whole name.
-		base = name
-	}
+	base := migrationDirBase(name)
 	for _, classDir := range s.classDirs {
 		if base == classDir {
 			return true, false
@@ -363,12 +416,62 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // is there but its content couldn't be obtained, so "recorded nothing" is not
 // a safe conclusion.
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
-	props, err := readRecoveryPropertyNames(filepath.Join(s.lsmPath, ".migrations", name))
+	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name))
+	return answer.props, answer.ok, answer.unreadable
+}
+
+// taskPropsCache memoizes parsed tracker payloads, so the three passes of one
+// [Shard.CleanStalePartialReindexState] read each payload once instead of three
+// times. A nil cache reads every time.
+//
+// One sweep of one shard is its whole life. Anything longer would let a
+// hydrated shard's sweep act on a snapshot, which is the one thing
+// [DB.NewStalePartialReindexSweep] promises it never does. Not safe for
+// concurrent use.
+type taskPropsCache struct {
+	byDir map[string]taskProps
+	reads int
+}
+
+// taskProps is one [migrationDirScope.taskProperties] answer.
+type taskProps struct {
+	props      []string
+	ok         bool
+	unreadable bool
+}
+
+// lookup returns a tracker dir's parsed payload, reading it on a miss.
+func (c *taskPropsCache) lookup(migDir string) taskProps {
+	if c == nil {
+		return readTaskProps(migDir)
+	}
+	if answer, hit := c.byDir[migDir]; hit {
+		return answer
+	}
+	answer := readTaskProps(migDir)
+	if c.byDir == nil {
+		c.byDir = map[string]taskProps{}
+	}
+	c.byDir[migDir] = answer
+	c.reads++
+	return answer
+}
+
+// count is how many payloads this cache had to read.
+func (c *taskPropsCache) count() int {
+	if c == nil {
+		return 0
+	}
+	return c.reads
+}
+
+func readTaskProps(migDir string) taskProps {
+	props, err := readRecoveryPropertyNames(migDir)
 	if err != nil {
-		return nil, false, !os.IsNotExist(err)
+		return taskProps{unreadable: !os.IsNotExist(err)}
 	}
 	if len(props) == 0 {
-		return nil, false, false
+		return taskProps{}
 	}
-	return props, true, false
+	return taskProps{props: props, ok: true}
 }

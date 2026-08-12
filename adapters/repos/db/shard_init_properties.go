@@ -232,7 +232,14 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 // back-to-back submits without a restart (R2/R2b on the controller
 // node).
 func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) {
-	migrationsRoot := filepath.Join(lsmPath, ".migrations")
+	cleanStaleMigrationDirsIn(migrationDirsOf(lsmPath, nil, propName, indexType), logger)
+}
+
+// cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a scope the
+// caller already built, so a sweep can share one payload memo with its
+// preserve pass.
+func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) {
+	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -241,7 +248,6 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 		}
 		return
 	}
-	scope := migrationDirsOf(lsmPath, nil, propName, indexType)
 	preserved := completedMigrationGens(scope)
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -297,6 +303,14 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 // a bucket can't be cleanly disconnected from the LSM layer — proceeding
 // to remove its files would corrupt the store.
 func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+	return s.cleanStalePartialReindexState(ctx, propName, indexType, &taskPropsCache{})
+}
+
+// cleanStalePartialReindexState is [Shard.CleanStalePartialReindexState] with
+// the payload memo passed in, so a test can see what the sweep had to read.
+func (s *Shard) cleanStalePartialReindexState(
+	ctx context.Context, propName, indexType string, props *taskPropsCache,
+) error {
 	// Step 1: shut down the per-prop sidecar buckets for this index type.
 	// Only the buckets that share the relevant main bucket's prefix are
 	// touched, so other in-flight reindex tasks on the same shard are not
@@ -316,8 +330,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
-	preserveSidecars := completedMigrationSidecarSuffixes(
-		migrationDirsOf(s.pathLSM(), nil, propName, indexType).preserving(indexType))
+	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props)
+	preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -352,8 +366,9 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// Steps 2 + 3: remove sidecar dirs and migration dir. The helpers log
 	// errors rather than fail; preserved suffixes survive.
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars)
-	s.cleanStaleMigrationDirs(propName, indexType)
-	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
+	cleanStaleMigrationDirsIn(scope, s.index.logger)
+	logger.WithField("payload_reads", props.count()).
+		Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
 
 	return nil
 }
