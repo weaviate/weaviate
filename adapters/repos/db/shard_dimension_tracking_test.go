@@ -78,7 +78,7 @@ func Benchmark_Migration(b *testing.B) {
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
 			}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
@@ -159,7 +159,7 @@ func Test_Migration(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -216,7 +216,7 @@ func Test_Migration(t *testing.T) {
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	defer repoNew.Shutdown(context.Background())
 	repoNew.SetSchemaGetter(schemaGetter)
@@ -258,7 +258,7 @@ func Test_DimensionTracking(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -512,7 +512,7 @@ func Test_DisableDimensionTracking(t *testing.T) {
 		TrackVectorDimensions:     true,
 		DisableDimensionMetrics:   runtime.NewDynamicValue(true),
 	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))

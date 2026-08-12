@@ -368,26 +368,32 @@ func (c *Controller) Snapshot() ([]byte, error) {
 	return json.Marshal(c.namespaces)
 }
 
-// Restore replaces the current state with the snapshot contents. A nil or
-// empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
+// Restore replaces the current state with the snapshot contents. A nil,
+// empty or "null" snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
 // Entries missing the single HomeNodes entry are also rejected — there is
 // no migration path from a pre-HomeNodes snapshot.
 func (c *Controller) Restore(snapshot []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if len(snapshot) == 0 {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.namespaces = make(map[string]*cmd.Namespace)
 		return nil
 	}
 
+	// Decoding and validating scale with the snapshot size and touch only the
+	// local map, so they run off-lock: holding the write lock across them
+	// blocks every reader for the whole install.
 	restored := make(map[string]*cmd.Namespace)
 	if err := json.Unmarshal(snapshot, &restored); err != nil {
 		c.logger.Errorf("restoring namespaces from snapshot failed with: %v", err)
 		return err
+	}
+	// A "null" snapshot decodes to a nil map; writing into it would panic.
+	if restored == nil {
+		restored = make(map[string]*cmd.Namespace)
 	}
 	for name, ns := range restored {
 		if ns == nil {
@@ -406,7 +412,11 @@ func (c *Controller) Restore(snapshot []byte) error {
 			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
+
+	c.mu.Lock()
 	c.namespaces = restored
+	c.mu.Unlock()
+
 	c.logger.Info("successfully restored namespaces from snapshot")
 	return nil
 }

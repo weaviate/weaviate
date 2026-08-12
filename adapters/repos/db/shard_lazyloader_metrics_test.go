@@ -87,7 +87,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 

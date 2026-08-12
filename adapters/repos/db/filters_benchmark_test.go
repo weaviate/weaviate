@@ -442,7 +442,7 @@ func setupBenchmarkDB(t testing.TB) (*DB, *fakeSchemaGetter) {
 		QueryMaximumResults:       10000000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
