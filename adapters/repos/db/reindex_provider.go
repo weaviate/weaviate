@@ -1744,12 +1744,14 @@ func sweepTerminalTuples(
 //
 // "Every shard" means every shard in the index's shard map — a tenant already
 // COLD when the sweep starts isn't in it, so its state is neither swept nor
-// reported until reactivation (the OnAfterLsmInitAsync stale-sentinel check).
-// A tenant deactivated mid-walk was in the map and reports [terminalSweepUnknown].
+// reported until a later reindex task reaches that shard; reactivating the
+// tenant does not clear it. A tenant deactivated mid-walk was in the map and
+// reports [terminalSweepUnknown].
 type terminalSweepOutcome int
 
 const (
-	// terminalSweepClean: every shard in the map was swept.
+	// terminalSweepClean: the walk reached every shard in the map. A shard
+	// the gate skipped counts as reached — it had nothing to sweep.
 	terminalSweepClean terminalSweepOutcome = iota
 	// terminalSweepDropped: no shard was swept and none had to be — the
 	// collection is not on this node, so its partial state is not here either.
@@ -2187,9 +2189,10 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	return nil
 }
 
-// hasUntidiedTracker returns true iff at least one tracker dir in scope has
-// started.mig but neither tidied.mig nor merged.mig — the signature of a swap
-// that began but did not commit. Trackers that have tidied/merged are NOT a
+// hasUntidiedTracker returns true iff at least one tracker dir in scope
+// carries neither tidied.mig nor merged.mig — a swap that began and did not
+// commit, and equally a tracker dir written before iteration ever started.
+// Trackers that have tidied/merged are NOT a
 // recovery signal (they are completed migrations waiting for the next
 // restart's FinalizeCompletedMigrations to promote them to canonical).
 // A completely missing tracker dir is also NOT a recovery signal: a

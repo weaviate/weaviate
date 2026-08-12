@@ -95,8 +95,8 @@ func (db *DB) cleanStalePartialReindexState(
 //
 // Callers log it at the severity of what they were about to do: REST
 // handlers log Error since a submit or cancel proceeds on possibly-stale
-// state; background cleanup logs Warn since the stale-sentinel check on the
-// next load is still the backstop.
+// state; background cleanup logs Warn since the next submit for the tuple
+// sweeps again before it starts.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -111,8 +111,10 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // sweep it. A delete landing mid-walk after a shard already failed carries
 // both this and [ErrCleanupCollectionDropped].
 //
-// Exported, like [ErrCleanupSweepTruncated], for REST-side reporting; inside
-// this package only [ReindexProvider] classifies them so far.
+// Exported because [DB.NewStalePartialReindexSweep] hands this error across
+// the package boundary, where callers can only classify it with errors.Is.
+// Today REST classifies through [IsCleanupCollectionDropped] alone;
+// [classifyIncompleteWalk] and [classifyTerminalSweep] do the rest in-package.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
@@ -182,15 +184,14 @@ func (i *Index) cleanStalePartialReindexState(
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
-				// Skipped, not failed: the post-restart finalize and
-				// OnAfterLsmInitAsync stale-sentinel check catch it on next load.
+				// Skipped, not failed: the next submit for this tuple sweeps
+				// again before it starts.
 				// Unreachable in production (only the two implementations exist);
 				// were a third to appear, this shard would count as visited
 				// without having been looked at.
 				return nil
 			}
-			// Unloaded and nothing on disk to sweep: skip rather than hydrate,
-			// leaving the sentinel check above as the backstop.
+			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
 			if lazy.canSkipUnloadedSweep(propName, indexType, dirs) {
 				return nil
 			}
@@ -223,15 +224,20 @@ func (i *Index) cleanStalePartialReindexState(
 // read or parsed — since a false "clean" would leave a stale started.mig for
 // the next task to resume against.
 //
+// Failing open costs a hydration for most of those inputs, but not for an
+// unlistable .migrations: the sweep it hands the shard to reads that same
+// directory, finds no completed migration to preserve, and removes sidecars a
+// deferred finalize still needs.
+//
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so an already-offloaded shard is never handed to this walk;
 // one caught mid-transition reads a directory being emptied and skips it,
 // which the offload is about to make true anyway. The reverse race (files
 // still there) costs a spurious [ErrCleanupShardFailed], not corruption.
 //
-// A deactivated (COLD) tenant is absent from the map too; its on-disk state
-// is untouched until reactivation (OnAfterLsmInitAsync's stale-sentinel
-// check).
+// A deactivated (COLD) tenant is absent from the map too, and reactivating it
+// changes nothing: the stale-sentinel check runs from the task path, not from
+// a shard load. Its state waits for the next reindex task to reach it.
 func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
@@ -304,8 +310,8 @@ const maxCachedDirNames = 100_000
 //
 // A name added since caching makes it under-report, so a shard with new
 // state may be skipped — bounded by the cache's lifetime (one HTTP request
-// or one [reindexTerminalCleanupTimeout] window) and by the stale-sentinel
-// check on the shard's next load.
+// or one [reindexTerminalCleanupTimeout] window) and by the next submit for
+// the tuple, which sweeps again from a fresh listing.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].
