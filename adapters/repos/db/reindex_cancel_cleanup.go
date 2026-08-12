@@ -191,8 +191,7 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate,
 			// leaving the sentinel check above as the backstop.
-			if !lazy.isLoaded() &&
-				!hasStalePartialReindexState(shardPathLSM(i.path(), name), propName, indexType, dirs) {
+			if lazy.canSkipUnloadedSweep(propName, indexType, dirs) {
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)

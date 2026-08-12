@@ -620,6 +620,89 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 		"a loaded shard is swept whatever the gate would have said about it")
 }
 
+// The gate decides whether the sweep pays to hydrate a shard, so its answer
+// may depend on nothing but that shard's own disk, and it must leave the
+// loading mutex free for the hydration that follows a "no".
+func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
+	const (
+		propName   = "category"
+		indexType  = "filterable"
+		tracker    = "enable_filterable_category_1"
+		gateShard  = "gate-tenant"
+		otherShard = "other-tenant"
+	)
+
+	tests := []struct {
+		name              string
+		load              bool
+		staleOnGateShard  bool
+		staleOnOtherShard bool
+		wantSkip          bool
+	}{
+		{
+			name:     "unloaded with nothing to sweep",
+			wantSkip: true,
+		},
+		{
+			name:             "unloaded with stale state",
+			staleOnGateShard: true,
+		},
+		{
+			name: "loaded and clean",
+			load: true,
+		},
+		{
+			name:             "loaded with stale state",
+			load:             true,
+			staleOnGateShard: true,
+		},
+		{
+			name:              "unloaded, stale state on another shard",
+			staleOnOtherShard: true,
+			wantSkip:          true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("SweepGate_"+uuid.NewString()[:8], []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer shd.Shutdown(context.Background())
+
+			if tc.staleOnGateShard {
+				// Derived from the index, not from the shard, so a gate reading
+				// anyone else's path answers "skip" here.
+				mkTrackerDir(t, shardPathLSM(idx.path(), gateShard), tracker, "started.mig")
+			}
+			if tc.staleOnOtherShard {
+				mkTrackerDir(t, shardPathLSM(idx.path(), otherShard), tracker, "started.mig")
+			}
+
+			lazy := NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(gateShard, lazy)
+			defer func() {
+				if lazy.isLoaded() {
+					require.NoError(t, lazy.Shutdown(context.Background()))
+				}
+			}()
+			if tc.load {
+				require.NoError(t, lazy.Load(ctx))
+			}
+
+			assert.Equal(t, tc.wantSkip,
+				lazy.canSkipUnloadedSweep(propName, indexType, nil))
+
+			require.True(t, lazy.mutex.TryLock(),
+				"a held loading mutex deadlocks the hydration the caller does next")
+			lazy.mutex.Unlock()
+		})
+	}
+}
+
 func TestDirNamesCache(t *testing.T) {
 	newDir := func(t *testing.T, entries ...string) string {
 		t.Helper()
