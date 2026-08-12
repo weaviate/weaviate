@@ -29,9 +29,15 @@ import (
 
 const guardedPackagePath = "test/acceptance/reindex_backup"
 
-// imageBuildAllowanceMinutes is the observed slice of the job window spent
-// building the test image before go test starts; it must fit alongside the
-// go-test budget inside the workflow's timeout_minutes.
+// imageBuildAllowanceMinutes is how much of the job window this guard reserves
+// for building the test image before go test starts, so the build and the
+// go-test budget together still fit inside the workflow's timeout_minutes.
+//
+// An allowance, not a measurement: nothing in the repo reports how long the
+// build actually takes. A build that overruns it eats the same number of
+// minutes off the end of the run instead, and the group is runner-killed at
+// timeout_minutes rather than panicking with stacks — the outcome this
+// arithmetic exists to prevent. Raise it if that starts happening.
 const imageBuildAllowanceMinutes = 5
 
 var (
@@ -44,11 +50,13 @@ var (
 	// Fuzz targets are declared like tests but no group's exact-name -run
 	// alternation can select one, so they must be visible to the guards rather
 	// than filtered out before they are counted.
-	declaredTestRe  = regexp.MustCompile(`^func ((?:Test|Fuzz)[A-Za-z0-9_]*)\(`)
-	testNameRe      = regexp.MustCompile(`^(?:Test|Fuzz)[A-Za-z0-9_]*$`)
-	runShFunctionRe = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
-	runShFlagRe     = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
-	wholeMinutesRe  = regexp.MustCompile(`^([0-9]+)m$`)
+	declaredTestRe     = regexp.MustCompile(`^func ((?:Test|Fuzz)[A-Za-z0-9_]*)\(`)
+	testNameRe         = regexp.MustCompile(`^(?:Test|Fuzz)[A-Za-z0-9_]*$`)
+	runShFunctionRe    = regexp.MustCompile(`^function (run_acceptance_[A-Za-z0-9_]+)\(\)`)
+	runShAnyFunctionRe = regexp.MustCompile(`^function ([A-Za-z0-9_]+)\(\)`)
+	runShFlagRe        = regexp.MustCompile(`^\s*(--[a-z0-9-]+)[|)]`)
+	grepExcludeRe      = regexp.MustCompile(`grep -v[A-Za-z]* '([^']*)'`)
+	wholeMinutesRe     = regexp.MustCompile(`^([0-9]+)m$`)
 	// Matches the package path only as a whole path segment, so a future
 	// sibling such as test/acceptance/reindex_backup_mt is not read as this
 	// package and does not silently widen what these guards claim to cover.
@@ -157,6 +165,69 @@ func TestCIGroupTimeoutFitsTheJobWindow(t *testing.T) {
 				group.name, budget, floor, strings.Join(group.tests, ", "))
 		})
 	}
+}
+
+// TestCIGuardRunsInTheUnitJob pins the placement every other guard here rests
+// on. They only bind because the unit job runs this package, and it only runs it
+// because the package sits outside the trees run_unit_tests filters out. Move it
+// into one of those and it leaves CI entirely, while every assertion in this
+// file still reads as passing.
+func TestCIGuardRunsInTheUnitJob(t *testing.T) {
+	root := repoRoot(t)
+	self := selfPackagePath(t, root)
+
+	for _, pattern := range unitJobExclusions(t, readRunSh(t, root)) {
+		require.NotRegexpf(t, pattern, self,
+			"run_unit_tests in test/run.sh drops every package matching %q, and this guard's own "+
+				"package %s now matches it. Nothing then runs this file, and the shard split it "+
+				"guards goes unchecked while CI reports green. Move the guard back out of that tree.",
+			pattern, self)
+	}
+	// Below that filter run.sh splits what is left over two shards with a grep
+	// and its own -v over one shared expression, so a package that survives
+	// here is run by exactly one of them.
+}
+
+// selfPackagePath is this guard's own directory relative to the checkout root.
+// Read off the working directory rather than written down, so it follows the
+// package instead of having to be kept in step with it.
+func selfPackagePath(t *testing.T, root string) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	rel, err := filepath.Rel(root, dir)
+	require.NoError(t, err)
+	return filepath.ToSlash(rel)
+}
+
+// unitJobExclusions returns the patterns run_unit_tests drops from the package
+// list both unit shards start from.
+func unitJobExclusions(t *testing.T, runSh string) []string {
+	t.Helper()
+
+	var inUnitTests bool
+	for _, line := range strings.Split(runSh, "\n") {
+		if m := runShAnyFunctionRe.FindStringSubmatch(line); m != nil {
+			inUnitTests = m[1] == "run_unit_tests"
+			continue
+		}
+		if !inUnitTests || !strings.Contains(line, "go list ./...") {
+			continue
+		}
+		var patterns []string
+		for _, m := range grepExcludeRe.FindAllStringSubmatch(line, -1) {
+			patterns = append(patterns, m[1])
+		}
+		require.NotEmptyf(t, patterns,
+			"run_unit_tests builds its package list with %q, which this guard cannot read any "+
+				"exclusion out of; either the pipeline changed shape or this guard's parsing "+
+				"broke, and reading zero exclusions would pass every placement", strings.TrimSpace(line))
+		return patterns
+	}
+	t.Fatal("test/run.sh has no `go list ./...` line inside run_unit_tests, so this guard cannot " +
+		"tell which packages the unit job runs")
+	return nil
 }
 
 // TestCIGuardParsers pins the two readers whose failure mode is a silent pass:
