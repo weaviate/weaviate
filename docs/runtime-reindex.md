@@ -227,7 +227,7 @@ preceding a transition on the per-task field. Annotations
         │   • Per-(class, prop) ReindexSubmitLock                       │
         │   • Validate body, classify migration type, dispatch          │
         │   • checkReindexConflict (read-side mirror of FSM check)      │
-        │   • Pre-submit CleanStalePartialReindexState                  │
+        │   • Pre-submit DB.NewStalePartialReindexSweep                 │
         │   • AddDistributedTaskWith[Groups]Barrier("reindex", payload) │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  RAFT-replicated AddTask
@@ -456,7 +456,7 @@ multi-node version of the same race is closed by the FSM-side
 PUT handler and the DELETE-property-index handler share the same
 entries. See [`adapters/handlers/rest/state/reindex_submit_locks.go`](../adapters/handlers/rest/state/reindex_submit_locks.go).
 
-**Pre-submit `CleanStalePartialReindexState` sweep.** Defense in depth
+**Pre-submit `DB.NewStalePartialReindexSweep` sweep.** Defense in depth
 against the CANCEL→retry silent-failure family (same shape as
 DELETE→re-enable): if a previous cancelled run left stale
 `.migrations/<dir>/started.mig` + sidecar dirs on disk, the new task
