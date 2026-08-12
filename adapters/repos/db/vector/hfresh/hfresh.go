@@ -354,39 +354,46 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 
 func (h *HFresh) PostStartup(ctx context.Context) {
 	// Warm the version map in the background
+	enterrors.GoWrapper(h.warmVersionMap, h.logger)
+
+	h.Centroids.hnsw.PostStartup(ctx)
+}
+
+func (h *HFresh) warmVersionMap() {
 	before := time.Now()
-	enterrors.GoWrapper(func() {
-		count, err := h.VersionMap.Warmup(h.ctx)
-		if err != nil {
-			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+	count, err := h.VersionMap.Warmup(h.ctx)
+	if err != nil {
+		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		return
+	}
+
+	// the store only holds updated or deleted vectors: fill the implicit
+	// first version for every remaining vector known to the posting map,
+	// so never-updated vectors skip the lazy fault path too
+	var defaults int
+	for postingID, metadata := range h.PostingMap.Iter() {
+		if h.ctx.Err() != nil {
+			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
 			return
 		}
 
-		// the store only holds updated or deleted vectors: fill the implicit
-		// first version for every remaining vector known to the posting map,
-		// so never-updated vectors skip the lazy fault path too
-		var defaults int
-		for _, metadata := range h.PostingMap.Iter() {
-			if h.ctx.Err() != nil {
-				h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
-				return
-			}
-			for vectorID := range metadata.Iter() {
-				if h.VersionMap.EnsureDefault(vectorID) {
-					defaults++
-				}
+		// concurrent inserts mutate the metadata in place: hold the posting
+		// lock while reading it
+		h.PostingMap.RLock(postingID)
+		for vectorID := range metadata.Iter() {
+			if h.VersionMap.EnsureDefault(vectorID) {
+				defaults++
 			}
 		}
+		h.PostingMap.RUnlock(postingID)
+	}
 
-		h.logger.WithFields(logrus.Fields{
-			"action":   "hfresh_version_map_warmup",
-			"count":    count,
-			"defaults": defaults,
-			"took":     time.Since(before).String(),
-		}).Info("version map warmed up")
-	}, h.logger)
-
-	h.Centroids.hnsw.PostStartup(ctx)
+	h.logger.WithFields(logrus.Fields{
+		"action":   "hfresh_version_map_warmup",
+		"count":    count,
+		"defaults": defaults,
+		"took":     time.Since(before).String(),
+	}).Info("version map warmed up")
 }
 
 func (h *HFresh) Compressed() bool {
