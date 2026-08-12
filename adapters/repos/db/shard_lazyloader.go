@@ -524,6 +524,12 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
 
+		// Release up front, on every exit, mirroring Shard.drop: the steps below
+		// early-return on failure, and the caller removed this wrapper from the
+		// shard map before calling, so a failed drop would strand its unloaded
+		// count until the process restarts.
+		defer l.releaseShardMetricsLocked()
+
 		// cleanup metrics
 		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
 		if err != nil {
@@ -559,9 +565,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.releaseShardMetricsLocked()
 
 		return nil
 	}
