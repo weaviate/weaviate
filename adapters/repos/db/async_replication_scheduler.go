@@ -1749,6 +1749,14 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		return true, asyncRepRebuildContentionBackoff, false
 	}
 
+	// Pre-drain BEFORE the apply lock (a bounded wait inside it stalls every schema apply); a cycle dispatched in between is absorbed by the post-disable drain.
+	select {
+	case <-s.asyncRepDrained(sched.logger):
+	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+		sched.metrics.incRebuildYields()
+		return true, asyncRepRebuildContentionBackoff, false
+	}
+
 	if !s.index.asyncReplicationApplyLock.TryLock() {
 		sched.metrics.incRebuildYields()
 		return true, asyncRepRebuildContentionBackoff, false

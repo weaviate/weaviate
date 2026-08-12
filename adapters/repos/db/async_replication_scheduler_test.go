@@ -941,6 +941,50 @@ func TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable(t *testing.T) {
 	require.True(t, s.hashtreeFullyInitialized)
 }
 
+// TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock: the bounded pre-drain wait must not sit inside the apply lock, or every schema apply on the index stalls behind a wedged cycle.
+func TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(2 * time.Second))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                    &models.Class{Class: "TestClass"},
+		index:                    idx,
+		shutdownLock:             new(sync.RWMutex),
+		hashtree:                 ht,
+		hashtreeFullyInitialized: true,
+	}
+
+	s.asyncRepWg.Add(1)
+	t.Cleanup(s.asyncRepWg.Done)
+
+	retryCh := make(chan bool, 1)
+	go func() {
+		retry, _, _ := sched.tryRebuildHashtree(s)
+		retryCh <- retry
+	}()
+
+	require.Eventually(t, func() bool {
+		s.asyncRepDrainMu.Lock()
+		defer s.asyncRepDrainMu.Unlock()
+		return s.asyncRepDrainObserver != nil
+	}, 5*time.Second, time.Millisecond, "the attempt never entered its pre-drain wait")
+
+	if idx.asyncReplicationApplyLock.TryLock() {
+		idx.asyncReplicationApplyLock.Unlock()
+	} else {
+		t.Fatal("the apply lock is held during the pre-drain wait — schema applies stall behind a wedged cycle")
+	}
+
+	require.True(t, <-retryCh, "a wedged pre-drain must yield")
+}
+
 // TestAsyncRepDrainObserverSharedAcrossAttempts: bounded waits during one pinned episode share a single waiter goroutine and the observer resets once drained.
 func TestAsyncRepDrainObserverSharedAcrossAttempts(t *testing.T) {
 	s := &Shard{index: &Index{}}
