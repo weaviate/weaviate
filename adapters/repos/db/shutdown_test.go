@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -524,6 +526,77 @@ func TestIndexShutdownAbortsInFlightReader(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown is blocked behind an in-flight reader")
 	}
+}
+
+// newShutdownTestDB builds the minimal DB the Shutdown path touches, with n batch workers when n > 0.
+func newShutdownTestDB(t *testing.T, logger *logrus.Logger, batchWorkers int) *DB {
+	t.Helper()
+	db := &DB{
+		shutdown:            make(chan struct{}),
+		logger:              logger,
+		bitmapBufPoolClose:  func() {},
+		maxNumberGoroutines: batchWorkers,
+	}
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger, OnClose: db.shutDownWg.Done})
+	db.scheduler.Start()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	db.asyncReplicationScheduler = sched
+
+	if batchWorkers > 0 {
+		db.jobQueueCh = make(chan job, 10)
+		db.shutDownWg.Add(batchWorkers)
+		for range batchWorkers {
+			enterrors.GoWrapper(func() { db.batchWorker(false) }, logger)
+		}
+	}
+	return db
+}
+
+func requireShutdownReturns(t *testing.T, db *DB, msg string) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- db.Shutdown(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// TestShutdownSurvivesDeadBatchWorker: DB.Shutdown must return even when a batch worker died from a recovered panic before consuming its poison pill.
+func TestShutdownSurvivesDeadBatchWorker(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 2)
+
+	db.jobQueueCh <- job{index: 0, batcher: nil}
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "panic") || strings.Contains(fmt.Sprint(e.Data), "panic") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the poisoned job never killed a worker — the fixture no longer exercises the leak")
+
+	requireShutdownReturns(t, db, "DB.Shutdown must not hang when a batch worker died before its poison pill")
+}
+
+// TestDBShutdownIdempotent: a second DB.Shutdown must be a safe no-op, not a double close of the metrics observer's channel.
+func TestDBShutdownIdempotent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 0)
+	db.metricsObserver = &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
+
+	requireShutdownReturns(t, db, "first DB.Shutdown must return")
+	require.NotPanics(t, func() {
+		requireShutdownReturns(t, db, "second DB.Shutdown must return")
+	})
 }
 
 // TestShutdownSignalSurvivesDeadResourceScanner: DB.Shutdown must return even when the resource-scan receiver is gone, as after a panic killed its goroutine.

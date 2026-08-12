@@ -45,6 +45,10 @@ type Scheduler struct {
 	wg        sync.WaitGroup
 	chans     []chan *Batch
 	triggerCh chan chan struct{}
+
+	// closeOnce guards OnClose: it must fire exactly once whether or not the
+	// scheduler was ever started — owners count it in a shutdown WaitGroup.
+	closeOnce sync.Once
 }
 
 type SchedulerOptions struct {
@@ -194,8 +198,13 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) Close(ctx context.Context) error {
-	if s == nil || s.ctx == nil {
-		// scheduler not initialized. No op.
+	if s == nil {
+		return nil
+	}
+	if s.ctx == nil {
+		// Never started: nothing to stop, but the OnClose contract must still
+		// hold or the owner's shutdown WaitGroup is pinned forever.
+		s.runOnClose()
 		return nil
 	}
 
@@ -220,11 +229,15 @@ func (s *Scheduler) Close(ctx context.Context) error {
 
 	s.Logger.Debug("scheduler closed")
 
-	if s.OnClose != nil {
-		s.OnClose()
-	}
+	s.runOnClose()
 
 	return nil
+}
+
+func (s *Scheduler) runOnClose() {
+	if s.OnClose != nil {
+		s.closeOnce.Do(s.OnClose)
+	}
 }
 
 func (s *Scheduler) PauseQueue(id string) {

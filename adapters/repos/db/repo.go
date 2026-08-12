@@ -644,11 +644,13 @@ type job struct {
 }
 
 func (db *DB) batchWorker(first bool) {
+	// Unconditional: a panic below is recovered at the goroutine boundary, and a
+	// worker that dies without settling shutDownWg pins DB.Shutdown forever.
+	defer db.shutDownWg.Done()
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
-			db.shutDownWg.Done()
 			return
 		}
 		func() {
