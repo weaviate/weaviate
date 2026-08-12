@@ -235,9 +235,8 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 	cleanStaleMigrationDirsIn(migrationDirsOf(lsmPath, nil, propName, indexType), logger)
 }
 
-// cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a scope the
-// caller already built, so a sweep can share one payload memo with its
-// preserve pass.
+// cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
+// scope, so a sweep can share one payload memo with its preserve pass.
 func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) {
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
@@ -491,10 +490,9 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
 // The role word is too weak: any property named "a__<word>_<role>" reads as a
-// sidecar of "a", so sweeping "a" deletes that property's live bucket, on all
-// three index types. No strategy emits a bare role word, so matching the whole
-// suffix against [migrationSuffixes], as [sidecarDirsForOrphan] does, closes
-// this without an on-disk rename. weaviate/weaviate#12621
+// sidecar of "a" on all three index types, so sweeping "a" deletes that
+// property's live bucket. Whole-suffix matching against [migrationSuffixes],
+// as [sidecarDirsForOrphan] does, closes it. weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {

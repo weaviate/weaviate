@@ -285,17 +285,16 @@ func (s migrationDirScope) matches(name string) bool {
 	return matched
 }
 
-// matchByName answers the dirs whose name no payload can contradict, so a
-// sweep reads only the payloads it has to. decided=false means ask the payload.
+// matchByName decides the dirs whose name no payload can contradict;
+// decided=false means ask the payload.
 //
 // A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so a
-// segment holding no "_" came from a single property. Equality with a propName
-// that itself holds no "_" is then unforgeable, and a name that neither equals
-// propName nor carries it as a whole token cannot be rebuilt from any property
-// list holding propName. Every other shape needs the payload.
+// segment with no "_" came from one property: equality with an underscore-free
+// propName is unforgeable, and a name that neither equals propName nor carries
+// it as a whole token cannot come from any list holding propName.
 //
-// [migrationDirScope.match] stays the authority and keeps reading payloads, so
-// the unloaded-shard gate still fails open on one it cannot parse.
+// [migrationDirScope.match] deliberately skips this shortcut, so the
+// unloaded-shard gate still fails open on a payload it cannot parse.
 func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	base := migrationDirBase(name)
 	for _, classDir := range s.classDirs {
@@ -420,14 +419,12 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 	return answer.props, answer.ok, answer.unreadable
 }
 
-// taskPropsCache memoizes parsed tracker payloads, so the three passes of one
-// [Shard.CleanStalePartialReindexState] read each payload once instead of three
-// times. A nil cache reads every time.
+// taskPropsCache memoizes parsed tracker payloads for one
+// [Shard.CleanStalePartialReindexState]; a nil cache reads every time. Not safe
+// for concurrent use.
 //
-// One sweep of one shard is its whole life. Anything longer would let a
-// hydrated shard's sweep act on a snapshot, which is the one thing
-// [DB.NewStalePartialReindexSweep] promises it never does. Not safe for
-// concurrent use.
+// Anything longer-lived would let a hydrated shard's sweep act on a snapshot,
+// which [DB.NewStalePartialReindexSweep] promises it never does.
 type taskPropsCache struct {
 	byDir map[string]taskProps
 	reads int
@@ -440,7 +437,6 @@ type taskProps struct {
 	unreadable bool
 }
 
-// lookup returns a tracker dir's parsed payload, reading it on a miss.
 func (c *taskPropsCache) lookup(migDir string) taskProps {
 	if c == nil {
 		return readTaskProps(migDir)

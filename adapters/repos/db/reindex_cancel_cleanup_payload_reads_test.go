@@ -23,7 +23,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// tracker is one tracker dir a sweep will walk.
 type tracker struct {
 	dir string
 	// props is the payload's property list; empty writes a payload that cannot
@@ -31,10 +30,8 @@ type tracker struct {
 	props []string
 }
 
-// TestSweepPayloadReadCount pins what a loaded shard's sweep reads off disk.
-// Every tracker dir used to cost three payload reads per (property, index
-// type) — one per pass — which is what makes a sweep across many tenants
-// quadratic in shard count.
+// TestSweepPayloadReadCount pins how many tracker payloads one loaded-shard
+// sweep reads off disk.
 func TestSweepPayloadReadCount(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -82,8 +79,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			wantReads: 0,
 		},
 		{
-			// The non-match half of the shortcut needs no underscore-free name,
-			// so only the dir actually naming this property still costs a parse.
+			// The non-match half of the shortcut needs no underscore-free name.
 			name:       "underscore-containing name still skips another property's dir",
 			classProps: []string{"price_cents", "dog"},
 			propName:   "price_cents",
@@ -112,8 +108,8 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			trackers: []tracker{
 				{dir: "filterable_retokenize_category_1"},
 			},
-			// The name settles it, so the sweep never opens the payload — but
-			// the gate below must still refuse to call the shard clean.
+			// The name settles it, so the sweep never opens the payload the
+			// gate still fails open on.
 			wantReads:       0,
 			gateFailsOpenOn: "filterable_retokenize_category_1",
 		},
@@ -171,13 +167,10 @@ func TestSweepPayloadReadCount(t *testing.T) {
 	}
 }
 
-// TestMatchByNameAgreesWithMatch pins that skipping the payload never changes
-// the answer: wherever the name alone decides, it decides the same way the
-// payload would have.
-//
-// Every dir here is built the way a writer builds one — name and payload from
-// the same sorted property list. [TestMatchByNameOverridesAContradictingPayload]
-// covers the pair a writer cannot produce.
+// TestMatchByNameAgreesWithMatch pins that where the name alone decides, it
+// decides the same way the payload would have, over every dir a writer can
+// produce. [TestMatchByNameOverridesAContradictingPayload] covers the one pair
+// a writer cannot.
 func TestMatchByNameAgreesWithMatch(t *testing.T) {
 	writers := []struct {
 		prefix string
@@ -248,11 +241,9 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 }
 
 // TestMatchByNameOverridesAContradictingPayload pins the one input where the
-// name shortcut answers differently from the payload: a dir named for a single
-// property whose payload names two. A writer cannot produce it, since the dir
-// name is that same property list sorted and joined, so the name is taken as
-// the truth rather than paying a read on every well-formed dir to keep the old
-// answer for this one.
+// name shortcut and the payload disagree: a dir named for a single property
+// whose payload names two. No writer produces it — name and payload come from
+// the same sorted list — so the name wins.
 func TestMatchByNameOverridesAContradictingPayload(t *testing.T) {
 	lsm := t.TempDir()
 	dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{"cat"}) + genSuffix(1)
