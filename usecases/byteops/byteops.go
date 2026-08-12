@@ -15,7 +15,6 @@ package byteops
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 )
@@ -149,56 +148,41 @@ func (bo *ReadWriter) Remaining() uint64 {
 	return length - bo.Position
 }
 
-func (bo *ReadWriter) checkRead(length uint64) error {
-	// the cursor needs its own test because Remaining() saturates: past the end
-	// it reports 0, which a zero-length read would satisfy before slicing at the
-	// invalid position. Position == len(Buffer) is the legitimate end-of-value
-	// cursor and still admits a zero-length read.
-	if bo.Position > uint64(len(bo.Buffer)) || length > bo.Remaining() {
-		return fmt.Errorf("%w: %d bytes at offset %d of a %d byte buffer",
-			ErrBufferOverrun, length, bo.Position, len(bo.Buffer))
-	}
-	return nil
-}
-
-func (bo *ReadWriter) ReadUint8Checked() (uint8, error) {
-	if err := bo.checkRead(Uint8Len); err != nil {
-		return 0, err
-	}
-	return bo.ReadUint8(), nil
+// canRead carries no error formatting, which keeps it and its callers under the
+// inline budget: the checked readers cost a compare and a branch on the hot path,
+// and callers name the field that failed. The cursor needs a test of its own,
+// because a zero-length read would otherwise be satisfied past the end of the
+// buffer and then slice at the invalid position; Position == len(Buffer) is the
+// legitimate end-of-value cursor and still admits a zero-length read.
+func (bo *ReadWriter) canRead(length uint64) bool {
+	pos, size := bo.Position, uint64(len(bo.Buffer))
+	return pos <= size && length <= size-pos
 }
 
 func (bo *ReadWriter) ReadUint16Checked() (uint16, error) {
-	if err := bo.checkRead(Uint16Len); err != nil {
-		return 0, err
+	if !bo.canRead(Uint16Len) {
+		return 0, ErrBufferOverrun
 	}
 	return bo.ReadUint16(), nil
 }
 
 func (bo *ReadWriter) ReadUint32Checked() (uint32, error) {
-	if err := bo.checkRead(Uint32Len); err != nil {
-		return 0, err
+	if !bo.canRead(Uint32Len) {
+		return 0, ErrBufferOverrun
 	}
 	return bo.ReadUint32(), nil
 }
 
-func (bo *ReadWriter) ReadUint64Checked() (uint64, error) {
-	if err := bo.checkRead(Uint64Len); err != nil {
-		return 0, err
-	}
-	return bo.ReadUint64(), nil
-}
-
 func (bo *ReadWriter) ReadBytesFromBufferChecked(length uint64) ([]byte, error) {
-	if err := bo.checkRead(length); err != nil {
-		return nil, err
+	if !bo.canRead(length) {
+		return nil, ErrBufferOverrun
 	}
 	return bo.ReadBytesFromBuffer(length), nil
 }
 
 func (bo *ReadWriter) CopyBytesFromBufferChecked(length uint64, out []byte) ([]byte, error) {
-	if err := bo.checkRead(length); err != nil {
-		return nil, err
+	if !bo.canRead(length) {
+		return nil, ErrBufferOverrun
 	}
 	return bo.CopyBytesFromBuffer(length, out)
 }
@@ -211,31 +195,13 @@ func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicatorChecked() ([]b
 	return bo.ReadBytesFromBufferChecked(uint64(length))
 }
 
-func (bo *ReadWriter) ReadBytesFromBufferWithUint64LengthIndicatorChecked() ([]byte, error) {
-	length, err := bo.ReadUint64Checked()
-	if err != nil {
-		return nil, err
-	}
-	return bo.ReadBytesFromBufferChecked(length)
-}
-
 // SkipChecked bounds MoveBufferPositionForward, so a length read out of the data
 // cannot park the cursor past the buffer.
 func (bo *ReadWriter) SkipChecked(length uint64) error {
-	if err := bo.checkRead(length); err != nil {
-		return err
+	if !bo.canRead(length) {
+		return ErrBufferOverrun
 	}
 	bo.Position += length
-	return nil
-}
-
-// SeekChecked bounds MoveBufferToAbsolutePosition. Seeking to exactly
-// len(Buffer) is allowed: every sequential decoder finishes there.
-func (bo *ReadWriter) SeekChecked(pos uint64) error {
-	if pos > uint64(len(bo.Buffer)) {
-		return fmt.Errorf("%w: offset %d of a %d byte buffer", ErrBufferOverrun, pos, len(bo.Buffer))
-	}
-	bo.Position = pos
 	return nil
 }
 

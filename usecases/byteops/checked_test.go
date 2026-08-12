@@ -35,10 +35,8 @@ func TestCheckedReadsRejectOverrun(t *testing.T) {
 		need uint64
 		read func(*ReadWriter) error
 	}{
-		{"ReadUint8Checked", Uint8Len, func(rw *ReadWriter) error { _, err := rw.ReadUint8Checked(); return err }},
 		{"ReadUint16Checked", Uint16Len, func(rw *ReadWriter) error { _, err := rw.ReadUint16Checked(); return err }},
 		{"ReadUint32Checked", Uint32Len, func(rw *ReadWriter) error { _, err := rw.ReadUint32Checked(); return err }},
-		{"ReadUint64Checked", Uint64Len, func(rw *ReadWriter) error { _, err := rw.ReadUint64Checked(); return err }},
 		{"ReadBytesFromBufferChecked", 16, func(rw *ReadWriter) error {
 			_, err := rw.ReadBytesFromBufferChecked(16)
 			return err
@@ -126,15 +124,6 @@ func TestLengthIndicatorReadsRejectCorruptLength(t *testing.T) {
 		require.ErrorIs(t, err, ErrBufferOverrun)
 	})
 
-	t.Run("uint64 length past the buffer", func(t *testing.T) {
-		buf := shortView(64)
-		binary.LittleEndian.PutUint64(buf, 1<<40)
-
-		rw := NewReadWriter(buf)
-		_, err := rw.ReadBytesFromBufferWithUint64LengthIndicatorChecked()
-		require.ErrorIs(t, err, ErrBufferOverrun)
-	})
-
 	t.Run("length indicator itself truncated", func(t *testing.T) {
 		rw := NewReadWriter(shortView(2))
 		_, err := rw.ReadBytesFromBufferWithUint32LengthIndicatorChecked()
@@ -152,20 +141,6 @@ func TestLengthIndicatorReadsRejectCorruptLength(t *testing.T) {
 		require.Equal(t, payload, got)
 		require.Equal(t, uint64(len(buf)), rw.Position)
 	})
-}
-
-func TestSeekChecked(t *testing.T) {
-	rw := NewReadWriter(shortView(32))
-
-	require.NoError(t, rw.SeekChecked(16))
-	require.Equal(t, uint64(16), rw.Position)
-
-	// the end-of-value position every sequential decoder finishes at
-	require.NoError(t, rw.SeekChecked(32))
-	require.Equal(t, uint64(32), rw.Position)
-
-	require.ErrorIs(t, rw.SeekChecked(33), ErrBufferOverrun)
-	require.Equal(t, uint64(32), rw.Position, "a rejected seek must not move the cursor")
 }
 
 func TestRemaining(t *testing.T) {
