@@ -87,6 +87,99 @@ func (db *DB) cleanStalePartialReindexState(
 	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
 }
 
+// anyPromotableReindexState reports whether any local shard carries a
+// migration generation for (property, indexType) that
+// [FinalizeCompletedMigrations] would promote on next restart. Read-only;
+// works on unloaded shards too. A nil cache reads the filesystem every time.
+//
+// Over-approximates on purpose: any matching generation and any unreadable
+// dir count as promotable, so every shard it looks at fails closed to true.
+//
+// Two cases fail open, and answer false while promotable state exists: no
+// local index to promote into, and a tenant deactivated before the walk
+// starts, which Migrator.UpdateTenants removes from the shard map so no walk
+// can reach the merged generation it still holds on disk. That second one is
+// why [ReindexProvider.CheckTenantMutation] refuses the deactivation while
+// the migration is in flight in the first place; a tenant that leaves
+// mid-walk is caught instead, since the walk is strict.
+//
+// A collection being deleted also answers false, and that one is not a gap:
+// nothing survives the delete for the next restart to promote. Both halves
+// agree on it, so the answer does not turn on where in DeleteIndex it is
+// sampled — see [Index.anyPromotableReindexState].
+func (db *DB) anyPromotableReindexState(collection, propName, indexType string, dirs *dirNamesCache) bool {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return false
+	}
+	return idx.anyPromotableReindexState(propName, indexType, dirs)
+}
+
+// anyPromotableReindexState is the per-index half of
+// [DB.anyPromotableReindexState]. Walks every shard, but does no further
+// disk reads once one of them has such a generation.
+//
+// A walk that could not reach every shard answers true, the way
+// [hasPromotableReindexState] already fails closed on a shard it cannot
+// read. "No promotable generation here" has to come from a walk that
+// looked, because it is what suppresses the operator repair guidance: a
+// shutdown racing a swap is how a promotable generation gets left behind
+// in the first place, and the next restart promotes it onto the canonical
+// bucket without reporting anything.
+//
+// A collection delete is the exception, and the only stop that is not a gap
+// in what this node knows: [Index.drop] renames i.path() away whether or not
+// a backup makes it keep the files, so no canonical path survives for
+// [FinalizeCompletedMigrations] to promote onto. [classifyIncompleteWalk] and
+// [ErrCleanupCollectionDropped] read the same signal the same way. Every
+// other stop, named or not, answers true.
+//
+// Pass a shared cache when asking about several (property, index type) pairs
+// of the same collection: without one, each pair re-lists every shard's
+// .migrations dir, which on a large multi-tenant collection is a five-figure
+// syscall count per pair on the OnTaskCompleted callback.
+func (i *Index) anyPromotableReindexState(propName, indexType string, dirs *dirNamesCache) bool {
+	var found bool
+	// ForEachShard, not ForEachLoadedShard: cold-tenant promotable state is
+	// on disk regardless of load. forEachShardStrict, not ForEachShard, for
+	// the same reason the sweep below uses it: ForEachShard reports a closing
+	// index as a walk that reached every shard.
+	walkErr := i.forEachShardStrict(func(name string, _ ShardLike) error {
+		if found {
+			return nil
+		}
+		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType, dirs) {
+			found = true
+		}
+		return nil
+	})
+	return found || (walkErr != nil && !errors.Is(walkErr, errIndexDropped))
+}
+
+// hasPromotableReindexState is the on-disk predicate behind
+// [Index.anyPromotableReindexState] for the shard rooted at lsmPath. A nil
+// cache reads the filesystem every time.
+//
+// Fails closed (true) on an unrecognized indexType or unenumerable
+// .migrations dir; an absent dir is the one exception, since most shards
+// never migrate. The scope is the preserve one ([migrationDirScope.preserving]),
+// so it over-matches — a tracker with no readable payload counts — for the
+// same reason the sweep preserves it: guessing narrow here would report
+// promotable state as absent.
+func hasPromotableReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
+	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
+		return true
+	}
+	if _, err := dirs.list(filepath.Join(lsmPath, ".migrations")); err != nil {
+		return !os.IsNotExist(err)
+	}
+	var found bool
+	forEachCompletedMigration(
+		migrationDirsOf(lsmPath, dirs, propName, indexType).preserving(indexType),
+		func(string, int) { found = true })
+	return found
+}
+
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
 // ran out of time, started on a shutting-down or unsignalled-closing index,
 // hit an unmappable index type, or a shard left the map before the walk

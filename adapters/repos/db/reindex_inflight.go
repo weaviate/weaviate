@@ -139,12 +139,20 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
 }
 
-// reindexInFlightError formats the operator-facing rejection. The
-// `preWire` flag distinguishes "DTM lookup says live" from "lookup not
-// yet installed" so the error body can hint at the right next step.
+// reindexInFlightError formats the operator-facing rejection. `preWire`
+// distinguishes "DTM lookup says live" from "lookup not yet installed" so
+// the body can hint at the right next step.
 //
-// This gate never sees the task's status, so it states the cancel remedy
-// with its condition attached rather than branching on it.
+// Unlike the schema gates, it has no task to key a cancel call on — only
+// that a shard is live — so it points at the GET poll instead of guessing a
+// property/index-type pair that could 202 NO_OP. For the same reason it
+// cannot drop the cancel advice the way [ReindexGateRemedy] does once the
+// task is past STARTED, so it states the STARTED-only restriction instead:
+// TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
+// answers 409 Conflict.
+//
+// `collection` stays namespace-qualified: the sync REST error path strips
+// it, but the async backup-status field does not.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(
@@ -153,8 +161,8 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}} is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option",
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection, collection, collection,
 	)
 }
 

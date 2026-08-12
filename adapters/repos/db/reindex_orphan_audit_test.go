@@ -35,28 +35,6 @@ func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
 	assert.Equal(t, "nil_lookup", outcome.SkipReason)
 }
 
-func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
-	cases := []struct {
-		mt         ReindexMigrationType
-		wantTypes  []string
-		wantPolicy string
-	}{
-		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, "two strategies per task"},
-		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, "filterable-only retokenize"},
-		{ReindexTypeEnableSearchable, []string{"searchable"}, "schema-flip on searchable"},
-		{ReindexTypeEnableFilterable, []string{"filterable"}, "schema-flip on filterable"},
-		{ReindexTypeEnableRangeable, []string{"rangeable"}, "from-scratch rangeable build"},
-		{ReindexTypeRepairRangeable, []string{"rangeable"}, "rebuild of existing rangeable"},
-		{ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map to Blockmax"},
-		{ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax"},
-		{ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
-	}
-	for _, c := range cases {
-		got := semanticMigrationIndexTypesForAudit(c.mt)
-		assert.Equal(t, c.wantTypes, got, "migration type %q (%s)", c.mt, c.wantPolicy)
-	}
-}
-
 func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 	o := orphanReindexTracker{
 		collection:  "MyClass",
@@ -123,6 +101,47 @@ func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 		[]byte("not json"), 0o600))
 	_, ok := loadAuditRecord(dir)
 	assert.False(t, ok)
+}
+
+// TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType pins that
+// the audit reads the migration type through [ReindexTargetIndexes], which
+// decides between the per-index-type cleanup and the blunt tracker-dir
+// removal fallback.
+func TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		wantIndexes   []string
+	}{
+		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}},
+		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}},
+		{ReindexTypeEnableSearchable, []string{"searchable"}},
+		{ReindexTypeEnableFilterable, []string{"filterable"}},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}},
+		{ReindexTypeRepairFilterable, []string{"filterable"}},
+		{ReindexTypeEnableRangeable, []string{"rangeable"}},
+		{ReindexTypeRepairRangeable, []string{"rangeable"}},
+		// A type only a newer node knows: nil drives the tracker-dir
+		// fallback, which is the safe answer when the index is unknown.
+		{"a-type-from-a-newer-node", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			lsmPath := t.TempDir()
+			trackerDir := filepath.Join(lsmPath, ".migrations", "searchable_retokenize_body_1")
+			require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "started.mig"), nil, 0o600))
+			writePayload(t, trackerDir, "task-orphan", 3, "unit-0", "C",
+				tc.migrationType, []string{"body"})
+
+			orphans := collectOrphanTrackers(lsmPath, "C", "shard-0",
+				func(string, uint64) bool { return false }, logrus.New())
+
+			require.Len(t, orphans, 1)
+			assert.Equal(t, tc.wantIndexes, orphans[0].indexTypes)
+		})
+	}
 }
 
 func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T) {

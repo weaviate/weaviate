@@ -92,7 +92,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.
-		{"repair-searchable vs repair-searchable", db.ReindexTypeChangeAlgorithm, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"change-algorithm vs change-algorithm", db.ReindexTypeChangeAlgorithm, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -100,7 +100,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
 		// Cross-type same-property — all conflict under the new rule.
-		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs change-algorithm (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -109,7 +109,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
 		// destroyed by the OnMigrationComplete updatePropertyBuckets path
 		// otherwise. Same prop = conflict.
-		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs change-algorithm", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
@@ -118,7 +118,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// Searchable-only vs filterable-only on the same property also conflicts:
 		// MergeProps fans out across all flags on OnMigrationComplete so the same
 		// cross-pollination concern applies.
-		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeChangeAlgorithm, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-algorithm vs repair-filterable (same prop)", db.ReindexTypeChangeAlgorithm, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 	}
 
@@ -827,66 +827,6 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 		require.Less(t, specs[i-1].ID, specs[i].ID,
 			"specs must be sorted by ID — got %v", specs)
 	}
-}
-
-// -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
-// -----------------------------------------------------------------------------
-
-func TestTouchesSearchable(t *testing.T) {
-	cases := []struct {
-		t    db.ReindexMigrationType
-		want bool
-	}{
-		{db.ReindexTypeChangeAlgorithm, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableSearchable, true},
-		{db.ReindexTypeRepairFilterable, false},
-		{db.ReindexTypeEnableFilterable, false},
-		{db.ReindexTypeEnableRangeable, false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesSearchable(tc.t))
-		})
-	}
-}
-
-func TestTouchesFilterable(t *testing.T) {
-	cases := []struct {
-		t    db.ReindexMigrationType
-		want bool
-	}{
-		{db.ReindexTypeRepairFilterable, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableFilterable, true},
-		{db.ReindexTypeChangeAlgorithm, false},
-		{db.ReindexTypeEnableSearchable, false},
-		{db.ReindexTypeEnableRangeable, false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesFilterable(tc.t))
-		})
-	}
-}
-
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
-}
-
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
 }
 
 // -----------------------------------------------------------------------------

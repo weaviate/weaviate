@@ -13,6 +13,10 @@ package db
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -365,9 +369,10 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 	provider := &ReindexProvider{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
-		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
-		Properties:    []string{"name"},
+		Collection:         "C",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
 	})
 
 	for _, status := range blockingStatuses {
@@ -520,8 +525,11 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 
 	err := provider.CheckPropertyUpdate("C", "name", tasks)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
+	// An unreadable payload also hides which collection (and namespace) the
+	// task belongs to, so its ID must not reach a caller who may not be
+	// entitled to see it.
+	require.NotContains(t, err.Error(), "T_garbage")
 }
 
 // TestCheckClassMutation_* pin the class-wide guard
@@ -568,7 +576,74 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 			err := provider.CheckClassMutation("C", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_class")
-			require.Contains(t, err.Error(), "bucket↔schema inversion")
+			require.Contains(t, err.Error(),
+				"deleting this class would abort the migration on every replica")
+		})
+	}
+}
+
+// TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight pins that the
+// tenant gate names the consequence per migration type, while the class
+// gate names none (DeleteClass leaves no surviving state to describe).
+func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		wantInTenant  string
+		notInTenant   []string
+	}{
+		{
+			migrationType: ReindexTypeChangeTokenization,
+			wantInTenant:  "can produce a bucket↔schema inversion",
+			notInTenant:   []string{"half-applied", "cannot name"},
+		},
+		{
+			migrationType: ReindexTypeRepairFilterable,
+			wantInTenant:  "half-applied",
+			notInTenant:   []string{"bucket↔schema inversion", "cannot name"},
+		},
+		{
+			// IsSemanticMigration is a positive allowlist, so without its own
+			// arm a newer node's type would claim the format-only cost.
+			migrationType: "a-type-from-a-newer-node",
+			wantInTenant:  "have a consequence this build cannot name",
+			notInTenant:   []string{"half-applied", "bucket↔schema inversion"},
+		},
+	}
+
+	provider := &ReindexProvider{}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			payload, _ := json.Marshal(ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: tc.migrationType,
+				Properties:    []string{"name"},
+			})
+			tasks := []*distributedtask.Task{{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_consequence", Version: 1},
+				Status:         distributedtask.TaskStatusStarted,
+				Payload:        payload,
+			}}
+
+			tenantErr := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			require.Error(t, tenantErr)
+			require.Contains(t, tenantErr.Error(), tc.wantInTenant)
+			for _, unwanted := range tc.notInTenant {
+				require.NotContains(t, tenantErr.Error(), unwanted)
+			}
+
+			classErr := provider.CheckClassMutation("C", tasks)
+			require.Error(t, classErr)
+			require.Contains(t, classErr.Error(),
+				"the interrupted migration's partial state is removed with "+
+					"the class, so nothing is left to repair")
+			// A consequence for surviving data would be a false
+			// counterfactual on a gate whose mutation removes the data.
+			for _, unwanted := range []string{
+				"bucket↔schema inversion", "half-applied", "cannot name",
+			} {
+				require.NotContains(t, classErr.Error(), unwanted)
+			}
 		})
 	}
 }
@@ -601,7 +676,6 @@ func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
 	}}
 	err := provider.CheckClassMutation("C", tasks)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
 }
 
@@ -656,6 +730,87 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
+// TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved pins that
+// neither dispatch arm (deactivate or delete) claims the migration's
+// on-disk state is gone (weaviate/weaviate#12575).
+func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
+	semanticPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:         "C",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
+	})
+	formatOnlyPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeRepairFilterable,
+		Properties:    []string{"name"},
+	})
+
+	// Every claim a data-dropping remedy would make; none may appear.
+	dataRemovalClaims := []string{
+		"nothing is left to repair",
+		"nothing left to repair",
+		"goes with the data you are removing",
+		"dropped along with the data you are removing",
+		"nothing to finish afterwards",
+		"then re-issue this request",
+	}
+
+	cases := []struct {
+		name    string
+		status  distributedtask.TaskStatus
+		payload []byte
+		want    []string
+	}{
+		{
+			name:    "semantic at PREPARING names the repair",
+			status:  distributedtask.TaskStatusPreparing,
+			payload: semanticPayload,
+			want: []string{
+				"The migration's on-disk state is not removed by this mutation",
+				"a deactivated shard promotes any merged generation on reactivation",
+				"a delete leaves every remaining tenant's shard carrying it",
+				`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
+			},
+		},
+		{
+			name:    "format-only names the re-submit",
+			status:  distributedtask.TaskStatusStarted,
+			payload: formatOnlyPayload,
+			want: []string{
+				"The migration's on-disk state is not removed by this mutation",
+				`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
+			},
+		},
+	}
+
+	provider := &ReindexProvider{}
+
+	// Run for both arms: the gate can't tell them apart, so it must hold either way.
+	for _, arm := range []string{
+		"deactivation (UpdateTenants away from ACTIVE)",
+		"delete (DeleteTenants)",
+	} {
+		for _, tc := range cases {
+			t.Run(arm+"/"+tc.name, func(t *testing.T) {
+				tasks := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant_arm", Version: 1},
+					Status:         tc.status,
+					Payload:        tc.payload,
+				}}
+				err := provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+				require.Error(t, err)
+				for _, w := range tc.want {
+					require.Contains(t, err.Error(), w)
+				}
+				for _, unwanted := range dataRemovalClaims {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+			})
+		}
+	}
+}
+
 // TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects pins
 // that informationally-empty payloads (Collection or MigrationType
 // missing post-unmarshal) trigger the same hard-reject as unparseable
@@ -695,7 +850,9 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 			}}
 			err := provider.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "T_empty")
+			require.Contains(t, err.Error(), "empty Collection or MigrationType")
+			// Unattributable task, so its ID stays out of the message.
+			require.NotContains(t, err.Error(), "T_empty")
 		})
 	}
 }
@@ -717,89 +874,842 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: a mutation refusal tells the operator to cancel the reindex only
-// for the status the cancel API accepts one for. STARTED is that status.
-// A coordination phase gets 409 because stopping mid-cutover is unsafe,
-// and a status this build cannot classify gets 409 on every node — so
-// naming a cancel for either sends the operator down a road that
-// dead-ends.
+// renderedCallRE matches a `PUT <path> <body>` the reindex messages render.
+// Every rendered body is one index group wrapping one flat object, so the
+// pattern needs no brace balancing.
+var renderedCallRE = regexp.MustCompile(`PUT (/v1/schema/[^ ]+/indexes/[^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
+
+// renderedCancelCall returns the cancel call a message names, or "" when it
+// names none. Matches the rendered JSON rather than the prose around it, so
+// it sees exactly what an operator would copy out and paste into a PUT.
+func renderedCancelCall(message string) string {
+	for _, m := range renderedCallRE.FindAllStringSubmatch(message, -1) {
+		if strings.Contains(m[2], `"cancel":true`) {
+			return m[0]
+		}
+	}
+	return ""
+}
+
+// requireCancelAdviceMatchesTheGuard asserts the one property these refusals
+// exist to get right: a remedy names a cancel call exactly when the cancel
+// endpoint would accept one.
 //
-// The expectations are spelled out per status rather than derived from
-// IsCancellable, so re-keying the helper onto a different predicate
-// shows up here as a failure instead of moving the goalposts with it.
-func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
+// Both sides run production predicates —
+// [distributedtask.TaskStatus.IsCancellable], the literal that
+// Manager.CancelTask and the REST pre-flight both key on, and
+// [ReindexCancelCall], which decides whether this build can name the call at
+// all. The REST half of the same property (the rendered call driven through
+// findCancelTarget and cancelPreflight) is pinned by
+// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
+func requireCancelAdviceMatchesTheGuard(t *testing.T, message string,
+	status distributedtask.TaskStatus, payload ReindexTaskPayload, askedProperty string,
+) {
+	t.Helper()
+	got := renderedCancelCall(message)
+	if status.IsCancellable() && ReindexCancelCall(payload, askedProperty) != "" {
+		require.NotEmpty(t, got,
+			"a cancel is accepted in status %s and this build can name it, "+
+				"so the remedy has to print it", status)
+		return
+	}
+	require.Empty(t, got,
+		"a cancel in status %s is refused (or unnameable), so the remedy must not print one", status)
+}
+
+// TestSchemaGateRemedyMatchesWhatCancelActuallyOffers pins that each schema
+// gate's remedy sentence matches what cancel actually offers for that
+// status: whether a cancel is accepted at all, whether this build can name
+// it, and the mid-run vs. past-units cost.
+func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	provider := &ReindexProvider{}
+
 	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:         "C",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
+	})
+
+	// findCancelTarget requires a named property, so a whole-collection
+	// task (empty Properties) can't be cancelled through it.
+	wholeCollectionPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+	})
+
+	// On a namespace-enabled cluster the payload's Collection is stored
+	// qualified, and every gate is called with the qualified name too.
+	qualifiedPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:         "customer1:C",
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"name"},
+		TargetTokenization: "word",
+	})
+
+	gates := schemaMutationGates(provider)
+
+	// Every part is filled in from the task; a guessed placeholder would
+	// land the operator on a 202 NO_OP.
+	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
+	cancelWhileRunning := []string{
+		cancelCall + ", or wait for it to finish",
+	}
+	// That sentence is a strict prefix of the format-only one, so the rows
+	// only tell the two apart by refusing its continuations.
+	notFormatOnly := []string{
+		"no cluster-wide cutover",
+		"re-submit it via",
+	}
+	// A format-only migration flips no schema, so nothing it leaves behind
+	// can be inverted against one.
+	notInverted := []string{
+		"already merged on disk",
+		"the next restart promotes it",
+		"re-running the migration",
+	}
+	// Past STARTED no cancel is accepted, so every coordination-phase remedy
+	// leads with the wait and says why nothing ends the task sooner.
+	waitItOut := []string{
+		"wait for it to reach a terminal state",
+		"answers 409 Conflict",
+		"no way to end this task early",
+	}
+	// Past STARTED the semantic remedy also names the repair (the original
+	// submit body, not a rebuild — see [ReindexRepairCall]). PREPARING is
+	// included on purpose: the merge, not the swap, opens the window where
+	// terminalizing as FAILED leaves promotable data behind.
+	pastUnits := concat(waitItOut, []string{
+		// Hedged on purpose: PREPARING is entered before runtimePrepare
+		// writes merged.mig, so for the first part of it nothing is.
+		"may already be merged on disk",
+		"the next restart promotes it",
+		`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
+	})
+	// Same task, minus the target tokenization. No submit path produces this
+	// payload; it pins that the remedy text drops the repair call rather than
+	// naming one the API would reject.
+	noTargetPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
-	tasksIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
-		return []*distributedtask.Task{{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
-			Status:         status,
-			Payload:        payload,
-		}}
+	repairUnnameable := concat(waitItOut, []string{
+		"re-running the migration, which this build cannot name",
+	})
+	// A format-only migration has no PREPARING and no cutover, so neither
+	// STARTED nor SWAPPING can promise "nothing has happened yet" — and
+	// SWAPPING, which it does reach, has no schema flip to skip either.
+	formatOnlyPayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeRepairFilterable,
+		Properties:    []string{"name"},
+	})
+	// The re-submit is rendered as a full call, not described: the reader of
+	// a DeleteClass or tenant-mutation refusal is often not the submitter.
+	formatOnly := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		"its shards commit one by one",
+		`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
+		"re-runs every shard, the ones that already finished included",
+	}
+	// enable-rangeable is the one format-only type whose own progress
+	// invalidates its submit precondition, so "re-submit the same request" is
+	// not the whole story for it.
+	rangeablePayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeEnableRangeable,
+		Properties:    []string{"name"},
+	})
+	formatOnlyRangeable := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		"its shards commit one by one",
+		`re-submit it via PUT /v1/schema/C/indexes/name {"rangeable":{"enabled":true}} while no shard has finished yet`,
+		`or via PUT /v1/schema/C/indexes/name {"rangeable":{"rebuild":true}} once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike cancel)`,
+		"sets indexRangeFilters on the property",
+	}
+	// The types whose preconditions partial progress leaves alone must not
+	// borrow enable-rangeable's caveat.
+	notPerShardSchemaFlip := []string{
+		"while no shard has finished yet",
+		"sets indexRangeFilters on the property",
+	}
+	// Past STARTED a format-only task has every unit terminal on every node,
+	// so the wait is the whole story: nothing is left half-applied.
+	formatOnlyPastUnits := concat(waitItOut, []string{
+		"Every unit of this migration has already completed on every node",
+		"nothing to re-submit afterwards",
+	})
+	// A migration type this build doesn't know: it cannot say what waiting
+	// leaves behind, so it says that rather than guessing.
+	unknownTypePayload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexMigrationType("a-type-from-a-newer-node"),
+		Properties:    []string{"name"},
+	})
+	unknownTypePastUnits := concat(waitItOut, []string{
+		"does not know this migration type",
+		"read the task on that node instead",
+	})
+	cancelUnnameable := []string{
+		"the cancel endpoint is keyed on one collection, property and index type",
+		"so this build can only tell you to wait it out",
+		"if a newer node submitted this migration type, read the task there instead",
+	}
+	cancelUnknown := []string{
+		"this build does not know that status",
+		"read the task on a node that knows the status",
+	}
+	// The data-dropping gate (DeleteClass) gets told to retry its own
+	// request, not a follow-up call that would 404 once the collection is
+	// gone.
+	noFollowUp := []string{
+		"re-submit it via",
+		"re-running the migration",
+	}
+	pastUnitsDropping := concat(waitItOut, []string{
+		"may already be merged on disk",
+		"goes with the data you are removing",
+		"re-issue this request once the task is terminal",
+	})
+	formatOnlyPastUnitsDropping := concat(waitItOut, []string{
+		"Every unit of this migration has already completed on every node",
+		"Re-issue this request once the task is terminal",
+	})
+	formatOnlyDropping := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		"its shards commit one by one",
+		"nothing to finish afterwards",
+		"then re-issue this request",
+	}
+	formatOnlyRangeableDropping := []string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		"its shards commit one by one",
+		"nothing to finish afterwards",
 	}
 
-	// Each guard's own wording for "cancel it", which may appear only
-	// where a cancel is accepted.
-	guards := map[string]struct {
-		call         func(tasks []*distributedtask.Task) error
-		cancelAdvice string
+	statuses := []struct {
+		name      string
+		status    distributedtask.TaskStatus
+		className string
+		payload   []byte
+		want      []string
+		notWant   []string
+		// wantDropping / notWantDropping replace want / notWant on data-dropping
+		// gates; nil means the remedy doesn't depend on that.
+		wantDropping    []string
+		notWantDropping []string
 	}{
-		"property update": {
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate("C", "name", tasks)
-			},
-			cancelAdvice: "cancel it via the reindex REST API before retrying",
+		{
+			"STARTED", distributedtask.TaskStatusStarted, "C", payload,
+			cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly), nil, nil,
 		},
-		"class mutation": {
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation("C", tasks)
-			},
-			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
+		{
+			"PREPARING", distributedtask.TaskStatusPreparing, "C", payload,
+			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
 		},
-		"tenant mutation": {
-			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+		{
+			"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload,
+			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+		},
+		{
+			"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload,
+			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+		},
+		{
+			"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload,
+			formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
+		// gates still see them — and where their units are already done.
+		{
+			"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload,
+			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload,
+			formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted),
+			formatOnlyRangeableDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload,
+			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
+			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+		},
+		{
+			"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+		},
+		// Past STARTED the cancel is refused whether or not this build could
+		// have named one, so the unnameable-cancel wording drops out and the
+		// inversion warning is what is left to say.
+		{
+			"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload,
+			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
+			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+		},
+		// A type this build does not know abstains at both ends: it can name
+		// no cancel at STARTED and no consequence past it.
+		{
+			"STARTED unknown migration type", distributedtask.TaskStatusStarted, "C", unknownTypePayload,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+		},
+		{
+			"SWAPPING unknown migration type", distributedtask.TaskStatusSwapping, "C", unknownTypePayload,
+			unknownTypePastUnits, concat(cancelUnnameable, cancelUnknown, notInverted), nil, nil,
+		},
+		{
+			string(unknownFutureStatus), unknownFutureStatus, "C", payload,
+			cancelUnknown, concat([]string{cancelCall}, cancelUnnameable), nil, nil,
+		},
+		// Namespace-qualified: the URL keeps the prefix. A global operator has
+		// to type it, and the REST error path removes it again for the
+		// namespace-confined caller who must not.
+		{
+			"STARTED namespace-qualified", distributedtask.TaskStatusStarted, "customer1:C", qualifiedPayload,
+			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			[]string{"/v1/schema/C/"},
+			nil, nil,
+		},
+		{
+			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
+			[]string{
+				`re-running the migration via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"tokenization":"word"}}`,
 			},
-			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
+			[]string{"/v1/schema/C/"},
+			[]string{"re-issue this request once the task is terminal"},
+			concat([]string{"/v1/schema/C/"}, noFollowUp),
 		},
 	}
 
-	for _, tc := range []struct {
-		status           distributedtask.TaskStatus
-		wantCancelAdvice bool
-		wantReason       string
-	}{
-		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
-		{
-			status:     distributedtask.TaskStatusPreparing,
-			wantReason: "past the point where a cancel is accepted",
-		},
-		{
-			status:     distributedtask.TaskStatusSwapping,
-			wantReason: "past the point where a cancel is accepted",
-		},
-		{
-			status:     unknownFutureStatus,
-			wantReason: "cannot classify that status",
-		},
-	} {
-		for name, guard := range guards {
-			t.Run(string(tc.status)+"/"+name, func(t *testing.T) {
-				err := guard.call(tasksIn(tc.status))
-				require.Error(t, err, "every non-terminal status blocks the mutation")
-
-				if tc.wantCancelAdvice {
-					require.Contains(t, err.Error(), guard.cancelAdvice)
-					return
+	for _, gate := range gates {
+		for _, st := range statuses {
+			t.Run(gate.name+"/"+st.name, func(t *testing.T) {
+				tasks := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_remedy", Version: 1},
+					Status:         st.status,
+					Payload:        st.payload,
+				}}
+				err := gate.call(st.className, tasks)
+				require.Error(t, err)
+				want, notWant := st.want, st.notWant
+				if gate.dropsTheData && st.wantDropping != nil {
+					want, notWant = st.wantDropping, st.notWantDropping
 				}
-				require.NotContains(t, err.Error(), guard.cancelAdvice,
-					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
-				require.Contains(t, err.Error(), tc.wantReason)
+				for _, w := range want {
+					require.Contains(t, err.Error(), w)
+				}
+				for _, unwanted := range notWant {
+					require.NotContains(t, err.Error(), unwanted)
+				}
+
+				// The rows above pin the wording; this asks the guard. A row
+				// that spelled out the wrong cancel advice would still fail
+				// here, which is the point — the string table is what let the
+				// PREPARING/SWAPPING advice drift away from the API.
+				var p ReindexTaskPayload
+				require.NoError(t, json.Unmarshal(st.payload, &p))
+				requireCancelAdviceMatchesTheGuard(t, err.Error(), st.status, p, gate.askedProperty)
 			})
 		}
 	}
+}
+
+// schemaMutationGate is one of the three gates that refuse a schema mutation
+// while a reindex task is in flight, reduced to a common call shape so a
+// table can exercise all three with the same rows.
+type schemaMutationGate struct {
+	name string
+	call func(className string, tasks []*distributedtask.Task) error
+	// askedProperty is what the gate passes to [ReindexGateRemedy]; the
+	// class- and tenant-wide gates pass "" because their refusal is not
+	// property-scoped.
+	askedProperty string
+	// dropsTheData marks gates whose caller destroys ALL the shards the
+	// migration works on. Only DeleteClass qualifies — a tenant mutation
+	// leaves the migration's state behind.
+	dropsTheData bool
+}
+
+func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
+	return []schemaMutationGate{
+		{
+			name: "property update",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate(className, "name", tasks)
+			},
+			askedProperty: "name",
+		},
+		{
+			name: "delete class",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation(className, tasks)
+			},
+			dropsTheData: true,
+		},
+		{
+			name: "tenant mutation",
+			call: func(className string, tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation(className, []string{"t1"}, tasks)
+			},
+		},
+	}
+}
+
+func concat(sets ...[]string) []string {
+	var out []string
+	for _, s := range sets {
+		out = append(out, s...)
+	}
+	return out
+}
+
+// TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck pins that no
+// migration type crashes the conflict check on the RAFT apply path,
+// including one this build doesn't recognize (a newer node's type).
+func TestCheckConflict_EveryMigrationTypeSurvivesTheConflictCheck(t *testing.T) {
+	migrationTypes := append(allDeclaredReindexMigrationTypes(t),
+		"a-type-from-a-newer-node")
+
+	provider := &ReindexProvider{}
+
+	// Both sides of the check reach the predicates, so every ordered pair
+	// has to survive, not just every type in the submitted position.
+	for _, newType := range migrationTypes {
+		for _, existType := range migrationTypes {
+			t.Run(string(newType)+" while "+string(existType)+" is in flight", func(t *testing.T) {
+				newPayload, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: newType, Properties: []string{"prop"},
+				})
+				require.NoError(t, err)
+				existPayload, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: existType, Properties: []string{"prop"},
+				})
+				require.NoError(t, err)
+
+				existing := []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+					Status:         distributedtask.TaskStatusStarted,
+					Payload:        existPayload,
+				}}
+
+				require.NotPanics(t, func() {
+					// Overlapping properties, so this is the conflict the
+					// check exists for: it must refuse, not crash.
+					require.Error(t, provider.CheckConflict(newPayload, existing))
+				})
+			})
+		}
+	}
+}
+
+// TestTypesConflictReason_UnknownTypeFailsClosed pins the handling of a
+// migration type this build does not recognize: conflict when properties
+// overlap, silence when they don't, never a panic.
+func TestTypesConflictReason_UnknownTypeFailsClosed(t *testing.T) {
+	const unknown = ReindexMigrationType("a-type-from-a-newer-node")
+
+	cases := []struct {
+		name         string
+		newType      ReindexMigrationType
+		newProps     []string
+		existType    ReindexMigrationType
+		existProps   []string
+		wantConflict bool
+	}{
+		{
+			name:    "unknown submitted against known, overlapping props",
+			newType: unknown, newProps: []string{"p"},
+			existType: ReindexTypeChangeTokenization, existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "known submitted against unknown in flight, overlapping props",
+			newType: ReindexTypeChangeTokenization, newProps: []string{"p"},
+			existType: unknown, existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "both unknown, overlapping props",
+			newType: unknown, newProps: []string{"p"},
+			existType: ReindexMigrationType("another-new-type"), existProps: []string{"p"},
+			wantConflict: true,
+		},
+		{
+			name:    "unknown but no property overlap",
+			newType: unknown, newProps: []string{"a"},
+			existType: ReindexTypeChangeTokenization, existProps: []string{"b"},
+			wantConflict: false,
+		},
+		{
+			// Empty props is the reserved whole-collection wildcard, so it
+			// overlaps even against an unknown type.
+			name:    "unknown against the whole-collection wildcard",
+			newType: unknown, newProps: []string{"a"},
+			existType: ReindexTypeChangeTokenization, existProps: nil,
+			wantConflict: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var reason string
+			require.NotPanics(t, func() {
+				reason = typesConflictReason(tc.newType, tc.newProps, tc.existType, tc.existProps)
+			})
+			if !tc.wantConflict {
+				require.Empty(t, reason)
+				return
+			}
+			require.NotEmpty(t, reason)
+			require.Contains(t, reason, "is not known to this build")
+		})
+	}
+}
+
+// allDeclaredReindexMigrationTypes reads the migration types straight out of
+// the package source, so a new type is picked up without anyone remembering
+// to extend a hand-maintained list here.
+func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
+	t.Helper()
+	// The whole package, not just the file that holds them today: a
+	// constant declared elsewhere would otherwise go uncounted and the
+	// count below would still match.
+	files, err := filepath.Glob("*.go")
+	require.NoError(t, err)
+	// Also matches the grouped-const form (`ReindexTypeFoo = "foo"`, no
+	// repeated type), or a type declared that way goes uncounted.
+	// Value charset kept wide: a narrower one would silently skip a new
+	// constant, and the count guard below would still pass at 9.
+	re := regexp.MustCompile(`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-zA-Z0-9_-]+)"`)
+	var out []ReindexMigrationType
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			out = append(out, ReindexMigrationType(m[1]))
+		}
+	}
+	// Assert each known value by name: a regex that swapped which
+	// constants it matches would still pass a count-only check.
+	for _, known := range []ReindexMigrationType{
+		ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable, ReindexTypeEnableFilterable,
+		ReindexTypeRepairFilterable, ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable,
+		ReindexTypeChangeTokenization,
+	} {
+		require.Contains(t, out, known,
+			"the source scan missed %q; the regex no longer matches how it is declared", known)
+	}
+	require.Len(t, out, 9,
+		"expected 9 declared migration types; update this count with the constant")
+	return out
+}
+
+// TestReindexTargetIndexes pins every arm of the mapping cancel and on-disk
+// cleanup rely on. The table is the full set of types this build declares, so
+// a new type added without an arm here fails loud instead of silently
+// returning nil and disabling cancel rendering and cleanup for it.
+func TestReindexTargetIndexes(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		want          []string
+	}{
+		{ReindexTypeEnableSearchable, []string{"searchable"}},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}},
+		{ReindexTypeEnableFilterable, []string{"filterable"}},
+		{ReindexTypeRepairFilterable, []string{"filterable"}},
+		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}},
+		{ReindexTypeEnableRangeable, []string{"rangeable"}},
+		{ReindexTypeRepairRangeable, []string{"rangeable"}},
+		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			require.Equal(t, tc.want, ReindexTargetIndexes(tc.migrationType))
+		})
+	}
+
+	t.Run("the table covers every declared type", func(t *testing.T) {
+		covered := map[ReindexMigrationType]bool{}
+		for _, tc := range cases {
+			covered[tc.migrationType] = true
+		}
+		for _, mt := range allDeclaredReindexMigrationTypes(t) {
+			require.True(t, covered[mt],
+				"migration type %q is declared but not pinned here", mt)
+		}
+	})
+
+	t.Run("a type this build does not know", func(t *testing.T) {
+		require.Nil(t, ReindexTargetIndexes("invent-index"))
+	})
+}
+
+// TestFormatOnlyRemedyAlwaysRendersACall pins that the format-only remedy
+// never prints its re-submit sentence with an empty call in it.
+func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
+	for _, mt := range allDeclaredReindexMigrationTypes(t) {
+		if IsSemanticMigration(mt) {
+			continue
+		}
+		t.Run(string(mt), func(t *testing.T) {
+			remedy := ReindexGateRemedy(distributedtask.TaskStatusStarted, ReindexTaskPayload{
+				Collection:    "C",
+				MigrationType: mt,
+				Properties:    []string{"name"},
+			}, "name", false)
+			require.Contains(t, remedy, "re-submit it via PUT /v1/schema/C/indexes/name {")
+			require.NotContains(t, remedy, "via  ")
+		})
+	}
+}
+
+// TestReindexCancelCall_OnlyRendersWhatItCanFillIn pins the rule the gate
+// messages rely on: either the whole call is filled in from the task, or
+// nothing is rendered. A half-filled URL costs the operator a 202 NO_OP.
+func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
+	cases := []struct {
+		name          string
+		payload       ReindexTaskPayload
+		askedProperty string
+		want          string
+	}{
+		{
+			name:    "single property, known type",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
+			want:    `PUT /v1/schema/C/indexes/num {"rangeable":{"cancel":true}}`,
+		},
+		{
+			name:    "type touching two indexes names one that cancels",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}},
+			want:    `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+		},
+		{
+			// Cancel is task-scoped, so naming the first property cancels
+			// the whole task.
+			name:    "several properties, the first one cancels all of them",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			want:    `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
+		},
+		{
+			// Collection is stored qualified and stays qualified: a global
+			// operator has to type the prefix, and the REST error path
+			// strips it again for the namespace-confined caller.
+			name:    "namespace-qualified collection keeps its prefix",
+			payload: ReindexTaskPayload{Collection: "customer1:C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
+			want:    `PUT /v1/schema/customer1:C/indexes/num {"rangeable":{"cancel":true}}`,
+		},
+		{
+			// The refusal is about "b", so the cancel call names "b" — a
+			// call naming some other property of the same task reads like
+			// a bug even though cancel is task-scoped.
+			name:          "the property the caller asked about is the one named",
+			payload:       ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			askedProperty: "b",
+			want:          `PUT /v1/schema/C/indexes/b {"rangeable":{"cancel":true}}`,
+		},
+		{
+			name:          "a property the task does not carry falls back to the first",
+			payload:       ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
+			askedProperty: "elsewhere",
+			want:          `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
+		},
+		{
+			// Whole-collection rebuild: findCancelTarget requires a named
+			// property, so there's nothing to render. Reserved — no
+			// shipping route produces an empty Properties payload today,
+			// the branch is defense in depth.
+			name:    "no property to name",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable},
+			want:    "",
+		},
+		{
+			name:    "no collection to address",
+			payload: ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
+			want:    "",
+		},
+		{
+			name:    "migration type this build cannot map",
+			payload: ReindexTaskPayload{Collection: "C", MigrationType: "invent-index", Properties: []string{"num"}},
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, ReindexCancelCall(tc.payload, tc.askedProperty))
+		})
+	}
+}
+
+// An unattributable task's ID may belong to a namespace the caller cannot
+// see, so every gate withholds it.
+func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
+	provider := &ReindexProvider{}
+
+	emptyCollection, err := json.Marshal(ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+	require.NoError(t, err)
+
+	payloads := []struct {
+		name    string
+		payload []byte
+		want    string
+	}{
+		{"a payload that will not parse", []byte("garbage"), "unparseable"},
+		{"a payload written by an older binary", emptyCollection, "empty Collection or MigrationType"},
+	}
+
+	for _, gate := range schemaMutationGates(provider) {
+		for _, p := range payloads {
+			t.Run(gate.name+"/"+p.name, func(t *testing.T) {
+				err := gate.call("C", []*distributedtask.Task{{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_unattributable", Version: 1},
+					Status:         distributedtask.TaskStatusStarted,
+					Payload:        p.payload,
+				}})
+				require.Error(t, err)
+				require.Contains(t, err.Error(), p.want)
+				require.NotContains(t, err.Error(), "T_unattributable")
+				require.Contains(t, err.Error(), "GET /v1/tasks",
+					"withholding the ID has to leave the caller somewhere to look")
+			})
+		}
+	}
+}
+
+// TestReindexRepairCall pins the repair body per migration type against the
+// precondition a bare rebuild would fail on the terminal state.
+func TestReindexRepairCall(t *testing.T) {
+	cases := []struct {
+		migrationType ReindexMigrationType
+		// why names the precondition a bare rebuild would fail on, or why
+		// no body is renderable at all.
+		why string
+		// want is the body, or "" when the type renders no repair call.
+		want string
+	}{
+		{
+			ReindexTypeEnableSearchable,
+			"IndexSearchable is still false, which searchable.rebuild rejects; the " +
+				"tokenization is part of the enable verb and the handler rejects an empty one",
+			`{"searchable":{"enabled":true,"tokenization":"word"}}`,
+		},
+		{
+			ReindexTypeEnableFilterable,
+			"IndexFilterable is still false, which filterable.rebuild rejects",
+			`{"filterable":{"enabled":true}}`,
+		},
+		{
+			ReindexTypeChangeAlgorithm,
+			"the algorithm is still WAND, which searchable.rebuild rejects",
+			`{"searchable":{"algorithm":"blockmax"}}`,
+		},
+		{
+			ReindexTypeChangeTokenization,
+			"the tokenization is still the old one, so the same change is still valid",
+			`{"searchable":{"tokenization":"word"}}`,
+		},
+		{
+			ReindexTypeChangeTokenizationFilterable,
+			"same, scoped to the filterable bucket",
+			`{"filterable":{"tokenization":"word"}}`,
+		},
+		{
+			ReindexTypeRebuildSearchable,
+			"no schema bit was going to change; the original request is the repair",
+			`{"searchable":{"rebuild":true}}`,
+		},
+		{
+			ReindexTypeRepairFilterable,
+			"same",
+			`{"filterable":{"rebuild":true}}`,
+		},
+		{
+			ReindexTypeEnableRangeable,
+			"the strategy flips IndexRangeFilters per shard, so enabled 400s once " +
+				"any shard finished and rebuild 400s while none has",
+			"",
+		},
+		{
+			ReindexTypeRepairRangeable,
+			"no schema bit was going to change",
+			`{"rangeable":{"rebuild":true}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.migrationType), func(t *testing.T) {
+			got := ReindexRepairCall(ReindexTaskPayload{
+				Collection:         "C",
+				MigrationType:      tc.migrationType,
+				Properties:         []string{"name"},
+				TargetTokenization: "word",
+			}, "name")
+			if tc.want == "" {
+				require.Empty(t, got, tc.why)
+				return
+			}
+			require.Equal(t, "PUT /v1/schema/C/indexes/name "+tc.want, got, tc.why)
+		})
+	}
+
+	t.Run("the table covers every declared type", func(t *testing.T) {
+		covered := map[ReindexMigrationType]bool{}
+		for _, tc := range cases {
+			covered[tc.migrationType] = true
+		}
+		for _, mt := range allDeclaredReindexMigrationTypes(t) {
+			require.True(t, covered[mt],
+				"migration type %q is declared but is not pinned here", mt)
+		}
+	})
+
+	t.Run("nothing is rendered when the call cannot be filled in", func(t *testing.T) {
+		unnameable := []struct {
+			name    string
+			payload ReindexTaskPayload
+		}{
+			{"a type this build does not know", ReindexTaskPayload{
+				Collection: "C", MigrationType: "a-type-from-a-newer-node",
+				Properties: []string{"name"},
+			}},
+			{"a tokenization change with no target", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeChangeTokenization,
+				Properties: []string{"name"},
+			}},
+			{"an enable-searchable with no target tokenization", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeEnableSearchable,
+				Properties: []string{"name"},
+			}},
+			{"a filterable tokenization change with no target", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeChangeTokenizationFilterable,
+				Properties: []string{"name"},
+			}},
+			{"no collection", ReindexTaskPayload{
+				MigrationType: ReindexTypeEnableFilterable, Properties: []string{"name"},
+			}},
+			{"no property", ReindexTaskPayload{
+				Collection: "C", MigrationType: ReindexTypeEnableFilterable,
+			}},
+		}
+		for _, tc := range unnameable {
+			t.Run(tc.name, func(t *testing.T) {
+				require.Empty(t, ReindexRepairCall(tc.payload, "name"))
+			})
+		}
+	})
 }

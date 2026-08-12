@@ -2774,7 +2774,7 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 
 	// When selection is enabled and an explicit list of properties is given,
 	// the selected list IS the authoritative reindex target. Existing
-	// strategies (e.g. repair-searchable, change-tokenization) target
+	// strategies (e.g. rebuild-searchable, change-tokenization) target
 	// properties whose source bucket already exists; new from-scratch
 	// strategies (enable-filterable, enable-searchable) target properties
 	// whose source bucket does not exist yet and will be created in

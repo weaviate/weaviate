@@ -163,19 +163,40 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 	if len(m.schemaMutationDetectors) == 0 {
 		return nil
 	}
-	for namespace, detector := range m.schemaMutationDetectors {
+	// Sorted, because this runs on the RAFT apply path and returns the FIRST
+	// error. Ranging the detector map directly would let two nodes applying
+	// the same log entry name conflicts from different namespaces.
+	namespaces := make([]string, 0, len(m.schemaMutationDetectors))
+	for namespace := range m.schemaMutationDetectors {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+
+	for _, namespace := range namespaces {
+		detector := m.schemaMutationDetectors[namespace]
 		if detector == nil {
 			continue
 		}
-		var existing []*Task
-		for _, t := range m.tasks[namespace] {
-			existing = append(existing, t)
-		}
-		if err := callDetector(detector, existing); err != nil {
+		if err := callDetector(detector, m.sortedTasksWithLock(namespace)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sortedTasksWithLock returns the namespace's tasks ordered by task ID.
+// Caller must hold m.mu.
+//
+// Map order is nondeterministic; accept/reject is unaffected, but WHICH
+// conflicting task gets named in the refusal is not — sorting keeps that
+// message stable across nodes/retries and in sync with the REST pre-check.
+func (m *Manager) sortedTasksWithLock(namespace string) []*Task {
+	tasks := make([]*Task, 0, len(m.tasks[namespace]))
+	for _, t := range m.tasks[namespace] {
+		tasks = append(tasks, t)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	return tasks
 }
 
 // SetSchedulerNotifier installs the scheduler wake-up notifier. Safe to
@@ -302,11 +323,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newPayload, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
-		var existing []*Task
-		for _, t := range m.tasks[r.Namespace] {
-			existing = append(existing, t)
-		}
-		if err := cd.CheckConflict(r.Payload, existing); err != nil {
+		if err := cd.CheckConflict(r.Payload, m.sortedTasksWithLock(r.Namespace)); err != nil {
 			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
 		}
 	}
@@ -429,19 +446,32 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
-			// Failures are terminal immediately — there are no
-			// post-task callbacks to wait for on the failure path
-			// (the schema flip is intentionally skipped when any
-			// unit failed; see OnTaskCompleted's early-return for
-			// FAILED tasks).
+			// Fail-closed: AnyUnitFailed only trips via a restored snapshot
+			// (see its godoc). Without this branch such a task would advance
+			// to SWAPPING and run the schema flip on a half-failed migration.
 			task.Status = TaskStatusFailed
-		} else {
-			// Barrier tasks go through PREPARING; others jump to SWAPPING.
-			if task.NeedsPreparationBarrier {
-				task.Status = TaskStatusPreparing
-			} else {
-				task.Status = TaskStatusSwapping
+			// Name a reason: FAILED with an empty Error leaves the operator
+			// nothing to act on.
+			//
+			// Accepted cross-version cost: an older peer replaying this same
+			// entry leaves Error empty, so during a rolling upgrade GET
+			// /v1/tasks answers differently depending on which node serves
+			// it. The status transition is identical on both binaries, no
+			// production code outside serialization reads Task.Error, and the
+			// field is snapshot-serialized, so a leader snapshot install
+			// converges it. A version gate would buy nothing but delay.
+			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
+			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
+				if unitErr == "" {
+					unitErr = "no error recorded"
+				}
+				task.Error = fmt.Sprintf("%s: unit %s failed: %s", task.Error, unitID, unitErr)
 			}
+		} else if task.NeedsPreparationBarrier {
+			// Barrier tasks go through PREPARING; others jump to SWAPPING.
+			task.Status = TaskStatusPreparing
+		} else {
+			task.Status = TaskStatusSwapping
 		}
 		// FinishedAt = when units completed, for PREPARING and SWAPPING
 		// alike. The TTL cleanup skips both, so this cannot clean a task

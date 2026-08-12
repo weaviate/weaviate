@@ -194,10 +194,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // updateIndex implements PUT /v1/schema/{className}/indexes/{propertyName}.
 //
 // Concurrent non-conflicting reindex tasks are allowed. Two tasks conflict if
-// they would touch the same bucket for the same property. The conflict check
-// rejects same-type same-property tasks, plus cross-type conflicts (e.g.
-// repair-searchable blocks change-tokenization on any property since
-// repair-searchable touches all searchable buckets).
+// their property sets overlap on the same collection, whatever buckets they
+// touch — same-type and cross-type alike (e.g. enable-rangeable blocks
+// change-tokenization on the same property even though they share no bucket).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
 	propertyName := params.PropertyName
 
@@ -362,58 +361,19 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
 		// rebuild preserves the current BM25 algorithm and tokenization.
-		// WAND searchable indexes cannot be rebuilt — the only supported
-		// next step for them is migration to BlockMax via
-		// {"searchable":{"algorithm":"blockmax"}}.
-		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first"))
-		}
 		migrationType = db.ReindexTypeRebuildSearchable
 		properties = []string{propertyName}
+		if err := validateRebuildSearchableProperty(class, targetProp); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
+		}
 
 	case body.Searchable != nil && body.Searchable.Algorithm != "":
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
-		// Canonicalise the algorithm name through normalizeSearchableAlgorithm,
-		// then dispatch on the canonical value with an explicit allowlist.
-		//
-		// The explicit `switch` is deliberately stricter than an equality
-		// check: when a second searchable algorithm eventually ships, the
-		// swagger enum will accept it and unrelated handler call sites will
-		// silently start receiving the new value here. With an inline
-		// `if x != "blockmax"` the new algorithm would either be silently
-		// rejected (bad UX) or silently accepted with no migration type
-		// wired up (data corruption). The `switch` instead surfaces every
-		// added algorithm as a missing case the compiler / reviewers can
-		// see at the diff site. WAND is explicitly listed as the deprecated
-		// arm so the error message stays accurate when it lands as input.
-		normalized := normalizeSearchableAlgorithm(body.Searchable.Algorithm)
-		switch normalized {
-		case models.IndexStatusAlgorithmBlockmax:
-			// supported target — fall through to submit
-		case models.IndexStatusAlgorithmWand:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("algorithm %q is deprecated; only %q is accepted as a target",
-					models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)))
-		default:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
-					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
-		}
-		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"searchable index is already on blockmax"))
-		}
 		migrationType = db.ReindexTypeChangeAlgorithm
 		properties = []string{propertyName}
+		if err := validateChangeAlgorithmProperty(class, targetProp, body.Searchable.Algorithm); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
+		}
 
 	case body.Filterable != nil && body.Filterable.Enabled:
 		migrationType = db.ReindexTypeEnableFilterable
@@ -425,11 +385,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	case body.Filterable != nil && body.Filterable.Rebuild:
 		migrationType = db.ReindexTypeRepairFilterable
 		properties = []string{propertyName}
-		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
-		}
-		if err := validateRebuildFilterableDataType(targetProp); err != nil {
+		if err := validateRebuildFilterableProperty(targetProp); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
@@ -463,6 +419,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// --- Multi-tenancy handling ---
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	tenants := params.Tenants
+	// Also drives NeedsPreparationBarrier below: format-only types skip
+	// PREPARING and can swap while the task still reads STARTED.
 	semantic := db.IsSemanticMigration(migrationType)
 
 	// Validate MT + tenants combination.
@@ -1068,74 +1026,20 @@ func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) er
 	return failures
 }
 
-// indexTypesFromMigrationType returns the canonical inverted-index types
-// ("filterable", "searchable", "rangeable") that a migration type targets,
-// for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
-// migration types — every known type returns at least one indexType.
-//
-// Most migration types target exactly one index. change-tokenization (both
-// indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
-// (searchable + filterable) via createReindexTasks, and each leaves its own
-// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
-// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
-// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
-// change_tok_delete_journeys_test.go): a prior filterable-only retokenize
-// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
-// next change-tokenization-both submit did not clean it, and its
-// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
-// IsTidied check while OnMigrationComplete still flipped the schema's
-// Tokenization. Schema and on-disk state then disagreed.
-//
-// Callers iterate the returned slice and run the sweep from
-// db.DB.NewStalePartialReindexSweep once per indexType. Safe to call when no
-// stale state exists: missing directories and unloaded buckets are silently
-// skipped.
+// indexTypesFromMigrationType wraps [db.ReindexTargetIndexes] for cleanup
+// callers; a stale sentinel in any skipped indexType can disagree with the
+// schema.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return []string{"searchable"}, true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return []string{"filterable"}, true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return []string{"rangeable"}, true
-	case db.ReindexTypeChangeTokenization:
-		// change-tokenization-both runs ONE task per inverted index
-		// (searchable + filterable). Each leaves its own per-property
-		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
-		// bucket state mismatch (Sev 1 silent data loss).
-		return []string{"searchable", "filterable"}, true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}, true
-	}
-	return nil, false
+	indexTypes := db.ReindexTargetIndexes(mt)
+	return indexTypes, len(indexTypes) > 0
 }
 
-// migrationTypeTargetsIndex returns:
-//
-//   - matches: true if the migration type writes to the named index bucket.
-//   - isKnown: true if the migration type is one this function knows about.
-//
-// A new ReindexType added to the codebase without being mapped here would
-// return (false, false). Callers that need to log/alert on that case can
-// check the second return; cancel-path callers can ignore it because a
-// (false, false) result still means "this task is not a cancel target".
+// migrationTypeTargetsIndex reports whether mt writes to indexType's bucket
+// (matches) and whether this build recognizes mt at all (isKnown), per
+// [db.ReindexTargetIndexes].
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return indexType == "searchable", true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable", true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable", true
-	case db.ReindexTypeChangeTokenization:
-		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable", true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return indexType == "filterable", true
-	}
-	return false, false
+	indexTypes := db.ReindexTargetIndexes(mt)
+	return slices.Contains(indexTypes, indexType), len(indexTypes) > 0
 }
 
 // normalizeSearchableAlgorithm maps an explicit searchable.algorithm
@@ -1393,7 +1297,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
 	case db.ReindexTypeChangeAlgorithm:
-		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
+		// change-algorithm migrates WAND → BlockMax. The targetAlgorithm
 		// lets the UI render the in-flight switch the same way it renders
 		// targetTokenization for change-tokenization.
 		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
@@ -1594,13 +1498,8 @@ func countInFlightTasksForCollection(collection string, tasks []*distributedtask
 // is reserved for a future whole-collection rebuild and is treated as
 // matching any property for conflict purposes.
 //
-// The bucket types each migration touches on its targeted property:
-//   - repair-searchable:    searchable bucket
-//   - repair-filterable:    filterable bucket
-//   - enable-searchable:    searchable bucket (from scratch)
-//   - enable-filterable:    filterable bucket (from scratch)
-//   - change-tokenization:  searchable + filterable buckets
-//   - enable-rangeable:     rangeable bucket — no cross-type conflicts
+// Bucket types touched per migration type: see [db.ReindexTargetIndexes],
+// the single source of truth for that mapping.
 //
 // Unparseable payloads (e.g. payload schema change across versions, RAFT
 // replay of a task from an older binary) are treated as a hard error
@@ -1644,9 +1543,6 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	return "", nil
 }
 
-// The conflict predicate + bucket-touch helpers + property-overlap
-// helper used by the pre-flight check above all live in the db
-// package now ([db.TypesConflictReason], [db.TouchesSearchable],
-// [db.TouchesFilterable], [db.ReindexPropsOverlap]) — they're shared
-// with the FSM-deterministic conflict check at apply time so the two
-// paths can't drift on what counts as a conflict.
+// The pre-flight check above shares [db.TypesConflictReason],
+// [db.ReindexPropsOverlap], and [db.ReindexTargetIndexes] with the
+// FSM-deterministic conflict check at apply time, so the two can't drift.

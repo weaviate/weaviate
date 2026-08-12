@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -1074,4 +1075,183 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 	require.Equal(t, []string{tenant}, skipped,
 		"exactly the unloaded, clean shard is reported as skipped")
 	require.False(t, lazy.isLoaded(), "the skipped shard must not have been hydrated")
+}
+
+// Pins that cold (unloaded) shards are still walked, so the CANCELLED
+// warning isn't silently suppressed on multi-tenant collections.
+func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+		coldShard = "cold-tenant"
+	)
+
+	tests := []struct {
+		name string
+		// sentinels are the files in the cold shard's tracker dir; nil leaves
+		// the cold shard with no reindex state at all.
+		sentinels []string
+		want      bool
+	}{
+		{
+			name: "a cold shard with no reindex state at all",
+		},
+		{
+			name:      "a cold shard whose generation only started",
+			sentinels: []string{"started.mig"},
+		},
+		{
+			name:      "a cold shard carrying a generation the next restart promotes",
+			sentinels: []string{"started.mig", "merged.mig"},
+			want:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupCtx := testCtx()
+			className := "ColdPromotable_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+			shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			hot := shd.(*Shard)
+			defer hot.Shutdown(context.Background())
+
+			if len(tc.sentinels) > 0 {
+				mkTrackerDir(t, shardPathLSM(idx.path(), coldShard), tracker, tc.sentinels...)
+			}
+			cold := NewLazyLoadShard(setupCtx, nil, coldShard, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(coldShard, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
+
+			// Registered but not loaded, which is what a cold tenant looks
+			// like while it stays in the shard map. A DEACTIVATED tenant is
+			// removed from that map and is invisible to this predicate — see
+			// [DB.anyPromotableReindexState] for why that is fail-open.
+			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil),
+				"the only shard carrying the state is registered but not loaded")
+			assert.False(t, cold.isLoaded(),
+				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
+		})
+	}
+}
+
+// The CANCELLED evidence gate asks about every (property, index type) pair a
+// migration targets, and each ask walks every shard. One shared cache is what
+// keeps that from re-listing the same .migrations dir once per pair. This
+// pins that the cache reaches the per-shard read at all: with one, a later
+// pair answers from the first pair's snapshot; without, it re-reads.
+func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+	)
+
+	setupCtx := testCtx()
+	className := "CachedPromotable_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	hot := shd.(*Shard)
+	defer hot.Shutdown(context.Background())
+
+	// The gate reaches the shard through DB, so both halves have to pass the
+	// cache down or the sharing stops one level short.
+	database := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+
+	for _, tc := range []struct {
+		name string
+		ask  func(dirs *dirNamesCache) bool
+	}{
+		{
+			name: "per index",
+			ask: func(dirs *dirNamesCache) bool {
+				return idx.anyPromotableReindexState(propName, indexType, dirs)
+			},
+		},
+		{
+			name: "through the db",
+			ask: func(dirs *dirNamesCache) bool {
+				return database.anyPromotableReindexState(className, propName, indexType, dirs)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.RemoveAll(filepath.Join(hot.pathLSM(), ".migrations")))
+
+			dirs := &dirNamesCache{}
+			require.False(t, tc.ask(dirs), "the shard has no .migrations dir yet")
+
+			mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig", "merged.mig")
+
+			require.False(t, tc.ask(dirs),
+				"a shared cache answers from the snapshot the first pair took")
+			require.True(t, tc.ask(nil),
+				"a nil cache reads the filesystem, which now holds the state")
+		})
+	}
+}
+
+// TestHasPromotableReindexStateFailsClosed pins that an unrecognized
+// indexType or an unenumerable .migrations dir answers true.
+func TestHasPromotableReindexStateFailsClosed(t *testing.T) {
+	const propName = "category"
+
+	tests := []struct {
+		name      string
+		indexType string
+		setup     func(t *testing.T, lsm string)
+		want      bool
+	}{
+		{
+			name:      "a shard that never ran a migration",
+			indexType: "filterable",
+		},
+		{
+			name:      "a generation that only started",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				mkTrackerDir(t, lsm, "enable_filterable_category_1", "started.mig")
+			},
+		},
+		{
+			name:      "a generation the next restart promotes",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				mkTrackerDir(t, lsm, "enable_filterable_category_1", "started.mig", "merged.mig")
+			},
+			want: true,
+		},
+		{
+			name:      "a .migrations path that cannot be enumerated",
+			indexType: "filterable",
+			setup: func(t *testing.T, lsm string) {
+				require.NoError(t, os.WriteFile(filepath.Join(lsm, ".migrations"), []byte("x"), 0o600))
+			},
+			want: true,
+		},
+		{
+			name:      "an index type this build cannot map to a bucket",
+			indexType: "an-index-type-this-build-does-not-know",
+			want:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsm := t.TempDir()
+			if tc.setup != nil {
+				tc.setup(t, lsm)
+			}
+			require.Equal(t, tc.want, hasPromotableReindexState(lsm, propName, tc.indexType, nil))
+		})
+	}
 }

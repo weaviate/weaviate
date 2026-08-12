@@ -516,6 +516,10 @@ type Task struct {
 	// AllUnitsTerminal transitions to PREPARING (not SWAPPING), and the
 	// FSM gates PREPARING → SWAPPING on every node's PreparationCompleteAck.
 	// Set at AddTask time; immutable thereafter.
+	//
+	// False skips PREPARING entirely: the scheduler fires OnGroupCompleted as
+	// soon as a group's units are terminal, so such a task can already have
+	// committed per-shard swaps while its status is still STARTED.
 	NeedsPreparationBarrier bool `json:"needsPreparationBarrier"`
 
 	// Status is the current status of the task.
@@ -613,6 +617,11 @@ func (t *Task) AllUnitsTerminal() bool {
 }
 
 // AnyUnitFailed returns true if any unit has FAILED status.
+//
+// A live task should never be STARTED with a FAILED unit — the FSM sets
+// both statuses in one critical section. This is the fail-closed check for
+// when it happens anyway: [Manager.Restore] installs a peer's snapshot
+// verbatim, with no validation that task and unit statuses agree.
 func (t *Task) AnyUnitFailed() bool {
 	for _, u := range t.Units {
 		if u.Status == UnitStatusFailed {
@@ -620,6 +629,23 @@ func (t *Task) AnyUnitFailed() bool {
 		}
 	}
 	return false
+}
+
+// firstFailedUnit returns the lowest-ID FAILED unit and its recorded error,
+// or ok=false when no unit failed. Lowest ID rather than map order because
+// callers put the result in task.Error on the RAFT apply path, where every
+// node must produce the same string.
+func (t *Task) firstFailedUnit() (unitID, unitErr string, ok bool) {
+	for id, u := range t.Units {
+		if u.Status != UnitStatusFailed {
+			continue
+		}
+		if ok && id >= unitID {
+			continue
+		}
+		unitID, unitErr, ok = id, u.Error, true
+	}
+	return unitID, unitErr, ok
 }
 
 // LocalUnitIDs returns the IDs of units assigned to the given node.

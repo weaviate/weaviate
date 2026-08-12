@@ -29,8 +29,9 @@ import (
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
 // without standing up the real reindex provider.
 type fakeConflictDetector struct {
-	called     int
-	rejectWith error
+	called      int
+	rejectWith  error
+	lastTaskIDs []string
 }
 
 func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
@@ -41,8 +42,12 @@ func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+func (f *fakeConflictDetector) CheckConflict(_ []byte, tasks []*Task) error {
 	f.called++
+	f.lastTaskIDs = nil
+	for _, t := range tasks {
+		f.lastTaskIDs = append(f.lastTaskIDs, t.ID)
+	}
 	return f.rejectWith
 }
 
@@ -115,6 +120,29 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		require.NoError(t, err2)
 		require.Empty(t, tasks["test"],
 			"rejected task MUST NOT appear in the FSM-stored task list")
+	})
+
+	// Tasks are stored in a map; an unsorted walk would let two nodes
+	// applying the same RAFT entry quote a different task ID.
+	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		// Insertion order is deliberately not sorted order.
+		for i, id := range []string{"T3", "T1", "T4", "T2"} {
+			c := toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "test",
+				Id:                    id,
+				SubmittedAtUnixMillis: time.Now().UnixMilli(),
+				UnitIds:               []string{"su-1"},
+			})
+			require.NoError(t, h.manager.AddTask(c, uint64(100+i)))
+		}
+		require.Equal(t, []string{"T1", "T3", "T4"}, detector.lastTaskIDs,
+			"the last AddTask must see the three already-stored tasks in ID order")
 	})
 
 	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
@@ -656,6 +684,108 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks["ns"][0]
 	assert.Equal(t, TaskStatusSwapping, task.Status)
+}
+
+// TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed pins that a
+// STARTED task with one FAILED unit (state only Restore can produce) stays
+// FAILED instead of advancing into the schema-flip phases.
+func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T) {
+	for _, barrier := range []bool{false, true} {
+		name := "swapping path"
+		if barrier {
+			name = "preparation-barrier path"
+		}
+		t.Run(name, func(t *testing.T) {
+			// AddTask + failUnit can't reach this state: the failure path
+			// sets the task to FAILED itself. Restore is the only way in.
+			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+				"ns": {{
+					Namespace:               "ns",
+					TaskDescriptor:          TaskDescriptor{ID: "task1", Version: 10},
+					Status:                  TaskStatusStarted,
+					NeedsPreparationBarrier: barrier,
+					Units: map[string]*Unit{
+						"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom"},
+						"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+					},
+				}},
+			}})
+			require.NoError(t, err)
+
+			h := newTestHarness(t).init(t)
+			require.NoError(t, h.manager.Restore(snap))
+
+			completeUnit(t, h, "ns", "task1", 10, "node-2", "su-pending")
+
+			tasks, err := h.manager.ListDistributedTasks(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+			// Same shape as the per-unit failure path: the unit's name and
+			// its own error, so repair-guidance logging has something to quote.
+			assert.Contains(t, tasks["ns"][0].Error, "failing the task rather than running the schema flip")
+			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
+		})
+	}
+}
+
+// TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit pins
+// that the fail-closed reason is the same on every node: two FAILED units
+// means the lowest ID is quoted, not whichever one map order surfaced.
+func TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit(t *testing.T) {
+	tests := []struct {
+		name      string
+		units     map[string]*Unit
+		wantUnit  string
+		wantCause string
+	}{
+		{
+			name: "two failed units → lowest ID",
+			units: map[string]*Unit{
+				"su-b":       {ID: "su-b", NodeID: "node-1", Status: UnitStatusFailed, Error: "boom-b"},
+				"su-a":       {ID: "su-a", NodeID: "node-3", Status: UnitStatusFailed, Error: "boom-a"},
+				"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+			},
+			wantUnit:  "su-a",
+			wantCause: "boom-a",
+		},
+		{
+			name: "failed unit with empty error → placeholder cause",
+			units: map[string]*Unit{
+				"su-failed":  {ID: "su-failed", NodeID: "node-1", Status: UnitStatusFailed},
+				"su-pending": {ID: "su-pending", NodeID: "node-2", Status: UnitStatusPending},
+			},
+			wantUnit:  "su-failed",
+			wantCause: "no error recorded",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+				"ns": {{
+					Namespace:      "ns",
+					TaskDescriptor: TaskDescriptor{ID: "task1", Version: 10},
+					Status:         TaskStatusStarted,
+					Units:          tc.units,
+				}},
+			}})
+			require.NoError(t, err)
+
+			// Repeated because Units is a map: a single run could pick the
+			// lowest ID by luck.
+			for range 20 {
+				h := newTestHarness(t).init(t)
+				require.NoError(t, h.manager.Restore(snap))
+				completeUnit(t, h, "ns", "task1", 10, "node-2", "su-pending")
+
+				tasks, err := h.manager.ListDistributedTasks(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+				require.Contains(t, tasks["ns"][0].Error,
+					fmt.Sprintf("unit %s failed: %s", tc.wantUnit, tc.wantCause))
+			}
+		})
+	}
 }
 
 // TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty: completing a
@@ -1449,7 +1579,16 @@ type fakeSchemaMutationDetector struct {
 	lastClassName string
 	lastPropName  string
 	lastTaskCount int
+	lastTaskIDs   []string
 	rejectWith    error
+}
+
+func (f *fakeSchemaMutationDetector) record(existingTasks []*Task) {
+	f.lastTaskCount = len(existingTasks)
+	f.lastTaskIDs = nil
+	for _, t := range existingTasks {
+		f.lastTaskIDs = append(f.lastTaskIDs, t.ID)
+	}
 }
 
 func (f *fakeSchemaMutationDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {}
@@ -1463,21 +1602,21 @@ func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.record(existingTasks)
 	return f.rejectWith
 }
 
@@ -1542,6 +1681,77 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
 		require.Equal(t, 1, detector.lastTaskCount,
 			"detector MUST be passed the FSM-stored task list at apply time")
+	})
+
+	// The task list is stored in a map, so an unsorted walk names a
+	// different task in the refusal per process. Accept/reject doesn't
+	// change, but two nodes applying the same entry — and the REST
+	// pre-check that mirrors this gate — must quote the same task ID.
+	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"test": detector,
+		})
+
+		// Insertion order is deliberately not sorted order.
+		for i, id := range []string{"T3", "T1", "T4", "T2"} {
+			c := toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "test",
+				Id:                    id,
+				SubmittedAtUnixMillis: time.Now().UnixMilli(),
+				UnitIds:               []string{"su-1"},
+			})
+			require.NoError(t, h.manager.AddTask(c, uint64(200+i)))
+		}
+
+		want := []string{"T1", "T2", "T3", "T4"}
+		for range 10 {
+			require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+			require.Equal(t, want, detector.lastTaskIDs)
+		}
+	})
+
+	// The detector set is a map and the dispatch returns the FIRST
+	// rejection, so an unsorted walk lets two nodes applying the same RAFT
+	// entry refuse with a different namespace's message. The namespaces are
+	// walked in sorted order, so "alpha" always wins over "zulu".
+	t.Run("two rejecting detectors → lowest namespace always wins", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			detectors func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector
+		}{
+			{
+				name: "alpha registered first",
+				detectors: func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector {
+					return map[string]SchemaMutationDetector{"alpha": alpha, "zulu": zulu}
+				},
+			},
+			{
+				name: "zulu registered first",
+				detectors: func(alpha, zulu SchemaMutationDetector) map[string]SchemaMutationDetector {
+					return map[string]SchemaMutationDetector{"zulu": zulu, "alpha": alpha}
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newTestHarness(t).init(t)
+				alpha := &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("conflict from alpha")}
+				zulu := &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("conflict from zulu")}
+				h.manager.SetSchemaMutationDetectors(tc.detectors(alpha, zulu))
+
+				// Repeated because Go randomizes map iteration per range:
+				// one call could match the sorted order by luck.
+				for range 50 {
+					err := h.manager.CheckPropertyUpdate("C", "name")
+					require.EqualError(t, err, "conflict from alpha")
+				}
+				require.Zero(t, zulu.called,
+					"dispatch must stop at the first rejection, so the later namespace is never consulted")
+			})
+		}
 	})
 
 	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {

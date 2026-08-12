@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -177,15 +178,42 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
-	require.Contains(t, err.Error(), "reaches a terminal state")
-	// A STARTED task with no working unit and no progress reads as
-	// "pending" on the GET while the gate is already refusing, so naming
-	// only "indexing" leaves an operator watching a pill that never
-	// showed up.
-	require.Contains(t, err.Error(), `status="pending"`)
-	require.Contains(t, err.Error(), `status="indexing"`)
-	require.Contains(t, err.Error(), "accepted only while the task is STARTED")
-	require.Contains(t, err.Error(), "409")
+	require.Contains(t, err.Error(), "retry after the migration finishes")
+
+	// Property/index type aren't known here, so the message points at the
+	// poll instead of a guessable <placeholder> URL that would 202 NO_OP.
+	require.Contains(t, err.Error(), "GET /v1/schema/MyClass/indexes")
+	require.Contains(t, err.Error(), "PUT /v1/schema/MyClass/indexes/{that property}")
+	require.NotContains(t, err.Error(), "<class>")
+	require.NotContains(t, err.Error(), "<prop>")
+	require.NotContains(t, err.Error(), "<indexType>")
+
+	// This gate is shard-keyed and never sees the task, so it cannot drop
+	// the cancel advice past STARTED the way ReindexGateRemedy does. It has
+	// to state the restriction instead, or it sends an operator whose task
+	// is already coordinating into a 409.
+	require.Contains(t, err.Error(), "only while it is still in status STARTED")
+	require.Contains(t, err.Error(), "409 Conflict")
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	} {
+		require.False(t, status.IsCancellable(),
+			"the message names %s as uncancellable, so the API has to agree", status)
+		require.Contains(t, err.Error(), status.String())
+	}
+}
+
+// On a namespace-enabled cluster the class name is stored qualified. The
+// rendered URLs keep the prefix: a global operator has to type it for the
+// request to reach the right collection, and the REST error path removes it
+// again for the namespace-confined caller who must not.
+func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
+	err := reindexInFlightError("customer1:MyClass", "shard1", false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "GET /v1/schema/customer1:MyClass/indexes")
+	require.Contains(t, err.Error(), "PUT /v1/schema/customer1:MyClass/indexes/{that property}")
+	require.NotContains(t, err.Error(), "/v1/schema/MyClass/")
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that

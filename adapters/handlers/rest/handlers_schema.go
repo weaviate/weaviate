@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -293,6 +294,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // detected) so the request proceeds to RAFT and the apply-time guard
 // handles correctness. We never spuriously reject due to a transient
 // local error.
+//
+// Best-effort UX only: it fails open (returns "") on a missing or erroring
+// TaskLister, and fails closed (refuses) on a payload it cannot prove
+// harmless.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
 	if s.reindexTaskLister == nil {
 		return ""
@@ -301,7 +306,13 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if err != nil {
 		return ""
 	}
-	for _, task := range tasksByNamespace[db.ReindexNamespace] {
+	// Sorted by task ID, like Manager.sortedTasksWithLock, so this layer
+	// and the apply gate never name different tasks in the same message.
+	tasks := slices.Clone(tasksByNamespace[db.ReindexNamespace])
+	slices.SortFunc(tasks, func(a, b *distributedtask.Task) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -311,16 +322,22 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		// so this side would allow what the apply then rejects.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			// Task ID withheld: an unreadable payload also hides which
+			// namespace the task belongs to.
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has an unparseable payload; "+
+					"cannot verify whether property update on %s.%s would "+
+					"conflict (see GET /v1/tasks): %v",
+				className, propertyName, err)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
+			// Task ID withheld for the same reason as above.
 			return fmt.Sprintf(
-				"in-flight reindex task %q has empty Collection or "+
-					"MigrationType; refusing property mutation on %s.%s "+
-					"until the task is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether property update "+
+					"on %s.%s would conflict (see GET /v1/tasks)",
+				className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
@@ -330,14 +347,15 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
+		// callerDropsTheData is false: DELETE removes only the named index,
+		// so the remedy's repair suggestion is still meaningful.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
-				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — %s",
+				"schema mutations on this property are blocked until the "+
+				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
 			propertyName, task.Status,
-			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
-				"cancel it via the reindex REST API before retrying"))
+			db.ReindexGateRemedy(task.Status, payload, propertyName, false))
 	}
 	return ""
 }
