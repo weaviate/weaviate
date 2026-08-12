@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,8 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/replication"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // TestIndexStopCycleManagers pins that every cycle manager stops even when another
@@ -520,5 +524,43 @@ func TestIndexShutdownAbortsInFlightReader(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown is blocked behind an in-flight reader")
+	}
+}
+
+// TestShutdownSignalSurvivesDeadResourceScanner: DB.Shutdown must return even after a panic killed the resource-scan receiver.
+func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	db := &DB{
+		shutdown:           make(chan struct{}),
+		logger:             logger,
+		bitmapBufPoolClose: func() {},
+	}
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger, OnClose: db.shutDownWg.Done})
+	db.scheduler.Start()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	db.asyncReplicationScheduler = sched
+
+	db.scanResourceUsage()
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 50*time.Millisecond, "resource-scan tick must panic on the nil monitor and die")
+
+	done := make(chan error, 1)
+	go func() { done <- db.Shutdown(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("DB.Shutdown must not hang on a dead resource-scan receiver")
 	}
 }

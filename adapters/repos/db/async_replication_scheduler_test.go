@@ -2723,3 +2723,181 @@ func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
 	}
 	sched.Close()
 }
+
+// TestRunEntryPanicSettlesOwnership: a prologue panic must not leak the owned Done or kill the worker.
+func TestRunEntryPanicSettlesOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		class *models.Class
+	}{
+		{name: "nil class"},
+		{name: "with class", class: &models.Class{Class: "C"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+			s := &Shard{class: tc.class, name: "t0"}
+			s.hashtree = (*hashtree.HashTree)(nil)
+			s.asyncRepWg.Add(1)
+			entry := &asyncSchedulerEntry{shard: s}
+			entry.pendingDone.Store(true)
+
+			entries := []*asyncSchedulerEntry{entry}
+			require.NotPanics(t, func() { sched.runBatch(&entries, newBatchScratch()) })
+
+			awaitAsyncRepWg(t, s, "panic in runEntry prologue must still settle the owned Done")
+			assert.True(t, s.asyncReplicationRWMux.TryLock(), "panic must not leak the snapshot RLock")
+			s.asyncReplicationRWMux.Unlock()
+			results := drainResults(sched.resultCh)
+			require.Len(t, results, 1)
+			assert.ErrorContains(t, results[0].err, "panic")
+		})
+	}
+}
+
+// TestRunBatchPanicSettlesRemainingEntries: a mid-batch panic settles unhanded entries with error results and keeps the worker alive.
+func TestRunBatchPanicSettlesRemainingEntries(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	shards := make([]*Shard, 3)
+	entries := make([]*asyncSchedulerEntry, 3)
+	for i := range entries {
+		shards[i] = &Shard{class: &models.Class{Class: "C"}, name: fmt.Sprintf("t%d", i)}
+		shards[i].asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: shards[i]}
+		entries[i].pendingDone.Store(true)
+	}
+
+	hits := 0
+	asyncRepBatchEntrySeam = func(*asyncSchedulerEntry) {
+		hits++
+		if hits == 2 {
+			panic("boom")
+		}
+	}
+	t.Cleanup(func() { asyncRepBatchEntrySeam = nil })
+
+	batch := append([]*asyncSchedulerEntry{}, entries...)
+	require.NotPanics(t, func() { sched.runBatch(&batch, newBatchScratch()) })
+
+	for i, s := range shards {
+		awaitAsyncRepWg(t, s, fmt.Sprintf("entry %d Done must settle after mid-batch panic", i))
+	}
+	results := drainResults(sched.resultCh)
+	require.Len(t, results, 3)
+	panicked := 0
+	for _, r := range results {
+		if r.err != nil {
+			assert.ErrorContains(t, r.err, "panic in async replication batch")
+			panicked++
+		}
+	}
+	assert.Equal(t, 2, panicked, "the two unhanded entries must carry the panic error")
+}
+
+// TestDispatcherPanicSettlesReservationsAndUnblocks: a dispatcher panic settles bucket reservations and self-cancels so Register and Close return.
+func TestDispatcherPanicSettlesReservationsAndUnblocks(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	asyncRepDispatchSeam = func(*asyncSchedulerEntry) { panic("boom") }
+	t.Cleanup(func() { asyncRepDispatchSeam = nil })
+
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	s := &Shard{index: idx, class: &models.Class{Class: "C"}, name: "t0"}
+	require.NoError(t, sched.Register(s))
+
+	select {
+	case <-sched.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatcher panic must self-cancel the scheduler")
+	}
+	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle after dispatcher panic")
+	assert.ErrorIs(t, sched.Register(&Shard{}), ErrSchedulerClosed)
+
+	done := make(chan struct{})
+	go func() { sched.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close must return after a dispatcher panic")
+	}
+}
+
+// TestSettleDispatchBucketsOnExit: reservations stranded in dispatchBuckets are settled and cleared.
+func TestSettleDispatchBucketsOnExit(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	s := &Shard{index: idx, class: &models.Class{Class: "C"}}
+	s.asyncRepWg.Add(1)
+	entry := &asyncSchedulerEntry{shard: s, inFlight: true}
+	entry.pendingDone.Store(true)
+	sched.dispatchBuckets[idx] = append(sched.dispatchBuckets[idx], entry)
+
+	sched.settleDispatchBucketsOnExit()
+
+	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle")
+	assert.False(t, entry.inFlight)
+	assert.Empty(t, sched.dispatchBuckets[idx])
+}
+
+// TestDeregisterSettlesEntriesAwaitingPrefilter: entries parked behind the root pre-filter stay settleable, so teardown drains never wait out an RPC bound to sched.ctx.
+func TestDeregisterSettlesEntriesAwaitingPrefilter(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	release := make(chan struct{})
+	inPrefilter := make(chan struct{})
+	asyncRepPrefilterSeam = func(context.Context, map[string]hashtree.Digest) map[string]struct{} {
+		close(inPrefilter)
+		<-release
+		return nil
+	}
+	t.Cleanup(func() { asyncRepPrefilterSeam = nil })
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	shards := make([]*Shard, 2)
+	entries := make([]*asyncSchedulerEntry, 2)
+	for i := range shards {
+		ht, err := hashtree.NewHashTree(1)
+		require.NoError(t, err)
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "C"}, name: fmt.Sprintf("t%d", i)}
+		shards[i].hashtree = ht
+		shards[i].hashtreeFullyInitialized = true
+		shards[i].asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: shards[i]}
+		entries[i].pendingDone.Store(true)
+	}
+
+	batch := append([]*asyncSchedulerEntry{}, entries...)
+	batchDone := make(chan struct{})
+	go func() { sched.runBatch(&batch, newBatchScratch()); close(batchDone) }()
+
+	<-inPrefilter
+	for _, e := range entries {
+		e.settleDone()
+	}
+	for i, s := range shards {
+		awaitAsyncRepWg(t, s, fmt.Sprintf("shard %d drain must not wait for the in-flight pre-filter", i))
+	}
+
+	close(release)
+	<-batchDone
+	assert.Empty(t, drainResults(sched.resultCh), "settled entries must not produce results")
+}
+
+// TestNextIntervalFloorsZeroFrequency: an error result with an unresolved cfg must not hot-loop the entry.
+func TestNextIntervalFloorsZeroFrequency(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	got := sched.nextInterval(AsyncReplicationConfig{}, &asyncSchedulerEntry{}, asyncSchedulerResult{err: errors.New("panic in async replication cycle")})
+	assert.Equal(t, defaultFrequency, got)
+}

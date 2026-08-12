@@ -65,6 +65,7 @@ type DB struct {
 	promMetrics               *monitoring.PrometheusMetrics
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
+	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
@@ -593,7 +594,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	db.shutdown <- struct{}{}
+	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {

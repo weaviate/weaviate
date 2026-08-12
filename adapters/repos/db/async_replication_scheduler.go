@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -55,6 +56,15 @@ var asyncRepRebuildBaseBackoff atomic.Int64
 
 // asyncRepRebuildAfterDisable is a test seam invoked between disable and post-disable drain; nil outside tests.
 var asyncRepRebuildAfterDisable func(*Shard)
+
+// asyncRepBatchEntrySeam is a test seam invoked per entry in runBatch's run loop; nil outside tests.
+var asyncRepBatchEntrySeam func(*asyncSchedulerEntry)
+
+// asyncRepDispatchSeam is a test seam invoked per reserved entry in dispatchDueLocked; nil outside tests.
+var asyncRepDispatchSeam func(*asyncSchedulerEntry)
+
+// asyncRepPrefilterSeam replaces the replicator root-compare in tests; nil outside tests.
+var asyncRepPrefilterSeam func(ctx context.Context, roots map[string]hashtree.Digest) map[string]struct{}
 
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
@@ -887,6 +897,18 @@ func (sched *AsyncReplicationScheduler) dispatcher() {
 	// without competing for items; the dispatcher is the only producer so
 	// anything left here on exit gets its still-pending Add(1) settled by Done().
 	defer sched.drainWorkChOnExit()
+	// On panic: self-cancel so Register/Deregister/Close unblock instead of wedging shard teardowns.
+	defer func() {
+		if r := recover(); r != nil {
+			sched.logger.
+				WithField("action", "async_replication_scheduler").
+				WithField("panic", r).
+				Error("dispatcher panicked; async replication scheduling disabled until restart")
+			enterrors.PrintStack(sched.logger)
+			sched.cancel()
+		}
+		sched.settleDispatchBucketsOnExit()
+	}()
 
 	resetTimer := func() {
 		if !timer.Stop() {
@@ -1069,6 +1091,9 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		heap.Pop(&sched.h)
 
 		sched.dispatchBuckets[idx] = append(sched.dispatchBuckets[idx], entry)
+		if asyncRepDispatchSeam != nil {
+			asyncRepDispatchSeam(entry)
+		}
 		if len(sched.dispatchBuckets[idx]) >= sched.effectiveBatchSize() {
 			if !sched.trySendBatchLocked(sched.dispatchBuckets[idx]) {
 				for _, e := range sched.dispatchBuckets[idx] {
@@ -1156,6 +1181,10 @@ func (sched *AsyncReplicationScheduler) nextInterval(cfg AsyncReplicationConfig,
 			// Shard shutting down — long interval; will be deregistered soon.
 			return 24 * time.Hour
 		}
+		if cfg.frequency <= 0 {
+			// Panic before the cfg snapshot resolved — a zero interval would hot-loop the entry.
+			return defaultFrequency
+		}
 		return cfg.frequency
 	}
 	if result.propagated {
@@ -1198,6 +1227,19 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	entry.settleDone()
 	entry.inFlight = false
 	sched.metrics.setQueueDepth(len(sched.h))
+}
+
+// settleDispatchBucketsOnExit settles reservations stranded in dispatchBuckets by a mid-dispatch panic: they sit in no channel and no heap.
+func (sched *AsyncReplicationScheduler) settleDispatchBucketsOnExit() {
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	for idx, entries := range sched.dispatchBuckets {
+		for _, entry := range entries {
+			entry.inFlight = false
+			entry.settleDone()
+		}
+		sched.dispatchBuckets[idx] = entries[:0]
+	}
 }
 
 // drainWorkChOnExit empties workCh after the dispatcher returned, settling each
@@ -1391,28 +1433,52 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 		sched.batchPool.Put(bp)
 	}()
 
-	// Own each entry's Done before touching any shard; already-settled
-	// (deregistered) entries are dropped without a run, Done, or result.
-	kept := batch[:0]
-	for _, entry := range batch {
-		if entry.tryOwnDone() {
-			kept = append(kept, entry)
+	// On panic: settle entries not yet handed to runEntry/deferDescent and keep the worker alive (pool=1 by default).
+	next := 0
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
 		}
-	}
-	batch = kept
+		sched.logger.
+			WithField("action", "async_replication_scheduler").
+			WithField("panic", r).
+			Error("recovered from panic in async replication batch; settling remaining entries")
+		enterrors.PrintStack(sched.logger)
+		batchErr := fmt.Errorf("panic in async replication batch: %v", r)
+		for _, entry := range batch[next:] {
+			if !entry.tryOwnDone() {
+				continue
+			}
+			entry.shard.asyncRepWg.Done()
+			sched.resultCh <- asyncSchedulerResult{entry: entry, err: batchErr}
+		}
+	}()
 
 	if len(batch) <= 1 {
-		if len(batch) == 1 {
+		next = len(batch)
+		if len(batch) == 1 && batch[0].tryOwnDone() {
 			sched.runEntry(batch[0], false)
 		}
 		return
 	}
 
-	// classifyBatch is panic-contained, so every entry still reaches a runEntry
-	// call below — keeping each entry's Done()+result (asyncRepWg) balanced.
+	// classifyBatch is panic-contained, so every entry still reaches the run
+	// loop below — keeping each entry's Done()+result (asyncRepWg) balanced.
 	scratch.reset()
 	sched.classifyBatch(batch, scratch)
-	for _, entry := range batch {
+
+	// Ownership per entry at run time: entries awaiting the pre-filter stay settleable by Deregister.
+	for i, entry := range batch {
+		if asyncRepBatchEntrySeam != nil {
+			asyncRepBatchEntrySeam(entry)
+		}
+		if !entry.tryOwnDone() {
+			// Settled by a concurrent Deregister — dropped without a run, Done, or result.
+			next = i + 1
+			continue
+		}
+		next = i + 1
 		if scratch.skip[entry] {
 			// In sync this cycle — short-circuit inline (no network descent).
 			sched.runEntry(entry, true)
@@ -1485,9 +1551,15 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 	// defer so the timer is released even if PrefilterShardRoots panics (an inline
 	// cancel() would be skipped, leaking it until the parent is done).
 	defer cancel()
-	needFull, stats := s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
+	var needFull map[string]struct{}
+	if asyncRepPrefilterSeam != nil {
+		needFull = asyncRepPrefilterSeam(ctx, scratch.roots)
+	} else {
+		var stats replica.PrefilterStats
+		needFull, stats = s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
+		sched.metrics.addRootCompareRPC(stats.OK, stats.Errored, stats.Unsupported)
+	}
 	sched.metrics.observeRootPrefilterBatch(len(scratch.roots))
-	sched.metrics.addRootCompareRPC(stats.OK, stats.Errored, stats.Unsupported)
 
 	for name, entry := range scratch.eligible {
 		if _, diverges := needFull[name]; !diverges {
@@ -1497,49 +1569,32 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 }
 
 func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, skipHashbeat bool) {
-	sched.metrics.incWorkersActive()
 	s := entry.shard
-
-	// Read config, ctx, and hashtree height under one RLock so all three come
-	// from the same snapshot — a split read could be torn by initAsyncReplication
-	// installing a new config+tree between acquisitions, triggering a spurious
-	// rebuild. Height() is lock-free so calling it under RLock is fine.
-	s.asyncReplicationRWMux.RLock()
-	base := s.asyncReplicationConfig
-	ctx := s.asyncRepCtx
-	currentHT := s.hashtree
-	var currentHTHeight int
-	if currentHT != nil {
-		currentHTHeight = currentHT.Height()
-	}
-	s.asyncReplicationRWMux.RUnlock()
-
-	cfg := base
-	if s.index != nil && s.index.globalreplicationConfig != nil {
-		sched.runtimeClampWarner.checkGlobals(*s.index.globalreplicationConfig)
-		cfg = base.Effective(*s.index.globalreplicationConfig)
+	// Captured pre-defer: a panic inside the recover block would skip Done() and leak the ownership.
+	shardName := s.name
+	className := ""
+	if s.class != nil {
+		className = s.class.Class
 	}
 
-	// Runtime config changed the hashtree height — flag a rebuild. The rebuild
-	// goroutine is spawned post-Done() so mayStopAsyncReplication's Wait isn't
-	// blocked by this cycle.
-	if currentHT != nil && currentHTHeight != cfg.hashtreeHeight {
-		s.asyncRepNeedsRebuild.Store(true)
-	}
+	var (
+		needsRebuild bool
+		propagated   bool
+		err          error
+		cfg          AsyncReplicationConfig
+		ctx          context.Context
+	)
 
-	needsRebuild := false
-	propagated := false
-	var err error
-
+	// Armed first: a prologue panic without Done() pins drains and rebuilds on this shard forever.
 	defer func() {
 		// Recover panics so the worker stays alive and the dispatcher sees a
 		// non-nil error (proper retry delay) rather than a false success.
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in runHashbeatCycle: %v", r)
+			err = fmt.Errorf("panic in async replication cycle: %v", r)
 			sched.logger.
 				WithField("panic", r).
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
+				WithField("class_name", className).
+				WithField("shard_name", shardName).
 				Error("recovered from panic in async replication worker")
 			enterrors.PrintStack(sched.logger)
 		}
@@ -1575,6 +1630,40 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		// entry.inFlight=true permanently if the scheduler kept running.
 		sched.resultCh <- asyncSchedulerResult{entry: entry, propagated: propagated, err: err, cfg: cfg, ctx: ctx}
 	}()
+
+	sched.metrics.incWorkersActive()
+
+	// Read config, ctx, and hashtree height under one RLock so all three come
+	// from the same snapshot — a split read could be torn by initAsyncReplication
+	// installing a new config+tree between acquisitions, triggering a spurious
+	// rebuild. Height() is lock-free so calling it under RLock is fine.
+	var base AsyncReplicationConfig
+	var currentHT hashtree.AggregatedHashTree
+	var currentHTHeight int
+	func() {
+		// Deferred unlock: a panic here must not leak the RLock, or every later write-lock (teardown) wedges.
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		base = s.asyncReplicationConfig
+		ctx = s.asyncRepCtx
+		currentHT = s.hashtree
+		if currentHT != nil {
+			currentHTHeight = currentHT.Height()
+		}
+	}()
+
+	cfg = base
+	if s.index != nil && s.index.globalreplicationConfig != nil {
+		sched.runtimeClampWarner.checkGlobals(*s.index.globalreplicationConfig)
+		cfg = base.Effective(*s.index.globalreplicationConfig)
+	}
+
+	// Runtime config changed the hashtree height — flag a rebuild. The rebuild
+	// goroutine is spawned post-Done() so mayStopAsyncReplication's Wait isn't
+	// blocked by this cycle.
+	if currentHT != nil && currentHTHeight != cfg.hashtreeHeight {
+		s.asyncRepNeedsRebuild.Store(true)
+	}
 
 	if ctx == nil {
 		// Registered before initAsyncReplication completed — skip; the err
