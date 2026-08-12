@@ -132,8 +132,8 @@ type classGetterFunc func(string) (*models.Class, error)
 type buildParamsFunc func(class *models.Class, className string,
 	getClass classGetterFunc) (dto.GetParams, *APIError)
 
-// resolveAuthorizedClass is the fixed prologue shared by every endpoint of
-// the family (search and aggregate): alias/namespace resolution,
+// resolveAuthorizedClass runs the fixed first steps shared by every
+// endpoint of the family (search and aggregate): alias/namespace resolution,
 // authorization BEFORE any schema access, then the experimental-feature
 // gate. The ordering is load-bearing: a denied caller must learn neither
 // whether the collection exists nor whether the feature is enabled, and an

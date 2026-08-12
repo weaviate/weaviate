@@ -75,7 +75,7 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	return out, nil
 }
 
-// fillSelectionAndFilter fills the tail every search type shares: the
+// fillSelectionAndFilter fills the fields every search type shares: the
 // returnProperties + returnReferences selection (with the no-props marker)
 // and the where filter.
 func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class, className string,
@@ -134,7 +134,7 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.ModuleParams = map[string]any{"nearText": nearTextParams}
 
-	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
@@ -214,10 +214,10 @@ func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIE
 		"collection %s has no searchable properties for a keyword search", class.Class)
 }
 
-// fillCommonTail parses returnMetadata (scoped to the resolved target
-// vectors), then the shared selection-and-filter tail — shared by the
+// fillCommonFields parses returnMetadata (scoped to the resolved target
+// vectors), then the shared selection and filter — used by the
 // vector-capable search types (near-text, hybrid, near-object).
-func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
+func (h *Handler) fillCommonFields(out *dto.GetParams, class *models.Class, className string,
 	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
 ) *APIError {
 	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
@@ -253,7 +253,7 @@ func (h *Handler) buildNearObjectParams(class *models.Class, className string, b
 	}
 	out.NearObject = nearObject
 
-	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
@@ -322,7 +322,7 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 		return dto.GetParams{}, apiErr
 	}
 
-	// the keyword leg only runs below alpha 1; at alpha 1 a collection
+	// the keyword part only runs below alpha 1; at alpha 1 a collection
 	// without searchable properties is legitimately pure-vector searchable
 	if hybrid.Alpha < 1 {
 		if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
@@ -330,7 +330,7 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 		}
 	}
 
-	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
@@ -350,9 +350,9 @@ func requireNonEmptyQuery(query *string) *APIError {
 }
 
 // parseHybrid builds the hybrid search params, mirroring the gRPC parser:
-// alpha weights the vector leg, fusionType picks the fusion algorithm,
+// alpha weights the vector part, fusionType picks the fusion algorithm,
 // maxVectorDistance is the distance cutoff, queryProperties as in bm25.
-// The vector leg is skipped entirely at alpha 0, so a vectorizer module is
+// The vector part is skipped entirely at alpha 0, so a vectorizer module is
 // only required above 0.
 func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
 	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
@@ -367,7 +367,7 @@ func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVe
 		return nil, newAPIError(http.StatusBadRequest, "alpha should be between 0.0 and 1.0, got %v", alpha)
 	}
 	// the cutoff needs the query vector, which alpha 0 never computes (the
-	// vector leg is skipped entirely) — it would be silently ignored
+	// vector part is skipped entirely) — it would be silently ignored
 	if body.MaxVectorDistance != nil && alpha == 0 {
 		return nil, newAPIError(http.StatusBadRequest, "maxVectorDistance requires alpha > 0")
 	}

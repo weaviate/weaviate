@@ -10,7 +10,7 @@
 //
 
 // This file covers POST /v1/search/{collection}/hybrid end to end: the raw
-// wire contract and the live error-status mapping. The vector leg embeds the
+// wire contract and the live error-status mapping. The vector part embeds the
 // query server-side, so the suite runs with the contextionary vectorizer —
 // except the alpha-0 cases, which pin that a pure keyword hybrid search
 // needs no vectorizer at all.
@@ -66,7 +66,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
 		},
 	}
-	// vectorizer "none": the vector leg has nothing to embed the query with
+	// vectorizer "none": the vector part has nothing to embed the query with
 	zineClass := &models.Class{
 		Class:      "Zine",
 		Vectorizer: "none",
@@ -83,8 +83,8 @@ func TestRESTSearchHybrid(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	// vectorized but with no searchable property: the keyword leg has
-	// nothing to expand to, while the vector leg works
+	// vectorized but with no searchable property: the keyword part has
+	// nothing to expand to, while the vector part works
 	classes := []*models.Class{songClass, zineClass, zettelClass, unsearchableLedgerClass("text2vec-contextionary")}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
@@ -140,7 +140,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
-		// the vector leg returns every object by distance, so both songs come
+		// the vector part returns every object by distance, so both songs come
 		// back; the keyword match must rank first
 		assertScoredHits(t, out, 2, false)
 		assert.Equal(t, hybridSong1ID.String(), idOf(t, hit(t, out, 0)))
@@ -207,7 +207,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		// scores; the explorer emits distance only for plain vector
 		// searches), so probe the cutoff by its effect: the loosest cosine
 		// cutoff keeps everything, a near-zero one drops everything —
-		// keyword-leg matches included
+		// keyword-part matches included
 		status, out := postHybrid(t, "Song", map[string]any{
 			"query":             "spaceship galaxy",
 			"maxVectorDistance": 1.99,
@@ -240,8 +240,8 @@ func TestRESTSearchHybrid(t *testing.T) {
 		assert.NotContains(t, metadata, "certainty")
 	})
 
-	t.Run("queryProperties restricts the keyword leg", func(t *testing.T) {
-		// alpha 0 isolates the keyword leg: "cooking" appears in song2's
+	t.Run("queryProperties restricts the keyword part", func(t *testing.T) {
+		// alpha 0 isolates the keyword part: "cooking" appears in song2's
 		// title and lyrics, so restricting to title still matches, while
 		// restricting to a property without the term matches nothing
 		status, out := postHybrid(t, "Song", map[string]any{
@@ -328,8 +328,8 @@ func TestRESTSearchHybrid(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "no such prop")
 	})
 
-	t.Run("no searchable properties: keyword leg 422 below alpha 1, skipped at 1", func(t *testing.T) {
-		// with queryProperties omitted the keyword leg expands to all
+	t.Run("no searchable properties: keyword part 422 below alpha 1, skipped at 1", func(t *testing.T) {
+		// with queryProperties omitted the keyword part expands to all
 		// searchable properties; a collection with none must be a 422, not
 		// the engine's untyped expansion error (a 500)
 		status, out := postHybrid(t, "Ledger", map[string]any{
@@ -339,7 +339,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "no searchable properties")
 
-		// at alpha 1 the keyword leg never runs: pure vector search works
+		// at alpha 1 the keyword part never runs: pure vector search works
 		status, out = postHybrid(t, "Ledger", map[string]any{
 			"query": "spaceship",
 			"alpha": 1,
