@@ -1505,8 +1505,10 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		return err
 	}
 
-	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
+	// Same contract as SegmentGroup.shutdown: must run on an uncancellable ctx
+	// so an in-flight flush is always signalled to abort, not left half-applied.
+	if err := b.flushCallbackCtrl.Unregister(context.WithoutCancel(ctx)); err != nil {
+		return fmt.Errorf("unregister flush cycle: %w", err)
 	}
 
 	b.flushLock.Lock()

@@ -871,8 +871,12 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
+	// Must run on an uncancellable ctx: this both stops future compactions and
+	// signals any in-flight one to abort (shouldAbort in compactOrCleanup). A
+	// live compaction holds segment refs and races segment close, so it must
+	// finish before the teardown below runs.
+	if err := sg.compactionCallbackCtrl.Unregister(context.WithoutCancel(ctx)); err != nil {
+		return fmt.Errorf("unregister compaction cycle: %w", err)
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
