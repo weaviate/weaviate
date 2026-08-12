@@ -319,7 +319,9 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	// Never load: init applies config at load; loading here ABBA-deadlocks under a caller-held replicationConfigLock.
+	// Never load: init applies config at load, and async replication must not
+	// force cold shards warm. isLoaded still takes l.mutex, so callers must not
+	// hold replicationConfigLock here (see withAsyncReplicationApply).
 	if !l.isLoaded() {
 		return nil
 	}

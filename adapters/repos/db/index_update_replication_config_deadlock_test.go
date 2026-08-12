@@ -349,6 +349,162 @@ func TestStaleFanOutCannotClobberNewerConfig(t *testing.T) {
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
+// TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter pins the 3-way ABBA: the per-shard reconcile holding the config read lock across the apply wedges against a shard re-loading after an unload and a queued config writer (writer-priority RWMutex blocks the loader's read).
+func TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter(t *testing.T) {
+	ctx := context.Background()
+
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigReconcileShardABBA")
+	lazy := soleColdShard(t, index)
+	var shardName string
+	require.NoError(t, index.shards.Range(func(name string, _ ShardLike) error { shardName = name; return nil }))
+
+	// The shard must pass the reconcile's Loaded() check, then be swapped to
+	// mid-load underneath it: load fully, park the reconcile at its config
+	// read (test-held writer), unload, and park a fresh Load on the gate.
+	require.NoError(t, lazy.Load(ctx))
+
+	index.replicationConfigLock.Lock()
+
+	reconcileDone := make(chan error, 1)
+	go func() { reconcileDone <- index.ReconcileAsyncReplicationForShard(ctx, shardName) }()
+
+	select {
+	case <-reconcileDone:
+		index.replicationConfigLock.Unlock()
+		t.Fatal("reconcile completed without touching the config lock — the interleaving is no longer exercised")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	require.NoError(t, lazy.Shutdown(ctx))
+	require.False(t, lazy.isLoaded())
+
+	gate, loadDone := startGatedLoad(t, ctx, lazy)
+
+	index.replicationConfigLock.Unlock()
+
+	// The reconcile now proceeds into the shard apply and blocks on the parked
+	// shard's mutex; pre-fix it still holds the config read lock there.
+	select {
+	case <-reconcileDone:
+		t.Fatal("reconcile completed while Load held the shard mutex — the apply no longer touches it")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{Factor: 1})
+	}()
+
+	// Two observable states qualify: the updater queued on the config write lock
+	// (pre-fix: reconcile pins the read side), or the new factor already
+	// published (post-fix: the config lock was free).
+	require.Eventually(t, func() bool {
+		if !index.replicationConfigLock.TryRLock() {
+			return true
+		}
+		factor := index.Config.ReplicationFactor
+		index.replicationConfigLock.RUnlock()
+		return factor == 1
+	}, deadlockSyncTimeout, time.Millisecond, "updateReplicationConfig neither queued nor published")
+
+	close(gate.release)
+
+	requireBothComplete(t, "ReconcileAsyncReplicationForShard", loadDone, reconcileDone)
+	select {
+	case err := <-updateDone:
+		require.NoError(t, err)
+	case <-time.After(deadlockTimeout):
+		t.Fatal("updateReplicationConfig wedged behind the per-shard reconcile")
+	}
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// applyLockScopeProbe records, for every apply routed at it, whether the config lock was free and the apply lock held.
+type applyLockScopeProbe struct {
+	ShardLike
+	asyncReplicationController
+	idx        *Index
+	mu         sync.Mutex
+	applies    []string
+	configFree bool
+	applyHeld  bool
+}
+
+func newApplyLockScopeProbe(idx *Index) *applyLockScopeProbe {
+	return &applyLockScopeProbe{idx: idx, configFree: true, applyHeld: true}
+}
+
+func (p *applyLockScopeProbe) record(op string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.applies = append(p.applies, op)
+	if p.idx.replicationConfigLock.TryLock() {
+		p.idx.replicationConfigLock.Unlock()
+	} else {
+		p.configFree = false
+	}
+	if p.idx.asyncReplicationApplyLock.TryLock() {
+		p.idx.asyncReplicationApplyLock.Unlock()
+		p.applyHeld = false
+	}
+}
+
+func (p *applyLockScopeProbe) enableAsyncReplication(context.Context, AsyncReplicationConfig) error {
+	p.record("enable")
+	return nil
+}
+
+func (p *applyLockScopeProbe) disableAsyncReplication(context.Context) error {
+	p.record("disable")
+	return nil
+}
+
+func (p *applyLockScopeProbe) hasActiveAsyncReplicationTargetOverrides() bool { return false }
+
+func (p *applyLockScopeProbe) preventShutdown() (func(), error) { return func() {}, nil }
+
+// TestPerShardAsyncReplicationAppliersLockScope: every single-shard applier must apply without the config lock (ABBA vector) and under the apply lock (stale fan-out / resurrection guard).
+func TestPerShardAsyncReplicationAppliersLockScope(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		invoke    func(*Index) error
+		wantApply string
+	}{
+		{
+			name:      "ReconcileAsyncReplicationForShard",
+			invoke:    func(i *Index) error { return i.ReconcileAsyncReplicationForShard(ctx, "probe-shard") },
+			wantApply: "disable",
+		},
+		{
+			name:      "InitAsyncReplicationOnShard",
+			invoke:    func(i *Index) error { return i.InitAsyncReplicationOnShard(ctx, "probe-shard") },
+			wantApply: "enable",
+		},
+		{
+			name:      "RevertAsyncReplicationOnShard",
+			invoke:    func(i *Index) error { return i.RevertAsyncReplicationOnShard(ctx, "probe-shard") },
+			wantApply: "disable",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, index := newReplConfigDeadlockFixture(t, "ApplierLockScope"+tc.wantApply+tc.name[:4])
+			probe := newApplyLockScopeProbe(index)
+			index.shards.Store("probe-shard", probe)
+
+			require.NoError(t, tc.invoke(index))
+			require.Equal(t, []string{tc.wantApply}, probe.applies)
+			require.True(t, probe.configFree, "replicationConfigLock must not be held across the shard apply")
+			require.True(t, probe.applyHeld, "asyncReplicationApplyLock must be held across the shard apply")
+
+			_, _ = index.shards.LoadAndDelete("probe-shard")
+			require.NoError(t, repo.Shutdown(context.Background()))
+		})
+	}
+}
+
 // TestConcurrentUpdateAndReconcileNoRace: the fan-out's per-shard decision must not read index config unsynchronized (run with -race).
 func TestConcurrentUpdateAndReconcileNoRace(t *testing.T) {
 	ctx := context.Background()

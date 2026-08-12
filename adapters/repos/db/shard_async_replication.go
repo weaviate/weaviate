@@ -1200,13 +1200,12 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// Ensure async replication is started. Hold replicationConfigLock across the
-	// apply so a concurrent updateReplicationConfig can't interleave (see
-	// RevertAsyncReplicationOnShard); read the config field directly, as the
-	// AsyncReplicationConfig() getter would reacquire the lock.
-	s.index.replicationConfigLock.RLock()
-	defer s.index.replicationConfigLock.RUnlock()
-	return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
+	// Ensure async replication is started (an override forces it on). The apply
+	// lock serializes against concurrent fan-outs; the config lock must not span
+	// the enable (see withAsyncReplicationApply).
+	return s.index.withAsyncReplicationApply(func() error {
+		return s.enableAsyncReplication(ctx, s.index.AsyncReplicationConfig())
+	})
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -1244,15 +1243,16 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		// Restore the shard to the index's configured async-replication state,
-		// holding replicationConfigLock across the apply so a concurrent
-		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
-		s.index.replicationConfigLock.RLock()
-		defer s.index.replicationConfigLock.RUnlock()
-		if s.index.asyncReplicationEnabledForShard(s.name) {
-			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
-		}
-		return s.disableAsyncReplication(ctx)
+		// Restore the shard to the index's configured async-replication state under
+		// the apply lock; the config lock must not span the apply (see
+		// withAsyncReplicationApply).
+		return s.index.withAsyncReplicationApply(func() error {
+			enabled, config := s.index.asyncReplicationStateForShard(s.name)
+			if enabled {
+				return s.enableAsyncReplication(ctx, config)
+			}
+			return s.disableAsyncReplication(ctx)
+		})
 	}
 	return nil
 }
@@ -1272,12 +1272,13 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 	}()
 	// Restore the shard to the index's configured async-replication state; see
 	// removeTargetNodeOverride for the locking rationale.
-	s.index.replicationConfigLock.RLock()
-	defer s.index.replicationConfigLock.RUnlock()
-	if s.index.asyncReplicationEnabledForShard(s.name) {
-		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
-	}
-	return s.disableAsyncReplication(ctx)
+	return s.index.withAsyncReplicationApply(func() error {
+		enabled, config := s.index.asyncReplicationStateForShard(s.name)
+		if enabled {
+			return s.enableAsyncReplication(ctx, config)
+		}
+		return s.disableAsyncReplication(ctx)
+	})
 }
 
 // recordRootPrefilterNoDiff stores the same empty-target stat as an ErrNoDiffFound descent: equal roots proved no differences.
