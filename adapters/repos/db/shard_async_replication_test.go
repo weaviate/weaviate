@@ -2518,6 +2518,11 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 	_, s := newAsyncTestShard(t, ctx, "RebuildRetriesTest")
 	enableAndAwaitAsync(t, ctx, s)
 
+	s.index.replicationConfigLock.Lock()
+	s.index.Config.ReplicationFactor = 3
+	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	s.index.replicationConfigLock.Unlock()
+
 	dir := s.pathHashTree()
 	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashtree-00000000000000aa.ht"), []byte("stale snapshot"), 0o600))
