@@ -986,8 +986,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"the next restart promotes it",
 		`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
 	})
-	// Same task, minus the target tokenization an older binary would not have
-	// written: no repair call is nameable, so none is printed.
+	// Same task, minus the target tokenization. No submit path produces this
+	// payload; it pins that the remedy text drops the repair call rather than
+	// naming one the API would reject.
 	noTargetPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,

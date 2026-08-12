@@ -142,13 +142,9 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 // different one from post-swap acks.
 func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{
-		MigrationType: ReindexTypeChangeTokenization,
-		Collection:    "C",
-		Properties:    []string{"title"},
-		// Needed for a repair command to be renderable at all; without it the
-		// guidance still fires but carries no repair_command field, which is
-		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
-		// TokenizationStillWarns pins.
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "C",
+		Properties:         []string{"title"},
 		TargetTokenization: "field",
 	})
 	require.NoError(t, err)
@@ -186,22 +182,15 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				PreparationCompletionAcks: tc.prepAcks,
 			}))
 
-			var guided bool
-			var guidance string
-			for _, e := range hook.AllEntries() {
-				if _, ok := e.Data["repair_command"]; ok {
-					guided = true
-					guidance = e.Message
-				}
-			}
-			require.Equal(t, tc.wantGuidance, guided,
+			guidance := loggedRepairGuidanceMessages(hook)
+			require.Equal(t, tc.wantGuidance, len(guidance) > 0,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
 			if tc.wantGuidance {
 				// The guidance is written so the operator can match it to
 				// the task, which only works if it names the status the
 				// task actually ended in.
-				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
-				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+				require.Contains(t, guidance[0], string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, guidance[0], string(distributedtask.TaskStatusFailed))
 			}
 		})
 	}
@@ -250,10 +239,16 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_OutcomeAppearsInMessag
 	}
 }
 
-// A tokenization change submitted by an older binary carries no target, so
-// no repair command can be rendered. The operator still has to hear that the
-// buckets may be inverted — a silent terminal is the worse failure.
-func TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTargetTokenizationStillWarns(t *testing.T) {
+// Pins the renderer's fallback, not a state a cluster reaches: no submit
+// path lets a tokenization change through without a target. What it has to
+// keep is that abstaining from the command does not turn into abstaining
+// from the guidance — a silent terminal on a bucket↔schema inversion is the
+// worse failure — and that the two are separately observable.
+//
+// Also pins what the fallback tells the operator to do. It cannot be "ask
+// the node that submitted it": every node holds the same replicated payload,
+// so a field missing here is missing there.
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_UnnameableRepairStillWarns(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	payload := &ReindexTaskPayload{
@@ -264,8 +259,16 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTargetTokenizationSt
 	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T7"), payload, distributedtask.TaskStatusFailed)
 
 	require.Len(t, hook.Entries, 1)
-	require.NotContains(t, hook.Entries[0].Data, "repair_command")
-	require.Contains(t, hook.Entries[0].Message, "cannot name the request")
+	require.True(t, loggedRepairGuidance(hook),
+		"the inversion is the operator's to repair whether or not the command is nameable")
+	require.False(t, loggedRepairCommand(hook),
+		"an empty tokenization renders a body the API rejects, so none is offered")
+
+	msg := hook.Entries[0].Message
+	require.Contains(t, msg, "cannot name the request")
+	require.Contains(t, msg, "re-submit the migration for this property")
+	require.NotContains(t, msg, "the node that submitted it",
+		"no node holds a payload this one does not")
 }
 
 // postMergeTrackerDir is the tracker dir name a searchable migration of
@@ -288,14 +291,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
-		MigrationType: ReindexTypeChangeTokenization,
-		Collection:    "C",
-		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"u1": shard.Name()},
-		// Needed for a repair command to be renderable at all; without it the
-		// guidance still fires but carries no repair_command field, which is
-		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
-		// TokenizationStillWarns pins.
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "C",
+		Properties:         []string{"title"},
+		UnitToShard:        map[string]string{"u1": shard.Name()},
 		TargetTokenization: "field",
 	})
 	require.NoError(t, err)
@@ -327,14 +326,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
-		MigrationType: ReindexTypeChangeTokenization,
-		Collection:    className,
-		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"u1": shard.Name()},
-		// Needed for a repair command to be renderable at all; without it the
-		// guidance still fires but carries no repair_command field, which is
-		// what TestLogOperatorRepairGuidanceOnTornSemanticMigration_NoTarget-
-		// TokenizationStillWarns pins.
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         className,
+		Properties:         []string{"title"},
+		UnitToShard:        map[string]string{"u1": shard.Name()},
 		TargetTokenization: "field",
 	})
 	require.NoError(t, err)
@@ -376,9 +371,32 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 		"the cleanup is skipped on this arm, but merged.mig is still a tear only an operator can repair")
 }
 
-// loggedRepairGuidance reports whether any entry carries the operator's
-// copy-pasteable repair command.
+// loggedRepairGuidanceMessages returns the message of every per-property
+// operator guidance entry, whichever arm produced it. migration_type is the
+// field both arms set and the only place the provider sets it.
+func loggedRepairGuidanceMessages(hook *logrustest.Hook) []string {
+	var msgs []string
+	for _, e := range hook.AllEntries() {
+		if _, ok := e.Data["migration_type"]; ok {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	return msgs
+}
+
+// loggedRepairGuidance reports whether the operator guidance fired at all.
+//
+// Deliberately separate from loggedRepairCommand: a payload that cannot
+// name a repair command still gets the guidance, so asking one question
+// through the other turns a fixture that forgot a field into what looks
+// like a gate regression.
 func loggedRepairGuidance(hook *logrustest.Hook) bool {
+	return len(loggedRepairGuidanceMessages(hook)) > 0
+}
+
+// loggedRepairCommand reports whether any entry carries the operator's
+// copy-pasteable repair command.
+func loggedRepairCommand(hook *logrustest.Hook) bool {
 	for _, e := range hook.AllEntries() {
 		if _, ok := e.Data["repair_command"]; ok {
 			return true
