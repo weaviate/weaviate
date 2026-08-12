@@ -76,60 +76,118 @@ func TestCache_ParallelGrowth(t *testing.T) {
 	wg.Wait()
 }
 
+const (
+	cleanupMaxSize          = 10
+	cleanupBatchSize        = cleanupMaxSize - 1
+	cleanupDeletionInterval = 200 * time.Millisecond // overwrite default deletionInterval of 3s
+	cleanupSleep            = cleanupDeletionInterval + 100*time.Millisecond
+)
+
+type cacheCleanupCase struct {
+	name string
+	// maxSize the cache is constructed with
+	maxSize int
+	// updateMaxSizeTo is applied via UpdateMaxSize before preloading, if set
+	updateMaxSizeTo *int64
+	batches         int
+	wantCached      int
+}
+
+func cacheCleanupCases() []cacheCleanupCase {
+	zero := int64(0)
+
+	return []cacheCleanupCase{
+		{
+			name:       "count is not reset on unnecessary deletion",
+			maxSize:    cleanupMaxSize,
+			batches:    1,
+			wantCached: cleanupBatchSize,
+		},
+		{
+			name:       "deletion clears cache and counter when maxSize exceeded",
+			maxSize:    cleanupMaxSize,
+			batches:    2,
+			wantCached: 0,
+		},
+		{
+			name:       "zero maxSize caches without a bound",
+			maxSize:    0,
+			batches:    2,
+			wantCached: 2 * cleanupBatchSize,
+		},
+		{
+			name:       "negative maxSize caches without a bound",
+			maxSize:    -1,
+			batches:    2,
+			wantCached: 2 * cleanupBatchSize,
+		},
+		{
+			name:       "maxSize of one still bounds the cache",
+			maxSize:    1,
+			batches:    1,
+			wantCached: 0,
+		},
+		{
+			name:            "update to zero maxSize caches without a bound",
+			maxSize:         cleanupMaxSize,
+			updateMaxSizeTo: &zero,
+			batches:         2,
+			wantCached:      2 * cleanupBatchSize,
+		},
+	}
+}
+
+// runCacheCleanupCases preloads vectors in batches, waiting out a deletion
+// interval after each, and asserts what the deletion ticker left behind.
+func runCacheCleanupCases(t *testing.T, newCache func(maxSize int) Cache[float32],
+	preload func(c Cache[float32], id int),
+) {
+	t.Helper()
+
+	for _, tt := range cacheCleanupCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			vectorCache := newCache(tt.maxSize)
+			if tt.updateMaxSizeTo != nil {
+				vectorCache.UpdateMaxSize(*tt.updateMaxSizeTo)
+			}
+
+			for b := 0; b < tt.batches; b++ {
+				for i := 0; i < cleanupBatchSize; i++ {
+					preload(vectorCache, b*cleanupBatchSize+i)
+				}
+				time.Sleep(cleanupSleep) // wait for deletion to fire
+			}
+
+			assert.Equal(t, tt.wantCached, int(vectorCache.CountVectors()))
+			assert.Equal(t, tt.wantCached, countCached(vectorCache))
+
+			vectorCache.Drop()
+
+			assert.Equal(t, 0, int(vectorCache.CountVectors()))
+			assert.Equal(t, 0, countCached(vectorCache))
+		})
+	}
+}
+
 func TestCacheCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = nil
 
-	maxSize := 10
-	batchSize := maxSize - 1
-	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
-	sleepDuration := deletionInterval + 100*time.Millisecond
-
-	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, nil, maxSize, 1, logger, false, deletionInterval, nil)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
-		assert.True(t, ok)
-
-		for i := 0; i < batchSize; i++ {
-			shardedLockCache.Preload(uint64(i), []float32{float32(i), float32(i)})
-		}
-		time.Sleep(sleepDuration) // wait for deletion to fire
-
-		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
-		assert.Equal(t, batchSize, countCached(shardedLockCache))
-
-		shardedLockCache.Drop()
-
-		assert.Equal(t, 0, int(shardedLockCache.count))
-		assert.Equal(t, 0, countCached(shardedLockCache))
-	})
-
-	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, nil, maxSize, 1, logger, false, deletionInterval, nil)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
-		assert.True(t, ok)
-
-		for b := 0; b < 2; b++ {
-			for i := 0; i < batchSize; i++ {
-				id := b*batchSize + i
-				shardedLockCache.Preload(uint64(id), []float32{float32(id), float32(id)})
-			}
-			time.Sleep(sleepDuration) // wait for deletion to fire, 2nd should clean the cache
-		}
-
-		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
-		assert.Equal(t, 0, countCached(shardedLockCache))
-
-		shardedLockCache.Drop()
-	})
+	runCacheCleanupCases(t,
+		func(maxSize int) Cache[float32] {
+			return NewShardedFloat32LockCache(vecForId, nil, maxSize, 1, logger, false, cleanupDeletionInterval, nil)
+		},
+		func(c Cache[float32], id int) {
+			c.Preload(uint64(id), []float32{float32(id), float32(id)})
+		})
 }
 
-func countCached(c *shardedLockCache[float32]) int {
+func countCached(c Cache[float32]) int {
 	c.LockAll()
 	defer c.UnlockAll()
 
 	count := 0
-	for _, vec := range c.cache {
+	for _, vec := range c.All() {
 		if vec != nil {
 			count++
 		}
@@ -204,6 +262,28 @@ func TestGetAllInCurrentLock(t *testing.T) {
 			assert.Equal(t, []float32{float32(i * 100)}, resultOut[i])
 			assert.Nil(t, resultErrs[i])
 		}
+	})
+
+	t.Run("zero max size does not fetch through", func(t *testing.T) {
+		// zero resolves to the default max size, which leaves a miss inside the
+		// page to the caller rather than loading it from disk
+		fetch, calls := countingFetcher[float32]()
+		vectorCache := NewShardedFloat32LockCache(fetch, nil, 0, pageSize, logger, false, 0, nil)
+		cache := vectorCache.(*shardedLockCache[float32])
+
+		for i := uint64(0); i < pageSize/2; i++ {
+			cache.Preload(i, []float32{float32(i)})
+		}
+
+		out := make([][]float32, pageSize)
+		errs := make([]error, pageSize)
+		resultOut, resultErrs, _, _ := cache.GetAllInCurrentLock(context.Background(), 5, out, errs)
+
+		for i := pageSize / 2; i < pageSize; i++ {
+			assert.Nil(t, resultOut[i])
+			assert.Nil(t, resultErrs[i])
+		}
+		assert.EqualValues(t, 0, atomic.LoadInt64(calls))
 	})
 
 	t.Run("page beyond cache size", func(t *testing.T) {
@@ -309,48 +389,59 @@ func TestMultiCacheCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var multivecForId common.VectorForID[[]float32] = nil
 
-	maxSize := 10
-	batchSize := maxSize - 1
-	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
-	sleepDuration := deletionInterval + 100*time.Millisecond
+	runCacheCleanupCases(t,
+		func(maxSize int) Cache[float32] {
+			return NewShardedMultiFloat32LockCache(multivecForId, maxSize, logger, false, cleanupDeletionInterval, nil)
+		},
+		func(c Cache[float32], id int) {
+			c.PreloadMulti(uint64(id), []uint64{uint64(id)}, [][]float32{{float32(id), float32(id)}})
+		})
+}
 
-	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, maxSize, logger, false, deletionInterval, nil)
-		shardedLockCache, ok := vectorCache.(*shardedMultipleLockCache[float32])
-		assert.True(t, ok)
+// maxSizeCache is the part of a cache this test drives, so one table can cover
+// every constructor regardless of the vector element type.
+type maxSizeCache interface {
+	CopyMaxSize() int64
+	UpdateMaxSize(size int64)
+}
 
-		for i := 0; i < batchSize; i++ {
-			shardedLockCache.PreloadMulti(uint64(i), []uint64{uint64(i)}, [][]float32{{float32(i), float32(i)}})
-		}
-		time.Sleep(sleepDuration) // wait for deletion to fire
+func TestCacheMaxSizeOrDefault(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 
-		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
-		assert.Equal(t, batchSize, countMultiCached(shardedLockCache))
+	tests := []struct {
+		name    string
+		maxSize int
+		want    int64
+	}{
+		{name: "zero falls back to the default", maxSize: 0, want: defaultCacheMaxSize},
+		{name: "negative falls back to the default", maxSize: -1, want: defaultCacheMaxSize},
+		{name: "positive is kept", maxSize: 5, want: 5},
+	}
 
-		shardedLockCache.Drop()
-
-		assert.Equal(t, 0, int(shardedLockCache.count))
-		assert.Equal(t, 0, countMultiCached(shardedLockCache))
-	})
-
-	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, maxSize, logger, false, deletionInterval, nil)
-		shardedLockCache, ok := vectorCache.(*shardedMultipleLockCache[float32])
-		assert.True(t, ok)
-
-		for b := 0; b < 2; b++ {
-			for i := 0; i < batchSize; i++ {
-				id := b*batchSize + i
-				shardedLockCache.PreloadMulti(uint64(id), []uint64{uint64(id)}, [][]float32{{float32(id), float32(id)}})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caches := []struct {
+				name  string
+				cache maxSizeCache
+			}{
+				{"float32", NewShardedFloat32LockCache(nil, nil, tt.maxSize, 1, logger, false, 0, nil)},
+				{"byte", NewShardedByteLockCache(nil, tt.maxSize, 1, logger, 0, nil)},
+				{"uint64", NewShardedUInt64LockCache(nil, tt.maxSize, 1, logger, 0, nil)},
+				{"multi float32", NewShardedMultiFloat32LockCache(nil, tt.maxSize, logger, false, 0, nil)},
+				{"multi uint64", NewShardedMultiUInt64LockCache(nil, tt.maxSize, logger, 0, nil)},
+				{"multi byte", NewShardedMultiByteLockCache(nil, tt.maxSize, logger, 0, nil)},
 			}
-			time.Sleep(sleepDuration) // wait for deletion to fire, 2nd should clean the cache
-		}
 
-		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
-		assert.Equal(t, 0, countMultiCached(shardedLockCache))
+			for _, c := range caches {
+				t.Run(c.name, func(t *testing.T) {
+					assert.Equal(t, tt.want, c.cache.CopyMaxSize(), "from the constructor")
 
-		shardedLockCache.Drop()
-	})
+					c.cache.UpdateMaxSize(int64(tt.maxSize))
+					assert.Equal(t, tt.want, c.cache.CopyMaxSize(), "after UpdateMaxSize")
+				})
+			}
+		})
+	}
 }
 
 func TestGet_OutOfBounds(t *testing.T) {
@@ -436,19 +527,6 @@ func TestGet_OutOfBounds(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, expected, vec)
 	})
-}
-
-func countMultiCached(c *shardedMultipleLockCache[float32]) int {
-	c.shardedLocks.LockAll()
-	defer c.shardedLocks.UnlockAll()
-
-	count := 0
-	for _, vec := range c.cache {
-		if vec != nil {
-			count++
-		}
-	}
-	return count
 }
 
 // countingFetcher returns a deterministic vector for any id ([]T{T(id)}) and

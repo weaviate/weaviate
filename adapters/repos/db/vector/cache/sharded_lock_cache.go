@@ -76,6 +76,16 @@ func growTargetFor(node uint64) uint64 {
 	return relative + 1
 }
 
+// maxSizeOrDefault treats a non-positive size as unbounded. Storing it as-is
+// would make replaceIfFull's count >= maxSize hold at zero entries, so the
+// deletion ticker would wipe the whole cache every interval.
+func maxSizeOrDefault(maxSize int64) int64 {
+	if maxSize <= 0 {
+		return defaultCacheMaxSize
+	}
+	return maxSize
+}
+
 // stripeCountFor returns the lock stripe count appropriate for a backing
 // slice of the given length, keeping the lock memory proportional to the
 // cache itself.
@@ -110,7 +120,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 		multipleVectorForDocID: multiVecForID,
 		normalizeOnRead:        normalizeOnRead,
 		count:                  0,
-		maxSize:                int64(maxSize),
+		maxSize:                maxSizeOrDefault(int64(maxSize)),
 		cancel:                 make(chan bool),
 		logger:                 logger,
 		shardedLocks:           common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
@@ -131,7 +141,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 		vectorForID:      vecForID,
 		normalizeOnRead:  false,
 		count:            0,
-		maxSize:          int64(maxSize),
+		maxSize:          maxSizeOrDefault(int64(maxSize)),
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
@@ -152,7 +162,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		vectorForID:      vecForID,
 		normalizeOnRead:  false,
 		count:            0,
-		maxSize:          int64(maxSize),
+		maxSize:          maxSizeOrDefault(int64(maxSize)),
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
@@ -456,7 +466,7 @@ func (s *shardedLockCache[T]) replaceIfFull() {
 }
 
 func (s *shardedLockCache[T]) UpdateMaxSize(size int64) {
-	atomic.StoreInt64(&s.maxSize, size)
+	atomic.StoreInt64(&s.maxSize, maxSizeOrDefault(size))
 }
 
 func (s *shardedLockCache[T]) CopyMaxSize() int64 {
@@ -547,7 +557,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		cache:                  cache,
 		normalizeOnRead:        normalizeOnRead,
 		count:                  0,
-		maxSize:                int64(maxSize),
+		maxSize:                maxSizeOrDefault(int64(maxSize)),
 		logger:                 logger,
 		shardedLocks:           common.NewDefaultShardedRWLocks(),
 		maintenanceLock:        sync.RWMutex{},
@@ -580,7 +590,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		multipleVectorForID: multipleVecForIDValue,
 		cache:               cache,
 		count:               0,
-		maxSize:             int64(maxSize),
+		maxSize:             maxSizeOrDefault(int64(maxSize)),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
 		maintenanceLock:     sync.RWMutex{},
@@ -614,7 +624,7 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		multipleVectorForID: multipleVecForIDValue,
 		cache:               cache,
 		count:               0,
-		maxSize:             int64(maxSize),
+		maxSize:             maxSizeOrDefault(int64(maxSize)),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
 		maintenanceLock:     sync.RWMutex{},
@@ -892,7 +902,7 @@ func (s *shardedMultipleLockCache[T]) replaceIfFull() {
 }
 
 func (s *shardedMultipleLockCache[T]) UpdateMaxSize(size int64) {
-	atomic.StoreInt64(&s.maxSize, size)
+	atomic.StoreInt64(&s.maxSize, maxSizeOrDefault(size))
 }
 
 func (s *shardedMultipleLockCache[T]) CopyMaxSize() int64 {
