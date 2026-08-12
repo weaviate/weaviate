@@ -835,13 +835,40 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 	})
 }
 
+// pinLoadedShard takes a shutdown refcount so bucket work scheduled onto an
+// error group outlives the shard walk. A cold lazy shard has no store to
+// refcount; its file surgery holds shardCreateLocks in shard_lazyloader.go.
+func pinLoadedShard(shard ShardLike) (release func(), ok bool) {
+	if lazy, isLazy := shard.(*LazyLoadShard); isLazy && !lazy.isLoaded() {
+		return func() {}, true
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return func() {}, false
+	}
+	return release, true
+}
+
 func (i *Index) addProperty(ctx context.Context, props ...*models.Property) error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
+
 	// Skip cold shards: they'd only be force-loaded to create empty buckets,
 	// which they build from the refreshed class at their next load anyway.
 	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
+		release, ok := pinLoadedShard(shard)
+		if !ok {
+			return nil
+		}
+		releases = append(releases, release)
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
@@ -856,7 +883,19 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
+
 	i.ForEachShard(func(key string, shard ShardLike) error {
+		release, ok := pinLoadedShard(shard)
+		if !ok {
+			return nil
+		}
+		releases = append(releases, release)
 		shard.updatePropertyBuckets(ctx, eg, property)
 		return nil
 	})
@@ -873,6 +912,12 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 ) error {
 	// an updated is not specific to one shard, but rather all
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		release, ok := pinLoadedShard(shard)
+		if !ok {
+			return nil
+		}
+		defer release()
+
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -897,6 +942,12 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		release, ok := pinLoadedShard(shard)
+		if !ok {
+			return nil
+		}
+		defer release()
+
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
@@ -926,6 +977,12 @@ func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error 
 	}()
 
 	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+		release, ok := pinLoadedShard(shard)
+		if !ok {
+			return nil
+		}
+		defer release()
+
 		if err := shard.DropVectorIndex(ctx, targetVector); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
