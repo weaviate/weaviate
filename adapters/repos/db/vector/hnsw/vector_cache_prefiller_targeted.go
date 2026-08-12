@@ -34,9 +34,13 @@ const (
 	// prefillTargetedMinSchemaLen gates the two-read path: below it, skipping the
 	// properties schema saves too little to justify a second read.
 	prefillTargetedMinSchemaLen = 8 << 10
-	// prefillTargetedMinAvgEntrySize keeps small-object buckets on the cursor
-	// scan, where the targeted path would only add index-walk overhead.
-	prefillTargetedMinAvgEntrySize = 4 << 10
+	// prefillTargetedMinAvgEntrySize keeps small-object buckets on the cursor scan.
+	// Derived from the per-row gate rather than picked independently: a schema cannot
+	// exceed the row holding it, so a bucket admitted below this would take the
+	// whole-value fallback for most of its rows — paying the peek on top of the read
+	// the cursor scan already did. Necessary, not sufficient: rows whose own schema
+	// falls short still fall back individually, which is the intended behaviour.
+	prefillTargetedMinAvgEntrySize = prefillTargetedMinSchemaLen
 )
 
 func prefillTargetedReadsEnabled() bool {

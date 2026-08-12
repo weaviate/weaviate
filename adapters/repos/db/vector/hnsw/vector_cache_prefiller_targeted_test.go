@@ -359,3 +359,58 @@ func TestPrefillStoppedByShutdown(t *testing.T) {
 		})
 	}
 }
+
+// TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads couples the two thresholds that
+// were picked independently. prefillTargetedMinAvgEntrySize admits a bucket to the
+// targeted scan; prefillTargetedMinSchemaLen is what makes a row take the cheap tail
+// read. A schema cannot exceed the row holding it, so an admission gate below the
+// schema gate admits buckets that then take the whole-value fallback for every row —
+// the peek read on top of the read the cursor scan was already doing.
+//
+// Sweeps schema sizes across both thresholds and requires the implication to hold:
+// if the gate admits the bucket, its rows resolve a tail. Reading the decision from
+// storobj is what the scan itself does one line later.
+func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
+	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+
+	// otherwise a gate that admits nothing would satisfy the implication vacuously
+	admitted := 0
+	t.Cleanup(func() {
+		require.NotZero(t, admitted, "no payload cleared the gate; the sweep proved nothing")
+	})
+
+	for _, payload := range []int{100, 1000, 3000, 5000, 7000, 9000, 16 << 10} {
+		t.Run(fmt.Sprintf("payload=%d", payload), func(t *testing.T) {
+			store := newTestObjectsStore(t)
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+			const rows = 200
+			for i := uint64(0); i < rows; i++ {
+				putTargetedObject(t, bucket, i, i, payload, nil,
+					map[string][]float32{"custom": {1, 2}})
+			}
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			h := newTargetedTestIndex(store, nil, "vectors_custom", nil, 0)
+			if !h.useTargetedPrefillScan(bucket) {
+				return // not admitted: the cursor scan handles it, nothing to prove
+			}
+			admitted++
+
+			tailReads := 0
+			c := bucket.CursorReplaceReusable()
+			defer c.Close()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				peek := v[:min(prefillPeekBytes, len(v))]
+				_, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(peek)
+				require.NoError(t, err)
+				if ok && schemaLen >= prefillTargetedMinSchemaLen {
+					tailReads++
+				}
+			}
+
+			require.Equal(t, rows, tailReads,
+				"bucket admitted by the %d-byte gate, but %d/%d rows fall back to a whole-value read",
+				prefillTargetedMinAvgEntrySize, rows-tailReads, rows)
+		})
+	}
+}
