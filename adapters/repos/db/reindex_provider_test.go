@@ -274,8 +274,8 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 }
 
 // A dropped collection is not a failed sweep, and a sweep that did not reach
-// every shard is neither. Nothing was swept in either case, so the difference
-// is only visible in what the operator is told.
+// every shard is neither. What each one can leave on disk differs, and the
+// wording is the only place that difference reaches the operator.
 func TestTerminalCleanupOutcome(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -289,9 +289,11 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards",
 		},
 		{
+			// Not a warning, but not a promise the disk is clean either: a
+			// backup in flight makes the delete keep the files.
 			name:    "the collection is not on this node",
 			outcome: terminalSweepDropped,
-			wantMsg: "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either",
+			wantMsg: "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files",
 		},
 		{
 			name:     "a shard could not be swept",

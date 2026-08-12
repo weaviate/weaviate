@@ -1784,8 +1784,11 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 }
 
 // terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. A dropped collection warrants no warning (no state left to act on);
-// failed and unknown both do, since neither confirms the state is gone.
+// sweep. A dropped collection warrants no warning: the delete removes the whole
+// collection directory, and the files an in-flight backup holds back are
+// reclaimed when that backup is released or on the next restart. Failed and
+// unknown both warrant one — neither confirms the state is gone, and nothing
+// else is coming to remove it.
 func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
 	switch outcome {
 	case terminalSweepFailed:
@@ -1793,7 +1796,7 @@ func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool
 	case terminalSweepUnknown:
 		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
 	case terminalSweepDropped:
-		return "auto-cleanup after terminal status: the collection is not on this node, so its partial sidecar state is not here either", false
+		return "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files", false
 	default:
 		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
 	}
