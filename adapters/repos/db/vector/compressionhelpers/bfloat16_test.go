@@ -21,9 +21,8 @@ import (
 )
 
 // TestBF16RoundTripSemantics pins the round-to-nearest-even conversion the
-// centered rq1 header uses. The semantics must match the rq4c helper
-// (float32ToBFloat16 on trengrj/4bit-centering, commit 3d208f5300) exactly:
-// bias-add RNE, NaN canonicalized to 0x7FC0.
+// centered rq1 and rq4 headers share (float32ToBFloat16, introduced by the
+// rq4c centering work): bias-add RNE, NaN canonicalized to 0x7FC0.
 func TestBF16RoundTripSemantics(t *testing.T) {
 	cases := []struct {
 		name string
@@ -52,14 +51,14 @@ func TestBF16RoundTripSemantics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, float32ToBF16(tc.in), "encode")
+			assert.Equal(t, tc.want, float32ToBFloat16(tc.in), "encode")
 		})
 	}
 
 	// decode is exact: bf16 bits are the top 16 of a float32
-	assert.Equal(t, float32(1), bf16ToFloat32(0x3F80))
-	assert.Equal(t, float32(-2), bf16ToFloat32(0xC000))
-	assert.True(t, math.IsNaN(float64(bf16ToFloat32(0x7FC0))))
+	assert.Equal(t, float32(1), bfloat16ToFloat32(0x3F80))
+	assert.Equal(t, float32(-2), bfloat16ToFloat32(0xC000))
+	assert.True(t, math.IsNaN(float64(bfloat16ToFloat32(0x7FC0))))
 }
 
 // TestBF16RelativeError bounds the conversion error on the value ranges the
@@ -82,7 +81,7 @@ func TestBF16RelativeError(t *testing.T) {
 		if v == 0 {
 			continue
 		}
-		got := bf16ToFloat32(float32ToBF16(v))
+		got := bfloat16ToFloat32(float32ToBFloat16(v))
 		rel := math.Abs(float64(got-v)) / math.Abs(float64(v))
 		if rel > maxRel {
 			maxRel = rel
