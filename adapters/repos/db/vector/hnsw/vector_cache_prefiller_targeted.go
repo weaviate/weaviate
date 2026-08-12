@@ -60,8 +60,16 @@ func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Buck
 ) error {
 	// a bucket that is not uuid-keyed would skip every row, so report the count once
 	// rather than leaving an empty cache explained only by per-row debug lines
+	// same node-wide pool as the cursor scan: both are bound by the volume, and a
+	// node restoring many tenants runs one of these per named vector per shard
+	parallel, release, err := acquirePrefillWorkers(ctx, prefillScanParallelism(), h.logger)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	var foreign atomic.Int64
-	err := bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
+	err = bucket.ScanTargetedReplace(ctx, prefillPeekBytes, parallel,
 		h.targetedRowCallback(targetVector, onVector, &foreign), h.logger)
 	if n := foreign.Load(); n > 0 {
 		h.logger.WithFields(logrus.Fields{

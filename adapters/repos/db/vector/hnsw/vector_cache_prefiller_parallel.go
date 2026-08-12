@@ -47,6 +47,9 @@ func (h *hnsw) useParallelPrefill() bool {
 	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil || h.hfreshMode {
 		return false
 	}
+	if !scanPrefillEnabled() {
+		return false // operator turned the scan off; the serial prefiller still runs
+	}
 
 	return parallelPrefillEligible(h.parallelPrefillInputs())
 }
@@ -277,7 +280,11 @@ func prefillScanParallelism() int {
 func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
 	decode prefillRowDecoder, onVector prefillOnVector, logger logrus.FieldLogger,
 ) error {
-	parallel := prefillScanParallelism()
+	parallel, release, err := acquirePrefillWorkers(ctx, prefillScanParallelism(), logger)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	// n-1 seeds yield n ranges: [first,seeds[0]), interiors, [seeds[last],end).
 	seeds := bucket.QuantileKeys(parallel - 1)
