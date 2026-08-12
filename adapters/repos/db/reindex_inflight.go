@@ -12,7 +12,9 @@
 package db
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -127,16 +129,83 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
+//
+// It never logs — the whole-collection callers reach it once per shard, so a
+// line here would repeat. The caller logs instead: one line per pass via
+// [DB.logReindexRefusals] or [Index.logReindexRefusalSummary], and one line per
+// shard via [Index.logReindexRefusal] for the single-shard callers
+// ([Shard.HaltForTransfer] reached from IncomingCreateReplicaSnapshot).
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
+	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
-		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+		return reindexInFlightError(collection, true)
 	}
-	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
+	if !i.db.AnyLiveReindexForShard(collection, shardName) {
 		return nil
 	}
-	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+	return reindexInFlightError(collection, false)
+}
+
+// reindexRefusalShardSample caps the shard names carried in one refusal log
+// line. The count beside it is exact; this only bounds the sample.
+const reindexRefusalShardSample = 10
+
+// logReindexRefusal records the shard and node the refusal body withholds. It
+// is a no-op unless err is a gate refusal. Single-shard call sites only; a pass
+// over many shards must use [Index.logReindexRefusalSummary].
+func (i *Index) logReindexRefusal(shardName string, err error) {
+	if err == nil || !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) {
+		return
+	}
+	if i.logger == nil {
+		return
+	}
+	i.logger.WithField("action", "backup_reindex_gate").
+		WithField("collection", i.Config.ClassName.String()).
+		WithField("shard", shardName).
+		WithField("node", i.localNodeName()).
+		Warn("backup-reindex gate: refused a replica shard copy; a runtime-reindex is live on this shard")
+}
+
+// logReindexRefusalSummary is [Index.logReindexRefusal] for a pass over many
+// shards: one line for the whole pass, with an exact count and a capped sample
+// of the names.
+func (i *Index) logReindexRefusalSummary(shardNames []string) {
+	logReindexRefusalPass(i.logger, "backup descriptor", i.localNodeName(),
+		i.Config.ClassName.String(), shardNames)
+}
+
+// logReindexRefusalPass logs one line for a pass over many shards. Shared by
+// [DB.logReindexRefusals] and [Index.logReindexRefusalSummary] so the two can't drift apart.
+func logReindexRefusalPass(logger logrus.FieldLogger, stage, node, collection string, shardNames []string) {
+	if len(shardNames) == 0 || logger == nil {
+		return
+	}
+	// Sorted on a copy so repeated refusals diff cleanly without
+	// mutating the caller's slice.
+	sorted := slices.Sorted(slices.Values(shardNames))
+	sample := sorted
+	if len(sample) > reindexRefusalShardSample {
+		sample = sample[:reindexRefusalShardSample]
+	}
+	logger.WithField("action", "backup_reindex_gate").
+		WithField("collection", collection).
+		WithField("node", node).
+		WithField("blocked_shards", sample).
+		WithField("blocked_shard_count", len(shardNames)).
+		Warnf("%s refused: %d shard(s) of %q are held by the reindex gate; "+
+			"blocked_shards lists the first %d", stage, len(shardNames), collection, len(sample))
+}
+
+// localNodeName is empty when the Index was built without its DB
+// back-reference (test fixtures, partial init).
+func (i *Index) localNodeName() string {
+	if i.db == nil {
+		return ""
+	}
+	return i.db.localNodeName
 }
 
 // reindexInFlightError formats the operator-facing rejection. `preWire`
@@ -151,19 +220,25 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
 // answers 409 Conflict.
 //
-// `collection` stays namespace-qualified: the sync REST error path strips
-// it, but the async backup-status field does not.
-func reindexInFlightError(collection, shardName string, preWire bool) error {
+// Names no shard and no node — this reaches an API response body. Those
+// reach the operator via [Index.logReindexRefusal],
+// [Index.logReindexRefusalSummary] and [DB.logReindexRefusals].
+//
+// `collection` ([Index.Config.ClassName]) is kept namespace-qualified as
+// stored; canCommit runs synchronously inside coordinator.Backup, so the REST
+// error path strips it before returning. The async backup-status field is
+// not stripped.
+func reindexInFlightError(collection string, preWire bool) error {
 	if preWire {
-		return fmt.Errorf(
-			"%w: shard %q (collection %q): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
-		)
+		return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+			"%s: collection %q: backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, collection,
+		)}
 	}
-	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option",
-		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection, collection, collection,
-	)
+	return entitiesbackup.ReindexBlockedError{Msg: fmt.Sprintf(
+		"%s: collection %q has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option",
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, collection, collection, collection,
+	)}
 }
 
 // NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`

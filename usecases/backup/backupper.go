@@ -98,7 +98,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // the slot logs what it dropped.
 func (b *backupper) publishFailure(slot slotOwner, err error) {
 	b.lastAsyncError = err
-	slot.setFailed(err.Error())
+	slot.setFailed(publishableErrMsg(err))
 }
 
 // backup checks if the node is ready to back up (can commit phase)

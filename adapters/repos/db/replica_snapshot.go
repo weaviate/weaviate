@@ -66,6 +66,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	if file.ProbeHardlinkSupport(i.Config.RootPath) {
 		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
 		if err != nil {
+			i.logReindexRefusal(shardName, err)
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 			return nil, err
 		}
@@ -79,6 +80,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// are served from the live shard root in this mode. The inactivity timeout
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
 	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
+		i.logReindexRefusal(shardName, err)
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}

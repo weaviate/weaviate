@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1746,4 +1747,102 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 		return
 	}
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
+}
+
+// A gate refusal reaches the status API wrapped in the shard that produced
+// it; the shard must not survive into the published message.
+func TestPublishableErrMsg(t *testing.T) {
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "an ordinary failure is served verbatim",
+			err:  errors.New("no space left on device"),
+			want: "no space left on device",
+		},
+		{
+			name: "a failure with no text still states one",
+			err:  errors.New(""),
+			want: failureWithoutReason,
+		},
+		{
+			name: "a bare gate refusal is its own message",
+			err:  refusal,
+			want: refusal.Msg,
+		},
+		{
+			name: "the shard the wrappers named is dropped",
+			err:  fmt.Errorf("snapshot shard zmDMRo4olU4c: halt for snapshot: %w", refusal),
+			want: refusal.Msg,
+		},
+		{
+			// The whole chain goes, siblings included. A caller with a second,
+			// independent fault has to re-attach it; publishableFailureMsg is
+			// the one that does.
+			name: "a fault joined beside the refusal goes with the chain",
+			err: errors.Join(
+				fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
+				errors.New("meta write rejected by object storage"),
+			),
+			want: refusal.Msg,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, publishableErrMsg(tc.err))
+		})
+	}
+}
+
+// A gate refusal replaces the whole chain, so a co-occurring meta-write
+// fault must be re-attached or a poller never learns of it.
+func TestPublishableFailureMsg(t *testing.T) {
+	refusal := backup.ReindexBlockedError{
+		Msg: `backup blocked: runtime-reindex in flight: collection "Article"`,
+	}
+	metaErr := errors.New("put meta: 503 from backend")
+
+	tests := []struct {
+		name    string
+		err     error
+		metaErr error
+		want    string
+	}{
+		{
+			name: "no meta fault leaves the message alone",
+			err:  fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
+			want: refusal.Msg,
+		},
+		{
+			name:    "a refusal keeps the meta fault the redaction would drop",
+			err:     fmt.Errorf("upload %w: %w", refusal, metaErr),
+			metaErr: metaErr,
+			want:    refusal.Msg + "; uploading the backup metadata also failed: " + metaErr.Error(),
+		},
+		{
+			name:    "a meta fault with no text is still attached",
+			err:     fmt.Errorf("snapshot shard zmDMRo4olU4c: %w", refusal),
+			metaErr: errors.New(""),
+			want:    refusal.Msg + "; uploading the backup metadata also failed: ",
+		},
+		{
+			name:    "an ordinary failure already carries it, so it is not repeated",
+			err:     fmt.Errorf("upload %w: %w", errors.New("no space left on device"), metaErr),
+			metaErr: metaErr,
+			want:    "upload no space left on device: " + metaErr.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, publishableFailureMsg(tc.err, tc.metaErr))
+		})
+	}
 }

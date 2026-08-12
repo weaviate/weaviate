@@ -17,17 +17,30 @@ import (
 )
 
 // ErrBackupBlockedByInFlightReindex is the canonical sentinel returned when
-// a backup attempt races a runtime-reindex on the same shard. The DTM unit
-// driving the migration is not part of the backup payload, so a captured
-// tracker dir cannot be safely restored.
+// a backup attempt races a runtime-reindex on the same shard; the DTM unit
+// driving the migration is not part of the backup payload, so the tracker
+// dir cannot be safely restored.
 //
-// This sentinel lives in entities/backup so both the storage layer
-// (adapters/repos/db) and the coordinator layer (usecases/backup) can
-// share a single value without an import cycle. Match it across RPC
-// boundaries with errors.Is, not substring comparison. The operator-visible
-// error text wrapping this sentinel is owned by the storage layer in
-// adapters/repos/db/reindex_inflight.go.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
+// Lives here so the storage layer (adapters/repos/db) and the coordinator
+// layer (usecases/backup) share one value without an import cycle. Names no
+// shard: the text reaches API response bodies.
+//
+// Classify with errors.Is. The message text is a second, narrower contract:
+// across the RPC seam only a string arrives, and the coordinator decides
+// whether a participant's refusal is publishable by testing it against this
+// text plus ": " (usecases/backup, canCommitErrFromResponse). Changing the
+// wording therefore makes every current participant look like an old one.
+var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
+
+// ReindexBlockedError is the API-safe form of a backup refused by the reindex
+// gate. Wrappers on the way out add the shard and node an operator wants and a
+// backup caller is not granted, so the publishable message travels alongside
+// them and the boundary recovers it with errors.As.
+type ReindexBlockedError struct{ Msg string }
+
+func (e ReindexBlockedError) Error() string { return e.Msg }
+
+func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,

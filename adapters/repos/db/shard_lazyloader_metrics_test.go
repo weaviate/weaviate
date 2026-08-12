@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -48,13 +49,17 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
-	metrics := &metricsCopy
 
-	// Reset shard metrics to known state
-	metrics.ShardsLoaded.Set(0)
-	metrics.ShardsLoading.Set(0)
-	metrics.ShardsUnloaded.Set(0)
-	metrics.ShardsUnloading.Set(0)
+	// Copying the struct still shares the process-wide shard gauges, which every
+	// other index in this test binary moves too - including the background lazy
+	// loader an earlier test left running. Own gauges keep the counts below to
+	// the shards this test creates. They start at 0, so no reset is needed.
+	metricsCopy.ShardsLoaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loaded"})
+	metricsCopy.ShardsLoading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loading"})
+	metricsCopy.ShardsUnloaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloaded"})
+	metricsCopy.ShardsUnloading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloading"})
+
+	metrics := &metricsCopy
 
 	// Create db with metrics
 	shardState := singleShardState()

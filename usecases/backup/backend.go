@@ -282,7 +282,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				// coordinator count the node done and report a backup that
 				// cannot be restored as good.
 				desc.Status = backup.Transferred
-				u.slot.setFailed(err.Error())
+				u.slot.setFailed(publishableErrMsg(err))
 			} else {
 				u.slot.set(backup.Success)
 			}
@@ -290,7 +290,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = nonEmptyErrMsg(err)
+		desc.Error = publishableErrMsg(err)
 
 		// Handle error cases
 		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
@@ -303,7 +303,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
+		metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
+		if metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
@@ -313,7 +314,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(err.Error())
+			u.slot.setFailed(publishableFailureMsg(err, metaErr))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -387,13 +388,39 @@ Loop:
 	return nil
 }
 
-// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
-// text is served verbatim from the status API, backend messages and all.
-func nonEmptyErrMsg(err error) string {
-	if msg := err.Error(); msg != "" {
+// publishableErrMsg is the failure text safe to serve from the status API,
+// or a stand-in when err has none. A gate refusal arrives wrapped in the
+// shard it came from, so only its own message is published.
+//
+// The refusal replaces the whole chain, siblings included: a caller holding a
+// second, independent fault has to re-attach it. [publishableFailureMsg] is
+// that caller for the meta write.
+func publishableErrMsg(err error) string {
+	msg := err.Error()
+	var blocked backup.ReindexBlockedError
+	if errors.As(err, &blocked) {
+		msg = blocked.Error()
+	}
+	if msg == "" {
+		return failureWithoutReason
+	}
+	return msg
+}
+
+// publishableFailureMsg is [publishableErrMsg] plus the meta-write fault,
+// which a gate refusal would otherwise drop: a poller reading FAILED needs
+// to know the metadata write failed too.
+func publishableFailureMsg(err, metaErr error) string {
+	msg := publishableErrMsg(err)
+	if metaErr == nil {
 		return msg
 	}
-	return failureWithoutReason
+	// strings.Contains(msg, "") is always true; guard against an empty
+	// meta fault looking "already present".
+	if metaMsg := metaErr.Error(); metaMsg != "" && strings.Contains(msg, metaMsg) {
+		return msg
+	}
+	return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", msg, metaErr)
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

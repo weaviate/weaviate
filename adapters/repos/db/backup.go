@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -47,25 +48,18 @@ const (
 	tmpExt        = ".tmp"
 )
 
-// Backupable returns whether all given class can be backed up.
-// Refuses if any shard has an in-flight runtime-reindex; this runs in
-// the coordinator's canCommit phase so no staging dir is created on
-// rejection.
+// Backupable returns whether all given classes can be backed up. Refuses if
+// any shard has an in-flight runtime-reindex; runs in the coordinator's
+// canCommit phase so no staging dir is created on rejection.
 //
-// All per-class / per-shard failures are accumulated and joined into a
-// single error rather than short-circuiting on the first one. Joining
-// ensures that when several classes are blocked at once, the operator sees
-// the full list in a single canCommit round instead of fixing one,
-// retrying, fixing the next, retrying, and so on. The joined error still
-// satisfies errors.Is for any wrapped sentinel (e.g.
-// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
-// underlying error graph.
-//
-// Class-missing errors stop aggregation for that class but do not short
-// circuit the whole loop; other classes still get checked.
+// Failures accumulate rather than short-circuit, so the operator sees every
+// blocked class in one round. Gate refusals lead the joined error since the
+// coordinator matches refusals by prefix on the joined text; refusals name
+// no node or shard — those reach the operator via [DB.logReindexRefusals].
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
-	nodeName := db.localNodeName
-	var errs []error
+	var errs, gateErrs, missingClassErrs []error
+	gateSeen := map[string]struct{}{}
+	blockedShards := map[string][]string{}
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -74,24 +68,59 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			// class, and the integration test casing-permutation case
 			// pins the bare wording so the coordinator's class-missing
 			// detection works the same as it did pre-Wave-2.
-			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
+			missingClassErrs = append(missingClassErrs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
 		shards, _, err := idx.readSchema()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
+			// No node prefix: this reaches an API response body.
+			errs = append(errs, fmt.Errorf("collection %q: enumerating local shards for backup-precheck: %w", c, err))
 			continue
 		}
 		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+			err := idx.refuseIfReindexInFlight(shardName)
+			if err == nil {
+				continue
 			}
+			// One entry per distinct refusal: the text names no shard, so
+			// per-shard joining would repeat the same sentence per shard.
+			gateErrs = appendUniqueGateErr(gateSeen, gateErrs, err)
+			blockedShards[c] = append(blockedShards[c], shardName)
 		}
+	}
+	errs = append(errs, missingClassErrs...)
+	if len(gateErrs) > 0 {
+		db.logReindexRefusals(blockedShards)
+		return stderrors.Join(append(gateErrs, errs...)...)
 	}
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
 	}
 	return nil
+}
+
+// appendUniqueGateErr appends err to gateErrs unless an error with the same
+// message was already appended, tracking what it has seen in seen.
+func appendUniqueGateErr(seen map[string]struct{}, gateErrs []error, err error) []error {
+	if _, dup := seen[err.Error()]; dup {
+		return gateErrs
+	}
+	seen[err.Error()] = struct{}{}
+	return append(gateErrs, err)
+}
+
+// logReindexRefusals logs the shards and node the refusal bodies withhold.
+// blockedShards maps a collection to the shards the gate held.
+func (db *DB) logReindexRefusals(blockedShards map[string][]string) {
+	// One line per collection, sorted so repeated refusals diff cleanly.
+	collections := make([]string, 0, len(blockedShards))
+	for c := range blockedShards {
+		collections = append(collections, c)
+	}
+	sort.Strings(collections)
+	for _, c := range collections {
+		logReindexRefusalPass(db.logger, "backup precheck", db.localNodeName, c, blockedShards[c])
+	}
 }
 
 // BackupDescriptors returns a channel of class descriptors.
@@ -286,6 +315,14 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
 
+	// Every shard reaches the gate: eg.Go blocks for a slot and then always
+	// runs its func, and the shard backup does not consult ctx before the gate
+	// check, so a sibling's refusal cancelling the group cancels nothing here.
+	// A whole-collection refusal therefore lands once per shard. Collect the
+	// names and log one line for the pass.
+	var blocked []string
+	defer func() { i.logReindexRefusalSummary(blocked) }()
+
 	for _, name := range shardNames {
 		eg.Go(func() error {
 			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
@@ -293,6 +330,11 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 				if errors.Is(err, errShardNoLocalData) {
 					i.logger.WithField("shard", name).Debug("skipping shard with no local data")
 					return nil
+				}
+				if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+					mu.Lock()
+					blocked = append(blocked, name)
+					mu.Unlock()
 				}
 				return err
 			}
@@ -481,6 +523,10 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
+	// Sequential loop returns on the first refusal, so this holds at most one name.
+	var blocked []string
+	defer func() { i.logReindexRefusalSummary(blocked) }()
+
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
 		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
@@ -488,6 +534,9 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 			if errors.Is(err, errShardNoLocalData) {
 				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
 				continue
+			}
+			if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+				blocked = append(blocked, name)
 			}
 			return err
 		}

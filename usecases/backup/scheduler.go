@@ -196,6 +196,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
+		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+			// Retryable, so 422: a 500 would page the on-call.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	} else {
 		// The slot only answers for this backup while it still holds it; once

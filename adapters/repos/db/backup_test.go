@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	tlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -555,6 +557,102 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 
 	// Schema should be marshalled.
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
+}
+
+// wireGateRefusalIndex makes every shard report as reindexing so descriptor
+// calls hit the gate.
+func wireGateRefusalIndex(idx *Index) *tlog.Hook {
+	logger, hook := tlog.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	idx.logger = logger
+	idx.db = &DB{logger: logger, localNodeName: "weaviate-0"}
+	idx.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return true }
+	})
+	return hook
+}
+
+// collectGateRefusalLog returns the operator-facing (warn-or-above) gate
+// entries, so callers can assert their level and fields as well as their count.
+func collectGateRefusalLog(hook *tlog.Hook) []*logrus.Entry {
+	var entries []*logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Level > logrus.WarnLevel || e.Data["action"] != "backup_reindex_gate" {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+// A whole-collection gate refusal is hit once per shard in the descriptor
+// fan-out; the log must not repeat that O(shards) growth.
+func TestDescriptorLogsOnceForAWideGateRefusal(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+	const shardCount = 30
+
+	// Replicated everywhere so every tenant is a local shard of this node.
+	builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(shardCount)
+	tenants := make([]string, 0, shardCount)
+	for i := range shardCount {
+		name := fmt.Sprintf("cold-%02d", i)
+		tenants = append(tenants, name)
+		builder = builder.AddTenant(name, models.TenantActivityStatusCOLD)
+	}
+
+	idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
+	for _, name := range tenants {
+		createColdShardFiles(t, rootDir, className, name)
+	}
+
+	hook := wireGateRefusalIndex(idx)
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "wide-refusal", &desc, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+
+	entries := collectGateRefusalLog(hook)
+
+	require.Lenf(t, entries, 1,
+		"a refusal of one collection is one operator-facing entry regardless of width; "+
+			"%d shards produced %d", shardCount, len(entries))
+	assertWideRefusalEntry(t, entries[0], shardCount, "cold-00")
+}
+
+// Pins: the no-hardlinks fallback returns on the first refusal, so the
+// summary log names exactly the one blocked shard.
+func TestDescriptorWithoutHardlinksLogsBlockedShard(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	hook := wireGateRefusalIndex(idx)
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "no-hardlink-refusal", &desc, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+
+	entries := collectGateRefusalLog(hook)
+
+	require.Len(t, entries, 1, "one refusal is one operator-facing line")
+	assert.Equal(t, logrus.WarnLevel, entries[0].Level,
+		"a refusal the caller can act on must not page the on-call")
+	assert.Equal(t, 1, entries[0].Data["blocked_shard_count"])
+	assert.Equal(t, []string{"cold-tenant"}, entries[0].Data["blocked_shards"],
+		"the log must name the shard the gate blocked")
 }
 
 func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
