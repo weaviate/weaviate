@@ -15,16 +15,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
@@ -38,10 +35,6 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 	return &filteredAggregator{Aggregator: agg}
 }
 
-func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
-	return fa.propLenTracker
-}
-
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if fa.params.Hybrid != nil {
 		return fa.hybrid(ctx)
@@ -51,18 +44,26 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, error) {
+	// Both legs need the allow list: fusion unions their results without
+	// intersecting them, so an unfiltered leg contributes objects the filter
+	// excludes.
+	allowList, err := fa.buildAllowList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if allowList != nil {
+		defer allowList.Close()
+	}
+
+	fa.setDefaultObjectLimit()
+
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		kw, err := fa.buildHybridKeywordRanking()
 		if err != nil {
 			return nil, nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
 		}
 
-		if fa.params.ObjectLimit == nil {
-			limit := int(fa.defaultLimit)
-			fa.params.ObjectLimit = &limit
-		}
-
-		sparse, scores, err := fa.bm25Objects(ctx, kw)
+		sparse, scores, err := fa.bm25Objects(ctx, kw, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
@@ -71,14 +72,6 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 	}
 
 	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
-		allowList, err := fa.buildAllowList(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		if allowList != nil {
-			defer allowList.Close()
-		}
-
 		res, dists, err := fa.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
@@ -129,27 +122,6 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	}
 
 	return fa.prepareResult(ctx, foundIDs)
-}
-
-func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
-	class := fa.getSchema.ReadOnlyClass(fa.params.ClassName.String())
-	if class == nil {
-		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", fa.params.ClassName)
-	}
-	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
-
-	kw.ChooseSearchableProperties(class)
-
-	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
-		fa.classSearcher, fa.stopwordProvider,
-		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
-	).WithTokenizationResolver(fa.tokResolver).
-		WithSearchableBucketPinningResolver(fa.bucketPinResolver).
-		BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw, additional.Properties{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
-	}
-	return objs, scores, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
