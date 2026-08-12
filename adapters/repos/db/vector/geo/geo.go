@@ -14,7 +14,6 @@ package geo
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/pkg/errors"
@@ -96,13 +95,9 @@ func (c Config) hnswEF() int {
 func NewIndex(config Config,
 	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Index, error) {
-	if config.Logger == nil {
-		// the commit logger dereferences this while opening its files, before
-		// hnsw.New gets a chance to substitute a default
-		logger := logrus.New()
-		logger.Out = io.Discard
-		config.Logger = logger
-	}
+	// the commit-logger thunk below captures this Config by value, so hnsw.New
+	// substituting a default into its own copy would never reach it
+	config.Logger = common.LoggerOrDiscard(config.Logger)
 
 	// without a decoder the prefill scan would read each object's own vector and
 	// cache it as a coordinate

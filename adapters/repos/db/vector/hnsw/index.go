@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"runtime"
@@ -299,11 +298,7 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	if cfg.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		cfg.Logger = logger
-	}
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
