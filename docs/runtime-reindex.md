@@ -119,12 +119,15 @@ Response shapes:
   an in-flight task already touches this property; the error names the
   offending task ID and migration type. On the cancel verb, either arm can
   refuse. The pre-flight refuses a status other than `STARTED` (`PREPARING`
-  or `SWAPPING`, where nodes may already have swapped, or one this build
-  does not recognize) and names the task ID and that status. The
-  apply refuses a target that left `STARTED` after that read, and names no
-  status, since it cannot tell a coordination phase from a task that has
-  already finished. Either way the task is not cancelled; re-read the index
-  status to see where it landed.
+  or `SWAPPING`, where nodes may already have written merged state or
+  renamed bucket directories, or one this build does not recognize) and
+  names the task ID and that status. The apply refuses a target that left
+  `STARTED` after that read, and names no status, since it cannot tell a
+  coordination phase from a task that has already finished. Either way the
+  task is not cancelled. Only the apply refusal is settled, so re-reading
+  the index status shows where it landed; a pre-flight refusal leaves the
+  task in flight, and a status this build does not recognize keeps reading
+  as `indexing` here until it reaches a terminal state on the nodes that do.
 - `429` — per-collection in-flight cap reached (default 32).
 - `503` — an in-flight task carries a payload this build cannot decode, so
   the conflict check cannot prove the new submit is safe. On the cancel

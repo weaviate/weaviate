@@ -28,7 +28,7 @@ import (
 // swagger:model IndexUpdateFilterable
 type IndexUpdateFilterable struct {
 
-	// When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once the task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it stopped being cancellable between the read and the cancel. In none of these cases is the task cancelled; re-read the index status to see where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.
+	// When true, cancels the in-flight reindex task targeting this property's filterable index. STARTED is the only cancellable status. Returns 202 with status CANCELLED once such a task is cancelled, or 409 when the task cannot be cancelled: it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, its status is one this node's build does not recognize, or it left STARTED between the read and the cancel. In none of these cases is the task cancelled; only the last one is settled, so re-reading the index status shows where it landed. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.
 	Cancel bool `json:"cancel,omitempty"`
 
 	// enabled
