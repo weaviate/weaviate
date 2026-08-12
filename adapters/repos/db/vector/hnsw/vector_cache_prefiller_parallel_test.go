@@ -255,9 +255,8 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
 		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
-		// the scan stops one short of maxSize, so an exact fit cannot reach the count
-		// replaceIfFull wipes on; the serial prefiller it would otherwise fall to
-		// caches nothing at all
+		// the scan claims at most maxSize-1 slots, so an exact fit cannot reach the
+		// count replaceIfFull wipes on
 		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
 		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
@@ -684,16 +683,16 @@ func TestPrefillCacheParallelStopsAllWorkersOnMemoryPressure(t *testing.T) {
 	// per worker; what must not happen is the ~1023 rows each would otherwise run
 	// before its next context poll
 	after := counting.afterAbort.Load()
-	// Bounded by one worker's poll interval, not by workers x that interval: before
-	// the shared abort, every sibling ran to its next context poll. Observed is a
-	// row or two per worker; the margin absorbs scheduling.
-	require.LessOrEqual(t, after, int64(prefillCtxCheckEvery),
+	// A worker already past the abort check may finish the row it is on, so allow a
+	// few per worker. Before the shared abort this measured 10,148: each sibling ran
+	// to its next context poll, 1024 rows away.
+	require.LessOrEqual(t, after, int64(8*prefillScanParallelism()),
 		"%d vectors were cached after the alloc probe failed", after)
 }
 
 // TestParallelPrefillExactFitTakesTheScan: an exact fit must not be pushed onto the
-// serial prefiller. onVector already stops one short of maxSize, so the scan cannot
-// reach the count replaceIfFull wipes on, and the serial path would cache nothing.
+// serial prefiller. The scan claims at most maxSize-1 slots, so it cannot reach the
+// count replaceIfFull wipes on.
 func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
 	const n = 200
 	store := newTestObjectsStore(t)
@@ -719,21 +718,22 @@ func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
 	require.Less(t, c.CountVectors(), c.CopyMaxSize())
 }
 
-// TestSerialPrefillerMeasuresOccupancyNotAllocation: the limit must be compared
-// against how many vectors are cached, not against how far the cache is allocated.
-// Restore grows the cache to cover the node range and growTargetFor rounds up beyond
-// it, so measuring Len() means an index whose cache already covers its nodes — every
-// index, after restore — prefills nothing at all.
-func TestSerialPrefillerMeasuresOccupancyNotAllocation(t *testing.T) {
+// TestSerialPrefillerFillsUpToButBelowTheLimit pins both halves of the serial
+// prefill's stop condition. It must measure occupancy, not the allocated span — the
+// cache is grown to cover the node range at restore and rounds up past it, so
+// measuring Len() prefills nothing at all. And it must stop one short of maxSize,
+// because replaceIfFull wipes the whole cache at that count and the next deletion
+// tick would throw the prefill away.
+func TestSerialPrefillerFillsUpToButBelowTheLimit(t *testing.T) {
 	cases := []struct {
 		name    string
 		nodes   int
 		maxSize int
 		want    int64
 	}{
-		{"cache exactly fits the nodes", 10, 10, 10},
-		{"cache larger than the nodes", 10, 11, 10},
-		{"bounded cache stops at the limit", 10, 5, 5},
+		{"cache larger than the nodes caches every node", 10, 11, 10},
+		{"cache exactly fits the nodes leaves one slot", 10, 10, 9},
+		{"bounded cache stops below its limit", 10, 5, 4},
 	}
 
 	for _, tc := range cases {
@@ -748,10 +748,54 @@ func TestSerialPrefillerMeasuresOccupancyNotAllocation(t *testing.T) {
 				"the allocated span must exceed the limit, or this test proves nothing")
 
 			h := newPrefillTestIndex("main", nil, c, tc.nodes, distancer.NewDotProductProvider(), logger)
+			// the limit prefillCache passes: one short of maxSize
 			require.NoError(t, newVectorCachePrefiller(c, h, logger).
-				Prefill(context.Background(), int(c.CopyMaxSize())))
+				Prefill(context.Background(), int(c.CopyMaxSize())-1))
 
 			require.Equal(t, tc.want, c.CountVectors())
+			require.Less(t, c.CountVectors(), c.CopyMaxSize(),
+				"a prefill that reaches maxSize is wiped by the next deletion tick")
 		})
 	}
+}
+
+// TestPrefillFromScanSurfacesWorkerPanic: a scan worker that panics must fail the
+// prefill, not finish it. GoWrapper recovers, so a bare wait returns nil while the
+// key range that worker owned is silently missing — a prefill that logs success with
+// a fraction of the cache filled. The cursor panics for real on a Seek error that is
+// neither NotFound nor Deleted, so this is a reachable state, not a hypothetical.
+func TestPrefillFromScanSurfacesWorkerPanic(t *testing.T) {
+	const n = 200
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i), float32(i) + 1}, nil)
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+
+	// Exactly one worker panics — the shape a bad segment produces, and the only one
+	// worth asserting: ErrorGroupWrapper's recover writes returnError without a guard
+	// (see its FIXME), so panicking every worker would race the wrapper, not this code.
+	var panicked atomic.Bool
+	decode := objectsRowDecoder("", logger)
+	err := h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+		return scanBucketVectorsParallel(ctx, bucket,
+			func(v []byte) (uint64, []float32, bool) {
+				if panicked.CompareAndSwap(false, true) {
+					panic("simulated cursor panic")
+				}
+				return decode(v)
+			}, onVector, logger)
+	})
+	// The wrapper logs the panic with its stack; what matters here is that the prefill
+	// fails rather than reporting success over a range it never scanned. The returned
+	// error may be the sibling cancellation the panic triggered rather than the panic
+	// itself, since a recovered goroutine returns nil and the group latches whichever
+	// error arrives first.
+	require.Error(t, err, "a panicking worker must not be reported as a completed prefill")
 }

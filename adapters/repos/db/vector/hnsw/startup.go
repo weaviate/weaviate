@@ -543,7 +543,9 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
 	} else {
-		limit = int(h.cache.CopyMaxSize())
+		// one short of maxSize: replaceIfFull wipes the whole cache at that count, so
+		// a prefill that fills the last slot is discarded on the next deletion tick
+		limit = int(h.cache.CopyMaxSize()) - 1
 	}
 
 	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
@@ -582,7 +584,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}
 
 		if err != nil {
-			if tornDownByShutdown(err, prefillCtx) {
+			if prefillStoppedByShutdown(err, prefillCtx) {
 				h.logger.WithField("action", "hnsw_vector_cache_prefill").
 					Debug("vector cache prefill stopped: context canceled")
 			} else {
