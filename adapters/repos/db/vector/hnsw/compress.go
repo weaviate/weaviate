@@ -83,9 +83,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			dims := int(h.dims.Load())
 			mean := compressionhelpers.MeanVector(cleanData, dims)
 			var err error
-			h.compressor, err = compressionhelpers.NewCenteredRQ4Compressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
-				h.makeBucketOptions, dims, mean, h.getTargetVector(), h.vectorForID)
+			if cfg.RQ.Bits == 1 {
+				h.compressor, err = compressionhelpers.NewCenteredRQ1Compressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
+					h.makeBucketOptions, dims, mean, h.getTargetVector(), h.vectorForID)
+			} else {
+				h.compressor, err = compressionhelpers.NewCenteredRQ4Compressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
+					h.makeBucketOptions, dims, mean, h.getTargetVector(), h.vectorForID)
+			}
 			if err != nil {
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
