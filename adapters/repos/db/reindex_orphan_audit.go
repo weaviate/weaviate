@@ -38,9 +38,8 @@ type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 type KnownReindexTaskLookupBuilder func() (KnownReindexTaskLookup, error)
 
 // NewLiveReindexTrackerLookup snapshots which tasks still own their
-// on-disk tracker dirs, indexing [IsLiveReindexTaskStatus] by (task ID,
-// version). The rule itself lives there so a new status has one place to
-// answer it.
+// on-disk tracker dirs. The rule lives in [IsLiveReindexTaskStatus] so a
+// new status has one place to answer it.
 func NewLiveReindexTrackerLookup(tasks []*distributedtask.Task) KnownReindexTaskLookup {
 	type taskKey struct {
 		id      string

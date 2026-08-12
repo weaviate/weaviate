@@ -274,22 +274,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (via [distributedtask.TaskStatus.IsActive],
-// which includes a status this build does not recognize) — same
-// epistemics as the schema FSM's MutationGuard at apply time, just
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive]) —
+// same epistemics as the schema FSM's MutationGuard at apply time, just
 // earlier in the request lifecycle for operator UX.
 //
-// "Same epistemics" is meant literally: it rejects on the same arms as
-// [db.ReindexProvider.CheckPropertyUpdate], in the same order, including
-// the two that do not look at the mutated collection at all — a payload
-// that does not decode, and one that decodes without a Collection. Both
-// block mutations on every collection. That is over-broad on both sides,
-// but identically so, which is what makes the promise below hold.
-//
-// It also ends on the same remedy, from [db.MutationRemedy]. This is the
-// message an operator on the DELETE-property-index journey actually
-// reads: a non-empty conflict here short-circuits to 422 before the
-// request reaches RAFT, so the FSM guard's wording never gets rendered.
+// "Same epistemics" is meant literally: it has to reject on the same arms
+// as [db.ReindexProvider.CheckPropertyUpdate], in the same order, or the
+// caller gets told ok here and FAILED at the apply.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -311,21 +302,13 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// Every non-terminal status counts as in-flight — see the godoc
-		// on [checkReindexConflict] for the full reasoning. Mutating the
-		// property mid-migration would race the per-shard bucket-pointer
-		// flip.
 		if !task.Status.IsActive() {
 			continue
 		}
-		// The arms below run in the FSM guard's order on purpose. Deciding
-		// the collection first looks like it would spare unrelated
-		// collections a garbage payload, but it only works for a type
-		// error: a syntax error leaves Collection empty, and a payload of
-		// literal null decodes with no error at all and leaves it empty
-		// too. Either way this side would allow what the apply then
-		// rejects, which is the "ok-then-FAILED" two-step this pre-flight
-		// exists to prevent.
+		// Deciding the collection first looks like it would spare
+		// unrelated collections a garbage payload, but a payload of
+		// literal null decodes with no error and leaves Collection empty,
+		// so this side would allow what the apply then rejects.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			return fmt.Sprintf(
@@ -342,8 +325,8 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}
-		// An empty Properties list means "all properties" (whole-
-		// collection rebuild, reserved), same rule the FSM guards use.
+		// An empty Properties list means "all properties", the same rule
+		// the FSM guards use.
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}

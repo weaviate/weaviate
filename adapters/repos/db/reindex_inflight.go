@@ -143,13 +143,8 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 // `preWire` flag distinguishes "DTM lookup says live" from "lookup not
 // yet installed" so the error body can hint at the right next step.
 //
-// The gate answers from a shard-keyed snapshot and never sees the task's
-// status, so the cancel remedy is stated with the condition attached
-// rather than branched on ([MutationRemedy] does the branching where the
-// status is in hand). Stating it unconditionally is what sent an operator
-// whose task carries a status this build cannot classify at a cancel the
-// API refuses with 409 — and at a GET that reports "indexing" for as long
-// as that task lives.
+// This gate never sees the task's status, so it states the cancel remedy
+// with its condition attached rather than branching on it.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

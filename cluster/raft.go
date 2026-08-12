@@ -98,9 +98,7 @@ func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]di
 }
 
 // LocalUnrecognizedDistributedTasks implements
-// [distributedtask.LocalTaskInspector]. Unlike every other task read on
-// this type it does not route to the leader — the point is to see what
-// only this node still holds.
+// [distributedtask.LocalTaskInspector].
 func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalUnrecognizedDistributedTasks()
 }

@@ -689,16 +689,8 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 }
 
 // findCancelTarget returns the in-flight reindex task for (collection,
-// propertyName, indexType), or nil when none matches. Whether DTM would
-// accept a cancel for it is [distributedtask.TaskStatus.IsCancellable] on
-// the returned task, the same predicate the FSM guard uses.
-//
-// A cancellable match wins over any other, so several matching in-flight
-// tasks cannot cost the operator a cancel that one of them would have
-// accepted. ConflictDetector.CheckConflict is supposed to make that
-// impossible; preferring it here costs one branch and does not rely on
-// that holding. Otherwise the first in-flight match is returned, so the
-// 409 still names a real task.
+// propertyName, indexType), or nil when none matches. A cancellable match
+// wins, so several matches cannot cost the operator a cancel.
 func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string, logger logrus.FieldLogger) (*distributedtask.Task, db.ReindexTaskPayload) {
 	var (
 		refusable        *distributedtask.Task
@@ -720,7 +712,7 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 			continue
 		}
 		// Empty Properties means "all properties" for every blocking guard;
-		// the matcher must agree or leave the operator with no cancel target.
+		// disagreeing here would leave the operator with no cancel target.
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
@@ -738,9 +730,8 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 }
 
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
-// nothing to cancel, or DTM would refuse it. Returns nil when the cancel
-// should proceed. [distributedtask.TaskStatus.IsCancellable] is the same
-// predicate the FSM guard applies, so the two cannot drift.
+// nothing to cancel, or DTM would refuse it. It reads the predicate the
+// FSM guard applies, so the two answers cannot drift.
 func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case target == nil:
@@ -751,11 +742,10 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 	return nil
 }
 
-// cancelApplyFailureResponder maps an FSM rejection from the cancel apply
-// onto the answer the pre-flight would have given for the same condition.
-// The status can flip between the list read and the apply, which on a
-// small collection is an ordinary race; rendering that as a 500 also
-// leaks the sentinel's internal marker into the response body.
+// cancelApplyFailureResponder maps an FSM rejection onto the answer the
+// pre-flight would have given. The status can flip between the read and
+// the apply, which is an ordinary race, and a 500 would also leak the
+// sentinel's internal marker into the body.
 func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
@@ -768,11 +758,6 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 }
 
 // cancelNoOpResponder answers a cancel that has nothing to cancel.
-//
-// Idempotent cancel: the caller's (collection, property) is known to exist
-// ([indexesHandlers.updateIndex] verified it before dispatch), so "nothing
-// to cancel" is a no-op rather than a caller error. Surfacing it as
-// Status: NO_OP at 202 keeps 404 for the one meaning it has here.
 func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_noop",
@@ -786,13 +771,9 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	})
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept. Two
-// conditions land here and they need different bodies: a coordination
-// phase, where this build knows what the task is doing and knows that
-// stopping it is unsafe, and a status it cannot name, where it knows
-// neither. Telling an operator to "wait for a terminal state" is honest
-// advice for the first and a dead end for the second — the status has to
-// terminate on the nodes that recognize it.
+// cancelRefusedResponder answers a cancel DTM will not accept. "Wait for
+// a terminal state" is honest advice in a coordination phase and a dead
+// end for a status only other nodes can terminate, hence two bodies.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -810,15 +791,9 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 }
 
 // cancelRacedResponder answers a cancel whose target stopped accepting
-// one between the list read and the apply.
-//
-// The pre-flight only lets a request reach the apply while the target
-// reads STARTED, so the status on the task here is stale by definition.
-// Rendering it would name a phase the task has left, and the two arms of
-// [cancelRefusalReason] would both be wrong for it: the task may have
-// moved into a coordination phase, or already reached the terminal state
-// that wording tells the operator to wait for. So this body names no
-// status and sends them back to the read instead.
+// one between the list read and the apply. The status held here is stale
+// by construction, so rendering it would name a phase the task has left.
+// This body names no status and sends the operator back to the read.
 func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event":    "reindex_task_cancel_refused",
@@ -836,12 +811,9 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 			target.ID, collection, propertyName, collection)))
 }
 
-// cancelRefusalReason explains a 409 from the cancel verb.
-//
-// The coordination-phase wording has to hold for PREPARING as well as
-// SWAPPING: in PREPARING no node has swapped yet, so naming the swap as
-// under way would have an operator sizing the wait in seconds when PREP
-// runs for minutes at billion-scale.
+// cancelRefusalReason explains a 409 from the cancel verb. Its
+// coordination-phase wording has to hold for PREPARING too, where no node
+// has swapped yet, so it cannot name the swap as under way.
 func cancelRefusalReason(status distributedtask.TaskStatus) string {
 	if !status.IsRecognized() {
 		return "this build cannot classify that status, so it cannot tell whether stopping the " +
@@ -874,11 +846,6 @@ func cancelRefusalReason(status distributedtask.TaskStatus) string {
 // terminates the local handle; the task's ctx (the provider's per-task
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
-//
-// A cancel DTM will not accept — a coordination phase, or a status this
-// build cannot classify — answers 409 instead, whether that is decided
-// by [indexesHandlers.cancelPreflight] before the apply or by
-// [indexesHandlers.cancelApplyFailureResponder] after it.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
@@ -1270,11 +1237,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
-	// No default arm, so the exhaustive linter makes a newly declared
-	// TaskStatus say how the GET should display it rather than inherit
-	// the unrecognized reading below. That reading is a fail-closed
-	// fallback for a status a newer node wrote, not a display rule
-	// anyone should get by not writing one.
 	switch best.Status {
 	case distributedtask.TaskStatusFailed:
 		idx.Status = "failed"
@@ -1337,10 +1299,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	if !best.Status.IsRecognized() {
-		// Other gates already treat it as in-flight (409 on PUT, counted
-		// against the cap, backups refused), so this reports "indexing"
-		// rather than "ready" or "pending" — the units don't prove no
-		// shard has started for a status this build can't name.
+		// "indexing" rather than "pending" or "ready": per-unit progress
+		// does not prove that no shard has started.
 		idx.Status = "indexing"
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -1389,9 +1349,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // the synthetic "indexing@100%" entry visible until the schema flip
 // propagates — see the FINISHED case there).
 func taskStatusPriority(task *distributedtask.Task) int {
-	// Every non-terminal status outranks every terminal one, including an
-	// unrecognized status, so a live migration always displays ahead of a
-	// stale FAILED attempt.
 	if task.Status.IsActive() {
 		return 2
 	}
@@ -1541,8 +1498,7 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // countInFlightTasksForCollection counts in-flight reindex tasks for a
-// collection. PREPARING and SWAPPING count: they still hold tracker dirs
-// and reindex buckets.
+// collection. PREPARING and SWAPPING count: they still hold tracker dirs.
 func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {

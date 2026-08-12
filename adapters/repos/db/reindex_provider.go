@@ -1583,29 +1583,11 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// The ack maps are the cluster's evidence that some node got
-				// past its units, and both count: PREP acks land in
-				// PreparationCompletionAcks, post-swap ones in
-				// PostCompletionAcks.
-				//
-				// They are not the whole story. The reachable tear is a
-				// cancel landing while the task is still STARTED on the FSM
-				// but this node has already written merged.mig, which arms
-				// the next restart to promote the target-tokenization ingest
-				// dir to the canonical bucket name. No ack records that —
-				// the late ack hits an already-CANCELLED task and is dropped
-				// — so the only witness is this node's disk.
-				//
-				// The cleanup below leaves that witness alone: it preserves
-				// merged/tidied generations by design, and both sides read
-				// the same completedMigrationGens
-				// (TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads).
-				// Probing before it anyway keeps the answer independent of
-				// that. Only after the ack maps, though: they decide the
-				// same boolean, and the probe force-loads every shard the
-				// payload names, inline on the scheduler tick. The FAILED
-				// arm makes the same argument one level up, where the
-				// guidance is unconditional.
+				// The acks are not the whole story: a cancel can land while
+				// the task is still STARTED but this node has already
+				// written merged.mig, and the late ack hits an
+				// already-CANCELLED task and is dropped. The probe answers
+				// the same boolean but costs a shard walk, hence second.
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
 					len(task.PreparationCompletionAcks) > 0
 				if !tornLocally {
@@ -1725,12 +1707,9 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
 }
 
-// probeLocalPostMergeState bounds [ReindexProvider.hasLocalPostMergeState]
-// the way every other call on this path is bounded: off p.serverCtx, with
-// a timeout. The probe force-loads lazy shards, and for a multi-tenant
-// collection the payload names every shard the task touched, so an
-// unbounded one lets a single stuck shard hold up the scheduler tick that
-// dispatched it, and keep running after shutdown.
+// probeLocalPostMergeState bounds [ReindexProvider.hasLocalPostMergeState].
+// The probe force-loads lazy shards inline on the scheduler tick, so an
+// unbounded one lets a single stuck shard hold up that tick.
 func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
 	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
 	defer cancel()
@@ -1739,13 +1718,7 @@ func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) 
 
 // hasLocalPostMergeState reports whether any shard of the task on this
 // node carries a tracker dir the migration already merged or tidied.
-// Local by construction: lookupShardByName only resolves shards this node
-// hosts.
-//
-// Only a semantic migration can leave that state, and it is the only
-// migration the repair guidance fires for, so anything else skips the
-// shard walk. Gives up on a cancelled or expired ctx: the answer feeds a
-// log line, and a shutdown is not worth holding open for it.
+// Gives up on an expired ctx: the answer only feeds a log line.
 func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
@@ -1773,16 +1746,13 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	return false
 }
 
-// hasCompletedMigrationTracker reports whether any tracker dir a semantic
-// migration on properties owns under lsmPath carries merged.mig or
-// tidied.mig.
+// hasCompletedMigrationTracker reports whether any tracker dir the
+// migration owns under lsmPath carries merged.mig or tidied.mig.
 //
-// That is the on-disk signature of a swap this node got far enough into
-// to arm the next restart's FinalizeCompletedMigrations, which promotes
-// the target-tokenization ingest dir to the canonical bucket name. When
-// the task then ends CANCELLED or FAILED the cluster-wide schema flip is
-// correctly skipped, so the bucket and the schema disagree and only an
-// operator rebuild resolves it.
+// That is the on-disk signature of a swap far enough along to arm the
+// next restart's FinalizeCompletedMigrations. If the task then ends
+// CANCELLED or FAILED the schema flip is correctly skipped, so the bucket
+// and the schema disagree and only an operator rebuild resolves it.
 func hasCompletedMigrationTracker(lsmPath string, migrationType ReindexMigrationType, properties []string) bool {
 	// ChangeAlgorithm keeps a class-level tracker dir, which the
 	// per-property helper deliberately omits.
@@ -1917,19 +1887,16 @@ const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 // (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
-// reindexTornStateProbeTimeout bounds the post-merge evidence probe on a
-// cancelled task across every shard the payload names. Matches the drain
-// timeout: both run inline on the scheduler's completion dispatch.
+// Matches the drain timeout: both run inline on the same dispatch.
 const reindexTornStateProbeTimeout = 10 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
 // still owns the on-disk tracker dirs and sidecar buckets of its
-// migration. The rule lives here rather than at the call sites because
-// the thing it protects is this package's on-disk state.
+// migration.
 //
-// A status this build never declared answers true: the other answer
-// deletes those dirs while a newer node is still migrating, and that is
-// the one outcome nothing downstream can undo.
+// A status this build never declared answers true. The other answer
+// deletes those dirs while a newer node is still migrating, which is the
+// one outcome nothing downstream can undo.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	switch status {
 	case distributedtask.TaskStatusStarted,
@@ -1941,27 +1908,15 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 		distributedtask.TaskStatusFailed:
 		return false
 	}
-	// No default arm, so the exhaustive linter makes a newly declared
-	// status state which side of the ownership rule it falls on.
 	return true
 }
 
-// logOperatorRepairGuidanceOnPartialSwap logs the exact REST command an
-// operator should issue to recover from a semantic migration that stopped
-// after some shards had already swapped. Those shards' buckets are
-// NEW-tokenized while the cluster-wide schema flip was correctly skipped,
-// so every query against the affected inverted index returns 0 until the
-// index is rebuilt against the current schema.
-//
-// outcome is the terminal status that produced the split state (FAILED or
-// CANCELLED), logged so the operator can match it to the task.
-//
-// Only the CANCELLED caller gates this on evidence that a swap can have
-// run. FAILED calls it for every semantic migration, because a failed
-// task stopped its units mid-flight by definition and the rebuild is the
-// right move whether or not a swap landed on this node. So on the FAILED
-// path the guidance describes a state the task may be in, not one it is
-// known to be in.
+// logOperatorRepairGuidanceOnPartialSwap logs the REST command that
+// recovers from a semantic migration which stopped after some shards had
+// swapped. Those shards' buckets are NEW-tokenized while the schema flip
+// was correctly skipped, so queries against the index return 0 until it
+// is rebuilt. On the FAILED path that is a state the task may be in
+// rather than one it is known to be in.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return

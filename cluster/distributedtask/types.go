@@ -48,8 +48,7 @@ type TaskCleaner interface {
 
 // LocalTaskInspector exposes the part of this node's own FSM state that
 // the leader-routed [TaskLister] cannot report: a task the rest of the
-// cluster has already deleted but this node still holds. Implemented by
-// [Manager].
+// cluster has already deleted but this node still holds.
 type LocalTaskInspector interface {
 	LocalUnrecognizedDistributedTasks() map[string][]*Task
 }
@@ -418,15 +417,6 @@ func (t TaskStatus) String() string {
 // startup can still observe terminal tasks — providers that own
 // destructive side-effects (per-shard swaps, file moves) should
 // short-circuit on terminal status to avoid running them again.
-//
-// What actually protects a live cluster from a new status is a release
-// rule: declare the constant and its classification in release N, start
-// emitting it in release N+1, so no supported pair of peers ever
-// disagrees. The predicates here are the backstop. A node that cannot
-// name a status reads it as in flight ([TaskStatus.IsActive]), so it
-// drops schema mutations the rest of the cluster committed, refuses
-// backups on the collection, and reports the index as "indexing". See
-// docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -435,19 +425,18 @@ func (t TaskStatus) IsTerminal() bool {
 		return false
 	}
 	// A status this build never declared. Fail-closed: treat it as in
-	// flight. No default arm, so the exhaustive linter makes a newly
-	// declared status pick one of the two above.
+	// flight.
 	return false
 }
 
 // IsActive is true for every non-terminal status — used by conflict
 // detection and the schema MutationGuard.
 //
-// It is the exact negation of [TaskStatus.IsTerminal], so a status this
-// build does not recognize counts as in-flight: reading it as done would
-// admit a second migration onto a property a newer node is still
-// migrating, and would let the orphan audit and the TTL sweep delete live
-// state.
+// The exact negation of [TaskStatus.IsTerminal], so a status this build
+// does not recognize counts as in flight: reading it as done would admit
+// a second migration onto a property a newer node is still migrating, and
+// let the orphan audit and TTL sweep delete live state. See
+// docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -455,14 +444,9 @@ func (t TaskStatus) IsActive() bool {
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
 // (PREPARING, SWAPPING) — the scheduler-driven callback states.
 //
-// A status this build does not recognize returns false here, where
-// [TaskStatus.IsActive] returns true: this method reports which phase a
-// task is in, IsActive reports whether this build has to assume the task
-// is still running.
-//
-// It stays because its switch is one of the tripwires that make a newly
-// declared status fail the build until someone places it, and because it
-// is the phase question the docs' predicate table answers.
+// A status this build does not recognize answers false here and true from
+// [TaskStatus.IsActive]: this asks which phase a task is in, IsActive
+// whether to assume it is still running.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
@@ -470,18 +454,12 @@ func (t TaskStatus) IsCoordinationPhase() bool {
 	case TaskStatusStarted, TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
 		return false
 	}
-	// A status this build never declared cannot be placed in a phase. No
-	// default arm, so the exhaustive linter makes a newly declared status
-	// answer the question instead of inheriting this fallback.
+	// A status this build never declared cannot be placed in a phase.
 	return false
 }
 
 // IsRecognized is false for a status this build never declared — what a
 // node sees when a newer release introduces one mid rolling-upgrade.
-//
-// No default case, so the exhaustive linter fails when a new [TaskStatus]
-// constant isn't added here, forcing every new status to be classified
-// before anything else can rely on it.
 func (t TaskStatus) IsRecognized() bool {
 	switch t {
 	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,
@@ -492,16 +470,13 @@ func (t TaskStatus) IsRecognized() bool {
 }
 
 // IsCancellable is true for the one status [Manager.CancelTask] accepts:
-// STARTED. A terminal task has nothing left to stop, and a task in a
-// coordination phase may already have written merged state or renamed
-// bucket directories on some nodes, so stopping the rest would leave the
-// cluster serving migrated buckets under the pre-migration schema.
+// STARTED. Past that, some nodes may already have written merged state or
+// renamed bucket directories, so stopping the rest would leave the cluster
+// serving migrated buckets under the pre-migration schema.
 //
 // A literal comparison, not a classification: the FSM apply that reads it
-// has to reach the same verdict on every binary that will ever replay the
-// entry, including one that cannot name the status. Classifying instead
-// would let a node that has never heard of a status cancel a migration a
-// newer node is still coordinating.
+// must reach the same verdict on every binary that replays the entry,
+// including one that cannot name the status.
 func (t TaskStatus) IsCancellable() bool {
 	return t == TaskStatusStarted
 }

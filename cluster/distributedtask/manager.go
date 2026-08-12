@@ -443,9 +443,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt = when units completed — for PREPARING and SWAPPING alike.
-		// The scheduler's TTL cleanup excludes every non-terminal status
-		// (IsActive), so this stamp cannot clean a task mid-coordination.
+		// FinishedAt = when units completed, for PREPARING and SWAPPING
+		// alike. The TTL cleanup skips both, so this cannot clean a task
+		// mid-coordination.
 		task.FinishedAt = finishedAt
 	}
 
@@ -819,16 +819,8 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// [TaskStatus.IsCancellable] is a literal, so every binary that
-	// replays this entry writes CANCELLED under exactly the same
-	// condition. Classifying instead would let a node that has never
-	// heard of the status cancel a migration a newer node is still
-	// coordinating, and follower apply errors are discarded, so the
-	// divergence would be silent.
-	//
-	// The operator-facing message for the coordination phases lives in
-	// the REST layer, which is free to classify because nothing
-	// downstream replays its answer.
+	// Follower apply errors are discarded, so two binaries disagreeing on
+	// what may be cancelled would diverge here silently.
 	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
@@ -916,11 +908,6 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = every non-terminal status (via
-		// [TaskStatus.IsActive]): units still running, OR units done
-		// but per-node PREP / cluster-wide barrier / per-node SWAP /
-		// schema flip not yet committed. All display ahead of terminal
-		// tasks so the freshest user-relevant task surfaces first.
 		iStarted := tasks[i].Status.IsActive()
 		jStarted := tasks[j].Status.IsActive()
 		if iStarted != jStarted {
@@ -946,13 +933,9 @@ func sortTasksForDisplay(tasks []*Task) {
 // LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
 // status this build never declared, grouped by namespace.
 //
-// Only [Manager.Restore] can put one here — every other write to
-// Task.Status is a literal from this build's vocabulary — so the source
-// is always a snapshot from a node running a newer release. It matters
-// because the leader-routed list stops carrying such a task once the
-// peers clean their copies up, which is exactly when a leftover local
-// copy starts silently refusing schema mutations. Returns clones; the
-// map is empty in the ordinary case.
+// The leader-routed list stops carrying such a task once the peers clean
+// their copies up, which is exactly when a leftover local copy starts
+// silently refusing schema mutations.
 func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
