@@ -291,12 +291,10 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
 
-// asyncNotReadyError converts the typed retry-later statuses of the async
-// replication RPCs — 412 (replica not ready: unloaded or hashtree still
-// initializing) and 503 (node still booting behind the cluster-API readiness
-// gate) — to the sentinel; nil for any other status (pre-1.38 peers send 500).
+// asyncNotReadyError converts the retry-later statuses — 412 (replica not ready), 503 (boot gate),
+// 418 (maintenance mode, matching gRPC's FailedPrecondition) — to the sentinel; nil otherwise (pre-1.38 peers send 500).
 func asyncNotReadyError(code int, body []byte) error {
-	if code == http.StatusPreconditionFailed || code == http.StatusServiceUnavailable {
+	if code == http.StatusPreconditionFailed || code == http.StatusServiceUnavailable || code == http.StatusTeapot {
 		return fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, body)
 	}
 	return nil

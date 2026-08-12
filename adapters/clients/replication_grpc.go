@@ -520,9 +520,8 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 // HashTreeLevel fetches hash tree level digests via gRPC. discriminant must
 // be a level-local bitset of size hashtree.LeavesCount(level).
 
-// asyncNotReadyGRPCError maps FailedPrecondition (replica not ready, see
-// replicationErrorToGRPC) and Unavailable (node-level boot gate) to the typed
-// retry-later sentinel for the async replication RPCs; nil for other codes.
+// asyncNotReadyGRPCError maps FailedPrecondition (not-ready, LOADING, maintenance mode) and
+// Unavailable (boot gate) to the retry-later sentinel; the REST twin maps 412/503/418 identically.
 func asyncNotReadyGRPCError(err error) error {
 	if c := status.Code(err); c == codes.FailedPrecondition || c == codes.Unavailable {
 		return fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)

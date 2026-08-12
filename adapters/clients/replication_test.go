@@ -1219,3 +1219,28 @@ func TestReplicationClient_GetAsyncCheckpointStatus_RootLengthMismatchSurfaces(t
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode async-checkpoint root for shard")
 }
+
+func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     int
+		sentinel bool
+	}{
+		{name: "412 replica not ready", code: http.StatusPreconditionFailed, sentinel: true},
+		{name: "503 boot gate", code: http.StatusServiceUnavailable, sentinel: true},
+		{name: "418 maintenance mode", code: http.StatusTeapot, sentinel: true},
+		{name: "422 unprocessable", code: http.StatusUnprocessableEntity, sentinel: false},
+		{name: "500 internal", code: http.StatusInternalServerError, sentinel: false},
+		{name: "404 not found", code: http.StatusNotFound, sentinel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := asyncNotReadyError(tt.code, []byte("body"))
+			if tt.sentinel {
+				require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+			} else {
+				require.Nil(t, err)
+			}
+		})
+	}
+}

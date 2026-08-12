@@ -1246,6 +1246,9 @@ func asyncCheckpointHTTPStatus(err error) int {
 		return http.StatusPreconditionFailed
 	case errors.Is(err, replica.ErrAsyncCheckpointCutoffInPast):
 		return http.StatusPreconditionFailed
+	// LOADING is retry-later, matching gRPC's ErrUnprocessable→FailedPrecondition.
+	case errors.As(err, &enterrors.ErrUnprocessable{}):
+		return http.StatusPreconditionFailed
 	}
 	return http.StatusInternalServerError
 }
