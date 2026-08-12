@@ -738,7 +738,7 @@ func TestCoordinatorRestoreStopsWhenTheFinalizingWriteIsRefused(t *testing.T) {
 	awaitInterference(t, interfered, "the restore never reached the finalizing decision")
 	// The takeover only opens the window; wait for the goroutine to reach the
 	// decision itself, otherwise the absence of a write below proves nothing.
-	awaitLog(t, fc.logs, "restore outcome refused by the slot, stopping without publishing")
+	awaitLog(t, fc.logs, staleOutcomeRefused)
 
 	// The goroutine may still be unwinding, so give it the chance to apply the
 	// schema or to report an outcome of its own. The retry owns the stored

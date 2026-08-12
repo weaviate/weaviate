@@ -216,6 +216,10 @@ const staleRestoreStopped = "restore no longer holds the slot, stopping without 
 // cancellation back from the descriptor and stops.
 const restoreCancelledInStorage = "restore cancelled (detected from storage after commit)"
 
+// staleOutcomeRefused is logged when the slot refuses a restore's own outcome,
+// the last step before that outcome would be written to storage.
+const staleOutcomeRefused = "restore outcome refused by the slot, stopping without publishing"
+
 // slotAtLog captures what the slot held the moment a message was logged. It is
 // how a test reaches inside the window between a goroutine's decision and the
 // release that follows it, which is over before the test could poll for it.
@@ -337,7 +341,9 @@ func TestCoordinatorRestoreStaleGoroutineSharesNoStateWithTheRetry(t *testing.T)
 }
 
 // Pins that a cancelled restore's stale write cannot overwrite the retry's
-// stored metadata once the retry owns the slot.
+// stored metadata. The takeover lands after the slot check the goroutine makes
+// when staging ends, so what has to hold here is the refusal of the outcome
+// itself, the last step before it would be written.
 func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *testing.T) {
 	t.Parallel()
 	const (
@@ -349,21 +355,23 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 	o := newOverlappingRestores(t, backupID, node)
 
 	var (
-		once    sync.Once
 		staged  = make(chan struct{})
 		resumed = make(chan struct{})
 	)
-	// The first poll ends the cancelled restore's staging and holds it there,
-	// which is the window the takeover and the retry land in. Every later poll
-	// answers the retry, which stays in staging for the assertion.
+	// Read one is the check the first restore opens with; read two is the one
+	// its goroutine makes once staging is over, past the slot check. Holding it
+	// there is the window the cancel and the retry land in.
+	o.backend.onRead = func(n int) {
+		if n != 2 {
+			return
+		}
+		close(staged)
+		<-resumed
+	}
+	// Staging ends for the first restore; the retry stays in it until the
+	// assertion below has run.
 	o.client.On("Status", mock.Anything, node, mock.Anything).
-		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Once().
-		Run(func(mock.Arguments) {
-			once.Do(func() {
-				close(staged)
-				<-resumed
-			})
-		})
+		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Once()
 	o.client.On("Status", mock.Anything, node, mock.MatchedBy(
 		func(*StatusRequest) bool { return !o.finished.Load() })).
 		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}, nil)
@@ -372,11 +380,7 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
 	o.restore(t, backendName, backupID, node)
-	select {
-	case <-staged:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the cancelled restore never finished staging")
-	}
+	awaitInterference(t, staged, "the cancelled restore never reached the read after its staging")
 
 	cancelAndFreeSlot(t, &o.c.lastOp, backupID)
 	o.restore(t, backendName, backupID, node)
@@ -385,9 +389,14 @@ func TestCoordinatorRestoreStaleGoroutineDoesNotOverwriteTheRetrysStoredMeta(t *
 
 	// Wait for the stale goroutine to actually reach its publish decision,
 	// otherwise "no write observed" would only mean "not yet".
-	o.awaitLog(t, staleRestoreStopped)
+	o.awaitLog(t, staleOutcomeRefused)
 	require.Never(t, func() bool { return o.backend.storedStatus(t) != backup.Transferring },
 		200*time.Millisecond, 10*time.Millisecond,
 		"the cancelled restore persisted its own outcome as the retry's")
-	o.finish(t)
+
+	// Let the retry finish, so it cannot outlive the test and touch t after it
+	// has returned.
+	o.finished.Store(true)
+	require.Eventually(t, func() bool { return o.c.lastOp.get().ID == "" },
+		20*time.Second, 10*time.Millisecond, "the retry never released its slot")
 }
