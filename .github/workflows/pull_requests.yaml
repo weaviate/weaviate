@@ -767,6 +767,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each entry here is one required status check, named
+        # `reindex (<name>)`. Branch protection lives in GitHub's repo
+        # settings, not in this repo, so nothing in CI can see it:
+        # test/ciguard proves an entry exists and that its budget fits the
+        # window, and stops there. Adding or renaming an entry is therefore a
+        # manual step at merge time — whoever merges has to add the new name
+        # to the required checks and drop the old one. Miss the add and the
+        # shard runs on every PR while a red run blocks nothing, which is
+        # silent; miss the drop and the stale name blocks every PR, which is
+        # not. Neither is detectable from inside the repo.
         include:
           - name: "multinode"
             test: "--acceptance-reindex-multinode"

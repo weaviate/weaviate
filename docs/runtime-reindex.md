@@ -1652,9 +1652,30 @@ with the modern testcontainer style.
 - `reindex_mt_test` — `?tenants=` filtering, per-tenant repair,
   FROZEN-tenant resume, per-tenant `OnGroupCompleted` barrier.
 
-**Acceptance — backup gate** ([`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)):
+**Acceptance — backup and restore gates** ([`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)):
 
-- `suite_test` — backup refused while a reindex is live on the shard.
+- `suite_test` — nine subtests on one node: the backup refusal and its
+  422 body, the same backup id succeeding once the migration drains,
+  the post-restart orphan audit, the mutation guard, cancel cleanup,
+  and a subtest that submits a reindex for as long as a slow backup is
+  capturing and asserts the two excluded each other.
+- `reindex_guard_singlenode_test` — the reindex side: a submission
+  refused with 409 while a backup runs, accepted once it finishes, and
+  the block clearing on its own after the node is killed mid-backup.
+- `reindex_guard_restore_test` — the same refusal with a restore, not a
+  backup, as the blocking operation.
+- `restore_guard_singlenode_test` — the restore side: a restore naming
+  the migrating collection is refused 422, one naming any other
+  collection is admitted, which is what pins the scoping.
+- `reindex_guard_cluster_test` — 3-node: a node holding no shard of the
+  backed-up collection still refuses, so the fan-out and not a
+  node-local check is what answers.
+- `reindex_guard_helpers_test` — the shared probe loop and the
+  assertions it is judged by.
+
+The package is split over four CI groups; `test/ciguard` fails when a
+test in it is named by no group, or when a group's budget does not
+cover the deadlines its tests wait on.
 
 **Acceptance — rangeable** ([`test/acceptance/reindex_rangeable/`](../test/acceptance/reindex_rangeable/)):
 
@@ -1671,8 +1692,8 @@ HTTP-level helpers (`SubmitIndexUpdate`, `AwaitReindexFinished`,
 `GetIndexes`, `AwaitReindexViaIndexes`, `BoolPtr`, `IdsMatchUnordered`)
 with `WithTenants` / `WithTimeout` functional options. Plus the
 fixture API: `SetupClass`, `SetupClassWithConfig`, `ImportObjects`,
-`WithEnv` — consolidated from prior duplicated copies across the four
-test packages.
+`WithEnv`, `WithReindexEnv` — consolidated from prior duplicated copies
+across the four test packages.
 
 **Unit tests of interest**
 
