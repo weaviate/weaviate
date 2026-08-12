@@ -130,12 +130,9 @@ func (db *DB) anyPromotableReindexState(collection, propName, indexType string, 
 // A collection delete is the exception, and the only stop that is not a gap
 // in what this node knows: [Index.drop] renames i.path() away whether or not
 // a backup makes it keep the files, so no canonical path survives for
-// [FinalizeCompletedMigrations] to promote onto. Reporting it would put an
-// Error log naming a collection the operator just deleted between two
-// answers of false — the live walk before the delete, and the nil index
-// after it. [classifyIncompleteWalk] and [ErrCleanupCollectionDropped] read
-// the same signal the same way. Every other stop, named or not, answers
-// true.
+// [FinalizeCompletedMigrations] to promote onto. [classifyIncompleteWalk] and
+// [ErrCleanupCollectionDropped] read the same signal the same way. Every
+// other stop, named or not, answers true.
 //
 // Pass a shared cache when asking about several (property, index type) pairs
 // of the same collection: without one, each pair re-lists every shard's

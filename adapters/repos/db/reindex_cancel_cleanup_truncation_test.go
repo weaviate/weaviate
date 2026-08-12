@@ -588,10 +588,7 @@ func TestIndexAnyPromotableReindexStateOnAWalkThatCouldNotLook(t *testing.T) {
 		{
 			// The one stop that is not a gap: Index.drop renames the
 			// collection's directory away, so the generation on disk here has
-			// nothing left to be promoted onto. Answering true would name a
-			// collection the operator just deleted, and would do it only
-			// during the delete — the walk before it and the nil index after
-			// it both answer false.
+			// nothing left to be promoted onto.
 			name:       "a collection being deleted",
 			closing:    true,
 			closeCause: errIndexDropped,
