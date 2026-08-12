@@ -107,12 +107,14 @@ func (db *DB) cleanStalePartialReindexState(
 // nothing survives the delete for the next restart to promote. Both halves
 // agree on it, so the answer does not turn on where in DeleteIndex it is
 // sampled — see [Index.anyPromotableReindexState].
-func (db *DB) anyPromotableReindexState(collection, propName, indexType string, dirs *dirNamesCache) bool {
+func (db *DB) anyPromotableReindexState(collection, propName, indexType string,
+	mt ReindexMigrationType, dirs *dirNamesCache,
+) bool {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
 		return false
 	}
-	return idx.anyPromotableReindexState(propName, indexType, dirs)
+	return idx.anyPromotableReindexState(propName, indexType, mt, dirs)
 }
 
 // anyPromotableReindexState is the per-index half of
@@ -138,7 +140,9 @@ func (db *DB) anyPromotableReindexState(collection, propName, indexType string, 
 // of the same collection: without one, each pair re-lists every shard's
 // .migrations dir, which on a large multi-tenant collection is a five-figure
 // syscall count per pair on the OnTaskCompleted callback.
-func (i *Index) anyPromotableReindexState(propName, indexType string, dirs *dirNamesCache) bool {
+func (i *Index) anyPromotableReindexState(propName, indexType string,
+	mt ReindexMigrationType, dirs *dirNamesCache,
+) bool {
 	var found bool
 	// ForEachShard, not ForEachLoadedShard: cold-tenant promotable state is
 	// on disk regardless of load. forEachShardStrict, not ForEachShard, for
@@ -148,7 +152,7 @@ func (i *Index) anyPromotableReindexState(propName, indexType string, dirs *dirN
 		if found {
 			return nil
 		}
-		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType, dirs) {
+		if hasPromotableReindexState(shardPathLSM(i.path(), name), propName, indexType, mt, dirs) {
 			found = true
 		}
 		return nil
@@ -162,22 +166,38 @@ func (i *Index) anyPromotableReindexState(propName, indexType string, dirs *dirN
 //
 // Fails closed (true) on an unrecognized indexType or unenumerable
 // .migrations dir; an absent dir is the one exception, since most shards
-// never migrate. The scope is the preserve one ([migrationDirScope.preserving]),
-// so it over-matches — a tracker with no readable payload counts — for the
-// same reason the sweep preserves it: guessing narrow here would report
+// never migrate. A tracker with no readable payload counts, for the same
+// reason the sweep preserves it: guessing narrow here would report
 // promotable state as absent.
-func hasPromotableReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
+//
+// The class-level tracker counts only for the migration type that writes
+// it. Those dirs survive until the next restart finalizes them, so matching
+// on index type alone would let a finished change-algorithm answer for a
+// later retokenize on the same collection.
+func hasPromotableReindexState(lsmPath, propName, indexType string,
+	mt ReindexMigrationType, dirs *dirNamesCache,
+) bool {
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return true
 	}
 	if _, err := dirs.list(filepath.Join(lsmPath, ".migrations")); err != nil {
 		return !os.IsNotExist(err)
 	}
+	scope := migrationDirsOf(lsmPath, dirs, propName, indexType)
+	if writesClassLevelMigrationDir(mt) {
+		scope = scope.preserving(indexType)
+	} else {
+		scope = scope.preservingPropertyOnly()
+	}
 	var found bool
-	forEachCompletedMigration(
-		migrationDirsOf(lsmPath, dirs, propName, indexType).preserving(indexType),
-		func(string, int) { found = true })
+	forEachCompletedMigration(scope, func(string, int) { found = true })
 	return found
+}
+
+// writesClassLevelMigrationDir reports whether mt tracks its work in the
+// collection-wide tracker dir rather than a per-property one.
+func writesClassLevelMigrationDir(mt ReindexMigrationType) bool {
+	return mt == ReindexTypeChangeAlgorithm
 }
 
 // ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it

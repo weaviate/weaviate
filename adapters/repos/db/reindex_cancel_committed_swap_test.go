@@ -73,7 +73,7 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 
 			// The generation is promotion-eligible from the merge onward,
 			// which is the evidence the CANCELLED repair guidance is gated on.
-			require.True(t, idx.anyPromotableReindexState(propName, indexType, nil),
+			require.True(t, idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, nil),
 				"a merged generation is what the next restart promotes")
 
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, indexType))
@@ -122,9 +122,12 @@ func TestHasPromotableReindexState(t *testing.T) {
 	cases := []struct {
 		name string
 		// tracker dir to create; defaults to the per-property one.
-		tracker   string
-		sentinels []string
-		want      bool
+		tracker string
+		// migrationType being asked about; defaults to change-tokenization,
+		// which is what the per-property tracker above belongs to.
+		migrationType ReindexMigrationType
+		sentinels     []string
+		want          bool
 	}{
 		{name: "no tracker dir at all", want: false},
 		{name: "started, nothing written yet", sentinels: []string{"started.mig"}, want: false},
@@ -137,10 +140,21 @@ func TestHasPromotableReindexState(t *testing.T) {
 		{name: "tidied without merged", sentinels: []string{"started.mig", "tidied.mig"}, want: true},
 		{
 			// change-algorithm's tracker is class-level, not <prefix>_<prop>.
-			name:      "merged in the class-level blockmax tracker",
-			tracker:   MigrationDirSearchableMapToBlockmax + genSuffix(1),
-			sentinels: []string{"started.mig", "merged.mig"},
-			want:      true,
+			name:          "merged in the class-level blockmax tracker",
+			tracker:       MigrationDirSearchableMapToBlockmax + genSuffix(1),
+			migrationType: ReindexTypeChangeAlgorithm,
+			sentinels:     []string{"started.mig", "merged.mig"},
+			want:          true,
+		},
+		{
+			// The class-level dir outlives the migration that wrote it, so a
+			// finished change-algorithm must not answer for a later
+			// retokenize that left nothing of its own behind.
+			name:          "another type's class-level tracker is not this task's evidence",
+			tracker:       MigrationDirSearchableMapToBlockmax + genSuffix(1),
+			migrationType: ReindexTypeChangeTokenization,
+			sentinels:     []string{"started.mig", "merged.mig"},
+			want:          false,
 		},
 	}
 
@@ -155,7 +169,11 @@ func TestHasPromotableReindexState(t *testing.T) {
 				}
 				mkTrackerDir(t, shard.pathLSM(), dir, tc.sentinels...)
 			}
-			require.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil))
+			mt := tc.migrationType
+			if mt == "" {
+				mt = ReindexTypeChangeTokenization
+			}
+			require.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, mt, nil))
 		})
 	}
 }
@@ -167,5 +185,5 @@ func TestHasPromotableReindexState(t *testing.T) {
 func TestDBHasPromotableReindexStateWithoutLocalIndex(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 
-	require.False(t, db.anyPromotableReindexState("C", "descr", "searchable", nil))
+	require.False(t, db.anyPromotableReindexState("C", "descr", "searchable", ReindexTypeChangeTokenization, nil))
 }

@@ -266,13 +266,23 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 // [migrationDirScope]. Used identically by the unloaded-shard gate and the
 // sweep so the two can't drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
-	s.preserve = true
+	s = s.preservingPropertyOnly()
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
 		// Cloned so two preserving() results can't share a backing array.
 		// Unreachable today (both constructors leave classDirs empty or are
 		// never widened); kept for the constructor that changes that.
 		s.classDirs = append(slices.Clone(s.classDirs), classDir)
 	}
+	return s
+}
+
+// preservingPropertyOnly is [migrationDirScope.preserving] without the
+// class-level tracker. For a caller asking what a *particular* migration
+// left behind: the class-level dirs outlive the task that wrote them, so
+// admitting one on index type alone answers for whichever migration ran
+// last.
+func (s migrationDirScope) preservingPropertyOnly() migrationDirScope {
+	s.preserve = true
 	return s
 }
 

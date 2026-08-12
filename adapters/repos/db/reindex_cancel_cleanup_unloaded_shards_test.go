@@ -1135,7 +1135,7 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 			// like while it stays in the shard map. A DEACTIVATED tenant is
 			// removed from that map and is invisible to this predicate — see
 			// [DB.anyPromotableReindexState] for why that is fail-open.
-			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, nil),
+			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, nil),
 				"the only shard carrying the state is registered but not loaded")
 			assert.False(t, cold.isLoaded(),
 				"the predicate reads the shard's directory, so it must not hydrate a cold tenant")
@@ -1174,13 +1174,13 @@ func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
 		{
 			name: "per index",
 			ask: func(dirs *dirNamesCache) bool {
-				return idx.anyPromotableReindexState(propName, indexType, dirs)
+				return idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, dirs)
 			},
 		},
 		{
 			name: "through the db",
 			ask: func(dirs *dirNamesCache) bool {
-				return database.anyPromotableReindexState(className, propName, indexType, dirs)
+				return database.anyPromotableReindexState(className, propName, indexType, ReindexTypeChangeTokenization, dirs)
 			},
 		},
 	} {
@@ -1251,7 +1251,7 @@ func TestHasPromotableReindexStateFailsClosed(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(t, lsm)
 			}
-			require.Equal(t, tc.want, hasPromotableReindexState(lsm, propName, tc.indexType, nil))
+			require.Equal(t, tc.want, hasPromotableReindexState(lsm, propName, tc.indexType, ReindexTypeChangeTokenization, nil))
 		})
 	}
 }

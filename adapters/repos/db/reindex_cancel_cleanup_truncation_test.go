@@ -710,7 +710,7 @@ func TestIndexAnyPromotableReindexStateOnAWalkThatCouldNotLook(t *testing.T) {
 			}
 
 			require.Equal(t, tc.want,
-				idx.anyPromotableReindexState(propName, indexType, nil))
+				idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, nil))
 		})
 	}
 }

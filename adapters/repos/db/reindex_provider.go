@@ -2058,7 +2058,8 @@ func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskP
 	dirs := &dirNamesCache{}
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {
-			if p.db.anyPromotableReindexState(payload.Collection, propName, indexType, dirs) {
+			if p.db.anyPromotableReindexState(payload.Collection, propName,
+				indexType, payload.MigrationType, dirs) {
 				return true
 			}
 		}
