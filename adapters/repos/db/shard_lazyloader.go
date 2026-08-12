@@ -1088,14 +1088,18 @@ func (l *LazyLoadShard) blockLoading() func() {
 // alone; a loaded shard is never skipped, since sweeping it costs no load.
 // The loading mutex covers the disk read so a concurrent load cannot split the
 // answer, and is dropped before returning: the hydration that follows takes it.
+//
+// The second return is how many tracker payloads the check read, which the
+// caller logs; a loaded shard reads none.
 func (l *LazyLoadShard) canSkipUnloadedSweep(
 	propName, indexType string, dirs *dirNamesCache,
-) bool {
+) (bool, int) {
 	release := l.blockLoading()
 	defer release()
 
 	if l.loaded {
-		return false
+		return false, 0
 	}
-	return !hasStalePartialReindexState(l.pathLSM(), propName, indexType, dirs)
+	stale, payloadReads := hasStalePartialReindexState(l.pathLSM(), propName, indexType, dirs)
+	return !stale, payloadReads
 }

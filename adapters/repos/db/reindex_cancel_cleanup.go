@@ -188,7 +188,18 @@ func (i *Index) cleanStalePartialReindexState(
 				return nil
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
-			if lazy.canSkipUnloadedSweep(propName, indexType, dirs) {
+			if skip, payloadReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs); skip {
+				// Logged so a skipped shard is distinguishable from one the
+				// walk never reached: without a line here, a collection whose
+				// tenants are all unloaded and clean sweeps in silence, which
+				// reads exactly like a sweep that never ran.
+				i.logger.WithFields(map[string]any{
+					"shard":         name,
+					"property":      propName,
+					"index_type":    indexType,
+					"operation":     "CleanStalePartialReindexState",
+					"payload_reads": payloadReads,
+				}).Info("partial-reindex cleanup: unloaded shard has nothing to sweep, left unloaded")
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
@@ -233,15 +244,23 @@ func (i *Index) cleanStalePartialReindexState(
 // A deactivated (COLD) tenant is absent from the map too, and reactivating it
 // changes nothing: the stale-sentinel check runs from the task path, not from
 // a shard load, so its state waits for the next reindex task.
-func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirNamesCache) bool {
+//
+// The second return is how many tracker payloads this call had to read, for
+// the caller's log line. Payloads are memoized for the duration of the call,
+// so the three passes below read each one once; the memo is not shared across
+// shards, which would only grow it, since no two shards name the same path.
+func hasStalePartialReindexState(
+	lsmPath, propName, indexType string, dirs *dirNamesCache,
+) (bool, int) {
+	props := &taskPropsCache{}
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return true
+		return true, props.count()
 	}
 
 	names, err := dirs.listSidecarCandidates(lsmPath)
 	if err != nil {
-		return !os.IsNotExist(err)
+		return !os.IsNotExist(err), props.count()
 	}
 	var sidecarSuffixes []string
 	for _, name := range names {
@@ -249,14 +268,14 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
 		}
 	}
-	scope := migrationDirsOf(lsmPath, dirs, propName, indexType)
+	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	if len(sidecarSuffixes) > 0 {
 		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
-				return true
+				return true, props.count()
 			}
 		}
 	}
@@ -264,7 +283,7 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 	// Migration tracker dirs, minus the deferred-finalize generations.
 	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
-		return !os.IsNotExist(err)
+		return !os.IsNotExist(err), props.count()
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
@@ -272,7 +291,7 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 		if unreadablePayload {
 			// A payload this gate can't read could name this property; only
 			// hydrating and re-reading can tell, so this is not "clean".
-			return true
+			return true, props.count()
 		}
 		if !matched {
 			continue
@@ -283,9 +302,9 @@ func hasStalePartialReindexState(lsmPath, propName, indexType string, dirs *dirN
 		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
 			continue
 		}
-		return true
+		return true, props.count()
 	}
-	return false
+	return false, props.count()
 }
 
 // maxCachedDirNames bounds what one [dirNamesCache] holds, so a node with tens

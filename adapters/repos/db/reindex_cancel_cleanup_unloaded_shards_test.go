@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -394,7 +395,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				require.NoError(t, os.Chmod(denied, 0o000))
 			}
 
-			require.Equal(t, tc.wantStale, hasStalePartialReindexState(lsm, propName, tc.indexType, nil))
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			require.Equal(t, tc.wantStale, stale)
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
 				// it is the sweep's own business — the other tests here cover
@@ -491,8 +493,8 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			require.Equal(t, tc.wantStale,
-				hasStalePartialReindexState(lsm, tc.propName, "filterable", nil),
+			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable"))
 
@@ -568,8 +570,8 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			require.Equal(t, tc.wantGateHold,
-				hasStalePartialReindexState(lsm, "a", "filterable", nil),
+			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
+			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			require.NoError(t, shard.CleanStalePartialReindexState(ctx, "a", "filterable"))
 
@@ -612,7 +614,8 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
 	require.True(t, err == nil || os.IsNotExist(err))
 	mkTrackerDir(t, lsm, tracker, "started.mig")
-	require.False(t, hasStalePartialReindexState(lsm, propName, indexType, dirs),
+	staleAfterArrival, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs)
+	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 
 	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs))
@@ -692,8 +695,8 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 				require.NoError(t, lazy.Load(ctx))
 			}
 
-			assert.Equal(t, tc.wantSkip,
-				lazy.canSkipUnloadedSweep(propName, indexType, nil))
+			gotSkip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil)
+			assert.Equal(t, tc.wantSkip, gotSkip)
 
 			require.True(t, lazy.mutex.TryLock(),
 				"a held loading mutex deadlocks the hydration the caller does next")
@@ -953,4 +956,51 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 			require.Equal(t, tc.want, isSidecarDirOf(tc.dir, main))
 		})
 	}
+}
+
+// A shard the gate skips has to say so. Without a line here the only three
+// things a sweep can leave behind — the gate judged the shard clean, the walk
+// never reached it, the sweep never ran — are indistinguishable for every
+// collection whose tenants are all unloaded and clean.
+func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
+	const (
+		propName  = "price_cents"
+		indexType = "filterable"
+		tenant    = "skipped-tenant"
+		gateSkip  = "partial-reindex cleanup: unloaded shard has nothing to sweep, left unloaded"
+	)
+	ctx := testCtx()
+	class := newTestClassWithProps("GateSkipLog_"+uuid.NewString()[:8], []string{propName})
+	hookLogger, hook := test.NewNullLogger()
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = hookLogger })
+	defer shd.Shutdown(context.Background())
+
+	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, lazy)
+	defer func() {
+		if lazy.isLoaded() {
+			require.NoError(t, lazy.Shutdown(context.Background()))
+		}
+	}()
+
+	hook.Reset() // drop whatever shard startup logged
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil))
+
+	var skipped []string
+	for _, entry := range hook.AllEntries() {
+		if entry.Message != gateSkip {
+			continue
+		}
+		name, ok := entry.Data["shard"].(string)
+		require.True(t, ok, "the gate-skip line names the shard it skipped")
+		_, ok = entry.Data["payload_reads"].(int)
+		require.True(t, ok, "the gate-skip line carries an int payload_reads")
+		skipped = append(skipped, name)
+	}
+	require.Equal(t, []string{tenant}, skipped,
+		"exactly the unloaded, clean shard is reported as skipped")
+	require.False(t, lazy.isLoaded(), "the skipped shard must not have been hydrated")
 }

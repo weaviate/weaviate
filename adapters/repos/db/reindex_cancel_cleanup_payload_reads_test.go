@@ -143,8 +143,8 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 
 			if tc.gateFailsOpenOn != "" {
-				require.True(t,
-					hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil),
+				gateStale, _ := hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil)
+				require.True(t, gateStale,
 					"unloaded-shard gate must hydrate rather than report a shard with an "+
 						"unreadable payload as clean")
 				_, unreadable := migrationDirsOf(lsm, nil, tc.propName, tc.indexTypes[0]).
@@ -320,4 +320,73 @@ func TestTaskPropsCacheReadsEachPayloadOnce(t *testing.T) {
 		require.True(t, slices.Contains(props, "a"))
 	}
 	require.Equal(t, 1, cache.count())
+}
+
+// TestGatePayloadReadCount pins how many tracker payloads one unloaded-shard
+// gate call reads. The gate makes three passes over the same tracker dirs
+// (preserved sidecars, the match loop, preserved generations), so an unmemoized
+// gate reads the same payload once per pass.
+func TestGatePayloadReadCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		propName  string
+		trackers  []tracker
+		sidecars  []string
+		wantStale bool
+		wantReads int
+	}{
+		{
+			name:     "one tracker is read once, not once per pass",
+			propName: "price_cents",
+			trackers: []tracker{
+				{dir: "enable_filterable_price_cents_1", props: []string{"price_cents"}},
+			},
+			sidecars: []string{
+				"property_price_cents__enable_filterable_ingest_1",
+				"property_price_cents__enable_filterable_backup_1",
+			},
+			wantReads: 1,
+		},
+		{
+			name:     "each tracker is read once",
+			propName: "price_cents",
+			trackers: []tracker{
+				{dir: "enable_filterable_price_cents_1", props: []string{"price_cents"}},
+				{dir: "enable_filterable_price_cents_2", props: []string{"price_cents"}},
+			},
+			sidecars: []string{
+				"property_price_cents__enable_filterable_ingest_1",
+				"property_price_cents__enable_filterable_ingest_2",
+			},
+			wantReads: 2,
+		},
+		{
+			// The name shortcut needs a single-property dir, not merely an
+			// underscore-free property.
+			name:     "a multi-property dir costs a read under an underscore-free name",
+			propName: "cat",
+			trackers: []tracker{
+				{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}},
+			},
+			sidecars:  []string{"property_cat__enable_filterable_ingest_1"},
+			wantReads: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsm := t.TempDir()
+			for _, tr := range tc.trackers {
+				mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
+				mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+			}
+			for _, s := range tc.sidecars {
+				mkSidecarDir(t, lsm, s)
+			}
+
+			stale, reads := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			require.Equal(t, tc.wantStale, stale)
+			require.Equal(t, tc.wantReads, reads, "payload.mig reads in one gate call")
+		})
+	}
 }
