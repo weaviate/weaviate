@@ -284,7 +284,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
-		"background_warmup":       !m.db.config.LazyLoadShardWarmupDisabled,
+		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,

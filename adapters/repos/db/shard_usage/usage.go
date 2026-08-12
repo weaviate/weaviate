@@ -236,29 +236,35 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	}
 	for file, size := range files {
 		totalDiskSize += size
-
-		if includeCount {
-			filePath := filepath.Join(objectStore, file)
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(file, lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
+		if !includeCount {
+			continue
 		}
+
+		// .cna holds net count additions; .metadata holds those plus bloom filters.
+		var readCount func(string) (int64, error)
+		switch {
+		case strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix):
+			readCount = lsmkv.ReadCountNetAdditionsFile
+		case strings.HasSuffix(file, lsmkv.MetadataFileSuffix):
+			readCount = lsmkv.ReadObjectCountFromMetadataFile
+		default:
+			continue
+		}
+
+		filePath := filepath.Join(objectStore, file)
+		count, err := readCount(filePath)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				// The listing is a snapshot, so a load or a compaction can drop a
+				// segment before its sidecar is read. Missing that segment beats
+				// failing the whole shard's count.
+				continue
+			}
+			logger.WithField("path", filePath).WithField("shard", shardName).
+				Warnf("failed to read segment sidecar: %v", err)
+			return types.ObjectUsage{}, err
+		}
+		totalObjectCount += count
 	}
 
 	// If we can't determine object count, return the disk size as fallback

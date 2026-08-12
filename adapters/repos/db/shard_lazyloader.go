@@ -146,6 +146,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		class = l.shardOpts.class
 	}
 
+	// NewShard writes the segment sidecars a cold count reads and recovers the
+	// write-ahead log into segments, so the cached cold count is stale from here
+	// on — including when the load fails partway and leaves the shard cold.
+	l.unloadedCount = nil
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
@@ -162,8 +167,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	l.shard = shard
 	l.loaded = true
-	// The loaded shard owns the object count from here, and writes move it.
-	l.unloadedCount = nil
 
 	return nil
 }
@@ -243,34 +246,30 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
-		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
 	if l.unloadedCount != nil {
-		count := *l.unloadedCount
-		l.mutex.Unlock()
-		return count, nil
+		return *l.unloadedCount, nil
 	}
-	l.mutex.Unlock()
 
-	// Read outside the lock: this lists the objects directory and reads a sidecar
-	// per segment, and Load needs the same lock to make progress.
+	// The disk read stays under the lock: a load writes segment sidecars and
+	// recovers the write-ahead log, so a read overlapping one can sum a mix of
+	// old and new segments and then cache the result. Everything else on this
+	// shard waits for one directory listing, and only until the first read
+	// fills the cache.
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
 
-	l.mutex.Lock()
-	if !l.loaded {
-		// Caching a count read before a concurrent load would outlive its accuracy.
-		count := objectUsage.Count
-		l.unloadedCount = &count
-	}
-	l.mutex.Unlock()
+	count := objectUsage.Count
+	l.unloadedCount = &count
 
-	return objectUsage.Count, nil
+	return count, nil
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {

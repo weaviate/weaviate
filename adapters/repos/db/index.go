@@ -632,7 +632,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	if i.Config.LazyLoadShardWarmupDisabled {
+	if !i.Config.backgroundWarmupEnabled() {
 		// Nothing else sets allShardsReady once the sweep is skipped, and
 		// observeObjectCount publishes no node-wide object count while any index
 		// reports false. Cold shards answer it from disk via ObjectCountAsync.
@@ -1229,6 +1229,13 @@ type IndexConfig struct {
 	AutoTenantActivation bool
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+}
+
+// backgroundWarmupEnabled reports whether the startup sweep loads cold shards.
+// The sweep only runs on the lazy-loading path, so LazyLoadShardWarmupDisabled
+// has nothing to switch off while EnableLazyLoadShards is false.
+func (c IndexConfig) backgroundWarmupEnabled() bool {
+	return c.EnableLazyLoadShards && !c.LazyLoadShardWarmupDisabled
 }
 
 func indexID(class schema.ClassName) string {

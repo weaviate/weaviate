@@ -12,10 +12,14 @@
 package shardusage
 
 import (
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
@@ -108,4 +112,67 @@ func TestUnloadedSizesSkipVanishedBucket(t *testing.T) {
 func vectorsSize(lsmPath string, directories []string) (uint64, error) {
 	size, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	return uint64(size), err
+}
+
+// writeCountNetAdditions writes a .cna file: a little-endian CRC32 of the
+// payload followed by the count.
+func writeCountNetAdditions(t *testing.T, path string, count int64) {
+	t.Helper()
+	buf := make([]byte, 12)
+	binary.LittleEndian.PutUint64(buf[4:], uint64(count))
+	binary.LittleEndian.PutUint32(buf[:4], crc32.ChecksumIEEE(buf[4:]))
+	require.NoError(t, os.WriteFile(path, buf, 0o600))
+}
+
+// A segment's sidecar can be deleted between the objects directory listing and
+// the count read — a load recovering the write-ahead log, or a compaction
+// retiring the segment. Counting the shard without it beats failing the whole
+// count, which reports the shard as empty. Any other read error still surfaces.
+func TestUnloadedObjectsMetricsSkipVanishedSidecar(t *testing.T) {
+	tests := []struct {
+		name string
+		// counts are written as readable .cna files, one per entry.
+		counts []int64
+		// vanished sidecars are listed by the directory read but resolve to nothing.
+		vanished int
+		corrupt  bool
+		want     int64
+		wantErr  bool
+	}{
+		{name: "all sidecars present", counts: []int64{3, 4}, want: 7},
+		{name: "one sidecar vanished", counts: []int64{3, 4}, vanished: 1, want: 7},
+		{name: "every sidecar vanished", vanished: 2},
+		{name: "corrupt sidecar still fails", counts: []int64{3}, corrupt: true, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			indexPath := t.TempDir()
+			objectStore := shardPathObjectsLSM(indexPath, "shard1")
+			require.NoError(t, os.MkdirAll(objectStore, 0o700))
+
+			for i, count := range tc.counts {
+				writeCountNetAdditions(t, filepath.Join(objectStore,
+					fmt.Sprintf("segment-present-%d.cna", i)), count)
+			}
+			// A dangling symlink is listed by Readdir but cannot be opened, which is
+			// what a reader sees when the segment is retired mid-scan.
+			for i := 0; i < tc.vanished; i++ {
+				require.NoError(t, os.Symlink(filepath.Join(objectStore, "gone.db"),
+					filepath.Join(objectStore, fmt.Sprintf("segment-vanished-%d.cna", i))))
+			}
+			if tc.corrupt {
+				require.NoError(t, os.WriteFile(filepath.Join(objectStore, "segment-corrupt.cna"),
+					make([]byte, 12), 0o600))
+			}
+
+			usage, err := CalculateUnloadedObjectsMetrics(logrus.New(), indexPath, "shard1", true)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, usage.Count)
+		})
+	}
 }
