@@ -57,7 +57,7 @@ func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectReq
 
 	resp := s.server.ReplicateObject(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), obj, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.PutObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -70,7 +70,7 @@ func (s *ReplicationService) PutObjects(ctx context.Context, req *pb.PutObjectsR
 
 	resp := s.server.ReplicateObjects(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), objs, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.PutObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -83,7 +83,7 @@ func (s *ReplicationService) MergeObject(ctx context.Context, req *pb.MergeObjec
 
 	resp := s.server.ReplicateUpdate(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), &mergeDoc, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.MergeObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -94,7 +94,7 @@ func (s *ReplicationService) DeleteObject(ctx context.Context, req *pb.DeleteObj
 	resp := s.server.ReplicateDeletion(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		strfmt.UUID(req.GetUuid()), deletionTime, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -106,7 +106,7 @@ func (s *ReplicationService) DeleteObjects(ctx context.Context, req *pb.DeleteOb
 	resp := s.server.ReplicateDeletions(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		uuids, deletionTime, req.GetDryRun(), req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -119,7 +119,7 @@ func (s *ReplicationService) AddReferences(ctx context.Context, req *pb.AddRefer
 
 	resp := s.server.ReplicateReferences(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), refs, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.AddReferencesResponse{Response: simpleResponseToProto(&resp)}, nil
 }

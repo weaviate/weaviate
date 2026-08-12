@@ -53,6 +53,9 @@ const (
 // asyncRepRebuildBaseBackoff (ns) is the first-failure wait, doubled up to asyncRepRebuildMaxBackoff; atomic so tests can shrink it.
 var asyncRepRebuildBaseBackoff atomic.Int64
 
+// asyncRepRebuildAfterDisable is a test seam invoked between disable and post-disable drain; nil outside tests.
+var asyncRepRebuildAfterDisable func(*Shard)
+
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
 }
@@ -1628,7 +1631,7 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	}
 }
 
-// tryRebuildHashtree performs one disable→drain→enable attempt; retry means wait delay and try again.
+// tryRebuildHashtree performs one drain→disable→drain→enable attempt; retry means wait delay and try again.
 // The rebuild is the lowest-priority actor: it never blocks a schema apply, a
 // shard shutdown, or an offload halt. It stands down on teardown intent
 // (shutdownRequested), on a transfer halt, when the apply lock is busy, and when
@@ -1697,25 +1700,30 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		return backoff
 	}
 
+	// Pre-drain BEFORE the disable: a wedged cycle must yield with the shard still in the repair mesh.
+	select {
+	case <-s.asyncRepDrained(sched.logger):
+	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+		sched.metrics.incRebuildYields()
+		return true, asyncRepRebuildContentionBackoff, false
+	}
+
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		return true, fail("stop", err), false
 	}
 
-	// Drain in-flight cycles so the enable below starts from a clean slate; the
-	// disable above cancelled their ctx and deregistered, so this is normally
-	// instant. Bounded: an unbounded wait here would hold the apply lock behind a
-	// wedged RPC — on timeout, retry the whole attempt instead of enabling over a
-	// straggler.
-	drained := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(drained)
-		s.asyncRepWg.Wait()
-	}, sched.logger)
+	if asyncRepRebuildAfterDisable != nil {
+		asyncRepRebuildAfterDisable(s)
+	}
+
+	// Post-disable drain (normally instant — disable cancelled ctx + deregistered); a timeout
+	// leaves the shard out of the mesh (enabling over a straggler risks a double-fold), so it
+	// must be a loud failure with growing backoff, not a silent spin.
 	select {
-	case <-drained:
+	case <-s.asyncRepDrained(sched.logger):
 	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
-		sched.metrics.incRebuildYields()
-		return true, asyncRepRebuildContentionBackoff, false
+		drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
+		return true, fail("drain", fmt.Errorf("worker drain timed out after %s", drainTimeout)), false
 	}
 
 	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an

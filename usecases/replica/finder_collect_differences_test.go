@@ -14,6 +14,7 @@ package replica_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -285,6 +286,24 @@ func TestCollectShardDifferencesRejectsMalformedLevelResponse(t *testing.T) {
 			require.Error(t, err)
 			require.NotErrorIs(t, err, replicaerrors.ErrNoDiffFound)
 			require.ErrorContains(t, err, "digests")
+		})
+	}
+}
+
+func TestAsyncReplicationSkipReason(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "base sentinel", err: replica.ErrAsyncReplicationNotActive, want: "not_active"},
+		{name: "wrapped base", err: fmt.Errorf("%w: hashtree not initialized", replica.ErrAsyncReplicationNotActive), want: "not_active"},
+		{name: "maintenance", err: fmt.Errorf("%w: body", replica.ErrReplicaMaintenance), want: "maintenance"},
+		{name: "booting", err: fmt.Errorf("%w: body", replica.ErrReplicaBooting), want: "node_boot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, replica.AsyncReplicationSkipReason(tt.err))
 		})
 	}
 }

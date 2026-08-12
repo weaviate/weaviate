@@ -2093,3 +2093,35 @@ func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantHeight  int
+		wantFreq    time.Duration
+		expectedErr bool
+	}{
+		{name: "unset means zero sentinel (per-class or code defaults apply)"},
+		{name: "explicit height", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "12"}, wantHeight: 12},
+		{name: "explicit frequency", env: map[string]string{"ASYNC_REPLICATION_FREQUENCY": "7s"}, wantFreq: 7 * time.Second},
+		{name: "negative height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "-1"}, expectedErr: true},
+		{name: "non-numeric height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "tall"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
+			require.Equal(t, tt.wantHeight, conf.Replication.AsyncReplicationHashtreeHeight.Get())
+			require.Equal(t, tt.wantFreq, conf.Replication.AsyncReplicationFrequency.Get())
+		})
+	}
+}

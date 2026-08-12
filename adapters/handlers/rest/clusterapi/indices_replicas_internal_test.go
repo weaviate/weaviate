@@ -74,6 +74,7 @@ func TestAsyncCheckpointHTTPStatusMapping(t *testing.T) {
 	}{
 		{name: "stale checkpoint", err: replica.ErrAsyncCheckpointStale, want: http.StatusConflict},
 		{name: "not active", err: replica.ErrAsyncReplicationNotActive, want: http.StatusPreconditionFailed},
+		{name: "wrapped height mismatch", err: fmt.Errorf("%w: hashtree level 9 exceeds height 8 on shard \"t\"", replica.ErrAsyncReplicationNotActive), want: http.StatusPreconditionFailed},
 		{name: "cutoff in past", err: replica.ErrAsyncCheckpointCutoffInPast, want: http.StatusPreconditionFailed},
 		{name: "loading shard unprocessable", err: enterrors.NewErrUnprocessable(fmt.Errorf("local shard is not ready")), want: http.StatusPreconditionFailed},
 		{name: "wrapped unprocessable", err: fmt.Errorf("overwrite: %w", enterrors.NewErrUnprocessable(fmt.Errorf("loading"))), want: http.StatusPreconditionFailed},

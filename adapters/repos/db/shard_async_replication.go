@@ -1304,8 +1304,54 @@ var errHashtreeDumpCancelled = errors.New("hashtree dump cancelled")
 // asyncReplicationWorkerDrainTimeout (ns) bounds the worker drain wait; atomic so tests can shrink it.
 var asyncReplicationWorkerDrainTimeout atomic.Int64
 
+// asyncRepSkipWarnEvery escalates every Nth consecutive retry-later skip to Warn.
+const asyncRepSkipWarnEvery = 20
+
+// noteHashbeatSkip counts a retry-later cycle by reason and escalates long consecutive runs to Warn.
+func (s *Shard) noteHashbeatSkip(err error, loggingFrequency time.Duration) {
+	reason := replica.AsyncReplicationSkipReason(err)
+	skips := s.asyncRepConsecutiveSkips.Add(1)
+	if skips%asyncRepSkipWarnEvery == 0 {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			WithField("skip_reason", reason).
+			Warnf("hashbeat skipped for %d consecutive cycles: %v", skips, err)
+		return
+	}
+	if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= loggingFrequency {
+		// Expected during peer restart, freeze upload, or hashtree init — Debug, not Warn.
+		s.asyncRepFailLastLog.Store(time.Now().Unix())
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			WithField("skip_reason", reason).
+			Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
+	}
+}
+
 func init() {
 	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
+}
+
+// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; callers share one waiter goroutine per pinned episode.
+func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
+	s.asyncRepDrainMu.Lock()
+	defer s.asyncRepDrainMu.Unlock()
+	if s.asyncRepDrainObserver == nil {
+		ch := make(chan struct{})
+		s.asyncRepDrainObserver = ch
+		enterrors.GoWrapper(func() {
+			s.asyncRepWg.Wait()
+			s.asyncRepDrainMu.Lock()
+			s.asyncRepDrainObserver = nil
+			s.asyncRepDrainMu.Unlock()
+			close(ch)
+		}, logger)
+	}
+	return s.asyncRepDrainObserver
 }
 
 // dumpPublishGate serializes publish (rename) against timeout cancellation: once cancel wins, no publish can ever happen.
@@ -1484,8 +1530,10 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 
+	// Transient during a rolling height change — retry-later, not an error.
 	if height := s.hashtree.Height(); level > height {
-		return nil, fmt.Errorf("hashtree level %d exceeds height %d on shard %q", level, height, s.ID())
+		return nil, fmt.Errorf("%w: hashtree level %d exceeds height %d on shard %q",
+			errAsyncReplicationNotActive, level, height, s.ID())
 	}
 
 	expected := hashtree.LeavesCount(level)
@@ -1707,6 +1755,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 
 		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
+			s.asyncRepConsecutiveSkips.Store(0)
 			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
 				s.index.logger.
@@ -1720,18 +1769,11 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 
 		if errors.Is(err, errAsyncReplicationNotActive) {
-			// Expected during peer restart, freeze upload, or hashtree init — Debug, not Warn.
-			if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
-				s.asyncRepFailLastLog.Store(time.Now().Unix())
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
-			}
+			s.noteHashbeatSkip(err, config.loggingFrequency)
 			return false, err
 		}
 
+		s.asyncRepConsecutiveSkips.Store(0)
 		if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
 			s.asyncRepFailLastLog.Store(time.Now().Unix())
 			s.index.logger.
@@ -1743,6 +1785,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return false, err
 	}
 
+	s.asyncRepConsecutiveSkips.Store(0)
 	for _, stat := range stats {
 		// Use localObjectsPropagationCount (objects actually sent to target via
 		// Overwrite) rather than objectsDiffCount. This keeps the fast-poll

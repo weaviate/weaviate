@@ -1225,10 +1225,11 @@ func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
 		name     string
 		code     int
 		sentinel bool
+		reasonIs error
 	}{
 		{name: "412 replica not ready", code: http.StatusPreconditionFailed, sentinel: true},
-		{name: "503 boot gate", code: http.StatusServiceUnavailable, sentinel: true},
-		{name: "418 maintenance mode", code: http.StatusTeapot, sentinel: true},
+		{name: "503 boot gate", code: http.StatusServiceUnavailable, sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "418 maintenance mode", code: http.StatusTeapot, sentinel: true, reasonIs: replica.ErrReplicaMaintenance},
 		{name: "422 unprocessable", code: http.StatusUnprocessableEntity, sentinel: false},
 		{name: "500 internal", code: http.StatusInternalServerError, sentinel: false},
 		{name: "404 not found", code: http.StatusNotFound, sentinel: false},
@@ -1236,10 +1237,13 @@ func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := asyncNotReadyError(tt.code, []byte("body"))
-			if tt.sentinel {
-				require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
-			} else {
+			if !tt.sentinel {
 				require.Nil(t, err)
+				return
+			}
+			require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+			if tt.reasonIs != nil {
+				require.ErrorIs(t, err, tt.reasonIs)
 			}
 		})
 	}

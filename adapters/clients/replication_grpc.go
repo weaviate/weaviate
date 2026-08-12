@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -520,13 +521,28 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 // HashTreeLevel fetches hash tree level digests via gRPC. discriminant must
 // be a level-local bitset of size hashtree.LeavesCount(level).
 
-// asyncNotReadyGRPCError maps FailedPrecondition (not-ready, LOADING, maintenance mode) and
-// Unavailable (boot gate) to the retry-later sentinel; the REST twin maps 412/503/418 identically.
+// asyncNotReadyGRPCError maps FailedPrecondition to the retry-later sentinel family;
+// Unavailable only on readiness-gate messages — transport Unavailable (dead peer) must stay loud.
 func asyncNotReadyGRPCError(err error) error {
-	if c := status.Code(err); c == codes.FailedPrecondition || c == codes.Unavailable {
-		return fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)
+	st, ok := status.FromError(err)
+	if !ok {
+		return nil
 	}
-	return nil
+	switch st.Code() {
+	case codes.FailedPrecondition:
+		if strings.Contains(st.Message(), "maintenance mode") {
+			return fmt.Errorf("%w: %w", replica.ErrReplicaMaintenance, err)
+		}
+		return fmt.Errorf("%w: %w", replica.ErrAsyncReplicationNotActive, err)
+	case codes.Unavailable:
+		if strings.Contains(st.Message(), replica.NodeNotReadyMsg) ||
+			strings.Contains(st.Message(), replica.LocalIndexNotReadyMsg) {
+			return fmt.Errorf("%w: %w", replica.ErrReplicaBooting, err)
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,

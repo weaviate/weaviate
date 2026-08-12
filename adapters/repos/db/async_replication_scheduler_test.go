@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 // TestInitRetryBackoff verifies that initRetryBackoff never produces a negative
@@ -126,6 +127,82 @@ func TestEffectivePropagationDelay(t *testing.T) {
 		assert.Equal(t, fifty, result.propagationDelay,
 			"propagationDelay=50ms via global runtime config must be applied (was silently ignored before fix)")
 	})
+}
+
+// TestEffectivePrecedence pins the merge order: explicitly-set global (env or runtime override, same DynamicValue) > per-class asyncConfig > code default.
+func TestEffectivePrecedence(t *testing.T) {
+	classHeight := 12
+	classFreq := 20 * time.Second
+
+	tests := []struct {
+		name       string
+		class      asyncReplicationClassOverrides
+		globals    replication.GlobalConfig
+		wantHeight int
+		wantFreq   time.Duration
+	}{
+		{
+			name:       "neither set -> code defaults",
+			wantHeight: defaultHashtreeHeightSingleTenant,
+			wantFreq:   defaultFrequency,
+		},
+		{
+			name:       "class only -> class",
+			class:      asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			wantHeight: classHeight,
+			wantFreq:   classFreq,
+		},
+		{
+			name: "global only -> global",
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(8),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(7 * time.Second),
+			},
+			wantHeight: 8,
+			wantFreq:   7 * time.Second,
+		},
+		{
+			name:  "both set -> global wins",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(8),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(7 * time.Second),
+			},
+			wantHeight: 8,
+			wantFreq:   7 * time.Second,
+		},
+		{
+			name:  "global sub-min -> clamped and still beats class",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationFrequency: configRuntime.NewDynamicValue(time.Millisecond),
+			},
+			wantHeight: classHeight,
+			wantFreq:   minFrequency,
+		},
+		{
+			name:  "global zero sentinel -> class preserved",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(0),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(time.Duration(0)),
+			},
+			wantHeight: classHeight,
+			wantFreq:   classFreq,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AsyncReplicationConfig{
+				hashtreeHeight: defaultHashtreeHeightSingleTenant,
+				frequency:      defaultFrequency,
+				classOverrides: tt.class,
+			}
+			result := cfg.Effective(tt.globals)
+			assert.Equal(t, tt.wantHeight, result.hashtreeHeight)
+			assert.Equal(t, tt.wantFreq, result.frequency)
+		})
+	}
 }
 
 // newSchedulerForUnitTest returns a fully-running scheduler whose dispatcher
@@ -830,6 +907,91 @@ func TestTryRebuildHashtreeYieldsWhileHaltedForTransfer(t *testing.T) {
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
 	require.False(t, rebuilt)
 	require.Zero(t, s.asyncRepRebuildFailures.Load(), "standing down is not a failure")
+}
+
+// TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable: a wedged in-flight cycle makes the attempt yield with the tree still installed, never after tearing it down.
+func TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                    &models.Class{Class: "TestClass"},
+		index:                    idx,
+		shutdownLock:             new(sync.RWMutex),
+		hashtree:                 ht,
+		hashtreeFullyInitialized: true,
+	}
+
+	s.asyncRepWg.Add(1)
+	t.Cleanup(s.asyncRepWg.Done)
+
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "a wedged drain before any state change is a yield, not a failure")
+	require.NotNil(t, s.hashtree, "the shard must stay in the repair mesh when the pre-drain times out")
+	require.True(t, s.hashtreeFullyInitialized)
+}
+
+// TestAsyncRepDrainObserverSharedAcrossAttempts: bounded waits during one pinned episode share a single waiter goroutine and the observer resets once drained.
+func TestAsyncRepDrainObserverSharedAcrossAttempts(t *testing.T) {
+	s := &Shard{index: &Index{}}
+	logger := logrus.New()
+
+	s.asyncRepWg.Add(1)
+	ch1 := s.asyncRepDrained(logger)
+	ch2 := s.asyncRepDrained(logger)
+	require.True(t, ch1 == ch2, "waits during one pinned episode must share the observer")
+
+	s.asyncRepWg.Done()
+	select {
+	case <-ch1:
+	case <-time.After(5 * time.Second):
+		t.Fatal("observer did not close after the WaitGroup drained")
+	}
+
+	require.Eventually(t, func() bool {
+		s.asyncRepDrainMu.Lock()
+		defer s.asyncRepDrainMu.Unlock()
+		return s.asyncRepDrainObserver == nil
+	}, 5*time.Second, time.Millisecond)
+}
+
+// TestTryRebuildHashtreePostDisableDrainTimeoutIsFailure: a straggler pinning the drain after the disable must count as a rebuild failure with growing backoff.
+func TestTryRebuildHashtreePostDisableDrainTimeoutIsFailure(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	asyncRepRebuildAfterDisable = func(pinned *Shard) { pinned.asyncRepWg.Add(1) }
+	t.Cleanup(func() {
+		asyncRepRebuildAfterDisable = nil
+		s.asyncRepWg.Done()
+	})
+
+	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.False(t, rebuilt)
+	require.Positive(t, delay)
+	require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "a post-disable drain timeout is a real failure, not a silent yield")
 }
 
 // TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.

@@ -1007,3 +1007,32 @@ type permanentErrorServer struct {
 func (p *permanentErrorServer) PutObject(context.Context, *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "bad request")
 }
+
+func TestAsyncNotReadyGRPCErrorMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		sentinel bool
+		reasonIs error
+	}{
+		{name: "failed precondition", err: status.Error(codes.FailedPrecondition, "async replication is not active"), sentinel: true},
+		{name: "failed precondition maintenance", err: status.Error(codes.FailedPrecondition, "server is in maintenance mode"), sentinel: true, reasonIs: replica.ErrReplicaMaintenance},
+		{name: "unavailable node boot gate", err: status.Error(codes.Unavailable, replica.NodeNotReadyMsg), sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "unavailable local index gate", err: status.Error(codes.Unavailable, replica.LocalIndexNotReadyMsg+": shard x"), sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "unavailable dead peer", err: status.Error(codes.Unavailable, `connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:1: connect: connection refused"`), sentinel: false},
+		{name: "internal", err: status.Error(codes.Internal, "boom"), sentinel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := asyncNotReadyGRPCError(tt.err)
+			if !tt.sentinel {
+				require.Nil(t, got)
+				return
+			}
+			require.ErrorIs(t, got, replica.ErrAsyncReplicationNotActive)
+			if tt.reasonIs != nil {
+				require.ErrorIs(t, got, tt.reasonIs)
+			}
+		})
+	}
+}

@@ -319,6 +319,10 @@ type Shard struct {
 	// Wait() only covers cycles that actually started.
 	asyncRepWg sync.WaitGroup
 
+	// asyncRepDrainObserver (guarded by asyncRepDrainMu) is shared by bounded drain waits so retries against a wedged worker don't accumulate waiter goroutines.
+	asyncRepDrainMu       sync.Mutex
+	asyncRepDrainObserver chan struct{}
+
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
 	// (after applying runtime-config overrides) differs from the current hashtree
 	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
@@ -347,6 +351,8 @@ type Shard struct {
 	asyncRepLastLog atomic.Int64
 	// asyncRepFailLastLog throttles the failure Warn separately so success Debugs cannot starve it.
 	asyncRepFailLastLog atomic.Int64
+	// asyncRepConsecutiveSkips counts back-to-back retry-later cycles; long runs escalate to Warn.
+	asyncRepConsecutiveSkips atomic.Int64
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
