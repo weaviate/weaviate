@@ -1000,6 +1000,43 @@ func NewCenteredRQ4Compressor(
 	return rqVectorsCompressor, nil
 }
 
+// NewCenteredRQ1Compressor is the 1-bit sibling of NewCenteredRQ4Compressor:
+// same deferred-training activation, same RQData persistence, word codes.
+func NewCenteredRQ1Compressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+	dim int,
+	mean []float32,
+	targetVector string,
+	vectorForID common.VectorForID[float32],
+) (VectorCompressor, error) {
+	quantizer, err := NewCenteredBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, mean, distance)
+	if err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
+		quantizer:         quantizer,
+		compressedStore:   store,
+		storeId:           binary.BigEndian.PutUint64,
+		loadId:            binary.BigEndian.Uint64,
+		targetVector:      targetVector,
+		logger:            logger,
+		makeBucketOptions: makeBucketOptions,
+		vectorForID:       vectorForID,
+	}
+	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
 func RestoreRQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
