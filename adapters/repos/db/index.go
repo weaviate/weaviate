@@ -2439,7 +2439,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		return nil
 	}
-	localSeach := func(shardName string) error {
+	localSearch := func(shardName string) error {
 		// The read lookup initializes the shard after a tenant reactivation; a plain
 		// GetShard would not.
 		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
@@ -3383,7 +3383,7 @@ func (i *Index) drop() error {
 
 	if i.Config.RaftReplicationEnabled && i.Config.ShardRegistry != nil {
 		if err := i.Config.ShardRegistry.DeleteRaft(i.Config.ClassName.String()); err != nil {
-			i.logger.WithFields(fields).Errorf("delete raft manager: %v", err)
+			i.logger.WithField("action", "drop_shard").Errorf("delete raft manager: %v", err)
 		}
 	}
 
