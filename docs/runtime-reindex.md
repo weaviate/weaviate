@@ -874,11 +874,19 @@ format-only, decided by `db.IsSemanticMigration`:
 
 - **Semantic** (`change-algorithm`, `change-tokenization`,
   `change-tokenization-filterable`, `enable-searchable`,
-  `enable-filterable`) need the cluster-wide PREPARING barrier and the
-  per-shard analyzer overlay (§8).
+  `enable-filterable`) take the cluster-wide PREPARING barrier and the
+  cluster-wide schema flip.
 - **Format-only** (`enable-rangeable`, `repair-filterable`,
-  `repair-rangeable`, `rebuild-searchable`) need neither and skip
+  `repair-rangeable`, `rebuild-searchable`) take neither and skip
   PREPARING entirely.
+
+The two overlays are independent of that split. The tokenization
+overlay (§10) covers the per-shard window on a migration that changes
+tokenization (`IsTokenizationChangingMigration`). The analyzer overlay
+(§11) lets a from-scratch build see a property whose schema flag is
+still false (`MigrationStrategy.AnalyzerOverlay`): `enable-filterable`,
+`enable-searchable`, `enable-rangeable`, `repair-rangeable` — two
+semantic, two format-only.
 
 ## 6. Crash safety
 
@@ -1431,7 +1439,9 @@ while running v1.38 Preview.
 
 - [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider, three-phase swap, `flipSemanticMigrationSchema`.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
-- [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `ReindexTargetIndexes`.
+- [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `ReindexTargetIndexes`, `ReindexGateRemedy`.
+- [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
+- [`adapters/repos/db/reindex_orphan_audit.go`](../adapters/repos/db/reindex_orphan_audit.go) — `NewLiveReindexTrackerLookup`, the orphan audit's snapshot.
 - [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate.

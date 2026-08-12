@@ -84,23 +84,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // typesConflictReason returns a non-empty reason string if two reindex
 // migrations on the same collection target overlapping properties.
 //
-// Earlier versions allowed parallel migrations as long as they wrote
-// to different bucket types (e.g. enable-filterable + enable-rangeable
-// on the same property). That was a real Sev 1: when one of those
-// migrations completed, its OnMigrationComplete fired an
-// UpdateProperty RAFT command whose MergeProps preserved the
-// still-false sibling flag (the other migration hasn't flipped its
-// flag yet). On apply, Migrator.UpdateProperty →
-// Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
-// index whose flag was now false, removing the in-flight migration's
-// .migrations/<dir>/ working directory and causing the next
-// markProgress to fail with "progress.mig.000000001: no such file or
-// directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
-// parallel enable-filterable + enable-rangeable hit this.
+// Overlap alone is the rule, whatever buckets the two types write: a
+// completing migration's UpdateProperty preserves the sibling's still-false
+// flag, and the apply then wipes the in-flight migration's working dir as
+// stale (weaviate/weaviate#10675).
 //
-// Closing the window at submit time is correct: reject any new task
-// whose property set overlaps an in-flight task's property set, so the
-// caller gets a clean conflict error and can serialize the operations.
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
 //
@@ -136,9 +124,7 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 }
 
 // TypesConflictReason is the package-public alias for typesConflictReason,
-// used by the REST handlers' pre-flight conflict check. A separate
-// exported name rather than a rename, so the in-package callers keep
-// using the lowercase symbol.
+// used by the REST handlers' pre-flight conflict check.
 func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -244,14 +230,27 @@ func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
 	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
 }
 
-// reindexSubmitCall renders a submit request against p's collection and
-// named property with the given body, or "" when any part is missing.
+// reindexSubmitCall renders a submit request against p's collection, named
+// property and tenant scope with the given body, or "" when any part is
+// missing.
 func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string {
 	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
 		return ""
 	}
-	return fmt.Sprintf("PUT /v1/schema/%s/indexes/%s %s",
-		p.Collection, reindexNamedProperty(p, askedProperty), body)
+	return fmt.Sprintf("PUT /v1/schema/%s/indexes/%s%s %s",
+		p.Collection, reindexNamedProperty(p, askedProperty),
+		reindexTenantScope(p), body)
+}
+
+// reindexTenantScope repeats the tenant subset the task was submitted with,
+// so a re-submit covers what the task covered rather than every tenant. A
+// semantic migration never carries one: the submit endpoint rejects
+// ?tenants= for those, so rendering it would print a request the API 400s.
+func reindexTenantScope(p ReindexTaskPayload) string {
+	if len(p.Tenants) == 0 || IsSemanticMigration(p.MigrationType) {
+		return ""
+	}
+	return "?tenants=" + strings.Join(p.Tenants, ",")
 }
 
 // reindexRepairBody renders the submit body that produced p's migration
@@ -354,7 +353,7 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 		return cancellableGateRemedy(p, askedProperty, callerDropsTheData)
 	}
 	if status.IsCoordinationPhase() {
-		return uncancellableGateRemedy(p, askedProperty, callerDropsTheData)
+		return coordinationPhaseGateRemedy(p, askedProperty, callerDropsTheData)
 	}
 	return "this build does not know that status, most likely because a " +
 		"newer node reported it, so it cannot tell you whether cancel " +
@@ -399,12 +398,17 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 		return partial + "To finish the job later, re-submit it via " +
 			ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
-			"re-runs every shard, the ones that already finished included."
+			"re-runs every shard it covers, the ones that already finished " +
+			"included."
+	}
+	if callerDropsTheData {
+		return "cancel it via " + cancelCall + ", or wait for it to finish, " +
+			"then re-issue this request"
 	}
 	return "cancel it via " + cancelCall + ", or wait for it to finish"
 }
 
-// uncancellableGateRemedy is [ReindexGateRemedy] for a task in a coordination
+// coordinationPhaseGateRemedy is [ReindexGateRemedy] for a task in a coordination
 // phase (PREPARING or SWAPPING). Every cancel is refused there, so no arm may
 // name one: waiting is the whole remedy, and the rest of the sentence is what
 // the operator has to be ready for once the wait ends.
@@ -419,13 +423,14 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 // therefore leaves promotion-eligible data behind that the next restart
 // promotes into the bucket↔schema inversion [ReindexProvider.CheckClassMutation]
 // treats as catastrophic (weaviate/weaviate#12575).
-func uncancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
-	wait := "wait for it to reach a terminal state (GET /v1/tasks reports it). " +
-		"From this phase on the cancel endpoint answers 409 Conflict, because " +
-		"nodes may already have merged their new buckets or renamed bucket " +
-		"directories and stopping the rest would leave the cluster serving " +
-		"migrated buckets under the pre-migration schema, so there is no way " +
-		"to end this task early. "
+func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
+	wait := "wait for it to reach a terminal state (GET /v1/schema/" +
+		p.Collection + "/indexes reports when it clears; GET /v1/tasks names " +
+		"the task itself but needs cluster read access). From this phase on " +
+		"the cancel endpoint answers 409 Conflict: some nodes may already " +
+		"have swapped, so stopping the rest would leave the cluster serving " +
+		"migrated buckets under the pre-migration schema, and there is no " +
+		"way to end this task early. "
 	if firstUnknownMigrationType(p.MigrationType) != "" {
 		return wait + "What it leaves behind is something this build cannot " +
 			"name: it does not know this migration type, most likely because " +
@@ -474,7 +479,7 @@ func abortedMigrationConsequence(mt ReindexMigrationType) string {
 			"this migration type, most likely because a newer node submitted it)"
 	}
 	if IsSemanticMigration(mt) {
-		return "can produce a bucket↔schema inversion"
+		return "can leave the index and the schema disagreeing"
 	}
 	return "leave its index rebuild half-applied"
 }
@@ -526,8 +531,10 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 			return fmt.Errorf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
-					"conflict (see GET /v1/tasks): %w",
-				className, propertyName, err)
+					"conflict (GET /v1/schema/%s/indexes shows this "+
+					"collection's migrations; GET /v1/tasks names the task "+
+					"itself but needs cluster read access): %w",
+				className, propertyName, className, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
@@ -535,8 +542,10 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether property update "+
-					"on %s.%s would conflict (see GET /v1/tasks)",
-				className, propertyName)
+					"on %s.%s would conflict (GET /v1/schema/%s/indexes "+
+					"shows this collection's migrations; GET /v1/tasks names "+
+					"the task itself but needs cluster read access)",
+				className, propertyName, className)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -584,8 +593,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 			return fmt.Errorf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether DeleteClass on %s would "+
-					"conflict (see GET /v1/tasks): %w",
-				className, err)
+					"conflict (GET /v1/schema/%s/indexes shows this "+
+					"collection's migrations; GET /v1/tasks names the task "+
+					"itself but needs cluster read access): %w",
+				className, className, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
@@ -593,8 +604,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether DeleteClass on "+
-					"%s would conflict (see GET /v1/tasks)",
-				className)
+					"%s would conflict (GET /v1/schema/%s/indexes shows this "+
+					"collection's migrations; GET /v1/tasks names the task "+
+					"itself but needs cluster read access)",
+				className, className)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -647,8 +660,10 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 			return fmt.Errorf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether tenant mutation on %s/%v "+
-					"would conflict (see GET /v1/tasks): %w",
-				className, tenants, err)
+					"would conflict (GET /v1/schema/%s/indexes shows this "+
+					"collection's migrations; GET /v1/tasks names the task "+
+					"itself but needs cluster read access): %w",
+				className, tenants, className, err)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
@@ -656,8 +671,11 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether tenant "+
-					"mutation on %s/%v would conflict (see GET /v1/tasks)",
-				className, tenants)
+					"mutation on %s/%v would conflict (GET /v1/schema/%s/"+
+					"indexes shows this collection's migrations; GET "+
+					"/v1/tasks names the task itself but needs cluster "+
+					"read access)",
+				className, tenants, className)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue

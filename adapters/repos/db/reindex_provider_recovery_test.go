@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -314,6 +315,16 @@ func TestIsSemanticMigration(t *testing.T) {
 			require.False(t, IsSemanticMigration(mt))
 		})
 	}
+
+	// A type added to neither list is classified format-only by default, so
+	// without this the omission only shows up as wrong behavior at runtime.
+	t.Run("every declared type is classified", func(t *testing.T) {
+		for _, mt := range allDeclaredReindexMigrationTypes(t) {
+			require.True(t,
+				slices.Contains(semantic, mt) || slices.Contains(formatOnly, mt),
+				"migration type %q is declared but listed in neither arm here", mt)
+		}
+	})
 }
 
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type

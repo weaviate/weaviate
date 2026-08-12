@@ -327,8 +327,10 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
-					"conflict (see GET /v1/tasks): %v",
-				className, propertyName, err)
+					"conflict (GET /v1/schema/%s/indexes shows this "+
+					"collection's migrations; GET /v1/tasks names the task "+
+					"itself but needs cluster read access): %v",
+				className, propertyName, className, err)
 		}
 		if payload.Collection == "" || payload.MigrationType == "" {
 			// Task ID withheld for the same reason as above.
@@ -336,8 +338,10 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 				"an in-flight reindex task has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether property update "+
-					"on %s.%s would conflict (see GET /v1/tasks)",
-				className, propertyName)
+					"on %s.%s would conflict (GET /v1/schema/%s/indexes "+
+					"shows this collection's migrations; GET /v1/tasks names "+
+					"the task itself but needs cluster read access)",
+				className, propertyName, className)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue

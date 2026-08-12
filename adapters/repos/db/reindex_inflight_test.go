@@ -202,6 +202,11 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 			"the message names %s as uncancellable, so the API has to agree", status)
 		require.Contains(t, err.Error(), status.String())
 	}
+
+	// An unclassifiable status is uncancellable too, but waiting is the wrong
+	// advice for it: only a node that recognizes the status can say whether
+	// the task is still running.
+	require.Contains(t, err.Error(), "cannot classify")
 }
 
 // On a namespace-enabled cluster the class name is stored qualified. The

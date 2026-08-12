@@ -315,9 +315,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
 }
 
-// Pins where the post-merge probe sits relative to the drain: a drain that
-// does not finish skips the cleanup, but the tear it leaves behind is still
-// the operator's to repair, so the guidance has to fire anyway.
+// A drain that times out leaves the disk unreadable, so the unfinished drain
+// has to count as evidence on its own — otherwise a tear this node can no
+// longer confirm goes unreported.
 func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *testing.T) {
 	className := "DrainTimeout_" + uuid.NewString()[:8]
 	shard, idx := testShard(t, testCtx(), className)
@@ -336,10 +336,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 
 	// A server context that expires shortly: the drain's bounded child
 	// inherits it, so the wait ends on that deadline instead of after
-	// reindexTerminalCleanupDrainTimeout. The deadline is ahead rather than
-	// behind so the probe, which runs before the drain and is bounded off
-	// the same context, still gets to read the disk — that ordering is what
-	// this test pins.
+	// reindexTerminalCleanupDrainTimeout.
 	expired, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	logger, hook := logrustest.NewNullLogger()
@@ -368,7 +365,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	require.True(t, drainTimedOut,
 		"the fixture has to reach the drain-timeout arm for the rest to mean anything")
 	require.True(t, loggedRepairGuidance(hook),
-		"the cleanup is skipped on this arm, but merged.mig is still a tear only an operator can repair")
+		"a drain that did not finish cannot rule out a tear, so the guidance fires without reading the disk")
 }
 
 // loggedRepairGuidanceMessages returns the message of every per-property

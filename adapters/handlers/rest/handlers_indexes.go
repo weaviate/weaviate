@@ -1492,11 +1492,9 @@ func countInFlightTasksForCollection(collection string, tasks []*distributedtask
 // payload we cannot decode — in which case we cannot prove non-conflict
 // and the caller must reject the submit.
 //
-// Two tasks conflict if they touch the same index bucket type for the same
-// property. Every migration type is property-scoped: the property the task
-// targets is the one named in payload.Properties. An empty Properties list
-// is reserved for a future whole-collection rebuild and is treated as
-// matching any property for conflict purposes.
+// Two tasks conflict if their property sets overlap on the same collection,
+// whatever buckets they touch. An empty Properties list is reserved for a
+// future whole-collection rebuild and matches any property.
 //
 // Bucket types touched per migration type: see [db.ReindexTargetIndexes],
 // the single source of truth for that mapping.

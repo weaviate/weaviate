@@ -593,20 +593,20 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 	}{
 		{
 			migrationType: ReindexTypeChangeTokenization,
-			wantInTenant:  "can produce a bucket↔schema inversion",
+			wantInTenant:  "can leave the index and the schema disagreeing",
 			notInTenant:   []string{"half-applied", "cannot name"},
 		},
 		{
 			migrationType: ReindexTypeRepairFilterable,
 			wantInTenant:  "half-applied",
-			notInTenant:   []string{"bucket↔schema inversion", "cannot name"},
+			notInTenant:   []string{"the index and the schema disagreeing", "cannot name"},
 		},
 		{
 			// IsSemanticMigration is a positive allowlist, so without its own
 			// arm a newer node's type would claim the format-only cost.
 			migrationType: "a-type-from-a-newer-node",
 			wantInTenant:  "have a consequence this build cannot name",
-			notInTenant:   []string{"half-applied", "bucket↔schema inversion"},
+			notInTenant:   []string{"half-applied", "the index and the schema disagreeing"},
 		},
 	}
 
@@ -640,7 +640,7 @@ func TestClassAndTenantGatesNameTheConsequenceOfTheTypeInFlight(t *testing.T) {
 			// A consequence for surviving data would be a false
 			// counterfactual on a gate whose mutation removes the data.
 			for _, unwanted := range []string{
-				"bucket↔schema inversion", "half-applied", "cannot name",
+				"the index and the schema disagreeing", "half-applied", "cannot name",
 			} {
 				require.NotContains(t, classErr.Error(), unwanted)
 			}
@@ -1011,7 +1011,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
 		"its shards commit one by one",
 		`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
-		"re-runs every shard, the ones that already finished included",
+		"re-runs every shard it covers, the ones that already finished included",
 	}
 	// enable-rangeable is the one format-only type whose own progress
 	// invalidates its submit precondition, so "re-submit the same request" is
@@ -1208,10 +1208,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 					require.NotContains(t, err.Error(), unwanted)
 				}
 
-				// The rows above pin the wording; this asks the guard. A row
-				// that spelled out the wrong cancel advice would still fail
-				// here, which is the point — the string table is what let the
-				// PREPARING/SWAPPING advice drift away from the API.
+				// The rows above pin the wording; this asks the guard itself,
+				// so a row that spelled out the wrong cancel advice still
+				// fails here.
 				var p ReindexTaskPayload
 				require.NoError(t, json.Unmarshal(st.payload, &p))
 				requireCancelAdviceMatchesTheGuard(t, err.Error(), st.status, p, gate.askedProperty)
@@ -1712,4 +1711,56 @@ func TestReindexRepairCall(t *testing.T) {
 			})
 		}
 	})
+}
+
+// A re-submit that drops the task's tenant subset rebuilds every tenant on
+// the collection, which is not what the operator is being told to re-run.
+func TestReindexRepairCall_KeepsTheTenantScope(t *testing.T) {
+	for _, mt := range allDeclaredReindexMigrationTypes(t) {
+		t.Run(string(mt), func(t *testing.T) {
+			got := ReindexRepairCall(ReindexTaskPayload{
+				Collection:         "C",
+				MigrationType:      mt,
+				Properties:         []string{"name"},
+				TargetTokenization: "word",
+				Tenants:            []string{"t1", "t2"},
+			}, "name")
+			if got == "" {
+				return // the type renders no repair call at all
+			}
+			if IsSemanticMigration(mt) {
+				// updateIndex 400s on ?tenants= for these, so rendering one
+				// would print a request the API refuses.
+				require.NotContains(t, got, "?tenants=",
+					"a semantic migration always targets every tenant")
+				return
+			}
+			require.Contains(t, got, "PUT /v1/schema/C/indexes/name?tenants=t1,t2 ",
+				"a format-only re-submit has to repeat the tenants it was submitted with")
+		})
+	}
+}
+
+// The enable-rangeable arm renders two submits of its own rather than going
+// through ReindexRepairCall, so it needs its own pin.
+func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
+	remedy := ReindexGateRemedy(
+		distributedtask.TaskStatusStarted,
+		ReindexTaskPayload{
+			Collection:    "C",
+			MigrationType: ReindexTypeEnableRangeable,
+			Properties:    []string{"name"},
+			Tenants:       []string{"t1", "t2"},
+		}, "name", false)
+
+	require.Contains(t, remedy,
+		`PUT /v1/schema/C/indexes/name?tenants=t1,t2 {"rangeable":{"enabled":true}}`)
+	require.Contains(t, remedy,
+		`PUT /v1/schema/C/indexes/name?tenants=t1,t2 {"rangeable":{"rebuild":true}}`)
+	// The cancel call on the same arm is deliberately unscoped, so only the
+	// two submit bodies are asserted against.
+	require.NotContains(t, remedy, `name {"rangeable":{"enabled":true}}`,
+		"an unscoped rangeable re-submit would rebuild every tenant")
+	require.NotContains(t, remedy, `name {"rangeable":{"rebuild":true}}`,
+		"an unscoped rangeable re-submit would rebuild every tenant")
 }

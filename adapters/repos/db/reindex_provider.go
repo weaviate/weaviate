@@ -1583,16 +1583,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// A cancel from STARTED cannot have torn anything (no node has
-				// swapped yet); a cancel from an unrecognized status can, if a
-				// newer node ran its swap phase. Three independent witnesses, since
-				// each alone under-reports. The ack maps prove some node got past
-				// its units — PREP acks land in PreparationCompletionAcks, post-swap
-				// ones in PostCompletionAcks — but both are dropped for acks
-				// arriving after the cancel applied. The on-disk check proves only
-				// what this node holds, which is the one witness to a cancel that
-				// landed while the task was still STARTED but this node had already
-				// written merged.mig.
+				// A cancel only lands at STARTED, where a task that skipped the
+				// PREP barrier may already have swapped shards. Three witnesses,
+				// since each alone under-reports. The ack maps prove some node got
+				// past its units — PREP acks land in PreparationCompletionAcks,
+				// post-swap ones in PostCompletionAcks — but both are dropped for
+				// acks arriving after the cancel applied. The on-disk check proves
+				// only what this node holds, which is the one witness to a cancel
+				// that landed while the task was still STARTED but this node had
+				// already written merged.mig.
 				//
 				// Cleanup runs first: it drains the local worker, so the tracker
 				// dirs the disk check reads are no longer being written. A drain
@@ -1622,6 +1621,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					p.promotableReindexStateOnThisNode(payload) {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				} else {
+					// No migration_type field on purpose: the guidance tests use
+					// its presence to tell a repair-guidance entry from this
+					// one, which is the negative of that.
 					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; the next restart would promote nothing here, so no repair guidance is issued for this node")
 				}
 			case distributedtask.TaskStatusStarted,
@@ -2022,9 +2024,9 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 			"repair_command": repairCall,
 		}).Errorf(
 			"reindex provider: %s on %s.%s %s; per-shard sub-tasks "+
-				"that merged or swapped before the task terminalized left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema stayed at pre-migration state "+
+				"that merged or swapped before the task terminalized may have "+
+				"left the canonical inverted bucket holding new-tokenization "+
+				"data under the pre-migration schema "+
 				"— issue the repair_command above to re-run the migration "+
 				"against the current schema",
 			payload.MigrationType, payload.Collection, propName, outcome)
