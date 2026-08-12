@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,12 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-const (
-	prefillAllocCheckEvery = 4096
-	// how often a scan worker polls its context; a worker between polls only stops
-	// because onVector tells it to
-	prefillCtxCheckEvery = 1024
-)
+const prefillAllocCheckEvery = 4096
 
 var (
 	errPrefillMemoryPressure = errors.New("vector cache prefill aborted under memory pressure")
@@ -45,9 +39,10 @@ var (
 )
 
 // useParallelPrefill reports whether the cache can be filled by scanning the objects
-// bucket instead of the serial by-id prefiller. Multivector, muvera and hfresh
-// centroid caches are sourced from their own buckets, not from objects — the last
-// of those despite sharing the shard's store.
+// bucket instead of the serial by-id prefiller. Three caches cannot be, each for its
+// own reason: a multivector slot is addressed by (docID, relativeID) and so cannot be
+// filled from a scan that has one id per row, muvera reads _muvera_vectors, and an
+// hfresh cache holds centroids rather than object vectors.
 func (h *hnsw) useParallelPrefill() bool {
 	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil || h.hfreshMode {
 		return false
@@ -94,10 +89,9 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	return cacheFitsNodes(in)
 }
 
-// cacheFitsNodes admits an exact fit: onVector stops one short of maxSize, so the
-// scan cannot reach the count replaceIfFull wipes on. Requiring headroom instead
-// would route exact-fit caches to the serial prefiller, which caches nothing at all
-// on a lazily-allocated cache.
+// cacheFitsNodes admits an exact fit: the scan claims at most maxSize-1 slots, so it
+// cannot reach the count replaceIfFull wipes on. Requiring headroom would send those
+// caches to the serial prefiller for no benefit.
 func cacheFitsNodes(in parallelPrefillInputs) bool {
 	return in.cacheMaxSize >= in.nodeCount
 }
@@ -147,9 +141,9 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 		loaded  atomic.Int64
 		claimed atomic.Int64
 		// abortCause stops every worker at its next row. Returning an error only ends
-		// the worker that raised it; its siblings poll the cancelled context once per
-		// prefillCtxCheckEvery rows, so they would keep preloading thousands of vectors
-		// after the alloc probe already said to stop.
+		// the worker that raised it, and the group's cancellation reaches a sibling
+		// no earlier than its next row either, so without this the alloc probe's
+		// verdict would arrive after thousands more vectors were cached.
 		abortCause atomic.Pointer[error]
 	)
 	stop := func(err error) error {
@@ -300,33 +294,18 @@ func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
 		ranges = append(ranges, keyRange{start: seeds[len(seeds)-1], end: nil})
 	}
 
-	// Cancel siblings as soon as one range errors, instead of scanning to completion.
-	scanCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var (
-		wg       sync.WaitGroup
-		firstErr atomic.Pointer[error]
-	)
+	// The error group cancels siblings on the first error and turns a recovered
+	// panic into that error. A bare GoWrapper would swallow it: the panic unwinds
+	// into the recover, the wait returns nil, and the range that worker owned is
+	// dropped from a prefill that reports success.
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	for i := range ranges {
 		r := ranges[i]
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			if err := scanBucketVectorsRange(scanCtx, bucket, r.start, r.end, decode, onVector); err != nil {
-				e := err
-				if firstErr.CompareAndSwap(nil, &e) {
-					cancel()
-				}
-			}
-		}, logger)
+		eg.Go(func() error {
+			return scanBucketVectorsRange(egCtx, bucket, r.start, r.end, decode, onVector)
+		})
 	}
-	wg.Wait()
-
-	if e := firstErr.Load(); e != nil {
-		return *e
-	}
-	return nil
+	return eg.Wait()
 }
 
 func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, end []byte,
@@ -346,16 +325,18 @@ func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 		k, v = c.Seek(start)
 	}
 
-	n := 0
+	// Polled every row, not in batches: teardown waits on this loop while holding the
+	// shard's shutdown lock, and a channel poll is nanoseconds against the disk read
+	// that follows it, so batching buys nothing and costs the wait one batch of rows.
+	done := ctx.Done()
 	for ; k != nil; k, v = c.Next() {
 		if end != nil && bytes.Compare(k, end) >= 0 {
 			break
 		}
-		n++
-		if n%prefillCtxCheckEvery == 0 {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
+		select {
+		case <-done:
+			return ctx.Err()
+		default:
 		}
 		if len(v) == 0 {
 			continue
