@@ -1540,7 +1540,7 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		}).Return()
 	})
 
-	st.reloadDBFromSchema(loadNow)
+	st.reloadDBFromSchema()
 
 	require.True(t, st.dbLoaded.Load())
 	require.True(t, logged("local DB loaded from schema"))

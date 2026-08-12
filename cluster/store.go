@@ -1019,8 +1019,6 @@ func (st *Store) reloadDBFromSchema() {
 	for {
 		loaded = st.loadDBFromSchema() && loaded
 
-		// Nothing deferred, so no further pass is owed. On the Restore path
-		// nothing can have deferred at all, and this breaks on the first turn.
 		deletes, done := st.dbLoad.finish()
 		if done {
 			break

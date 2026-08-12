@@ -653,8 +653,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	// Sampled here, not inside updateStore: apply() runs updateSchema (which
-	// drops the class from the schema)
+	// Sampled here, not inside updateStore: updateSchema drops the class, and
+	// its tenants go with it, so by then there is nothing left to ask.
 	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
 	return s.apply(
