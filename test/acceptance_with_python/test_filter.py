@@ -1,7 +1,8 @@
 from typing import List
 
 import pytest
-from weaviate.collections.classes.config import Configure, Property, DataType
+
+from weaviate.collections.classes.config import Configure, DataType, Property
 from weaviate.collections.classes.filters import Filter, _FilterValue
 
 from .conftest import CollectionFactory
@@ -11,17 +12,7 @@ from .conftest import CollectionFactory
 @pytest.mark.parametrize(
     "weaviate_filter,results,skip",
     [
-        (
-            Filter.by_property("textArray").equal([]),
-            [1],
-            True,
-        ),
         (Filter.by_property("textArray", length=True).equal(0), [1], False),
-        (
-            Filter.by_property("textArray").not_equal([]),
-            [0],
-            True,
-        ),
         (Filter.by_property("textArray", length=True).not_equal(0), [0], False),
     ],
 )
