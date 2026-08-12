@@ -25,9 +25,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // prefillBenchConfig shapes the slow-prefill dataset: named target vectors, a
@@ -167,7 +169,7 @@ func runTargetedPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfi
 	h := newPrefillBenchIndex(store, c, cfg.n)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-	require.NoError(tb, h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+	require.NoError(tb, h.prefillFromScan(context.Background(), prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 		return h.scanObjectVectorsTargeted(ctx, bucket, prefillBenchTarget, onVector)
 	}))
 	require.Equal(tb, int64(cfg.n), c.CountVectors())
@@ -243,7 +245,7 @@ func BenchmarkPrefillNamedVectorsChurned(b *testing.B) {
 	b.Run("pread/parallel-scan", func(b *testing.B) {
 		benchRuns(b, cfg.n, func(tb testing.TB) {
 			run(tb, func(h *hnsw) error {
-				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+				return h.prefillFromScan(context.Background(), prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 					return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(prefillBenchTarget, h.logger), onVector, h.logger)
 				})
 			})
@@ -252,10 +254,114 @@ func BenchmarkPrefillNamedVectorsChurned(b *testing.B) {
 	b.Run("pread/targeted-scan", func(b *testing.B) {
 		benchRuns(b, cfg.n, func(tb testing.TB) {
 			run(tb, func(h *hnsw) error {
-				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+				return h.prefillFromScan(context.Background(), prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 					return h.scanObjectVectorsTargeted(ctx, bucket, prefillBenchTarget, onVector)
 				})
 			})
 		})
+	})
+}
+
+// muveraBenchDims is the encoded width the default config produces:
+// 2^ksim * dprojections * repetitions, so a ~10KB value per doc.
+const muveraBenchDims = (1 << ent.DefaultMultivectorKSim) *
+	ent.DefaultMultivectorDProjections * ent.DefaultMultivectorRepetitions
+
+const muveraBenchIndexID = "muvera_bench"
+
+func buildMuveraBenchStore(tb testing.TB, cfg prefillBenchConfig, opts ...lsmkv.BucketOption) *lsmkv.Store {
+	tb.Helper()
+	dir := tb.TempDir()
+	logger, _ := test.NewNullLogger()
+	store, err := lsmkv.New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroup("objects", logger, 1),
+		cyclemanager.NewCallbackGroup("nonObjects", logger, 1),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(tb, err)
+	tb.Cleanup(func() { store.Shutdown(context.Background()) })
+
+	name := helpers.GetMuveraBucketName(muveraBenchIndexID)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), name,
+		append([]lsmkv.BucketOption{lsmkv.WithStrategy(lsmkv.StrategyReplace)}, opts...)...))
+	bucket := store.Bucket(name)
+
+	perSegment := (cfg.n + cfg.segments - 1) / cfg.segments
+	for i := 0; i < cfg.n; i++ {
+		// fresh key per Put: the memtable keeps the slice it is handed
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(tb, bucket.Put(key, multivector.MuveraBytesFromFloat32(benchVector(i, cfg.dims, 0))))
+		if (i+1)%perSegment == 0 {
+			require.NoError(tb, bucket.FlushAndSwitch())
+		}
+	}
+	require.NoError(tb, bucket.FlushAndSwitch())
+	return store
+}
+
+func newMuveraBenchIndex(store *lsmkv.Store, c cache.Cache[float32], n int) *hnsw {
+	logger, _ := test.NewNullLogger()
+	return newPrefillTestIndex(muveraBenchIndexID, store, c, n, distancer.NewDotProductProvider(), logger)
+}
+
+// runMuveraSerialPrefill measures what muvera did before this change: one
+// GetMuveraVectorForID per node, which is a bucket.Get keyed by the 8-byte doc id.
+func runMuveraSerialPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) {
+	tb.Helper()
+	bucket := store.Bucket(helpers.GetMuveraBucketName(muveraBenchIndexID))
+	logger, _ := test.NewNullLogger()
+
+	byID := func(ctx context.Context, id uint64) ([]float32, error) {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, id)
+		v, err := bucket.Get(key)
+		if err != nil {
+			return nil, err
+		}
+		if len(v) == 0 {
+			return nil, fmt.Errorf("doc id %d not found", id)
+		}
+		return multivector.MuveraFromBytes(v), nil
+	}
+	c := cache.NewShardedFloat32LockCache(byID, nil, 1_000_000_000, 1, logger, false, 0, nil)
+	c.Grow(uint64(cfg.n))
+	h := newMuveraBenchIndex(store, c, cfg.n)
+
+	require.NoError(tb, newVectorCachePrefiller(c, h, logger).Prefill(context.Background(), int(c.CopyMaxSize())))
+	require.Equal(tb, int64(cfg.n), c.CountVectors())
+}
+
+func runMuveraParallelPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) {
+	tb.Helper()
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000_000, 1, logger, false, 0, nil)
+	c.Grow(uint64(cfg.n))
+	h := newMuveraBenchIndex(store, c, cfg.n)
+
+	require.NoError(tb, h.prefillMuveraCacheParallel(context.Background()))
+	require.Equal(tb, int64(cfg.n), c.CountVectors())
+}
+
+// BenchmarkPrefillMuveraVectors compares the by-id path muvera used to take against
+// the bucket scan. There is no read amplification to recover here — the value is the
+// vector — so this measures seek-per-vector against a cursor plus parallel decode.
+// Page-cache hot, so it understates the network-storage case the scan exists for.
+func BenchmarkPrefillMuveraVectors(b *testing.B) {
+	cfg := prefillBenchConfig{n: 5_000, dims: muveraBenchDims, segments: 4}
+
+	store := buildMuveraBenchStore(b, cfg)
+	b.Run("serial-by-id", func(b *testing.B) {
+		benchRuns(b, cfg.n, func(tb testing.TB) { runMuveraSerialPrefill(tb, store, cfg) })
+	})
+	b.Run("parallel-scan", func(b *testing.B) {
+		benchRuns(b, cfg.n, func(tb testing.TB) { runMuveraParallelPrefill(tb, store, cfg) })
+	})
+
+	preadStore := buildMuveraBenchStore(b, cfg, lsmkv.WithPread(true), lsmkv.WithMinMMapSize(0))
+	b.Run("pread/serial-by-id", func(b *testing.B) {
+		benchRuns(b, cfg.n, func(tb testing.TB) { runMuveraSerialPrefill(tb, preadStore, cfg) })
+	})
+	b.Run("pread/parallel-scan", func(b *testing.B) {
+		benchRuns(b, cfg.n, func(tb testing.TB) { runMuveraParallelPrefill(tb, preadStore, cfg) })
 	})
 }

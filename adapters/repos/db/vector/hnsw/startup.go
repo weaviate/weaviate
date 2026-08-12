@@ -566,12 +566,17 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
-			// Unbounded uncompressed cache: scan the objects bucket with a parallel
-			// cursor instead of looking up every vector by id (disk-seek bound).
-			err = h.prefillCacheParallel(prefillCtx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
+			// Unbounded uncompressed cache: scan the bucket backing it with a parallel
+			// cursor instead of looking up every vector by id (disk-seek bound).
+			switch h.parallelPrefillSource() {
+			case prefillScanMuvera:
+				err = h.prefillMuveraCacheParallel(prefillCtx)
+			case prefillScanObjects:
+				err = h.prefillCacheParallel(prefillCtx)
+			default:
+				err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
+			}
 		}
 
 		if err != nil {

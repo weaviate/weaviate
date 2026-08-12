@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -234,7 +236,9 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 	})
 }
 
-func TestParallelPrefillEligible(t *testing.T) {
+// TestParallelPrefillSource pins the gate every prefill caller routes through. One
+// table, so the objects and muvera answers cannot drift apart.
+func TestParallelPrefillSource(t *testing.T) {
 	base := parallelPrefillInputs{
 		multivector:  false,
 		muvera:       false,
@@ -246,28 +250,38 @@ func TestParallelPrefillEligible(t *testing.T) {
 	tests := []struct {
 		name string
 		mod  func(*parallelPrefillInputs)
-		want bool
+		want prefillScanSource
 	}{
-		{"unbounded single-vector is eligible", func(*parallelPrefillInputs) {}, true},
-		{"true multivector keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = false }, false},
-		// muvera's float32 cache is sourced from the _muvera_vectors bucket, not the
-		// objects bucket this scan reads — it takes the muvera scan instead.
-		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
-		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
-		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
+		{"unbounded single-vector scans objects", func(*parallelPrefillInputs) {}, prefillScanObjects},
+		{"true multivector keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true }, prefillScanNone},
+		{"muvera scans its own bucket", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, prefillScanMuvera},
+		// reachable through the schema; see parallelPrefillSource
+		{"muvera without multivector keeps serial path", func(in *parallelPrefillInputs) { in.muvera = true }, prefillScanNone},
+		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, prefillScanNone},
+		{"bounded muvera cache keeps serial path", func(in *parallelPrefillInputs) {
+			in.multivector = true
+			in.muvera = true
+			in.cacheMaxSize = 500
+			in.nodeCount = 1000
+		}, prefillScanNone},
 		// an exact fit would leave count == maxSize, which replaceIfFull wipes
-		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, false},
-		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
-		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
+		{"cache exactly fits nodes keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, prefillScanNone},
+		{"cache one slot larger than nodes scans objects", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, prefillScanObjects},
+		{"empty index (0 nodes) scans objects", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, prefillScanObjects},
 		// the scan runs alongside live writes, so an overwriting Preload is not enough:
 		// without if-absent semantics it could clobber a newer inserted vector
-		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.ifAbsent = false }, false},
+		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.ifAbsent = false }, prefillScanNone},
+		{"muvera cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) {
+			in.multivector = true
+			in.muvera = true
+			in.ifAbsent = false
+		}, prefillScanNone},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := base
 			tt.mod(&in)
-			assert.Equal(t, tt.want, parallelPrefillEligible(in))
+			assert.Equal(t, tt.want, parallelPrefillSource(in))
 		})
 	}
 }
@@ -603,17 +617,143 @@ func TestPrefillCacheParallelStopsBelowCacheFull(t *testing.T) {
 }
 
 // TestUseParallelPrefillExcludesHFresh: the hfresh centroid index shares the shard's
-// store (objects bucket present) but its cache holds centroid vectors, so the
-// objects scan must never run for it.
+// store (objects bucket present) but its cache holds centroid vectors, so no bucket
+// scan may run for it — including the muvera one, should the centroid config ever
+// gain a multivector path.
 func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
 	store := newTestObjectsStore(t)
 	logger, _ := test.NewNullLogger()
 	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
+		helpers.GetMuveraBucketName("main_centroids"), lsmkv.WithStrategy(lsmkv.StrategyReplace)))
 
 	h := newPrefillTestIndex("main_centroids", store, c, 0, distancer.NewDotProductProvider(), logger)
 	h.hfreshMode = true
-	require.False(t, h.useParallelPrefill())
+	require.Equal(t, prefillScanNone, h.parallelPrefillSource())
+
+	h.multivector.Store(true)
+	h.muvera.Store(true)
+	require.Equal(t, prefillScanNone, h.parallelPrefillSource())
 
 	h.hfreshMode = false
-	require.True(t, h.useParallelPrefill())
+	require.Equal(t, prefillScanMuvera, h.parallelPrefillSource(),
+		"the guard must be hfreshMode, not the absence of a muvera config")
+
+	h.multivector.Store(false)
+	h.muvera.Store(false)
+	require.Equal(t, prefillScanObjects, h.parallelPrefillSource())
+}
+
+func putMuveraVector(t *testing.T, bucket *lsmkv.Bucket, id uint64, vec []float32) {
+	t.Helper()
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, id)
+	require.NoError(t, bucket.Put(key, multivector.MuveraBytesFromFloat32(vec)))
+}
+
+// newMuveraBucketStore fills an index's muvera vectors bucket and flushes it, so the
+// scan seeds real parallel ranges.
+func newMuveraBucketStore(t *testing.T, id string, n uint64) (*lsmkv.Store, map[uint64][]float32) {
+	t.Helper()
+	store := newTestObjectsStore(t)
+	name := helpers.GetMuveraBucketName(id)
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(), name,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	bucket := store.Bucket(name)
+
+	exp := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i) + 0.5, float32(i) - 0.5, float32(i)}
+		putMuveraVector(t, bucket, i, vec)
+		exp[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+	return store, exp
+}
+
+// TestPrefillMuveraCacheParallelEndToEnd scans a real muvera vectors bucket into the
+// cache, across flushed segments and with a deleted entry that must not resurface.
+func TestPrefillMuveraCacheParallelEndToEnd(t *testing.T) {
+	const n = 300
+	store, exp := newMuveraBucketStore(t, "m", n)
+	bucket := store.Bucket(helpers.GetMuveraBucketName("m"))
+
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, 42)
+	require.NoError(t, bucket.Delete(key))
+	require.NoError(t, bucket.FlushAndSwitch())
+	delete(exp, 42)
+
+	require.NotEmpty(t, bucket.QuantileKeys(prefillScanParallelism()-1),
+		"fixture must seed more than one cursor range")
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := newPrefillTestIndex("m", store, c, n, distancer.NewDotProductProvider(), logger)
+	require.NoError(t, h.prefillMuveraCacheParallel(context.Background()))
+	requireCacheContains(t, c, exp)
+}
+
+// TestPrefillMuveraCacheParallelSkipsDeadNodes: cleanUpTombstonedNodes only warn-logs
+// a failed muvera row delete, so a row can outlive its node. The scan is keyed off
+// rows, so without prefillEligible those ids would be cached for a node no search can
+// reach.
+func TestPrefillMuveraCacheParallelSkipsDeadNodes(t *testing.T) {
+	const n = 300
+	store, exp := newMuveraBucketStore(t, "m", n)
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := newPrefillTestIndex("m", store, c, n, distancer.NewDotProductProvider(), logger)
+	for _, id := range []uint64{7, 42, 199} {
+		h.nodes[id] = nil
+		delete(exp, id)
+	}
+	h.tombstones[11] = struct{}{}
+	delete(exp, 11)
+
+	require.NoError(t, h.prefillMuveraCacheParallel(context.Background()))
+	requireCacheContains(t, c, exp)
+}
+
+// TestMuveraRowDecoder: a torn or foreign row must be skipped rather than yield a
+// garbage id or a silently truncated vector.
+func TestMuveraRowDecoder(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	decode := muveraRowDecoder(logger)
+
+	key := func(id uint64) []byte {
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, id)
+		return k
+	}
+
+	tests := []struct {
+		name string
+		k, v []byte
+		want []float32
+	}{
+		{"well-formed row", key(7), multivector.MuveraBytesFromFloat32([]float32{1, 2, 3}), []float32{1, 2, 3}},
+		{"short key", key(7)[:6], multivector.MuveraBytesFromFloat32([]float32{1, 2, 3}), nil},
+		{"long key", append(key(7), 0), multivector.MuveraBytesFromFloat32([]float32{1}), nil},
+		{"value not a whole number of float32s", key(7), []byte{1, 2, 3, 4, 5, 6}, nil},
+		{"empty value", key(7), []byte{}, []float32{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, vec, ok := decode(tt.k, tt.v)
+			if tt.want == nil {
+				assert.False(t, ok)
+				assert.Nil(t, vec)
+				return
+			}
+			require.True(t, ok)
+			assert.Equal(t, uint64(7), id)
+			assert.Equal(t, tt.want, vec)
+		})
+	}
 }

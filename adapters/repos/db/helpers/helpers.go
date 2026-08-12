@@ -38,6 +38,12 @@ func GetCompressedBucketName(targetVector string) string {
 	return VectorsCompressedBucketLSM
 }
 
+// GetMuveraBucketName names the per-index bucket of encoded muvera vectors: an
+// 8-byte big-endian doc id key, raw float32s as the value.
+func GetMuveraBucketName(indexID string) string {
+	return indexID + "_muvera_vectors"
+}
+
 func GetVectorsBucketName(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)

@@ -67,7 +67,7 @@ func newTargetedTestIndex(store *lsmkv.Store, c cache.Cache[float32], id string,
 func prefillTargeted(t *testing.T, h *hnsw, target string) error {
 	t.Helper()
 	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
-	return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+	return h.prefillFromScan(context.Background(), prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 		return h.scanObjectVectorsTargeted(ctx, bucket, target, onVector)
 	})
 }

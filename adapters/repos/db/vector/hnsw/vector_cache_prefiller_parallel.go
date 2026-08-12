@@ -14,6 +14,7 @@ package hnsw
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -39,16 +41,47 @@ var (
 	errPrefillCompressionActive = errors.New("vector cache prefill aborted: compression activated")
 )
 
-// useParallelPrefill reports whether the cache can be filled by scanning the objects
-// bucket instead of the serial by-id prefiller. Multivector, muvera and hfresh
-// centroid caches are sourced from their own buckets, not from objects — the last
-// of those despite sharing the shard's store.
-func (h *hnsw) useParallelPrefill() bool {
-	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil || h.hfreshMode {
-		return false
+// prefillScanSource names the bucket backing the cache. One gate decides it, so no
+// second copy can drift on which index types are objects-sourced.
+type prefillScanSource int
+
+const (
+	prefillScanNone prefillScanSource = iota
+	prefillScanObjects
+	prefillScanMuvera
+)
+
+func (s prefillScanSource) String() string {
+	switch s {
+	case prefillScanObjects:
+		return "objects"
+	case prefillScanMuvera:
+		return "muvera"
+	default:
+		return "none"
+	}
+}
+
+func (h *hnsw) prefillBucketName(src prefillScanSource) string {
+	if src == prefillScanMuvera {
+		return helpers.GetMuveraBucketName(h.id)
+	}
+	return helpers.ObjectsBucketLSM
+}
+
+// parallelPrefillSource reports which bucket, if any, can fill the cache by a cursor
+// scan instead of the serial by-id prefiller. The hfresh centroid cache is sourced
+// from neither, despite sharing the shard's store.
+func (h *hnsw) parallelPrefillSource() prefillScanSource {
+	if h.store == nil || h.hfreshMode {
+		return prefillScanNone
 	}
 
-	return parallelPrefillEligible(h.parallelPrefillInputs())
+	src := parallelPrefillSource(h.parallelPrefillInputs())
+	if src == prefillScanNone || h.store.Bucket(h.prefillBucketName(src)) == nil {
+		return prefillScanNone
+	}
+	return src
 }
 
 func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
@@ -75,18 +108,26 @@ type parallelPrefillInputs struct {
 	nodeCount    int64
 }
 
-// parallelPrefillEligible is useParallelPrefill's decision core, split out so the
-// combinations can be tested directly.
-func parallelPrefillEligible(in parallelPrefillInputs) bool {
-	if in.multivector || in.muvera {
-		return false
-	}
+// parallelPrefillSource is the gate's decision core, split out so the combinations
+// can be tested directly.
+func parallelPrefillSource(in parallelPrefillInputs) prefillScanSource {
 	// running alongside live writes is only safe if the scan can fill empty slots
 	// without overwriting: its cursor holds a snapshot that may already be stale
-	if !in.ifAbsent {
-		return false
+	if !in.ifAbsent || !cacheFitsNodes(in) {
+		return prefillScanNone
 	}
-	return cacheFitsNodes(in)
+	switch {
+	case in.multivector && in.muvera:
+		return prefillScanMuvera
+	case in.multivector || in.muvera:
+		// a per-passage multivector cache is not objects-sourced. muvera without
+		// multivector is reachable (parseMultivectorMap accepts the pair
+		// independently) and nothing writes its bucket, so a scan there would report
+		// a successful prefill of nothing.
+		return prefillScanNone
+	default:
+		return prefillScanObjects
+	}
 }
 
 // cacheFitsNodes requires headroom beyond the node count rather than an exact fit:
@@ -107,12 +148,25 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 
 	targetVector := h.getTargetVector()
 	if h.useTargetedPrefillScan(bucket) {
-		return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+		return h.prefillFromScan(ctx, prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 			return h.scanObjectVectorsTargeted(ctx, bucket, targetVector, onVector)
 		})
 	}
-	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+	return h.prefillFromScan(ctx, prefillScanObjects, func(ctx context.Context, onVector prefillOnVector) error {
 		return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(targetVector, h.logger), onVector, h.logger)
+	})
+}
+
+// prefillMuveraCacheParallel fills the cache by scanning the muvera vectors bucket.
+func (h *hnsw) prefillMuveraCacheParallel(ctx context.Context) error {
+	name := helpers.GetMuveraBucketName(h.id)
+	bucket := h.store.Bucket(name)
+	if bucket == nil {
+		return fmt.Errorf("prefill cache: muvera bucket %q not found", name)
+	}
+
+	return h.prefillFromScan(ctx, prefillScanMuvera, func(ctx context.Context, onVector prefillOnVector) error {
+		return scanBucketVectorsParallel(ctx, bucket, muveraRowDecoder(h.logger), onVector, h.logger)
 	})
 }
 
@@ -120,7 +174,7 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 // snapshot cursor can repopulate its slot with the pre-delete value — bounded waste,
 // the node itself stays tombstoned. Memory pressure and a full cache abort with a nil
 // error; the vectors left behind load on demand through cache.Get.
-func (h *hnsw) prefillFromScan(ctx context.Context,
+func (h *hnsw) prefillFromScan(ctx context.Context, src prefillScanSource,
 	scan func(context.Context, prefillOnVector) error,
 ) error {
 	before := time.Now()
@@ -164,6 +218,7 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 	entry := h.logger.WithFields(logrus.Fields{
 		"action":   "hnsw_vector_cache_prefill",
 		"index_id": h.id,
+		"source":   src.String(),
 	})
 
 	if err := scan(ctx, onVector); err != nil {
@@ -211,11 +266,12 @@ func (h *hnsw) nodeAlive(id uint64) bool {
 type prefillOnVector func(id uint64, vec []float32) error
 
 // prefillRowDecoder extracts (docID, vector) from one bucket entry; ok=false skips
-// the row. The returned vec must not alias v — cursor buffers are reused.
-type prefillRowDecoder func(v []byte) (id uint64, vec []float32, ok bool)
+// the row. It takes both halves because the id lives in the value for objects and in
+// the key for muvera. The returned vec must not alias v — cursor buffers are reused.
+type prefillRowDecoder func(k, v []byte) (id uint64, vec []float32, ok bool)
 
 func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRowDecoder {
-	return func(v []byte) (uint64, []float32, bool) {
+	return func(_, v []byte) (uint64, []float32, bool) {
 		id, err := storobj.DocIDFromBinary(v)
 		if err != nil {
 			logger.WithField("action", "hnsw_vector_cache_prefill").
@@ -236,6 +292,26 @@ func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRo
 			return 0, nil, false
 		}
 		return id, vec, true
+	}
+}
+
+func muveraRowDecoder(logger logrus.FieldLogger) prefillRowDecoder {
+	return func(k, v []byte) (uint64, []float32, bool) {
+		if len(k) != 8 {
+			logger.WithField("action", "hnsw_vector_cache_prefill").
+				Debugf("skipping muvera entry with %d-byte key", len(k))
+			return 0, nil, false
+		}
+		// MuveraFromBytes sizes the vector as len(v)/4, so a torn row would reach the
+		// distancer silently truncated rather than fail here.
+		if len(v)%4 != 0 {
+			logger.WithField("action", "hnsw_vector_cache_prefill").
+				Debugf("skipping muvera entry with %d-byte value", len(v))
+			return 0, nil, false
+		}
+		// MuveraFromBytes allocates a fresh slice, so the value never aliases the
+		// cursor buffer.
+		return binary.BigEndian.Uint64(k), multivector.MuveraFromBytes(v), true
 	}
 }
 
@@ -334,7 +410,7 @@ func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 			continue
 		}
 
-		id, vec, ok := decode(v)
+		id, vec, ok := decode(k, v)
 		if !ok || len(vec) == 0 {
 			continue
 		}
