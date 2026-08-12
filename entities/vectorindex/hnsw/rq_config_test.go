@@ -69,9 +69,9 @@ func TestValidateRQConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "centering with bits=1 rejected",
+			name:    "centering with bits=1",
 			config:  RQConfig{Enabled: true, Bits: 1, Centering: true, TrainingLimit: DefaultRQTrainingLimit},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "centering with non-positive trainingLimit rejected",

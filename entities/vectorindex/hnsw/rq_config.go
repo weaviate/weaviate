@@ -50,8 +50,8 @@ func ValidateRQConfig(cfg RQConfig) error {
 	if cfg.Bits != 8 && cfg.Bits != 4 && cfg.Bits != 1 {
 		return errors.New("RQ bits must be 8, 4 or 1")
 	}
-	if cfg.Centering && cfg.Bits != 4 {
-		return errors.New("RQ centering requires bits=4")
+	if cfg.Centering && cfg.Bits != 4 && cfg.Bits != 1 {
+		return errors.New("RQ centering requires bits=4 or bits=1")
 	}
 	if cfg.Centering && cfg.TrainingLimit <= 0 {
 		return errors.New("RQ trainingLimit must be positive when centering is enabled")
