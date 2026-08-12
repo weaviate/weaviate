@@ -145,13 +145,13 @@ func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName 
 //
 // Passes reach it two ways. [DB.Backupable] owns its whole call chain, so it
 // holds the snapshot in a variable and hands it to
-// [Index.refuseIfReindexInFlightIn]. The capture pass reaches the gate from
-// both sides of a fork: loaded shards go through [ShardLike.HaltForTransfer]
-// and [ShardLike.CreateBackupSnapshot], interface methods whose other callers
-// have no backup gate to pass, while unloaded shards go through plain [Index]
-// methods, where a parameter would have worked. A parameter would therefore
-// cover only half the pass, so the whole pass carries the snapshot on the
-// context instead (see [DB.withReindexGateSnapshot]).
+// [Index.refuseIfReindexInFlightIn]. The capture pass reaches the gate two
+// ways: its loaded shards go through [ShardLike.HaltForTransfer] and
+// [ShardLike.CreateBackupSnapshot], interface methods whose other callers have
+// no backup gate to pass, and its unloaded shards go through plain [Index]
+// methods, where a parameter would have worked. A parameter would cover only
+// the second half, so the whole pass carries the snapshot on the context
+// instead (see [DB.withReindexGateSnapshot]).
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
@@ -171,10 +171,10 @@ type reindexGateSnapshotCtxKey struct{}
 //
 // The leader query runs here, not on the first shard checked: every shard
 // under the returned context answers from the cluster state as of this call.
-// That holds for a second install too — it builds again rather than re-storing
-// the snapshot ctx already carries — so hoisting an install to a wider scope
-// can cost one extra query but can never answer from an older moment than the
-// call site reads as.
+// That holds for a second install too: it builds again rather than re-storing
+// the snapshot ctx already carries. Hoisting an install to a wider scope
+// therefore costs an extra query instead of silently answering from an earlier
+// moment.
 func (db *DB) withReindexGateSnapshot(ctx context.Context) context.Context {
 	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, db.buildReindexGateSnapshot(ctx))
 }

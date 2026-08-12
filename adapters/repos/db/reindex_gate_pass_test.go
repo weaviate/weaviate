@@ -204,8 +204,8 @@ func TestSingleShardGateBuildsItsOwnSnapshot(t *testing.T) {
 
 // Installing the snapshot on a context that already carries one has to build
 // again rather than re-store what it inherited. Hoisting the install to a wider
-// scope should then cost an extra leader query, not silently answer every shard
-// from an older moment than the install site reads as.
+// scope then costs an extra leader query, rather than silently answering every
+// shard from an earlier moment.
 func TestNestedGateSnapshotInstallRebuilds(t *testing.T) {
 	idx, _ := capturePassFixture(t, "NestedGateInstallClass", []string{"s1"})
 
