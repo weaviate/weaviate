@@ -12,11 +12,18 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestHasUntidiedTracker pins the on-disk recovery-detection signal:
@@ -27,75 +34,76 @@ import (
 // old tokenization (#10675-family RollingRestartMidMigration repro).
 func TestHasUntidiedTracker(t *testing.T) {
 	tests := []struct {
-		name     string
-		prefixes []string
+		name string
+		// indexType picks the strategy prefixes through the production table;
+		// "searchable" unless set.
+		indexType string
 		// tracker dir name → sentinels in it.
 		trackers map[string][]string
-		want     bool
+		// payloads is the property list a tracker's task recorded.
+		payloads map[string][]string
+		// corruptPayloads name trackers whose payload.mig exists but does
+		// not parse.
+		corruptPayloads []string
+		// unlistable removes read permission from .migrations, so listing it
+		// fails without the dir being absent.
+		unlistable bool
+		want       bool
 	}{
 		{
 			name:     "no .migrations dir → no recovery needed",
-			prefixes: []string{"searchable_retokenize_text"},
 			trackers: nil,
 			want:     false,
 		},
 		{
 			name:     "empty .migrations dir → no recovery needed",
-			prefixes: []string{"searchable_retokenize_text"},
 			trackers: map[string][]string{},
 			want:     false,
 		},
 		{
-			name:     "tracker with tidied.mig → completed, no recovery",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "tracker with tidied.mig → completed, no recovery",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 			},
 			want: false,
 		},
 		{
-			name:     "tracker with merged.mig only → recovery-eligible, NO recovery (will be promoted by finalize)",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "tracker with merged.mig only → recovery-eligible, NO recovery (will be promoted by finalize)",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},
 			},
 			want: false,
 		},
 		{
-			name:     "started only → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "started only → recovery NEEDED",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig"},
 			},
 			want: true,
 		},
 		{
-			name:     "started + reindexed but no merged/tidied → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "started + reindexed but no merged/tidied → recovery NEEDED",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "reindexed.mig"},
 			},
 			want: true,
 		},
 		{
-			name:     "RollingRestartMid repro: prepended but not merged/tidied → recovery NEEDED",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "RollingRestartMid repro: prepended but not merged/tidied → recovery NEEDED",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "reindexed.mig", "prepended.mig"},
 			},
 			want: true,
 		},
 		{
-			name:     "non-matching prefix → no recovery (different property)",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "non-matching prefix → no recovery (different property)",
 			trackers: map[string][]string{
 				"searchable_retokenize_other_1": {"started.mig"},
 			},
 			want: false,
 		},
 		{
-			name:     "non-matching prefix → no recovery (different indexType)",
-			prefixes: []string{"searchable_retokenize_text"},
+			name: "non-matching prefix → no recovery (different indexType)",
 			trackers: map[string][]string{
 				"filterable_retokenize_text_1": {"started.mig"},
 			},
@@ -104,36 +112,97 @@ func TestHasUntidiedTracker(t *testing.T) {
 		{
 			name: "mixed: gen 1 tidied, gen 2 started → recovery NEEDED " +
 				"(in-flight follow-up migration interrupted)",
-			prefixes: []string{"searchable_retokenize_text"},
 			trackers: map[string][]string{
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
 				"searchable_retokenize_text_2": {"started.mig"},
 			},
 			want: true,
 		},
+		// One tracker serves both properties; the payload says which.
+		// (enable_searchable, because retokenize payloads are rejected unless
+		// they name exactly one property — see [migrationDirScope.matches].)
 		{
-			name: "two matching prefixes, one tidied + one started → recovery NEEDED",
-			prefixes: []string{
-				"searchable_retokenize_text",
-				"filterable_retokenize_text",
-			},
+			name: "a two-property task, started only → recovery NEEDED",
 			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				"filterable_retokenize_text_1": {"started.mig"},
+				"enable_searchable_other_text_1": {"started.mig"},
+			},
+			payloads: map[string][]string{
+				"enable_searchable_other_text_1": {"other", "text"},
 			},
 			want: true,
 		},
 		{
-			name: "two matching prefixes, both tidied → no recovery",
-			prefixes: []string{
-				"searchable_retokenize_text",
-				"filterable_retokenize_text",
-			},
+			name: "a two-property task this property is not part of",
 			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				"filterable_retokenize_text_1": {"started.mig", "tidied.mig"},
+				"enable_searchable_other_third_1": {"started.mig"},
+			},
+			payloads: map[string][]string{
+				"enable_searchable_other_third_1": {"other", "third"},
 			},
 			want: false,
+		},
+		// A payload that exists but doesn't parse could name this property;
+		// reporting "done" on it would deregister the local callbacks while
+		// the untidied tracker remains. Fails toward recovery, like the
+		// unloaded-shard gate on identical input.
+		{
+			name: "an untidied multi-property tracker with a corrupt payload → recovery NEEDED",
+			trackers: map[string][]string{
+				"enable_searchable_other_text_1": {"started.mig"},
+			},
+			corruptPayloads: []string{"enable_searchable_other_text_1"},
+			want:            true,
+		},
+		{
+			name: "a tidied tracker with a corrupt payload → completed, no recovery",
+			trackers: map[string][]string{
+				"enable_searchable_other_text_1": {"started.mig", "tidied.mig"},
+			},
+			corruptPayloads: []string{"enable_searchable_other_text_1"},
+			want:            false,
+		},
+		{
+			name: "a corrupt payload on another index type's tracker → no recovery",
+			trackers: map[string][]string{
+				"filterable_retokenize_text_1": {"started.mig"},
+			},
+			corruptPayloads: []string{"filterable_retokenize_text_1"},
+			want:            false,
+		},
+		// A dir from before [genSuffix]: the sweep deletes it, so the
+		// recovery probe must see it too.
+		{
+			name: "a generation-less tracker, started only → recovery NEEDED",
+			trackers: map[string][]string{
+				"searchable_retokenize_text": {"started.mig"},
+			},
+			want: true,
+		},
+		{
+			name: "two of this index type's prefixes, one tidied + one started → recovery NEEDED",
+			trackers: map[string][]string{
+				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
+				"enable_searchable_text_1":     {"started.mig"},
+			},
+			want: true,
+		},
+		{
+			name: "two of this index type's prefixes, both tidied → no recovery",
+			trackers: map[string][]string{
+				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
+				"enable_searchable_text_1":     {"started.mig", "tidied.mig"},
+			},
+			want: false,
+		},
+		// A .migrations dir that exists but can't be listed could hold an
+		// untidied tracker; reporting "done" would deregister the local
+		// callbacks while it remains. Fails toward recovery, like the
+		// unloaded-shard gate on the identical condition.
+		{
+			name:       "an unlistable .migrations dir → recovery NEEDED",
+			trackers:   map[string][]string{},
+			unlistable: true,
+			want:       true,
 		},
 	}
 
@@ -150,9 +219,25 @@ func TestHasUntidiedTracker(t *testing.T) {
 						require.NoError(t,
 							os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
 					}
+					if props, ok := tc.payloads[trackerName]; ok {
+						mkRecoveryPayload(t, tmp, trackerName, props...)
+					}
+				}
+				for _, trackerName := range tc.corruptPayloads {
+					require.NoError(t, os.WriteFile(
+						filepath.Join(migsDir, trackerName, reindexRecoveryPayloadFile),
+						[]byte("not a recovery record"), 0o644))
+				}
+				if tc.unlistable {
+					require.NoError(t, os.Chmod(migsDir, 0o000))
+					t.Cleanup(func() { _ = os.Chmod(migsDir, 0o755) })
 				}
 			}
-			got := hasUntidiedTracker(tmp, tc.prefixes)
+			indexType := tc.indexType
+			if indexType == "" {
+				indexType = "searchable"
+			}
+			got := hasUntidiedTracker(migrationDirsOf(tmp, nil, "text", indexType))
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -237,6 +322,103 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := semanticMigrationIndexTypes(tc.mt)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// LocalCallbacksDone runs from the scheduler bootstrap, so it fires at node
+// startup with every tenant of the collection as cold as the restart left
+// it. The tracker dir it reads sits at a path this node can join, and
+// loading a 10k-tenant collection to ask each shard for that path is the
+// one thing the startup path cannot afford.
+func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
+	const (
+		prop   = "title"
+		tenant = "cold-tenant"
+		node   = "n1"
+	)
+
+	for _, tc := range []struct {
+		name string
+		// sentinels are written into the tenant's tracker dir; nil writes
+		// no tracker dir at all.
+		sentinels []string
+		// hostedElsewhere maps the unit to a node that is not this one.
+		hostedElsewhere bool
+		want            bool
+	}{
+		{
+			name:      "a cold tenant whose swap started and never committed",
+			sentinels: []string{"started.mig"},
+			want:      false,
+		},
+		{
+			name:      "a cold tenant whose swap tidied",
+			sentinels: []string{"started.mig", "tidied.mig"},
+			want:      true,
+		},
+		{
+			name: "a cold tenant carrying nothing",
+			want: true,
+		},
+		{
+			name:            "an interrupted swap on another node's unit",
+			sentinels:       []string{"started.mig"},
+			hostedElsewhere: true,
+			want:            true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "LocalCallbacksDone_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{prop})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
+
+			if tc.sentinels != nil {
+				mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
+					postMergeTrackerDir(t, prop), tc.sentinels...)
+			}
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(tenant, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
+
+			owner := node
+			if tc.hostedElsewhere {
+				owner = "n2"
+			}
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    className,
+				MigrationType: ReindexTypeChangeTokenization,
+				Properties:    []string{prop},
+				UnitToShard:   map[string]string{"u1": tenant},
+				UnitToNode:    map[string]string{"u1": owner},
+			})
+			require.NoError(t, err)
+
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, logger, node, nil, ctx)
+
+			got := p.LocalCallbacksDone(&distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bootstrap", Version: 1},
+				Status:         distributedtask.TaskStatusSwapping,
+				Payload:        payload,
+			}, node)
+
+			require.Equal(t, tc.want, got)
+			require.False(t, cold.isLoaded(),
+				"the bootstrap check reads a tracker dir at a path this node joins itself; "+
+					"loading a tenant to ask it for that path is what startup cannot afford")
 		})
 	}
 }

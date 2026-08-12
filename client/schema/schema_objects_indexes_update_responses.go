@@ -423,7 +423,7 @@ func NewSchemaObjectsIndexesUpdateConflict() *SchemaObjectsIndexesUpdateConflict
 /*
 SchemaObjectsIndexesUpdateConflict describes a response with status code 409, with default header values.
 
-Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
+Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task cannot be cancelled, because it is in a cluster-wide coordination phase (PREPARING or SWAPPING) past the point at which cancelling is safe, because its status is one this node's build does not recognize, or because it stopped being cancellable between the read and the cancel; in every case the caller must let it reach a terminal state.
 */
 type SchemaObjectsIndexesUpdateConflict struct {
 	Payload *models.ErrorResponse

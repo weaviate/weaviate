@@ -600,15 +600,20 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
 		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
 		// that motivated the multi-index sweep.
-		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":     collection,
-					"property":       propertyName,
-					"migration_type": migrationType,
-					"index_type":     indexTypeForCleanup,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
-			}
+		// One cache for the whole loop: every index type asks the same unloaded shards.
+		sweep := h.appState.DB.NewStalePartialReindexSweep()
+		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
+			return sweep(ctx, collection, propertyName, indexTypeForCleanup)
+		})
+		// Error even for a benign truncation: the submit proceeds on state
+		// this node couldn't verify.
+		for _, failure := range cleanupErrs {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"collection":     collection,
+				"property":       propertyName,
+				"migration_type": migrationType,
+				"index_type":     failure.indexType,
+			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", failure.err)
 		}
 	}
 
@@ -742,10 +747,12 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 	return nil
 }
 
-// cancelApplyFailureResponder maps an FSM rejection onto the answer the
-// pre-flight would have given. The status can flip between the read and
-// the apply, which is an ordinary race, and a 500 would also leak the
-// sentinel's internal marker into the body.
+// cancelApplyFailureResponder maps an FSM rejection from the cancel apply
+// onto an answer at the same status code the pre-flight would have used
+// for the same condition. The status can flip between the list read and
+// the apply, which on a small collection is an ordinary race; rendering
+// that as a 500 also leaks the sentinel's internal marker into the
+// response body.
 func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
@@ -755,6 +762,42 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 	}
 	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped being
+// cancellable between the list read and the apply.
+//
+// The status this handler holds is stale by definition: reaching the
+// apply at all required [distributedtask.TaskStatus.IsCancellable], so it
+// is always STARTED, and the apply only rejects because the task is no
+// longer in that status. It could have moved into a coordination phase or
+// straight to a terminal state, and this side cannot tell which without a
+// second read that would be just as stale. So the body names no status:
+// rendering the stale STARTED would tell an operator whose task had
+// already FINISHED to wait for a terminal state it is already in, under a
+// hazard description that never applied to it.
+//
+// Still 409: the caller asked for a cancel and no cancel happened, same
+// as the pre-flight's refusal. Answering the terminal half with 202 +
+// NO_OP would be closer to the truth for that half alone, but this side
+// cannot separate the halves, and it changes the meaning of a status code
+// on a public endpoint.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_raced",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task stopped being cancellable between the list read and the apply; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between the read and the cancel, and is no "+
+			"longer cancellable: it has either entered a cluster-wide coordination phase, where nodes may "+
+			"already have written merged state or renamed bucket directories, or it has already reached a "+
+			"terminal state — re-read the index status to see where it landed",
+			target.ID, collection, propertyName)))
 }
 
 // cancelNoOpResponder answers a cancel that has nothing to cancel.
@@ -790,30 +833,12 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 			cancelRefusalReason(target.Status))))
 }
 
-// cancelRacedResponder answers a cancel whose target stopped accepting
-// one between the list read and the apply. The status held here is stale
-// by construction, so rendering it would name a phase the task has left.
-// This body names no status and sends the operator back to the read.
-func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event":    "reindex_task_cancel_refused",
-		"collection":     collection,
-		"property":       propertyName,
-		"index_type":     indexType,
-		"taskID":         target.ID,
-		"status_at_read": target.Status.String(),
-		"principal":      principalUsername(principal),
-	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
-	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
-			"the cancel, and DTM no longer accepts one for it. Nothing was cancelled — re-read "+
-			"GET /v1/schema/%s/indexes and retry only if the task is still in flight",
-			target.ID, collection, propertyName, collection)))
-}
-
-// cancelRefusalReason explains a 409 from the cancel verb. Its
-// coordination-phase wording has to hold for PREPARING too, where no node
-// has swapped yet, so it cannot name the swap as under way.
+// cancelRefusalReason explains a 409 from the cancel verb.
+//
+// The coordination-phase wording has to hold for PREPARING as well as
+// SWAPPING: in PREPARING no node has swapped yet, so naming the swap as
+// under way would have an operator sizing the wait in seconds when PREP
+// runs for minutes at billion-scale.
 func cancelRefusalReason(status distributedtask.TaskStatus) string {
 	if !status.IsRecognized() {
 		return "this build cannot classify that status, so it cannot tell whether stopping the " +
@@ -919,12 +944,11 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
-			var cleanupErrs []error
-			for _, it := range indexTypesToClean {
-				if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
-				}
-			}
+			// One cache for the whole loop; see the submit path for why.
+			sweep := h.appState.DB.NewStalePartialReindexSweep()
+			cleanupErrs := sweepStaleReindexState(indexTypesToClean, func(it string) error {
+				return sweep(ctx, collection, propertyName, it)
+			})
 			if len(cleanupErrs) > 0 {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
@@ -1015,6 +1039,35 @@ const (
 	finalizeWindowMax = 10 * time.Second
 )
 
+// staleSweepFailure pairs a sweep error with its index type so a handler can
+// log it as a structured field, not just text.
+type staleSweepFailure struct {
+	indexType string
+	err       error
+}
+
+func (f staleSweepFailure) Error() string {
+	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
+}
+
+func (f staleSweepFailure) Unwrap() error { return f.err }
+
+// sweepStaleReindexState runs sweep once per index type and returns only the
+// failures an operator must act on — a dropped collection
+// ([db.IsCleanupCollectionDropped]) is not one, since the delete already
+// removed the state.
+func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
+	var failures []staleSweepFailure
+	for _, indexType := range indexTypes {
+		err := sweep(indexType)
+		if err == nil || db.IsCleanupCollectionDropped(err) {
+			continue
+		}
+		failures = append(failures, staleSweepFailure{indexType: indexType, err: err})
+	}
+	return failures
+}
+
 // indexTypesFromMigrationType returns the canonical inverted-index types
 // ("filterable", "searchable", "rangeable") that a migration type targets,
 // for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
@@ -1033,9 +1086,10 @@ const (
 // IsTidied check while OnMigrationComplete still flipped the schema's
 // Tokenization. Schema and on-disk state then disagreed.
 //
-// Callers iterate the returned slice and run CleanStalePartialReindexState
-// once per indexType. Safe to call when no stale state exists: missing
-// directories and unloaded buckets are silently skipped.
+// Callers iterate the returned slice and run the sweep from
+// db.DB.NewStalePartialReindexSweep once per indexType. Safe to call when no
+// stale state exists: missing directories and unloaded buckets are silently
+// skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
 	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/backups"
@@ -450,6 +451,111 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.NotNil(t, item)
 		require.Empty(t, item.IncrementalBaseBackupID)
 	})
+
+	// The rows below pin the status codes the create, restore and restore-cancel
+	// endpoints answer with. adminKey holds every permission, so what they read
+	// is the endpoint contract rather than an authz decision. They run last
+	// because they delete and restore clsA.Class.
+	adminAuth := helper.CreateAuth(adminKey)
+
+	t.Run("create backup answers 200 with STARTED and the backup's home directory", func(t *testing.T) {
+		backupID := "contract-created"
+		resp, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, adminAuth)
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Status)
+		// Accepted, not done. The three fields come from the request, so a
+		// backup that finishes before the response is assembled cannot blank them.
+		require.Equal(t, string(backup.Started), *resp.Payload.Status)
+		require.Equal(t, filesystemBackupsDir+"/"+backupID, resp.Payload.Path)
+		require.Empty(t, resp.Payload.Bucket)
+
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, adminAuth)
+	})
+
+	t.Run("restore cancel answers 422 once the restore has succeeded", func(t *testing.T) {
+		backupID := "contract-created"
+		helper.DeleteClassWithAuthz(t, clsA.Class, adminAuth)
+		_, err := helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, backupID, map[string]string{}, adminAuth)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, adminAuth)
+
+		params := backups.NewBackupsRestoreCancelParams().WithBackend(backend).WithID(backupID)
+		_, err = helper.Client(t).Backups.BackupsRestoreCancel(params, adminAuth)
+		require.Error(t, err)
+		var parsed *backups.BackupsRestoreCancelUnprocessableEntity
+		require.True(t, errors.As(err, &parsed), "want 422, got %v", err)
+		// "already succeeded" belongs to this refusal alone: the arms that accept
+		// a cancel say nothing, and the other refusals name a different reason.
+		require.Contains(t, parsed.Payload.Error[0].Message, "already succeeded")
+	})
+
+	t.Run("restore cancel answers 204 while the restore runs, and again once it is cancelled", func(t *testing.T) {
+		backupID := "contract-cancelled"
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, adminAuth)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, adminAuth)
+
+		helper.DeleteClassWithAuthz(t, clsA.Class, adminAuth)
+		_, err = helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, backupID, map[string]string{}, adminAuth)
+		require.NoError(t, err)
+
+		params := backups.NewBackupsRestoreCancelParams().WithBackend(backend).WithID(backupID)
+		accepted, err := helper.Client(t).Backups.BackupsRestoreCancel(params, adminAuth)
+		require.NoError(t, err)
+		require.IsType(t, &backups.BackupsRestoreCancelNoContent{}, accepted)
+
+		waitForRestoreStatus(t, backend, backupID, adminAuth, string(backup.Cancelled))
+
+		// A cancel of an already cancelled restore is a no-op, not a refusal.
+		repeated, err := helper.Client(t).Backups.BackupsRestoreCancel(params, adminAuth)
+		require.NoError(t, err)
+		require.IsType(t, &backups.BackupsRestoreCancelNoContent{}, repeated)
+	})
+
+	t.Run("a cancelled restore can be started again", func(t *testing.T) {
+		backupID := "contract-cancelled"
+		// The cancel above finished, so the refusal a restore meets while a
+		// cancellation is still unwinding must not become permanent. The
+		// coordinator frees the restore slot one poll after the cancel, so a few
+		// "already in progress" refusals are expected before the retry lands.
+		var lastErr error
+		for start := time.Now(); time.Since(start) < time.Minute; {
+			if _, lastErr = helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class,
+				backend, backupID, map[string]string{}, adminAuth); lastErr == nil {
+				break
+			}
+			time.Sleep(time.Second / 5)
+		}
+		require.NoError(t, lastErr, "restoring a cancelled backup again must be accepted")
+
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, adminAuth)
+	})
+}
+
+// filesystemBackupsDir is where the filesystem backend writes; test/docker sets
+// BACKUP_FILESYSTEM_PATH to it.
+const filesystemBackupsDir = "/tmp/backups"
+
+// waitForRestoreStatus polls the restore status until it reads want. Any other
+// terminal status fails the test, so a row cannot pass on the outcome it was
+// written to rule out.
+func waitForRestoreStatus(t *testing.T, backend, backupID string, auth runtime.ClientAuthInfoWriter, want string) {
+	t.Helper()
+	for start := time.Now(); time.Since(start) < 2*time.Minute; {
+		resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", auth)
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Status)
+		switch *resp.Payload.Status {
+		case want:
+			return
+		case string(backup.Success), string(backup.Failed):
+			t.Fatalf("restore %q reached %q, want %q: %s", backupID, *resp.Payload.Status, want, resp.Payload.Error)
+		}
+		time.Sleep(time.Second / 10)
+	}
+	t.Fatalf("restore %q did not reach %q in time", backupID, want)
 }
 
 // findBackupListItem returns the list item with the given backup ID, or nil.
