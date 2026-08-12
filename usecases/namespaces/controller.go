@@ -136,8 +136,9 @@ func isKnownState(s cmd.NamespaceState) bool {
 }
 
 // Exister exposes read-only access to namespace state. Rather than comparing
-// State themselves, callers go through [RequireActive], or through
-// [ShardsShouldBeOpen] / [RequireShardLoadable] to decide about a shard.
+// State themselves, callers go through [RequireActive] or
+// [AdmitDestructiveApply], or through [ShardsShouldBeOpen] /
+// [RequireShardLoadable] to decide about a shard.
 type Exister interface {
 	GetNamespace(name string) (cmd.Namespace, bool)
 }

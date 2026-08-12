@@ -29,6 +29,29 @@ func RequireActive(e Exister, name string) error {
 	return stateError(ns.State)
 }
 
+// AdmitDestructiveApply returns nil for an empty name, a missing namespace, and
+// the active and deleting states. Every other state gets its error. Deleting
+// must pass so the cleanup cascade can empty a namespace, and a missing one so a
+// re-delete of an already-removed namespace is not refused. Admitting a miss is
+// safe only while nothing can exist under a prefix naming no live namespace.
+func AdmitDestructiveApply(e Exister, name string) error {
+	if name == "" {
+		return nil
+	}
+	ns, ok := e.GetNamespace(name)
+	if !ok {
+		return nil
+	}
+	// No default: arm, so a new state fails the exhaustive linter here.
+	switch ns.State {
+	case cmd.NamespaceStateDeleting:
+		return nil
+	case cmd.NamespaceStateActive, cmd.NamespaceStateSuspended, cmd.NamespaceStateResuming:
+		return stateError(ns.State)
+	}
+	return ErrInvalidState
+}
+
 // stateError returns nil for the active state and the sentinel for every other.
 // No default: arm, so a new state fails the exhaustive linter until decided
 // here; the trailing return answers a state this binary doesn't know.
