@@ -1389,9 +1389,14 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // reindexCapRefusal returns the 429 refusal when the collection is already at
-// the per-collection cap, or nil when the submit may proceed. Admitting while
-// strictly fewer than the cap are in flight makes the cap itself the maximum
-// number that can run at once.
+// the per-collection cap, or nil when the submit may proceed. It admits at
+// cap-1 tasks in flight and refuses at cap, so a submit it admits brings the
+// count to the cap at most.
+//
+// That bound is per check, not per collection. The submit lock is keyed on
+// (collection, property), so two PUTs on different properties of the same
+// collection can both count in-flight tasks before either has added its own,
+// and both admit at cap-1, leaving cap+1 running.
 func reindexCapRefusal(principal *models.Principal, collection string, tasks []*distributedtask.Task) middleware.Responder {
 	inflight := countStartedTasksForCollection(collection, tasks)
 	if inflight >= maxConcurrentReindexPerCollection {
