@@ -48,7 +48,7 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 		}
 	}
 
-	pf.logTotal(int(pf.cache.Len()), limit, before)
+	pf.logTotal(int(pf.cache.CountVectors()), limit, before)
 	return nil
 }
 
@@ -64,7 +64,10 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	pf.index.RUnlock()
 
 	for i := 0; i < nodesLen; i++ {
-		if int(pf.cache.Len()) >= limit {
+		// CountVectors, not Len: Len is the allocated span, which the cache grows to
+		// cover the node range at restore and rounds up beyond it. Measuring the limit
+		// against it means an already-covered cache prefills nothing at all.
+		if int(pf.cache.CountVectors()) >= limit {
 			break
 		}
 
