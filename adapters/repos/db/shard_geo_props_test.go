@@ -488,7 +488,7 @@ func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
 		Properties: []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
 	}
 	shardLike, _ := testShardWithSettings(t, ctx, class,
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, true)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
 	s := concreteShard(t, shardLike)
 
 	blockGeoQueueDir(t, s, "location")
@@ -635,7 +635,7 @@ func TestInitPropertyBucketsBatchesGeoProps(t *testing.T) {
 func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
 	ctx := context.Background()
 	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, true)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
 	s := concreteShard(t, shardLike)
 
 	blockGeoQueueDir(t, s, "alpha")
