@@ -163,9 +163,6 @@ func newOperation(desc *backup.DistributedBackupDescriptor) *operation {
 	return &operation{descriptor: desc, participants: make(map[string]participantStatus, 16)}
 }
 
-// publishStatus mirrors the descriptor's outcome onto the slot. Reports
-// whether the slot took it; false means it moved to another operation or
-// holds a status this outcome may not overwrite (see [backupStat.canAdvanceTo]).
 func (op *operation) publishStatus(slot slotOwner) bool {
 	if op.descriptor.Status == backup.Failed {
 		return slot.setFailed(op.descriptor.Error)
@@ -292,8 +289,6 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			// Free the slot only if it still holds this cancelled restore; a
-			// retry under the same id may already own it.
 			released, held := c.lastOp.resetIfCancelled(desc.ID)
 			c.log.WithFields(logrus.Fields{
 				"action":      OpRestore,
@@ -370,10 +365,6 @@ func (c *coordinator) Restore(
 				if op.descriptor.Error == "" {
 					op.descriptor.Error = errCancelled.Error()
 				}
-				// No slot write here: the deferred release clears the slot right
-				// after. A poll landing in that window is still answered
-				// correctly once the slot clears, via the descriptor, which
-				// already reads CANCELLING/CANCELLED.
 				return true
 			}
 			return false
@@ -806,9 +797,6 @@ func (c *coordinator) commit(ctx context.Context,
 		}
 	}
 	op.descriptor.Error = reason
-	// Ignoring the refusal is deliberate: this publishes the staging outcome
-	// for polls, and the caller that has something to decide (Restore) asks
-	// again right after, through holds() and the Finalizing write.
 	op.publishStatus(slot)
 	op.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }

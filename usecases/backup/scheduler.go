@@ -477,8 +477,6 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
-// logCancelStamp records whether a cancel reached this node's restore slot;
-// held is the slot's state at the time, used to explain a miss.
 func logCancelStamp(logger logrus.FieldLogger, backupID string, st backup.Status, stamped bool, held reqState) {
 	entry := logger.WithFields(logrus.Fields{
 		"action":        "cancel_restore",
@@ -566,7 +564,6 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	if metaErr == nil {
 		switch meta.Status {
 		case backup.Cancelled:
-			// Nothing left to do, the cancellation is complete.
 			return nil
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))

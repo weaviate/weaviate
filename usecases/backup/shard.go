@@ -265,7 +265,6 @@ func (o slotOwner) newDroppedWrite(st backup.Status) *droppedWrite {
 	}
 }
 
-// set publishes a status on the slot. Reports whether it wrote.
 func (o slotOwner) set(st backup.Status) bool {
 	if o.stat == nil {
 		return false
@@ -282,8 +281,6 @@ func (o slotOwner) set(st backup.Status) bool {
 	return true
 }
 
-// setFailed ends the operation as failed together with the reason it ended for.
-// Reports whether it wrote.
 func (o slotOwner) setFailed(reason string) bool {
 	if o.stat == nil {
 		return false
@@ -300,8 +297,6 @@ func (o slotOwner) setFailed(reason string) bool {
 	return true
 }
 
-// holds reports whether this claim still owns the slot, i.e. whether the slot
-// still belongs to this operation.
 func (o slotOwner) holds() bool {
 	if o.stat == nil {
 		return false
@@ -347,9 +342,6 @@ func (o slotOwner) release() bool {
 // no claim of its own — a cancel reads the id out of object storage — so that
 // its later writes still go through [slotOwner] and can tell the operation it
 // read from a retry that claimed the slot under the same id in between.
-//
-// An empty id needs no special case, even though a free slot carries one too:
-// [slotOwner.owns] refuses a slot with no holder.
 func (s *backupStat) claimOf(id string) slotOwner {
 	s.Lock()
 	defer s.Unlock()
