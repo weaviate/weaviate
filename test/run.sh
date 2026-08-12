@@ -1056,29 +1056,47 @@ function run_acceptance_reindex_mt() {
 # test/ciguard, which the plain unit-test job runs: a guard shipped inside the
 # shard it guards is disabled by the same matrix edit it exists to catch.
 #
-# Each group's budget is the sum of the deadlines its own tests wait on, which
-# is why they differ. A budget below that sum has go test killed by the runner
-# before it can panic with stacks, so TestCIGroupTimeoutFitsTheJobWindow reads
-# the per-test worst cases below and holds every budget to their sum. Keep the
-# AOF_TEST_BUDGET lines next to the derivation; the guard fails on a test that
-# has none.
+# Every AOF_TEST_BUDGET below is a sum of deadlines read off the test's own
+# code, never an observed runtime, so a budget can be checked against something
+# other than itself. A budget below its group's sum has go test killed by the
+# runner before it can panic with stacks, so TestCIGroupTimeoutFitsTheJobWindow
+# reads the per-test sums below and holds every budget at or above theirs. Keep
+# the AOF_TEST_BUDGET lines next to the derivation; the guard fails on a test
+# that has none.
 #
-#   AOF_TEST_BUDGET TestBackupVsReindexSuite 35m   9 sequential subtests
+#   AOF_TEST_BUDGET TestBackupVsReindexSuite 33m   its nine subtests' own waits,
+#     rounded up from 32m40s:
+#       BaselineBackupRoundTrip                           4m      2m create + 2m restore
+#       BackupRefusedDuringInFlightMigration              4m40s   30s live + 10s staging dir + 120s indexes + 2m create
+#       BackupSucceedsAfterMigrationFinishes              5m      60s indexes + 2m create + 2m restore
+#       PostRestartOrphanAuditClearsTracker               2m      60s tracker dir + 60s sidecar dir
+#       CancelOnNoInFlightReturns202NoOp                  0       waits on nothing
+#       AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND  1m      60s finished
+#       MutationGuardBlocksDeleteClassDuringInFlight      2m30s   30s indexing + 120s finished
+#       CancelClearsTrackerDirsViaOnTaskCompleted         1m30s   30s indexing + 30s drain + 30s class dir
+#       ReindexRefusedForTheWholeCaptureWindow           12m      5m probe window + 5m terminal + 30s task start + 90s cancel drain
 #   AOF_TEST_BUDGET TestReindexRefusedWhileRestoreRuns 20m   three 5m waits + 60s + 60s + 180s
 #   AOF_TEST_BUDGET TestReindexBlockClearsAfterNodeCrash 17m   two 5m probes + 120s + 60s + 60s + 180s
 #   AOF_TEST_BUDGET TestReindexRefusedWhileBackupRuns 15m   two 5m waits + 30s + 60s + 180s, rounded up from 14.5m
 #   AOF_TEST_BUDGET TestRestoreRefusedDuringInFlightReindex 6m   3m backup + 2m restore + 30s
-#   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup waits + six 60s waits
+#   AOF_TEST_BUDGET TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp 26m   two 10m backup
+#     waits + six 60s waits. It leaves out resolveGuardTopology's placement loop,
+#     which can ask for single-shard ownership up to 16 times at 60s each. That
+#     60s is how long ownership may take to resolve, not what an attempt costs:
+#     a healthy run spends about a second per attempt. Sixteen attempts each
+#     taking the full minute means the cluster is not placing shards at all, and
+#     the answer to that is the 35m budget panicking with stacks well inside the
+#     45m window, which is what it does.
 #
-# That sum is a floor, not a target. reindex-backup-suite and reindex-backup-b
-# are budgeted at exactly theirs, on the assumption their tests finish well
-# inside their own deadlines. Container startup and the -race build sit outside
-# every per-test deadline, so they come out of that slack rather than out of a
-# separate allowance. In practice each group finishes in under 5 minutes,
-# because the deadlines are ceilings a healthy run never approaches. If that
-# stops holding, these two groups go red first.
+# Those sums are floors, not targets. reindex-backup-b is budgeted at exactly
+# its own, on the assumption its tests finish well inside their own deadlines.
+# Container startup and the -race build sit outside every per-test deadline, so
+# they come out of the slack rather than out of a separate allowance. In
+# practice each group finishes in under 5 minutes, because the deadlines are
+# ceilings a healthy run never approaches. If that stops holding,
+# reindex-backup-b goes red first.
 #
-# Those sum to ~119m against a 45m job window that also has to fit the ~5m
+# Those sum to ~117m against a 45m job window that also has to fit the ~5m
 # image build, which is why the package is split over four entries rather than
 # run under one budget. 40m is therefore the ceiling for any single budget
 # below; TestCIGroupTimeoutFitsTheJobWindow enforces it.
@@ -1086,7 +1104,9 @@ function run_acceptance_reindex_mt() {
 function run_acceptance_reindex_backup_suite() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup-suite (single-node, TestBackupVsReindexSuite)"
-  # One test, so it gets the entry to itself.
+  # One test, so it gets the entry to itself. 2m over its 33m floor for
+  # container startup, the -race build and three 50k imports, none of which sit
+  # inside a per-subtest deadline.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestBackupVsReindexSuite$' \
     run_aof_group "reindex-backup-suite" test/acceptance/reindex_backup
@@ -1118,9 +1138,7 @@ function run_acceptance_reindex_backup_cluster() {
   echo_green "acceptance — reindex-backup-cluster (multi-node)"
   # TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp only. The 9m over its
   # floor buys padding for the multi-node cluster, the slowest of the four
-  # groups to come up. The floor is a healthy-path ceiling; a placement-retry
-  # loop could theoretically exceed it, and this budget — but that fails loudly
-  # as a go-test panic, not silently.
+  # groups to come up, and for the placement loop the floor leaves out.
   AOF_GROUP_TIMEOUT=35m \
     AOF_GROUP_RUN='^TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp$' \
     run_aof_group "reindex-backup-cluster" test/acceptance/reindex_backup
