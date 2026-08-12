@@ -248,6 +248,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 			Name: "weaviate_distributed_tasks_unrecognized_status",
 			Help: "Number of distributed tasks in a status this build does not recognize, per namespace",
 		}, []string{"namespace"}),
+		unrecognizedStatusNamespaces: map[string]struct{}{},
 
 		stopCh: make(chan struct{}),
 		wakeCh: make(chan struct{}, 1),
@@ -506,7 +507,14 @@ const unrecognizedStatusWarnWindow = time.Hour
 // One aggregated sorted line per tick: naming the tasks one at a time let
 // the sampler's budget pick an arbitrary three by map-iteration order,
 // which is not a set an operator can act on.
-func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+//
+// leaderListAvailable says whether tasksByNamespace is the cluster's task
+// list or nothing at all. It gates the metric prune: only the cluster's
+// list knows which namespaces exist.
+func (s *Scheduler) warnOnUnrecognizedStatuses(
+	tasksByNamespace map[string]map[TaskDescriptor]*Task,
+	leaderListAvailable bool,
+) {
 	counts := make(map[string]int, len(tasksByNamespace))
 	var named []string
 	for namespace, tasks := range tasksByNamespace {
@@ -553,15 +561,19 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 	// that window reads the metric the way it reads a node that is down.
 	for namespace, count := range counts {
 		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
-	}
-	for namespace := range s.unrecognizedStatusNamespaces {
-		if _, stillReporting := counts[namespace]; !stillReporting {
-			s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
-		}
-	}
-	s.unrecognizedStatusNamespaces = make(map[string]struct{}, len(counts))
-	for namespace := range counts {
 		s.unrecognizedStatusNamespaces[namespace] = struct{}{}
+	}
+	// A tick without the cluster's list saw only this node's own
+	// unrecognized copies, which say nothing about the namespaces that
+	// have none. Pruning off that view drops the series reporting zero
+	// and the ones reporting a real count alike.
+	if leaderListAvailable {
+		for namespace := range s.unrecognizedStatusNamespaces {
+			if _, stillReporting := counts[namespace]; !stillReporting {
+				s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
+				delete(s.unrecognizedStatusNamespaces, namespace)
+			}
+		}
 	}
 
 	if len(named) == 0 {
@@ -588,7 +600,7 @@ func (s *Scheduler) tick() {
 		// Warn on the error path rather than returning: returning would
 		// freeze the gauge at its last value for as long as the failure
 		// lasts, and this node's own copies need no leader anyway.
-		s.warnOnUnrecognizedStatuses(nil)
+		s.warnOnUnrecognizedStatuses(nil, false)
 		return
 	}
 
@@ -616,7 +628,7 @@ func (s *Scheduler) tick() {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
 
-	s.warnOnUnrecognizedStatuses(tasksByNamespace)
+	s.warnOnUnrecognizedStatuses(tasksByNamespace, true)
 
 	for namespace, provider := range providers {
 		tasks := tasksByNamespace[namespace]

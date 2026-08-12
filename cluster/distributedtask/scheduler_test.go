@@ -1050,19 +1050,25 @@ func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 		"periodic tick should clear completed task even with reactive firing wired")
 }
 
-// flappyTasksLister proxies to inner after `failsLeft` failed calls. Used to
-// simulate the post-restart "RAFT not ready at Start() time, ready on next
-// tick" scenario that the deferred bootstrap must handle.
+// flappyTasksLister proxies to inner for succeedsLeft calls, then fails
+// failsLeft of them, then proxies again. Covers both the post-restart
+// "RAFT not ready at Start() time, ready on next tick" scenario the
+// deferred bootstrap must handle, and a list that drops out after the
+// scheduler has already seen one.
 type flappyTasksLister struct {
-	mu        sync.Mutex
-	failsLeft int
-	err       error
-	inner     TaskLister
+	mu           sync.Mutex
+	succeedsLeft int
+	failsLeft    int
+	err          error
+	inner        TaskLister
 }
 
 func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
 	f.mu.Lock()
-	if f.failsLeft > 0 {
+	switch {
+	case f.succeedsLeft > 0:
+		f.succeedsLeft--
+	case f.failsLeft > 0:
 		f.failsLeft--
 		f.mu.Unlock()
 		return nil, f.err
@@ -2084,7 +2090,7 @@ func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
 			},
 		},
 	}
-	h.scheduler.warnOnUnrecognizedStatuses(clusterWide)
+	h.scheduler.warnOnUnrecognizedStatuses(clusterWide, true)
 
 	var warned string
 	for _, e := range h.loggerHook.AllEntries() {
@@ -2103,8 +2109,106 @@ func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
 	// Without the reset its last value would stand forever and page
 	// someone about a task nobody can find.
 	h.scheduler.localTaskInspector = localTaskInspectorStub{}
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{}, true)
 	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
+}
+
+// Pins which tick may drop a series. This node's own unrecognized copies
+// say nothing about which namespaces exist, so a tick that saw no cluster
+// list has no basis to decide that a namespace stopped reporting —
+// dropping one there deletes the series sitting at a real count and the
+// ones sitting at zero alike. CollectAndCount as well as the values, for
+// the reason the sibling table documents: reading a child by label
+// creates it, so a value assertion cannot tell "written 0" from "never
+// written".
+func TestWarnOnUnrecognizedStatuses_OnlyAListedTickDropsASeries(t *testing.T) {
+	const (
+		stuckNamespace = "stuck-namespace"
+		cleanNamespace = "clean-namespace"
+	)
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{}
+	h.init(t)
+
+	gauge := h.scheduler.tasksUnrecognizedStatus
+	valueOf := func(namespace string) float64 {
+		return testutil.ToFloat64(gauge.WithLabelValues(namespace))
+	}
+
+	// One namespace stuck, one clean, both from the cluster's list.
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
+			Namespace:      stuckNamespace,
+			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
+			Status:         unknownFutureStatus,
+		}},
+		cleanNamespace: {TaskDescriptor{ID: "healthy", Version: 1}: {
+			Namespace:      cleanNamespace,
+			TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
+			Status:         TaskStatusStarted,
+		}},
+	}, true)
+	require.Equal(t, 2, testutil.CollectAndCount(gauge))
+	require.Equal(t, 1.0, valueOf(stuckNamespace))
+	require.Equal(t, 0.0, valueOf(cleanNamespace))
+
+	// The list is gone. Both series have to read exactly as they did.
+	h.scheduler.warnOnUnrecognizedStatuses(nil, false)
+	require.Equal(t, 2, testutil.CollectAndCount(gauge),
+		"a tick without the cluster's list must not drop a series")
+	require.Equal(t, 1.0, valueOf(stuckNamespace),
+		"the series was firing at 1 and nothing said it stopped")
+	require.Equal(t, 0.0, valueOf(cleanNamespace))
+
+	// The list is back, the stuck task cleared, and the clean namespace
+	// is gone from the cluster altogether. Now the prune must run.
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
+			Namespace:      stuckNamespace,
+			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
+			Status:         TaskStatusFinished,
+		}},
+	}, true)
+	require.Equal(t, 1, testutil.CollectAndCount(gauge),
+		"a namespace the cluster stopped listing has to be dropped")
+	require.Equal(t, 0.0, valueOf(stuckNamespace))
+}
+
+// The wiring half of the above: tick's error path is what reports that
+// there was no list. The first tick establishes the series off the
+// cluster's list, the second gets no list, and the series stays.
+func TestSchedulerTick_UnrecognizedStatusSeriesSurvivesALaterFailingList(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{}
+	h = h.init(t)
+
+	// Two, because Start lists once to bootstrap before the tick loop runs
+	// at all: one for that, one for the first tick.
+	h.scheduler.taskLister = &flappyTasksLister{
+		succeedsLeft: 2,
+		failsLeft:    math.MaxInt,
+		err:          errors.New("raft unavailable"),
+		inner:        h.manager,
+	}
+
+	addTaskWithUnits(t, h, h.tasksNamespace, "stuck", 10, []string{"su-1"})
+	h.manager.tasks[h.tasksNamespace]["stuck"].Status = unknownFutureStatus
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	h.advanceClock(h.schedulerTickInterval)
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)),
+		"the first tick had the cluster's list and has to report off it")
+
+	h.advanceClock(h.schedulerTickInterval)
+	require.Equal(t, 1, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus),
+		"the list dropping out is not evidence that the namespace stopped reporting")
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)))
 }
 
 // The warn fires for exactly the task set the FSM will not cancel, so an
@@ -2127,7 +2231,7 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 	task := h.manager.tasks[ns][id]
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
 		ns: {task.TaskDescriptor: task},
-	})
+	}, true)
 
 	var warned string
 	for _, e := range h.loggerHook.AllEntries() {
