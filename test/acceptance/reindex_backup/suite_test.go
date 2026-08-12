@@ -188,13 +188,13 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"error body must name the affected collection; got: %s", errMsg)
 	require.Contains(t, errMsg, "active runtime-reindex task in DTM",
 		"error body must explain the gate consulted DTM; got: %s", errMsg)
-	require.Contains(t, errMsg, "retry once that task reaches a terminal state",
+	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step; got: %s", errMsg)
 	// The gate answers from a shard-keyed snapshot and never sees the task's
 	// status, so the cancel it names has to carry the condition under which
 	// the API accepts one. Without it the message sends an operator whose
 	// task is past STARTED at a cancel that answers 409.
-	require.Contains(t, errMsg, "accepted only while the task is STARTED",
+	require.Contains(t, errMsg, "only while it is still in status STARTED",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
@@ -578,8 +578,8 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	// cancel the API answers 409 to. Asserting the bare word "cancel" would
 	// pass on either, including on a body that says a cancel is refused.
 	const (
-		cancelRemedy = "cancel the reindex via the REST API before deleting the class"
-		pastCancel   = "past the point where a cancel is accepted"
+		cancelRemedy = "cancel it via"
+		pastCancel   = "the cancel endpoint answers 409 Conflict"
 	)
 	switch {
 	case strings.Contains(bodyStr, "status=STARTED"):
