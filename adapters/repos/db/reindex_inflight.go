@@ -145,11 +145,13 @@ func (db *DB) AnyLiveReindexForShard(ctx context.Context, collection, shardName 
 //
 // Passes reach it two ways. [DB.Backupable] owns its whole call chain, so it
 // holds the snapshot in a variable and hands it to
-// [Index.refuseIfReindexInFlightIn]. The capture pass cannot: its per-shard
-// checks sit behind [ShardLike.HaltForTransfer] and
-// [ShardLike.CreateBackupSnapshot], interface methods whose other callers have
-// no backup gate to pass, so it carries the snapshot on the context instead
-// (see [DB.withReindexGateSnapshot]).
+// [Index.refuseIfReindexInFlightIn]. The capture pass reaches the gate from
+// both sides of a fork: loaded shards go through [ShardLike.HaltForTransfer]
+// and [ShardLike.CreateBackupSnapshot], interface methods whose other callers
+// have no backup gate to pass, while unloaded shards go through plain [Index]
+// methods, where a parameter would have worked. A parameter would therefore
+// cover only half the pass, so the whole pass carries the snapshot on the
+// context instead (see [DB.withReindexGateSnapshot]).
 type reindexGateSnapshot struct {
 	activity ShardReindexActivityLookup
 	cleanup  CleanupInProgressLookup
@@ -169,8 +171,12 @@ type reindexGateSnapshotCtxKey struct{}
 //
 // The leader query runs here, not on the first shard checked: every shard
 // under the returned context answers from the cluster state as of this call.
+// That holds for a second install too — it builds again rather than re-storing
+// the snapshot ctx already carries — so hoisting an install to a wider scope
+// can cost one extra query but can never answer from an older moment than the
+// call site reads as.
 func (db *DB) withReindexGateSnapshot(ctx context.Context) context.Context {
-	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, db.newReindexGateSnapshot(ctx))
+	return context.WithValue(ctx, reindexGateSnapshotCtxKey{}, db.buildReindexGateSnapshot(ctx))
 }
 
 // newReindexGateSnapshot returns the pass snapshot ctx already carries, or
@@ -181,7 +187,13 @@ func (db *DB) newReindexGateSnapshot(ctx context.Context) reindexGateSnapshot {
 	if snap, ok := ctx.Value(reindexGateSnapshotCtxKey{}).(reindexGateSnapshot); ok {
 		return snap
 	}
+	return db.buildReindexGateSnapshot(ctx)
+}
 
+// buildReindexGateSnapshot builds from current state, ignoring any snapshot ctx
+// carries; ctx only bounds the leader query. Callers that should join a pass
+// already in progress want [DB.newReindexGateSnapshot] instead.
+func (db *DB) buildReindexGateSnapshot(ctx context.Context) reindexGateSnapshot {
 	var snap reindexGateSnapshot
 	if db.config.RuntimeReindexDisabled {
 		// Return before the builders run so the kill switch costs nothing (no
@@ -282,18 +294,20 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 }
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via
-// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
-// replaced only saw the local node and lagged DTM's actual state.
+// [Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer].
+// [DB.Backupable] uses [Index.refuseIfReindexInFlightIn], handing it a snapshot
+// it already holds. Consults DTM via [DB.AnyLiveReindexForShard]; the
+// filesystem-marker variant it replaced only saw the local node and lagged
+// DTM's actual state.
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.
 //
 // It never logs — every caller above is reached once per shard of a
-// whole-collection pass. The pass logs instead: [DB.logReindexRefusals],
-// [Index.logReindexRefusalSummary], or [Index.logReindexRefusal].
+// whole-collection pass. The pass logs instead:
+// [Index.logReindexRefusalSummary] for a capture pass, or
+// [Index.logReindexRefusal] for a single-shard caller.
 //
 // It takes the snapshot from ctx when a pass installed one, and otherwise
 // builds its own — so ctx bounds a leader query. A pass over many shards must

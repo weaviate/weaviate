@@ -202,6 +202,69 @@ func TestSingleShardGateBuildsItsOwnSnapshot(t *testing.T) {
 		"a caller outside a pass must get a fresh snapshot per check")
 }
 
+// Installing the snapshot on a context that already carries one has to build
+// again rather than re-store what it inherited. Hoisting the install to a wider
+// scope should then cost an extra leader query, not silently answer every shard
+// from an older moment than the install site reads as.
+func TestNestedGateSnapshotInstallRebuilds(t *testing.T) {
+	idx, _ := capturePassFixture(t, "NestedGateInstallClass", []string{"s1"})
+
+	var (
+		live   atomic.Bool
+		builds atomic.Int64
+	)
+	idx.db.SetShardReindexActivityLookup(func(context.Context) ShardReindexActivityLookup {
+		builds.Add(1)
+		held := live.Load()
+		return func(string, string) bool { return held }
+	})
+
+	outer := idx.db.withReindexGateSnapshot(context.Background())
+	require.NoError(t, idx.refuseIfReindexInFlight(outer, "s1"))
+
+	live.Store(true)
+	inner := idx.db.withReindexGateSnapshot(outer)
+	require.ErrorIs(t, idx.refuseIfReindexInFlight(inner, "s1"),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"a second install must answer from its own build, not the one it inherited")
+	require.NoError(t, idx.refuseIfReindexInFlight(outer, "s1"),
+		"the outer pass keeps the snapshot it installed")
+	assert.Equal(t, int64(2), builds.Load(), "one build per install")
+}
+
+// Only the activity half of the snapshot is frozen for the pass. The cleanup
+// half is a live map read, so a hold taken after the pass started still refuses
+// the shards the pass has not reached. A snapshot that memoized the cleanup
+// answer would lose that with no other signal.
+func TestPassSnapshotReadsCleanupHoldLive(t *testing.T) {
+	idx, _ := capturePassFixture(t, "PassSnapshotLiveCleanupClass", []string{"s1"})
+
+	countingActivityBuilder(idx.db, false)
+	var (
+		held   atomic.Bool
+		builds atomic.Int64
+	)
+	idx.db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
+		builds.Add(1)
+		return func(string, string) ReindexHold {
+			if held.Load() {
+				return ReindexHoldCleanup
+			}
+			return ReindexHoldNone
+		}
+	})
+
+	ctx := idx.db.withReindexGateSnapshot(context.Background())
+	require.NoError(t, idx.refuseIfReindexInFlight(ctx, "s1"))
+
+	held.Store(true)
+	require.ErrorIs(t, idx.refuseIfReindexInFlight(ctx, "s1"),
+		entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"a hold taken mid-pass must still refuse the shards the pass has not reached")
+	assert.Equal(t, int64(1), builds.Load(),
+		"the cleanup builder still runs once for the pass")
+}
+
 // benchTaskList builds a DTM task list shaped like the one the production
 // builder decodes: liveTasks running tasks plus completedTasks that the
 // cluster still retains for its completed-task TTL, each with a real payload.
