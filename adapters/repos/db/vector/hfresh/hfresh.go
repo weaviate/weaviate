@@ -379,13 +379,16 @@ func (h *HFresh) warmVersionMap() {
 
 		// concurrent inserts mutate the metadata in place: hold the posting
 		// lock while reading it
-		h.PostingMap.RLock(postingID)
-		for vectorID := range metadata.Iter() {
-			if h.VersionMap.EnsureDefault(vectorID) {
-				defaults++
+		func() {
+			h.PostingMap.RLock(postingID)
+			defer h.PostingMap.RUnlock(postingID)
+
+			for vectorID := range metadata.Iter() {
+				if h.VersionMap.EnsureDefault(vectorID) {
+					defaults++
+				}
 			}
-		}
-		h.PostingMap.RUnlock(postingID)
+		}()
 	}
 
 	h.logger.WithFields(logrus.Fields{
