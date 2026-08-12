@@ -65,6 +65,8 @@ type Config struct {
 	DisablePersistence bool
 	RootPath           string
 	Logger             logrus.FieldLogger
+	ClassName          string
+	ShardName          string
 
 	// Store and CoordinatesFromObject let the cache prefill read every
 	// coordinate from the objects bucket in storage order, which it does only
@@ -108,6 +110,11 @@ func NewIndex(config Config,
 		return nil, errors.Errorf("geo index %q: coordinatesFromObject is required alongside a store", config.ID)
 	}
 
+	// the underlying index identifies its lines by class, shard and target
+	// vector, and a geo index leaves the target vector empty. index_id is the key
+	// its prefill lines already give this id, which also names the files on disk.
+	config.Logger = config.Logger.WithField("index_id", config.ID)
+
 	var vectorFromObject hnsw.VectorFromObject
 	if config.CoordinatesFromObject != nil {
 		vectorFromObject = config.CoordinatesFromObject.VectorFromObject
@@ -118,6 +125,8 @@ func NewIndex(config Config,
 		VectorFromObject:      vectorFromObject,
 		WaitForCachePrefill:   config.WaitForCachePrefill,
 		ID:                    config.ID,
+		ClassName:             config.ClassName,
+		ShardName:             config.ShardName,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
 		DistanceProvider:      distancer.NewGeoProvider(),

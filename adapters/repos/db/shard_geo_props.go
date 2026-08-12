@@ -49,6 +49,8 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		WaitForCachePrefill:                      s.index.Config.HNSWWaitForCachePrefill,
 		DisablePersistence:                       false,
 		Logger:                                   s.index.logger,
+		ClassName:                                s.index.Config.ClassName.String(),
+		ShardName:                                s.name,
 		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
 		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
 		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,

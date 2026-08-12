@@ -435,6 +435,49 @@ func TestInitGeoPropKeysOnPropName(t *testing.T) {
 	require.Same(t, location, stillLocation, "initing a new prop disturbed an existing one")
 }
 
+// initGeoProp is the only caller holding the collection and shard a geo index
+// belongs to, so an index built without them logs its blocking startup work
+// anonymously on a node running many shards.
+func TestInitGeoPropNamesItsShard(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	// hooking the shard's own logger rather than replacing it: the field is read
+	// unsynchronized from background goroutines the shard already started
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
+	logger.SetLevel(logrus.DebugLevel)
+
+	props := []string{"office", "depot"}
+	for _, prop := range props {
+		require.NoError(t, s.initGeoProp(geoProp(prop)))
+	}
+
+	namedPerProp := map[string]int{}
+	for _, entry := range hook.AllEntries() {
+		class, ok := entry.Data["class"]
+		if !ok {
+			// the commit logger and the vector cache do not carry these
+			continue
+		}
+		// the id also pins the tagging: without it the shard's geo props and its
+		// main index all log under the same class and shard
+		id, ok := entry.Data["index_id"].(string)
+		if !ok {
+			continue
+		}
+		namedPerProp[id]++
+		require.Equalf(t, geoPropClass, class, "line %q", entry.Message)
+		require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+	}
+
+	for _, prop := range props {
+		require.NotZerof(t, namedPerProp[geoPropID(prop)],
+			"prop %q logged no line naming its class and shard", prop)
+	}
+}
+
 // TestInitGeoPropQueueFailureIsRetryable pins that a failed queue build leaves
 // no index registered. Keeping it would make the guard skip the retry, so the
 // prop would serve reads with an index nothing ever drains into.

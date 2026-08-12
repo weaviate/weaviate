@@ -16,11 +16,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	// aliased so the tables below can keep naming their loop variable "test"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -445,6 +449,121 @@ func TestGeoPrefillReadsCoordinatesFromObjectsBucket(t *testing.T) {
 	}
 	require.Zero(t, byIDLoads.Load(),
 		"the objects-bucket scan must cover every coordinate, leaving no by-id lookup")
+}
+
+// Every geo prop of a shard logs through that shard's one logger, and the
+// underlying index leaves its target vector empty, so class and shard alone
+// would not say which property a line came from.
+func TestNewIndexTagsLogLines(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	const className, shardName = "Article", "shard-a1b2c3"
+	ids := []string{"geo.location", "geo.office"}
+
+	for _, id := range ids {
+		idx, err := NewIndex(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
+			ID:           id,
+			RootPath:     t.TempDir(),
+			Logger:       logger,
+			ClassName:    className,
+			ShardName:    shardName,
+			CoordinatesForID: func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
+				return &models.GeoCoordinates{Latitude: ptFloat32(1), Longitude: ptFloat32(2)}, nil
+			},
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, idx.Shutdown(context.Background())) })
+	}
+
+	linesPerIndex := map[string]int{}
+	var sawUnderlyingIndexLine bool
+	for _, entry := range hook.AllEntries() {
+		id, ok := entry.Data["index_id"]
+		require.Truef(t, ok, "line %q names no index", entry.Message)
+		linesPerIndex[id.(string)]++
+
+		// only the underlying index's own logger carries these; the commit logger
+		// and the vector cache have their own
+		class, ok := entry.Data["class"]
+		if !ok {
+			continue
+		}
+		sawUnderlyingIndexLine = true
+		require.Equalf(t, className, class, "line %q", entry.Message)
+		require.Equalf(t, shardName, entry.Data["shard"], "line %q", entry.Message)
+	}
+
+	require.True(t, sawUnderlyingIndexLine,
+		"no line came from the underlying index, so class/shard went unchecked")
+	for _, id := range ids {
+		require.NotZerof(t, linesPerIndex[id], "%q logged nothing under its own id", id)
+	}
+	require.Len(t, linesPerIndex, len(ids), "two geo props were not separable in the log")
+}
+
+// The prefill is what the fields are for: it is the work that holds up a
+// restart, and PostStartup is the only path that logs it.
+func TestPostStartupTagsPrefillLines(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const className, shardName, indexID = "Article", "shard-a1b2c3", "geo.location"
+
+	coordinates := []*models.GeoCoordinates{
+		{Latitude: ptFloat32(48.13743), Longitude: ptFloat32(11.57549)},
+		{Latitude: ptFloat32(48.78232), Longitude: ptFloat32(9.17702)},
+	}
+
+	newGeoIndex := func(t *testing.T, logger logrus.FieldLogger) *Index {
+		t.Helper()
+		idx, err := NewIndex(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
+			ID:           indexID,
+			RootPath:     rootPath,
+			Logger:       logger,
+			ClassName:    className,
+			ShardName:    shardName,
+			// without the wait the prefill runs on a goroutine of its own, which is
+			// not the journey that leaves an operator staring at a stalled startup
+			WaitForCachePrefill: true,
+			CoordinatesForID: func(_ context.Context, id uint64) (*models.GeoCoordinates, error) {
+				return coordinates[id], nil
+			},
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		return idx
+	}
+
+	// a reopened index has commit log state to restore, which is what leaves its
+	// cache unfilled; a fresh one skips the prefill altogether
+	built := newGeoIndex(t, nil)
+	for id, c := range coordinates {
+		require.NoError(t, built.Add(ctx, uint64(id), c))
+	}
+	require.NoError(t, built.Flush())
+	require.NoError(t, built.Shutdown(ctx))
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	restarted := newGeoIndex(t, logger)
+	t.Cleanup(func() { require.NoError(t, restarted.Shutdown(ctx)) })
+
+	hook.Reset()
+	restarted.PostStartup(ctx)
+
+	var prefillLines int
+	for _, entry := range hook.AllEntries() {
+		action, _ := entry.Data["action"].(string)
+		if !strings.Contains(action, "prefill") {
+			continue
+		}
+		prefillLines++
+		require.Equalf(t, indexID, entry.Data["index_id"], "line %q", entry.Message)
+		require.Equalf(t, className, entry.Data["class"], "line %q", entry.Message)
+		require.Equalf(t, shardName, entry.Data["shard"], "line %q", entry.Message)
+	}
+	require.NotZero(t, prefillLines, "PostStartup logged no prefill line to check")
 }
 
 func ptFloat32(in float32) *float32 {
