@@ -1835,7 +1835,7 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 		},
 		{
 			// The ordinary case, not an edge case: production always
-			// wires the inspector, so a wedged task sits in the
+			// wires the inspector, so such a task sits in the
 			// leader-routed list and in this node's own FSM at once.
 			name:       "the same task in both sources",
 			tasks:      []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},

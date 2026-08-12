@@ -521,7 +521,7 @@ const unrecognizedStatusWarnWindow = time.Hour
 //
 // Reads this node's own FSM copies as well as the leader-routed list. A
 // task the peers have already cleaned up is gone from the latter, and
-// that is exactly the task still wedged here.
+// that is exactly the task still blocking schema mutations here.
 func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
 	counts := make(map[string]int, len(tasksByNamespace))
 	var named []string

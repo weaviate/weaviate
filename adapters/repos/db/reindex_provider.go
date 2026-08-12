@@ -1729,8 +1729,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 // the way every other call on this path is bounded: off p.serverCtx, with
 // a timeout. The probe force-loads lazy shards, and for a multi-tenant
 // collection the payload names every shard the task touched, so an
-// unbounded one lets a single wedged shard block the scheduler tick that
-// dispatched it and survive shutdown.
+// unbounded one lets a single stuck shard hold up the scheduler tick that
+// dispatched it, and keep running after shutdown.
 func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
 	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
 	defer cancel()
