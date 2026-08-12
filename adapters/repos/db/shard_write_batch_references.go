@@ -26,11 +26,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// AddReferencesBatch returns one error per reference, in input order, refusals
+// of the whole batch included. The caller maps position i onto that reference's
+// position in its own batch, so a shorter slice reports the references it omits
+// as written.
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
-		return []error{err}
+		return duplicateErr(err, len(refs))
 	}
 
 	return newReferencesBatcher(s).References(ctx, refs)

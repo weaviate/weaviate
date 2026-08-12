@@ -850,6 +850,51 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	}
 }
 
+func TestUnmarshalProperties(t *testing.T) {
+	tests := []struct {
+		name            string
+		props           []byte
+		want            map[string]interface{}
+		wantErrContains string
+	}{
+		{
+			name:  "requested property present",
+			props: []byte(`{"text":"a","other":1}`),
+			want:  map[string]interface{}{"text": "a"},
+		},
+		{
+			name:  "requested property absent",
+			props: []byte(`{"other":1}`),
+			want:  map[string]interface{}{},
+		},
+		{
+			name:  "no properties at all",
+			props: []byte{},
+			want:  map[string]interface{}{},
+		},
+		{
+			name:            "property blob without its opening brace",
+			props:           []byte(`"text":"a"}`),
+			wantErrContains: "malformed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := map[string]interface{}{}
+			err := UnmarshalProperties(test.props, got, [][]string{{"text"}})
+
+			if test.wantErrContains != "" {
+				require.ErrorContains(t, err, test.wantErrContains)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	before := FromObject(
 		&models.Object{

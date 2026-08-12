@@ -54,6 +54,7 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	AddClassPropertyErr     error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
@@ -165,6 +166,10 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	if f.AddClassPropertyErr != nil {
+		return nil, 0, f.AddClassPropertyErr
+	}
+
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -380,6 +385,8 @@ type fakeModulesProvider struct {
 	mock.Mock
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
+	// test control
+	ExtendErr error
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -446,6 +453,10 @@ func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, capability string,
 ) (search.Results, error) {
+	if p.ExtendErr != nil {
+		return nil, p.ExtendErr
+	}
+
 	txt2vec := newNearCustomTextModule(p.getExtender(), p.getProjector(), &fakePathBuilder{})
 	additionalProperties := txt2vec.AdditionalProperties()
 	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
@@ -817,7 +828,7 @@ func getFakeModulesProviderWithCustomExtenders(
 	customProjector *fakeProjector,
 	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	p := &fakeModulesProvider{mock.Mock{}, customExtender, customProjector}
+	p := &fakeModulesProvider{customExtender: customExtender, customProjector: customProjector}
 	p.applyOptions(opts...)
 	return p
 }

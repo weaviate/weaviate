@@ -920,7 +920,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].existsKey(key); err != nil {
+			if exists, err := upperSegments[i].indexContainsKey(key); err != nil {
 				return false, err
 			} else if exists {
 				return true, nil
