@@ -121,8 +121,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			ctx := testCtx()
 			className := "PayloadReads_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, tc.classProps)
-			// The sweep reports its read count on a log field, so give the
-			// index a logger whose entries the test can read back.
+			// The sweep reports its read count on a log field.
 			hookLogger, hook := test.NewNullLogger()
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false, func(i *Index) { i.logger = hookLogger })
