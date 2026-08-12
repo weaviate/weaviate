@@ -177,13 +177,13 @@ func TestManager_ListDistributedTasks_OrderIsStable(t *testing.T) {
 		Id:                    "started-b",
 		Version:               12,
 		CancelledAtUnixMillis: now.Add(3 * time.Minute).UnixMilli(),
-	})))
+	}), false))
 	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             "ns",
 		Id:                    "started-c",
 		Version:               10,
 		CancelledAtUnixMillis: now.Add(4 * time.Minute).UnixMilli(),
-	})))
+	}), false))
 
 	// Repeat the listing 50 times — Go map iteration randomizes per call,
 	// so without the sort one of these would almost certainly diverge.

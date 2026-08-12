@@ -41,6 +41,72 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// TerminalObserver runs off the RAFT-apply path (usually on the single
+// drainer goroutine) shortly after a task goes CANCELLED or FAILED on this
+// node, so a namespace can notify peers without waiting on the scheduler
+// tick. Register via [Manager.RegisterTerminalObserver].
+//
+// Receives a [Task.Clone]; Payload still shares the original's backing array
+// and must not be mutated. No ordering vs. the scheduler is guaranteed; under
+// overflow, events run on a bounded number of extra goroutines (see
+// terminalDispatchOverflowLimit) before being dropped. Calls are not
+// serialized: under overflow the same observer can run on several goroutines
+// at once, so it must be safe for concurrent invocation.
+//
+// One queue and one drainer serve every registered namespace, and the event
+// dropped when both fill up is the arriving one. So an observer that blocks
+// delays — and eventually loses — every other namespace's endings, and the
+// endings lost are the freshest ones. Return promptly.
+//
+// # Delivery is best-effort
+//
+// Never read "no event" as "not terminal". These endings do not fire:
+//
+//   - Endings already in this node's local RAFT log when it opened are skipped
+//     as replay. Most finished long ago. The tail of that log can also hold
+//     entries the node persisted but never applied before an unclean shutdown;
+//     those end for the first time on the replay and are skipped anyway,
+//     because the flag cannot tell the two apart.
+//   - Endings inside an installed snapshot: a follower far enough behind for
+//     the leader to have compacted its log gets the state through
+//     [Manager.Restore], which merges tasks without dispatching.
+//   - Endings applied while the namespace has no observer registered. They are
+//     dropped on the spot, never queued for a later registrant.
+//   - Endings dropped because the queue and the overflow bound are both full.
+//     Both drop arms log at error level with the namespace, task ID and version.
+//   - Endings applied after [Manager.Close]. Dropped with no log at all, since
+//     by then the node is on its way down. Production never reaches this:
+//     cluster.Store.Close shuts RAFT down before closing the Manager.
+//
+// Endings replicated as log entries after startup do fire, even when old, so
+// observers must be idempotent and must not assume the ending is recent.
+//
+// # Recovering an ending that did not fire
+//
+// Reconcile against the task list — but not at registration time. Registration
+// has to happen before the store opens (see
+// cluster.Raft.RegisterDistributedTaskTerminalObserver), and at that point this
+// node's task map is still empty and the list surface a consumer holds,
+// cluster.Raft.ListDistributedTasks, is leader-routed with no leader to reach.
+// Reconcile once the node has caught up, after cluster.Service.Open returns.
+//
+// Reconciling once is not enough, and the period is not free to choose. A
+// snapshot installed later in the node's life announces nothing either, and
+// every missed ending stops being recoverable when the scheduler's TTL sweep
+// removes the task — completedTaskTTL after it ended
+// (DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS, five days by default). That TTL
+// is the deadline for every gap above, not just the last one. Reconcile well
+// inside it.
+//
+// The DELETE_CLASS cascade is the one ending no reconcile can catch, and that
+// is a choice rather than a limit. [Manager.DeleteTasksForCollection] holds the
+// task while removing it and could announce it in one line, but the task never
+// went CANCELLED or FAILED, so announcing it through this type would break the
+// contract above. Telling a namespace its task is gone needs a separate signal,
+// which is out of scope here. Until there is one, observers must not wait
+// indefinitely on any one task.
+type TerminalObserver func(task *Task)
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
@@ -552,8 +618,19 @@ type Task struct {
 	// StartedAt is the time that a task was submitted to the cluster.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time that task reached a terminal status.
-	// Additionally, it is used to schedule task clean up.
+	// FinishedAt is when the task's work ended: the cancel instant, the
+	// failing unit's stamp, or the last unit completion to apply. The routes
+	// that turn a task terminal later — a failed PREP or SWAP ack,
+	// [Manager.MarkTaskFailed], [Manager.MarkTaskFinalized] — keep that stamp
+	// instead of the moment the status flipped.
+	//
+	// Four readers, so retiming it moves more than cleanup: the scheduler's
+	// TTL sweep, [Manager.ListDistributedTasks]'s sort key, the REST
+	// finishedAt field, and the reindex progress endpoint's finalize window.
+	//
+	// Written from the clock of whichever node reported the completion, so it
+	// can sit slightly before another unit's own FinishedAt and cannot be
+	// compared against a local monotonic reading.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -606,6 +683,9 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// Clone deep-copies mutable maps (Units, both ack maps) so the result is safe
+// to read while the FSM keeps writing the original. Payload is NOT copied —
+// it shares the backing array and must never be mutated through the clone.
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {

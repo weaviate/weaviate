@@ -171,7 +171,7 @@ func TestTaskCancellation(t *testing.T) {
 		Id:                    taskID,
 		Version:               version,
 		CancelledAtUnixMillis: cancellationTime,
-	}))
+	}), false)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -487,7 +487,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Id:                    "cancel",
 		Version:               12,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
 	require.NoError(t, err)
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -646,12 +646,15 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	return h
 }
 
-// Close shuts down the scheduler and then drains every test provider's
-// in-flight run goroutines. drain must run before the deferred
-// leaktest.Check, so this is wired via a test-body defer (defer h.Close()),
-// never via t.Cleanup which runs after the leaktest deferred check.
+// Close shuts down the scheduler and the manager's terminal-observer drainer,
+// then drains every test provider's in-flight run goroutines. drain must run
+// before the leaktest check: with a test-body `defer leaktest.Check(t)()`,
+// Close must be a test-body defer too; t.Cleanup is fine only when the leak
+// check is also registered via t.Cleanup before Close, so LIFO ordering runs
+// Close first (see newObserverHarness).
 func (h *testHarness) Close() {
 	h.scheduler.Close()
+	h.manager.Close()
 	for _, p := range h.testProviders {
 		p.drain()
 	}
@@ -687,7 +690,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Version:            taskVersion,
 		Error:              errMsg,
 		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
-	}))
+	}), false)
 }
 
 func (h *testHarness) advanceClock(duration time.Duration) {
@@ -2150,7 +2153,7 @@ func TestWarnOnUnrecognizedStatuses_DoesNotAdviseTheCancelTheFSMRefuses(t *testi
 		Id:                    id,
 		Version:               version,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	})), "is no longer running")
+	}), false), "is no longer running")
 	require.Equal(t, unknownFutureStatus, h.manager.tasks[namespace][id].Status,
 		"the cancel has to be refused for the advice to be wrong")
 

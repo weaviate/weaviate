@@ -294,6 +294,72 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write_With_AutoTenant(t *testing
 	assert.Equal(t, tenantVersion, vectorRepo.CapturedSchemaVersion)
 }
 
+// A schema change the insert itself triggers raises the version after the wait
+// at the top of AddObject. Without a second wait, the write reaches a node that
+// has not applied that change yet and fails with "non-existing index" — a 500
+// on a legitimate insert.
+func Test_Add_Object_Waits_For_Schema_It_Created_Before_Writing(t *testing.T) {
+	const (
+		autoSchemaVersion uint64 = 41
+		tenantVersion     uint64 = 42
+	)
+
+	mtClass := &models.Class{
+		Class: "FooMT", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, AutoTenantCreation: true},
+	}
+
+	tests := []struct {
+		name        string
+		classes     []*models.Class
+		object      *models.Object
+		wantWaitFor uint64
+	}{
+		{
+			name:        "the class was auto-created by this insert",
+			classes:     nil,
+			object:      &models.Object{Class: "FooAuto"},
+			wantWaitFor: autoSchemaVersion,
+		},
+		{
+			name:        "the tenant was auto-created by this insert",
+			classes:     []*models.Class{mtClass},
+			object:      &models.Object{Class: "FooMT", Tenant: "t1"},
+			wantWaitFor: tenantVersion,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: tc.classes}}
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse:       sch,
+				AutoSchemaVersion:       autoSchemaVersion,
+				AddTenantsSchemaVersion: tenantVersion,
+			}
+			cfg := &config.WeaviateConfig{Config: config.Config{
+				AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)},
+			}}
+			logger, _ := test.NewNullLogger()
+			modulesProvider := getFakeModulesProvider()
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
+			manager := NewManager(schemaManager, cfg, logger, mocks.NewMockAuthorizer(), vectorRepo,
+				modulesProvider, &fakeMetrics{}, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			_, err := manager.AddObject(context.Background(), nil, tc.object, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantWaitFor, vectorRepo.CapturedSchemaVersion,
+				"the write must carry the version the schema change produced")
+			assert.GreaterOrEqual(t, schemaManager.MaxWaitedSchemaVersion, tc.wantWaitFor,
+				"the local schema must be waited for at the version the write carries")
+		})
+	}
+}
+
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo      *fakeVectorRepo

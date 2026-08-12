@@ -1034,8 +1034,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 			NodeId:            "node-3",
 			Success:           true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}),
-	))
+		}), false))
 	restoredTasks, err = freshManager.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, TaskStatusSwapping, restoredTasks[h.namespace][0].Status,
@@ -1066,7 +1065,7 @@ func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
 		Id:                    "T9",
 		Version:               1,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
+	}), false)
 	require.Error(t, err, "cancel must be refused once the task is past its units")
 	require.Equal(t, TaskStatusSwapping, h.getTask(t, "T9").Status,
 		"the refused cancel must not change the task's status")

@@ -16,13 +16,16 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -731,5 +734,146 @@ func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 	}
 	if got := len(postTasks["test-namespace"]); got != 0 {
 		t.Fatalf("post-replay-delete: got %d tasks, want 0 (cascade must fire even on schemaOnly apply)", got)
+	}
+}
+
+// Pins that every terminal-producing distributed-task apply arm hands
+// Store.Apply's real catchingUp flag to the Manager: on a catchup replay
+// (index ≤ lastAppliedIndexToDB) the terminal observer stays silent, on a
+// live apply it fires. Manager-level tests pass the flag as a literal, so
+// only this test catches an arm hard-coding it.
+func TestStore_Apply_TerminalTaskArmsForwardCatchingUp(t *testing.T) {
+	const (
+		ns          = "test-namespace"
+		taskID      = "task-1"
+		addIndex    = uint64(10)
+		prereqIndex = uint64(11)
+		termIndex   = uint64(12)
+	)
+
+	applyTaskCmd := func(t *testing.T, ms *MockStore, idx uint64, typ api.ApplyRequest_Type, sub interface{}, label string) {
+		t.Helper()
+		applyOrFail(t, ms, &raft.Log{
+			Index: idx,
+			Type:  raft.LogCommand,
+			Data:  cmdAsBytes("", typ, sub, nil),
+		}, label)
+	}
+
+	unitCompletion := func(unitErr string) *api.RecordDistributedTaskUnitCompletionRequest {
+		return &api.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: ns, Id: taskID, Version: addIndex,
+			NodeId: "Node-1", UnitId: "u1", Error: unitErr,
+			FinishedAtUnixMillis: 1,
+		}
+	}
+
+	type terminalArm struct {
+		name string
+		// needsBarrier routes the task through PREPARING instead of SWAPPING.
+		needsBarrier bool
+		// completeUnitFirst drives the task past STARTED so arms that need a
+		// SWAPPING/PREPARING source state have one.
+		completeUnitFirst bool
+		terminalType      api.ApplyRequest_Type
+		terminalCmd       interface{}
+	}
+	arms := []terminalArm{
+		{
+			name:         "cancel",
+			terminalType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL,
+			terminalCmd: &api.CancelDistributedTaskRequest{
+				Namespace: ns, Id: taskID, Version: addIndex, CancelledAtUnixMillis: 2,
+			},
+		},
+		{
+			name:         "unit failure",
+			terminalType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED,
+			terminalCmd:  unitCompletion("unit exploded"),
+		},
+		{
+			name:              "mark failed",
+			completeUnitFirst: true,
+			terminalType:      api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED,
+			terminalCmd: &api.MarkTaskFailedRequest{
+				Namespace: ns, Id: taskID, Version: addIndex, Error: "swap exploded",
+			},
+		},
+		{
+			name:              "post-completion ack failure",
+			completeUnitFirst: true,
+			terminalType:      api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
+			terminalCmd: &api.RecordDistributedTaskPostCompletionAckRequest{
+				Namespace: ns, Id: taskID, Version: addIndex,
+				NodeId: "Node-1", Success: false, Error: "swap exploded", AckedAtUnixMillis: 2,
+			},
+		},
+		{
+			name:              "prep ack failure",
+			needsBarrier:      true,
+			completeUnitFirst: true,
+			terminalType:      api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
+			terminalCmd: &api.RecordDistributedTaskPreparationCompleteAckRequest{
+				Namespace: ns, Id: taskID, Version: addIndex,
+				NodeId: "Node-1", Success: false, Error: "prep exploded", AckedAtUnixMillis: 2,
+			},
+		},
+	}
+
+	run := func(t *testing.T, arm terminalArm, lastAppliedIndexToDB uint64) *terminalObserverProbe {
+		t.Helper()
+		ms := NewMockStore(t, "Node-1", 0)
+		ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+		var probe terminalObserverProbe
+		ms.store.RegisterDistributedTaskTerminalObserver(ns, func(task *distributedtask.Task) {
+			probe.record(task.ID, string(task.Status))
+		})
+		t.Cleanup(ms.store.distributedTasksManager.Close)
+
+		// Keeps Apply's DB-reload branch out of this test: it fires once an
+		// apply reaches lastAppliedIndexToDB, and this harness has no snapshot
+		// store for it to read.
+		ms.store.dbLoaded.Store(true)
+		ms.store.lastAppliedIndexToDB.Store(lastAppliedIndexToDB)
+
+		applyTaskCmd(t, &ms, addIndex, api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&api.AddDistributedTaskRequest{
+				Namespace: ns, Id: taskID, Payload: []byte(`{}`),
+				SubmittedAtUnixMillis: 1, UnitIds: []string{"u1"},
+				NeedsPreparationBarrier: arm.needsBarrier,
+			}, "add-task")
+		if arm.completeUnitFirst {
+			applyTaskCmd(t, &ms, prereqIndex, api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED,
+				unitCompletion(""), "complete-unit")
+		}
+		applyTaskCmd(t, &ms, termIndex, arm.terminalType, arm.terminalCmd, "terminal command")
+		return &probe
+	}
+
+	for _, arm := range arms {
+		t.Run(arm.name, func(t *testing.T) {
+			t.Run("live apply dispatches", func(t *testing.T) {
+				probe := run(t, arm, 0)
+				require.Eventually(t, func() bool { return len(probe.snapshot()) == 1 },
+					2*time.Second, 5*time.Millisecond,
+					"a live terminal apply must reach the observer")
+			})
+			t.Run("catchup replay stays silent", func(t *testing.T) {
+				probe := run(t, arm, 100)
+				require.Never(t, func() bool { return len(probe.snapshot()) > 0 },
+					300*time.Millisecond, 25*time.Millisecond,
+					"a replayed terminal apply must not reach the observer")
+			})
+			// The boundary the comparison is written on: the entry sitting
+			// exactly at lastAppliedIndexToDB was applied before the restart
+			// and must count as replay, not as live.
+			t.Run("a replay landing exactly on lastAppliedIndexToDB stays silent", func(t *testing.T) {
+				probe := run(t, arm, termIndex)
+				require.Never(t, func() bool { return len(probe.snapshot()) > 0 },
+					300*time.Millisecond, 25*time.Millisecond,
+					"catchingUp is index <= lastAppliedIndexToDB; the entry at the boundary is replay")
+			})
+		})
 	}
 }

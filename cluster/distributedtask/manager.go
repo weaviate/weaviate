@@ -15,13 +15,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -63,6 +69,23 @@ type Manager struct {
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
+
+	// Per-namespace terminal-apply observers; see [TerminalObserver].
+	terminalObservers map[string]TerminalObserver
+	// terminalDispatch carries terminal tasks to the single drainer goroutine
+	// that calls the observers; see [Manager.dispatchTerminalWithLock].
+	terminalDispatch chan *Task
+	// terminalDispatchDone is closed by [Manager.Close] to stop the drainer.
+	terminalDispatchDone chan struct{}
+	// terminalOverflowInFlight counts overflow goroutines spawned when the
+	// queue is full; bounded by [terminalDispatchOverflowLimit]. Atomic: read
+	// and incremented under mu, decremented from the goroutine itself.
+	terminalOverflowInFlight atomic.Int64
+	// terminalDrainerRunning keeps the drainer to exactly one goroutine across
+	// repeated registrations. Guarded by mu.
+	terminalDrainerRunning bool
+	// terminalDispatchClosed makes Close idempotent. Guarded by mu.
+	terminalDispatchClosed bool
 
 	completedTaskTTL time.Duration
 
@@ -236,10 +259,22 @@ func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
 	}
+	if params.Logger == nil {
+		// Discards rather than writing to stderr, so a partially-wired test
+		// harness stays quiet. The cost is that a caller who forgets the
+		// logger also loses the drop and panic reports below, which is why
+		// every production path passes one.
+		discarding := logrus.New()
+		discarding.Out = io.Discard
+		params.Logger = discarding
+	}
 
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
+		terminalObservers:    make(map[string]TerminalObserver),
+		terminalDispatch:     make(chan *Task, terminalDispatchQueueDepth),
+		terminalDispatchDone: make(chan struct{}),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -258,6 +293,181 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterTerminalObserver installs the namespace's [TerminalObserver], which
+// fires on CANCELLED and on FAILED. Last write wins; nil/empty arguments are
+// dropped. Also starts the drainer, so registering is what opens the queue.
+// Registrations after Close are dropped: dispatch is already shut, so a
+// drainer started now would only exit immediately.
+func (m *Manager) RegisterTerminalObserver(namespace string, observer TerminalObserver) {
+	if namespace == "" || observer == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.terminalDispatchClosed {
+		return
+	}
+	m.terminalObservers[namespace] = observer
+	m.startTerminalDrainerWithLock()
+}
+
+// Close stops the terminal-observer drainer. Idempotent; queued events are
+// dropped since shutdown means there's no one left to read them. Does not
+// wait for an observer call already in flight — the drainer looks its
+// observer up under the same lock Close holds, so joining would deadlock.
+//
+// Nothing bounds how long that in-flight call runs, so an observer can still
+// be executing after Close returns and after the caller has torn the rest of
+// the node down. Observers must not assume the subsystems they touch are
+// still up. Joining is not the trade we want here: it would hand a wedged
+// observer the power to hang node shutdown.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.terminalDispatchClosed {
+		return
+	}
+	m.terminalDispatchClosed = true
+	close(m.terminalDispatchDone)
+}
+
+// terminalDispatchQueueDepth is how deep the drainer's queue can get before
+// the apply path falls back to a fan-out goroutine per event. Task endings
+// are rare, so a queue this deep only fills if an observer has wedged.
+const terminalDispatchQueueDepth = 256
+
+// terminalDispatchOverflowLimit bounds fan-out goroutines spawned once the
+// queue is full. A wedged observer would otherwise let these pile up forever.
+const terminalDispatchOverflowLimit = 32
+
+// startTerminalDrainerWithLock brings up the single goroutine that runs terminal
+// observers. Caller holds m.mu.
+func (m *Manager) startTerminalDrainerWithLock() {
+	if m.terminalDrainerRunning {
+		return
+	}
+	m.terminalDrainerRunning = true
+
+	queue, done := m.terminalDispatch, m.terminalDispatchDone
+	enterrors.GoWrapper(func() {
+		for {
+			select {
+			case <-done:
+				return
+			case task := <-queue:
+				// select picks randomly among ready cases, so re-check done to
+				// avoid delivering to a torn-down observer after Close.
+				select {
+				case <-done:
+					return
+				default:
+				}
+				m.runTerminalObserverSafely(task)
+			}
+		}
+	}, m.logger)
+}
+
+// runTerminalObserverSafely keeps one namespace's panicking observer from
+// killing the drainer for all of them: GoWrapper's recover sits outside the
+// loop, so an unrecovered panic ends the drainer for good with no restart.
+//
+// Honors DISABLE_RECOVERY_ON_PANIC exactly like GoWrapper does. The
+// acceptance and integration images set it so a panic kills the process and
+// fails the run; recovering here regardless would make a panicking observer
+// the one bug those runs can never catch.
+func (m *Manager) runTerminalObserverSafely(task *Task) {
+	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+		m.runTerminalObserver(task)
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.
+				WithField("namespace", task.Namespace).
+				WithField("task_id", task.ID).
+				Errorf("distributedtask: terminal observer panicked; dropping this event and keeping the drainer alive: %v", r)
+			// This recover fires before GoWrapper's, so report the way it
+			// would have: Sentry capture plus the stack, or the operator
+			// only ever sees the panic value.
+			entsentry.Recover(r)
+			enterrors.PrintStack(m.logger)
+		}
+	}()
+	m.runTerminalObserver(task)
+}
+
+// runTerminalObserver looks the observer up under its own lock instead of
+// carrying it from the apply path, so observer code never runs with the
+// apply lock held.
+func (m *Manager) runTerminalObserver(task *Task) {
+	m.mu.RLock()
+	observer := m.terminalObservers[task.Namespace]
+	m.mu.RUnlock()
+	// Never nil today: registration drops nil and nothing unregisters, and the
+	// dispatch path already filtered. Kept so adding an unregister path is not
+	// a nil call on the drainer.
+	if observer == nil {
+		return
+	}
+	observer(task)
+}
+
+// dispatchTerminalWithLock hands a terminal task to the drainer. Caller holds m.mu.
+//
+// catchingUp skips reannouncing endings already in the local log at startup;
+// see [TerminalObserver] for full delivery semantics.
+//
+// Runs off the apply path because observers take locks also held by
+// HTTP/admission code, and running inline could stall the FSM behind a
+// blocked observer. The task is cloned because m.tasks keeps mutating it.
+func (m *Manager) dispatchTerminalWithLock(task *Task, catchingUp bool) {
+	if m.terminalDispatchClosed {
+		// The drainer is gone; without this, applies still arriving on the
+		// way down would fill the queue with nothing left to empty it.
+		return
+	}
+	observer := m.terminalObservers[task.Namespace]
+	if observer == nil {
+		return
+	}
+	if catchingUp {
+		m.logger.WithFields(logrus.Fields{
+			"namespace": task.Namespace,
+			"task_id":   task.ID,
+			"version":   task.Version,
+		}).Debug("distributedtask: skipping the terminal observer for an ending replayed from the RAFT log")
+		return
+	}
+
+	clone := task.Clone()
+	select {
+	case m.terminalDispatch <- clone:
+	default:
+		logger := m.logger
+		fields := logrus.Fields{"namespace": task.Namespace, "task_id": task.ID, "version": task.Version}
+		if m.terminalOverflowInFlight.Load() >= terminalDispatchOverflowLimit {
+			// Past the bound the observer is wedged, not just behind.
+			logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full and the overflow bound is reached; dropping this terminal event")
+			return
+		}
+		logger.WithFields(fields).Error("distributedtask: terminal-observer queue is full, the observer is not keeping up; dispatching this one separately")
+		m.terminalOverflowInFlight.Add(1)
+		done := m.terminalDispatchDone
+		enterrors.GoWrapper(func() {
+			defer m.terminalOverflowInFlight.Add(-1)
+			// Not joined by Close (it holds the lock this goroutine would need
+			// to look itself up), so this check is the only stop signal.
+			select {
+			case <-done:
+				return
+			default:
+			}
+			m.runTerminalObserverSafely(clone)
+		}, logger)
+	}
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -401,7 +611,7 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 // in-flight units are NOT waited for, and their subsequent completion reports will be
 // rejected with "task is no longer running". This fail-fast behavior is intentional: it avoids
 // wasting cluster resources on a task that is already doomed.
-func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
+func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record unit completion request: %w", err)
@@ -436,6 +646,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.FinishedAt = finishedAt
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -445,6 +656,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
+		failedClosed := false
 		if task.AnyUnitFailed() {
 			// Fail-closed: AnyUnitFailed only trips via a restored snapshot
 			// (see its godoc). Without this branch such a task would advance
@@ -467,6 +679,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 				}
 				task.Error = fmt.Sprintf("%s: unit %s failed: %s", task.Error, unitID, unitErr)
 			}
+			failedClosed = true
 		} else if task.NeedsPreparationBarrier {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
 			task.Status = TaskStatusPreparing
@@ -477,6 +690,11 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		// The scheduler's TTL cleanup excludes every non-terminal status
 		// (IsActive), so this stamp cannot clean a task mid-coordination.
 		task.FinishedAt = finishedAt
+
+		// Dispatch after FinishedAt is stamped so the observer's copy carries it.
+		if failedClosed {
+			m.dispatchTerminalWithLock(task, catchingUp)
+		}
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -493,7 +711,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
-func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record post-completion ack request: %w", err)
@@ -546,6 +764,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		} else {
 			task.Error = ackErr
 		}
+		m.dispatchTerminalWithLock(task, catchingUp)
 	}
 
 	m.notifySchedulerWithLock()
@@ -582,7 +801,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 // purely from the task's Units → NodeID map (which is RAFT-replicated
 // and identical on every node) plus the PreparationCompletionAcks state — so
 // every node's Manager arrives at the transition on the same apply.
-func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
+func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record prep-complete ack request: %w", err)
@@ -637,6 +856,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 			task.Error = ackErr
 		}
 		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		m.dispatchTerminalWithLock(task, catchingUp)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -730,7 +950,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
 // is refused. FinishedAt stays at the AllUnitsTerminal moment.
-func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
+func (m *Manager) MarkTaskFailed(c *api.ApplyRequest, catchingUp bool) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal mark task failed request: %w", err)
@@ -765,6 +985,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -836,7 +1057,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 // CancelTask transitions a STARTED task to CANCELLED and refuses every other status,
 // including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
 // are not waited for — the [Scheduler] will terminate their local handles on the next tick.
-func (m *Manager) CancelTask(a *api.ApplyRequest) error {
+func (m *Manager) CancelTask(a *api.ApplyRequest, catchingUp bool) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal cancel task request: %w", err)
@@ -866,6 +1087,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	m.dispatchTerminalWithLock(task, catchingUp)
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -1083,9 +1305,12 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return bytes, nil
 }
 
-// Restore replaces the Manager's in-memory state from a Raft snapshot produced by
-// [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
-// a snapshot from the leader.
+// Restore merges the tasks from a Raft snapshot produced by [Manager.Snapshot]
+// into the Manager's in-memory state: entries are upserted per (namespace, task
+// ID), none are removed. It is called during Raft leader election or when a
+// follower installs a snapshot from the leader.
+//
+// Tasks already terminal in the snapshot do not fire their [TerminalObserver].
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
