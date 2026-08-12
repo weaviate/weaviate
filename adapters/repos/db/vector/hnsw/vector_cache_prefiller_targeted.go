@@ -110,8 +110,8 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 		return nil, false
 	}
 	if ok && tailStart >= e.ValueSize {
-		// corrupt: the front sections decoded, but a tail past the value end means a
-		// whole-value decode would read the neighbouring row rather than fail
+		// corrupt: the front sections decoded but place the tail past the value end.
+		// Skipped here rather than surfaced as a downstream ReadRange bounds error.
 		h.prefillSkipDebug("vector tail beyond value end",
 			fmt.Errorf("tail offset %d, value size %d", tailStart, e.ValueSize))
 		return nil, false
@@ -145,7 +145,7 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, boo
 		return nil, false
 	}
 	if ok && need > e.ValueSize {
-		// corrupt, and as above a whole-value decode would read the neighbouring row
+		// corrupt, and as above: skipped here rather than downstream
 		h.prefillSkipDebug("legacy vector beyond value end",
 			fmt.Errorf("needs %d bytes, value size %d", need, e.ValueSize))
 		return nil, false
@@ -205,9 +205,11 @@ func objectRowMatchesKey(key, peek []byte) error {
 	return nil
 }
 
-// tornDownByShutdown tells a prefill that was stopped from one that failed. A
-// parallel scan reports context.Canceled for both — a failing worker cancels its
-// siblings and their error is the one latched — so only its own context separates them.
-func tornDownByShutdown(err error, prefillCtx context.Context) bool {
+// prefillStoppedByShutdown tells a prefill that was stopped from one that failed. A
+// scan reports context.Canceled both for a teardown and for a read that fails against
+// an already-cancelled parent, so only the prefill's own context — which nothing but
+// teardown cancels — separates the two. Both drivers latch the first error before
+// cancelling, so a genuine failure never arrives here as context.Canceled.
+func prefillStoppedByShutdown(err error, prefillCtx context.Context) bool {
 	return errors.Is(err, context.Canceled) && prefillCtx.Err() != nil
 }
