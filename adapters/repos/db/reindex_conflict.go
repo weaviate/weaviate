@@ -256,8 +256,14 @@ func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string 
 //
 // "" for an unrecognized type, for enable-rangeable (no body is valid in
 // every terminal state), or when the payload carries no target
-// tokenization (an older binary wrote it) — guessing would retokenize to
-// the wrong value.
+// tokenization.
+//
+// No cluster reaches that last one: every submit path for the three types
+// that read the field rejects an empty target, and no payload version has
+// ever omitted it. The guard stays because this renders a request an
+// operator pastes, and a body carrying an empty tokenization is one the
+// API rejects — printing nothing beats printing a command that cannot
+// work, and guessing a value would retokenize to the wrong one.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:
