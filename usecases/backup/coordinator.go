@@ -336,9 +336,6 @@ func (c *coordinator) Restore(
 		return err
 	}
 
-	// Set status to Transferring now that staging has begun. A refusal is
-	// nothing to act on: it says a cancel of this restore is already stamped,
-	// which the goroutine below checks for on its own.
 	op.descriptor.Status = backup.Transferring
 	slot.set(backup.Transferring)
 
@@ -387,9 +384,8 @@ func (c *coordinator) Restore(
 		c.commit(ctx, op, &statusReq, nodes, true, slot)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
-		// Losing the slot means another restore has since claimed it; writing
-		// below would report that restore as finished/replay this one over it.
-		// The cancel already wrote CANCELLED, so nothing is lost by stopping.
+		// The schema apply over RAFT and the descriptor writes below do not go
+		// through the slot, so a claim that lost it has to stop here.
 		if !slot.holds() {
 			c.log.WithFields(logrus.Fields{
 				"action":       OpRestore,
@@ -439,10 +435,9 @@ func (c *coordinator) Restore(
 				op.descriptor.Status = backup.Success
 			}
 		}
-		// A refused publish means the slot moved on, or already holds this exact
-		// outcome; only the former is a reason to stop. A cancel cannot land
-		// during schema apply — the slot reads Finalizing there, which refuses
-		// cancellations — so that path always publishes.
+		// A refused publish is the signal to stop: the descriptor write below
+		// does not go through the slot. A restore that ended cancelled is the
+		// exception, refused only because the slot already reads Cancelled.
 		published := op.publishStatus(slot)
 		restoreIsItselfCancelled := op.descriptor.Status.IsCancellation() && slot.holds()
 		if !published && !restoreIsItselfCancelled {
