@@ -24,45 +24,25 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// NewStalePartialReindexSweep returns a sweep that wipes any on-disk
-// runtime-reindex state for the given (collection, property, indexType) tuple
-// across every local shard of the collection. It is the CANCEL→retry
-// counterpart to the cleanup that updatePropertyBuckets does on
-// DELETE→re-enable.
+// NewStalePartialReindexSweep returns a sweep that wipes on-disk
+// runtime-reindex state for one (collection, property, indexType) tuple
+// across every local shard — the CANCEL→retry counterpart to the DELETE
+// path in updatePropertyBuckets.
 //
-// Call sites of this sweep (the orphan audit calls the per-shard method):
+// Call sites: the cancel handler (after DTM cancel and the local reindex
+// goroutine exits), submit-time pre-cleanup (covers a crash between those
+// two steps), and background cleanup once a task reaches FAILED/CANCELLED
+// ([autoCleanupAfterTerminal]).
 //
-//  1. Cancel handler, AFTER asking DTM to cancel and AFTER the local reindex
-//     goroutine has exited. Ensures the next submit starts from a clean slate.
+// Caller MUST ensure no local reindex goroutine is touching this tuple —
+// otherwise the cleanup races the worker's writes to the __reindex/__ingest
+// buckets. The cancel handler enforces this via
+// [ReindexProvider.WaitForLocalTaskDrain].
 //
-//  2. Submit handler, BEFORE submitting a new task, as defense in depth. The
-//     cancel-then-cleanup path can be skipped if the node crashed between
-//     CancelDistributedTask and the cleanup, leaving stale state on disk.
-//     Submit-time cleanup catches that case.
-//
-//  3. Background cleanup on every node once a task reaches FAILED or
-//     CANCELLED ([autoCleanupAfterTerminal]).
-//
-// Safe to call when no stale state exists — the per-shard helper is
-// idempotent: missing directories and unloaded buckets are silently skipped.
-//
-// Caller MUST ensure no local reindex goroutine is touching this
-// (collection, prop, indexType) when this fires; the cancel handler does
-// that via [ReindexProvider.WaitForLocalTaskDrain]. Without the wait, the
-// cleanup races against the in-flight worker which is still writing to the
-// __reindex / __ingest buckets — the shutdown would tear those buckets out
-// from under the writer.
-//
-// A missing local collection is reported via [ErrCleanupCollectionDropped]
-// ([IsCleanupCollectionDropped]) rather than as a clean sweep, since nothing
-// was actually cleared.
-//
-// The returned sweep shares a directory-listing cache across every call, so a
-// run of sweeps over one collection reads each skipped shard's directories
-// once instead of once per index type (a hydrated shard's sweep reads the
-// filesystem directly, so it never acts on a snapshot). It is therefore not
-// safe for concurrent use, and must be short-lived: it answers from a
-// filesystem snapshot taken on first read (see [dirNamesCache]).
+// A missing local collection reports [ErrCleanupCollectionDropped], not a
+// clean sweep. The returned sweep caches directory listings across calls, so
+// it is not safe for concurrent use and must be short-lived (see
+// [dirNamesCache]).
 func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
@@ -173,16 +153,15 @@ func writesClassLevelMigrationDir(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeAlgorithm
 }
 
-// ErrCleanupSweepTruncated marks a sweep that did not visit every shard: it
-// ran out of time, started on a shutting-down or unsignalled-closing index,
-// hit an unmappable index type, or a shard left the map before the walk
-// reached it. Those shards are "unknown", not "failed" — often benign (e.g. a
-// HOT→COLD transition removing a tenant mid-walk), but still unverified.
+// ErrCleanupSweepTruncated marks a sweep that didn't visit every shard —
+// timeout, a shutting-down/closing index, an unmappable index type, or a
+// shard that left the map mid-walk. These shards are "unknown", not
+// "failed" (often benign, e.g. a HOT→COLD tenant transition), but still
+// unverified.
 //
-// Callers log it at the severity of what they were about to do: REST
-// handlers log Error since a submit or cancel proceeds on possibly-stale
-// state; background cleanup logs Warn since the next submit for the tuple
-// sweeps again before it starts.
+// Callers log it at Error when a submit or cancel proceeds on possibly-stale
+// state, and at Warn from background cleanup, which sweeps the tuple again
+// before its next submit.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -197,8 +176,8 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // sweep it. A delete landing mid-walk after a shard already failed carries
 // both this and [ErrCleanupCollectionDropped].
 //
-// Exported because [DB.NewStalePartialReindexSweep] hands this error across the
-// package boundary, where callers can only classify it with errors.Is.
+// Exported so callers across the package boundary can classify it with
+// errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
@@ -224,40 +203,32 @@ func classifyIncompleteWalk(err error) error {
 	}
 }
 
-// cleanStalePartialReindexState iterates every local shard of this index
-// and calls the per-shard cleanup. Per-shard errors are collected and
-// returned together, capped at [maxReportedErrors], so the caller can decide
+// cleanStalePartialReindexState iterates every local shard, collecting
+// per-shard errors (capped at [maxReportedErrors]) so the caller can decide
 // whether to refuse the submit or proceed with a warning.
 //
-// Errors do NOT stop iteration: a stuck shard must not permanently wedge the
-// (collection, prop, indexType) tuple. Context cancellation DOES stop it —
-// every caller holds a lock or gate for the whole sweep — and is tagged
-// [ErrCleanupSweepTruncated] so callers don't mistake a stopped sweep for a
-// bounded set of shard failures.
-//
-// A closing index is truncated too (the walk visits nothing); a deleted
+// A stuck shard does NOT stop iteration — that would wedge the tuple at
+// every future submit — but context cancellation does, tagged
+// [ErrCleanupSweepTruncated] so it isn't mistaken for a bounded set of
+// shard failures. A closing index is truncated the same way; a deleted
 // collection is [ErrCleanupCollectionDropped] instead, since what it leaves
-// behind is harmless — see that error. Cancellation reported from inside the
-// walk wins over a collection delete landing during it, so that race reads as
-// truncated — one spurious Error log at teardown, nothing more.
+// behind is harmless.
 //
 // An unloaded shard is only hydrated if it actually has on-disk state to
-// remove, to avoid hydrating every unloaded tenant of a large collection.
-//
-// dirs carries the directory listings the unloaded-shard gate reads across a
-// run of sweeps; a nil cache reads the filesystem every time.
+// remove. dirs caches directory listings across the run; nil reads the
+// filesystem every time.
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
 	dirs *dirNamesCache,
 ) error {
-	// Refused before the walk rather than per shard: the unloaded-shard gate
-	// below fails open on an unmappable index type, so per-shard refusal would
-	// hydrate every unloaded tenant to reject the same input repeatedly.
+	// Refused before the walk, not per shard: per-shard refusal would
+	// hydrate every unloaded tenant just to reject the same input.
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
 	shardErrs := errorcompounder.New()
+	skippedShards, skippedPayloadReads := 0, 0
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -268,24 +239,15 @@ func (i *Index) cleanStalePartialReindexState(
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
-				// Unreachable in production (only the two implementations exist).
-				// A third would count as visited without being looked at: skipped,
-				// not failed, since the next submit for this tuple sweeps again.
+				// Unreachable in production (only two implementations exist); if it
+				// weren't, this counts as skipped, not failed, since the next
+				// submit for this tuple sweeps again.
 				return nil
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
 			if skip, payloadReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs); skip {
-				// Logged so a skipped shard is distinguishable from one the
-				// walk never reached: without a line here, a collection whose
-				// tenants are all unloaded and clean sweeps in silence, which
-				// reads exactly like a sweep that never ran.
-				i.logger.WithFields(map[string]any{
-					"shard":         name,
-					"property":      propName,
-					"index_type":    indexType,
-					"operation":     "CleanStalePartialReindexState",
-					"payload_reads": payloadReads,
-				}).Info("partial-reindex cleanup: unloaded shard has nothing to sweep, left unloaded")
+				skippedShards++
+				skippedPayloadReads += payloadReads
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
@@ -301,6 +263,13 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		return nil
 	})
+	i.logger.WithFields(map[string]any{
+		"property":       propName,
+		"index_type":     indexType,
+		"operation":      "CleanStalePartialReindexState",
+		"skipped_shards": skippedShards,
+		"payload_reads":  skippedPayloadReads,
+	}).Info("partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded")
 	var failedShards error
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
@@ -308,33 +277,35 @@ func (i *Index) cleanStalePartialReindexState(
 	return errors.Join(failedShards, classifyIncompleteWalk(walkErr))
 }
 
-// hasStalePartialReindexState reports whether the shard rooted at lsmPath has
-// on-disk state [Shard.CleanStalePartialReindexState] would remove, without
-// loading the shard.
+// hasStalePartialReindexState reports whether the shard rooted at lsmPath
+// has on-disk state [Shard.CleanStalePartialReindexState] would remove,
+// without loading the shard.
 //
 // Fails open (returns true) on anything it can't read — an unmappable index
-// type, an unlistable directory, a tracker payload that exists but can't be
-// read or parsed — since a false "clean" would leave a stale started.mig for
-// the next task to resume against.
+// type, an unlistable directory, or an unparseable tracker payload — since a
+// false "clean" would leave a stale started.mig for the next task to resume
+// against.
+//
+// The unreadable payload only fails open while no properties.mig rebuilds
+// the dir's name. Where one does, [readTaskProps] answers from it, and a
+// tracker naming other properties leaves this reporting clean and skipping
+// the shard.
 //
 // Failing open costs only a hydration, except on an unlistable .migrations:
-// the hydrated sweep reads that same directory, finds no completed migration
-// to preserve, and removes sidecars a deferred finalize still needs.
+// that hydration then finds no completed migration to preserve and removes
+// sidecars a deferred finalize still needs.
 //
 // A FROZEN (offload) transition removes the shard from the map before it
-// removes files, so an already-offloaded shard is never handed to this walk;
-// one caught mid-transition reads a directory being emptied and skips it,
-// which the offload is about to make true anyway. The reverse race (files
-// still there) costs a spurious [ErrCleanupShardFailed], not corruption.
+// removes files, so a mid-transition read either finds an emptying
+// directory and skips it (which offload is about to make true anyway), or
+// races the other way into a spurious [ErrCleanupShardFailed] — never
+// corruption. A deactivated (COLD) tenant is absent from the map too, and
+// reactivating it changes nothing: the stale-sentinel check runs from the
+// task path, not from a shard load.
 //
-// A deactivated (COLD) tenant is absent from the map too, and reactivating it
-// changes nothing: the stale-sentinel check runs from the task path, not from
-// a shard load, so its state waits for the next reindex task.
-//
-// The second return is how many tracker payloads this call had to read, for
-// the caller's log line. Payloads are memoized for the duration of the call,
-// so the three passes below read each one once; the memo is not shared across
-// shards, which would only grow it, since no two shards name the same path.
+// The second return is the tracker-payload read count for the caller's log
+// line; payloads are memoized per call, not shared across shards, since no
+// two shards name the same path.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache,
 ) (bool, int) {
@@ -405,12 +376,10 @@ const maxCachedDirNames = 100_000
 // reads the filesystem every time; the zero value caches. Not safe for
 // concurrent use.
 //
-// A name removed since caching makes the gate over-report "state here": an
-// extra hydration, never a skipped shard.
-//
-// A name added since caching makes it under-report, so a shard with new state
-// may be skipped — bounded by the cache's lifetime (one HTTP request or one
-// [reindexTerminalCleanupTimeout] window) and by the next submit's fresh sweep.
+// Staleness only over-reports: a name removed since caching costs an extra
+// hydration, and a name added since caching may be skipped — bounded by the
+// cache's lifetime (one HTTP request or one [reindexTerminalCleanupTimeout]
+// window) and caught by the next submit's fresh sweep.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].
@@ -457,9 +426,9 @@ func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([
 		if c.listings == nil {
 			c.listings = map[dirNamesKey]dirNamesListing{}
 		}
-		// Cloned, not clipped: clipping only shrinks the header, so the
-		// full-size backing array from listDirNames would stay alive for the
-		// rest of the run — even for an unloaded tenant's empty filtered listing.
+		// Cloned, not clipped: clipping only shrinks the header, so the full
+		// backing array from listDirNames would otherwise stay alive for the
+		// rest of the run, even for an empty filtered listing.
 		c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
 		c.cost += len(names) + 1
 	}

@@ -331,8 +331,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 
 	// A server context that expires shortly: the drain's bounded child
 	// inherits it, so the wait ends on that deadline instead of after
-	// reindexTerminalCleanupDrainTimeout.
-	expired, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// reindexTerminalCleanupDrainTimeout. The margin is generous because the
+	// test measures ordering, not latency, and a tight budget flakes on a
+	// loaded CI box.
+	expired, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(

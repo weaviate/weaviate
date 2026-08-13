@@ -267,11 +267,8 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 		"stale sidecar dir must be wiped")
 }
 
-// TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets pins
-// which loaded buckets the shutdown loop reaches. "__" is legal in a property
-// name, so "property_category__extra" is property "category__extra"'s own main
-// bucket, not a sidecar of "category"; the trailing role word is what tells the
-// two apart. Shutting one down disconnects a live index from the store.
+// Pins that "__" in a property name (e.g. "category__extra") is not
+// misread as a sidecar of "category" and shut down as one.
 func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *testing.T) {
 	tests := []struct {
 		name string
@@ -282,10 +279,8 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 		reason       string
 	}{
 		{
-			// Both the role-word check and the older "__" prefix reject this
-			// name, so this row does not discriminate the narrowing the other
-			// three do. It guards the outer rule instead: whatever decides a
-			// sidecar, the main bucket is never one.
+			// Guards the outer rule: whatever decides a sidecar, the main
+			// bucket is never one.
 			name:   "the swept property's own main bucket",
 			bucket: "property_category",
 			reason: "the sweep's job is the sidecars around the main bucket, never the " +

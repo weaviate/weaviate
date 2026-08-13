@@ -2363,13 +2363,11 @@ func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T
 	require.NotContains(t, restarted.tasks[ns], id)
 }
 
-// Pins what the scheduler's unrecognized-status warn reads off this node
-// once the peers have deleted their copies: exactly the tasks in a status
-// this build cannot name, grouped by namespace, and always as clones —
-// the caller reads them outside the Manager's lock.
-//
-// The scheduler's warn reaches this through an interface it stubs out in
-// tests, so nothing else exercises the production method.
+// Pins what LocalUnrecognizedDistributedTasks reads off this node: exactly
+// the tasks in a status this build cannot name, grouped by namespace, and
+// always as clones (the caller reads them outside the Manager's lock). The
+// scheduler's warn reaches this through an interface it stubs out in tests,
+// so nothing else exercises the production method.
 func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 	const otherNamespace = "other-namespace"
 

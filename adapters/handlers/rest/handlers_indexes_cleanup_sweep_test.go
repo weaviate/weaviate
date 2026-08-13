@@ -38,12 +38,10 @@ func droppedAfterAShardFailed() error {
 	)
 }
 
-// A collection deleted mid-sweep must not be logged as an operator-facing
-// failure: with the class gone, nothing it left behind is reachable, and there
-// is no new task to warn about.
+// A deleted collection must not be logged as an operator-facing sweep failure.
 func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
-	// change-tokenization submits both index types, which is the case where a
-	// concurrent delete can be seen by one sweep and not the other.
+	// change-tokenization submits both index types, so a concurrent delete can
+	// hit one sweep and not the other.
 	indexTypes, ok := indexTypesFromMigrationType(db.ReindexTypeChangeTokenization)
 	require.True(t, ok)
 	require.Len(t, indexTypes, 2)
@@ -103,8 +101,8 @@ func TestSubmitPreCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	}
 }
 
-// A collection being deleted has no next submit to retry the cleanup, so the
-// cancel handler must not promise one.
+// A deleted collection has no next submit to retry cleanup, so cancel must
+// not promise one.
 func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -150,8 +148,8 @@ func TestCancelCleanupIgnoresACollectionBeingDeleted(t *testing.T) {
 				return tc.sweepErr[indexType]
 			})
 
-			// The handler takes the "on-disk cleanup complete" branch on an
-			// empty slice and the retry-promising Error branch otherwise.
+			// An empty slice means "on-disk cleanup complete"; a non-empty one
+			// means the handler promises a retry.
 			require.Len(t, errs, len(tc.wantErrs))
 			for i, want := range tc.wantErrs {
 				require.EqualError(t, errs[i], want)

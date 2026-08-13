@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -547,11 +548,12 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property,
+	property *models.Property, payloadReads *atomic.Int64,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property)
+		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
+		// The unloaded path removes bucket dirs by name and reads no payloads.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -1084,13 +1086,13 @@ func (l *LazyLoadShard) blockLoading() func() {
 	}
 }
 
-// canSkipUnloadedSweep reports whether the cleanup sweep can leave this shard
-// alone; a loaded shard is never skipped, since sweeping it costs no load.
-// The loading mutex covers the disk read so a concurrent load cannot split the
-// answer, and is dropped before returning: the hydration that follows takes it.
+// canSkipUnloadedSweep reports whether the cleanup sweep can leave this
+// shard alone; a loaded shard is never skipped, since sweeping it costs no
+// load. The loading mutex covers the disk read and is released before
+// returning — the hydration that follows takes it itself.
 //
-// The second return is how many tracker payloads the check read, which the
-// caller logs; a loaded shard reads none.
+// The second return is the tracker-payload read count for the caller's log;
+// a loaded shard reads none.
 func (l *LazyLoadShard) canSkipUnloadedSweep(
 	propName, indexType string, dirs *dirNamesCache,
 ) (bool, int) {

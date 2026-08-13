@@ -233,9 +233,8 @@ var (
 	errIndexShutdown = stderrors.New("node is shutting down")
 )
 
-// errShardsSkipped reports a walk that did not reach every shard in the map
-// when it started; what is on those shards is unknown rather than done. Not a
-// cause of Index.closeRequestedCtx — it describes a walk, not the index.
+// errShardsSkipped signals a walk that didn't reach every shard the index
+// held when it started — not a close cause, it describes the walk itself.
 var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
 
 // Index is the logical unit which contains all the data for one particular
@@ -780,12 +779,11 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 }
 
 // closeCause reports why the index is closing, or nil if still open. It is
-// nil-safe (unlike calling Err on closingCtx directly), and lets callers tell
-// a collection delete from a shutdown (state persists); an unsignalled close
-// reads as [errIndexClosed].
+// nil-safe (unlike calling Err on closingCtx directly) and distinguishes a
+// delete from a shutdown; an unsignalled close reads as [errIndexClosed].
 //
-// Trade-off: an Index whose contexts were never wired also reads as open,
-// so [Index.ForEachShard] walks it rather than panicking.
+// An Index whose contexts were never wired also reads as open, so
+// [Index.ForEachShard] walks it rather than panicking.
 func (i *Index) closeCause() error {
 	if i.closingCtx == nil || i.closingCtx.Err() == nil {
 		return nil
@@ -812,23 +810,16 @@ func (i *Index) closeRequestedCause() error {
 	return i.closeCause()
 }
 
-// forEachShardStrict is [Index.ForEachShard] for callers that must not treat
-// a walk that skipped shards as one that reached them all: an index closing or
-// committed to closing ([Index.closeRequestedCause]), or an unvisited shard, is
-// reported as an error, not swallowed into a nil.
+// forEachShardStrict is [Index.ForEachShard] for callers that must not
+// mistake a walk that skipped shards for one that reached them all.
 //
-// sync.Map.Range can skip entries deleted mid-walk, so the close cause is
-// re-checked after the walk to catch a drop landing mid-range. Removals that
-// signal no cause (tenant delete, offload, replica move) are caught instead
-// by diffing unvisited names against the shard set captured before the walk,
-// reported as [errShardsSkipped].
-//
-// The set is captured at the start, so "reached every shard" means every shard
-// the index held when the walk began — the same set [terminalSweepOutcome]
-// reports on. A shard already gone is out of scope. So is one that arrives
-// mid-walk: Range makes no consistent-snapshot promise, so it may or may not
-// be handed to f, and either way it is not reported. Only a shard that leaves
-// mid-walk can invalidate the claim, which is what [errShardsSkipped] is for.
+// A close is checked both before and after the walk ([Index.closeCause]),
+// since sync.Map.Range can skip an entry removed mid-walk before the close
+// became visible. A removal with no close cause (e.g. one tenant deleted)
+// is instead caught by diffing unvisited names against the shard set
+// captured before the walk, reported as [errShardsSkipped]. A shard added
+// mid-walk is out of scope either way: Range makes no consistent-snapshot
+// guarantee.
 func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
 	if cause := i.closeRequestedCause(); cause != nil {
 		return cause
@@ -850,17 +841,10 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 	return nil
 }
 
-// shardNameSet is the set of shards in the map right now, bounded by the
-// collection's live shard count. The extra Range and the transient map of
-// shared name strings are cheap next to what one missed skip would cost: a
-// sweep falsely reported as having reached every shard.
-//
-// Paid once per walk, and a terminal cleanup walks once per (property,
-// index type) tuple, so a ten-property enable-filterable on a large
-// collection builds this map ten times. Sharing one snapshot across the
-// tuples would be cheaper and wrong: a tenant legitimately dropped between
-// the first tuple and the fifth would then read as a shard the walk skipped,
-// and the sweep would report itself truncated when it was not.
+// shardNameSet snapshots the shards currently in the map, used to detect
+// shards skipped mid-walk. Paid once per walk rather than shared across
+// walks: sharing would be cheaper, but a tenant dropped between two walks
+// would then read as skipped in the later one, falsely reporting it truncated.
 func (i *Index) shardNameSet() map[string]struct{} {
 	names := map[string]struct{}{}
 	i.shards.Range(func(name string, _ ShardLike) error {
@@ -964,12 +948,23 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
+	// Accumulated across the walk so the sweep reports once for the whole
+	// class. Shards sweep concurrently under eg, hence the atomic.
+	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.updatePropertyBuckets(ctx, eg, property)
+		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
 		return nil
 	})
 
-	if err := eg.Wait(); err != nil {
+	err := eg.Wait()
+	if disabled := disabledIndexTypes(property); len(disabled) > 0 {
+		i.logger.WithFields(map[string]any{
+			"property":      property.Name,
+			"index_types":   disabled,
+			"payload_reads": payloadReads.Load(),
+		}).Info("partial-reindex cleanup: migration dirs swept after index DELETE")
+	}
+	if err != nil {
 		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
 	}
 

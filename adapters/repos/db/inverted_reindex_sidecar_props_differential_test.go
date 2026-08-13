@@ -24,16 +24,13 @@ import (
 )
 
 // This file is the differential gate on answering [readTaskProps] from a
-// tracker's properties.mig instead of parsing its payload.mig. Every fixture
-// below is put through both readers and the answers compared, at the level of
-// [migrationDirScope.matches], of the preserve pass, and of the survivor set a
-// real sweep leaves on disk.
+// tracker's properties.mig instead of parsing its payload.mig: every fixture
+// is put through both readers and compared, at the level of
+// [migrationDirScope.matches], the preserve pass, and the sweep's survivors.
 //
-// One cell is allowed to differ, and only one: a payload that is present but
-// unusable, next to a sidecar that rebuilds the dir's own name. There the fix
-// decides as if the payload were intact, which is asserted against an
-// intact-payload tree rather than against a hand-written expectation. See
-// [TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable].
+// One cell is allowed to differ: an unusable payload next to a sidecar that
+// rebuilds the dir's own name, where the fix decides as if the payload were
+// intact — see [TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable].
 
 // headTaskProps is [readTaskProps] as it stood before properties.mig could
 // answer: payload.mig decides, or nothing does.
@@ -81,6 +78,13 @@ var sidecarPropLists = [][]string{
 	{"b", "c", "cat"},
 }
 
+// singlePropertyStrategyPrefixes are the strategies whose task constructor takes
+// one property rather than a list, so no tracker dir of theirs can name two.
+var singlePropertyStrategyPrefixes = map[string]bool{
+	MigrationDirPrefixFilterableRetokenize: true,
+	MigrationDirPrefixSearchableRetokenize: true,
+}
+
 // sidecarFixturesFor spans every per-property strategy of one index type, so no
 // strategy reaches the reader untested.
 func sidecarFixturesFor(indexType string) []sidecarFixture {
@@ -88,6 +92,9 @@ func sidecarFixturesFor(indexType string) []sidecarFixture {
 	gen := 0
 	for _, prefix := range migrationDirPrefixesForIndexType(indexType) {
 		for _, props := range sidecarPropLists {
+			if singlePropertyStrategyPrefixes[prefix] && len(props) > 1 {
+				continue
+			}
 			gen++
 			out = append(out, sidecarFixture{
 				name:   migrationDirWithProps(prefix, props) + genSuffix(gen),
@@ -125,9 +132,9 @@ var sidecarPayloadModes = []string{
 }
 
 // properties.mig fixture modes. Only sidecarValid is writer-producible;
-// sidecarZeroByte and sidecarTruncated are what a kill mid-write leaves, and
-// they are produced by truncating a written file, never by writing the torn
-// end state directly.
+// sidecarZeroByte and sidecarTruncated are what a kill mid-write leaves,
+// produced here by truncating a written file so the fixture cannot drift
+// from the state it stands for.
 const (
 	sidecarAbsent        = "sidecar-absent"
 	sidecarZeroByte      = "sidecar-zero-byte"
@@ -266,10 +273,9 @@ func scopesUnderTest(lsm, propName, indexType string) []migrationDirScope {
 	return []migrationDirScope{base, base.preserving(indexType)}
 }
 
-// TestSidecarPropsMatchTheirPayloadOnlyReader walks the full
-// payload.mig × properties.mig × name × index-type matrix and requires the two
-// readers to select the same tracker dirs, except where the sidecar is allowed
-// to repair an unusable payload.
+// Walks the full payload.mig × properties.mig × name × index-type matrix and
+// requires both readers to select the same tracker dirs, except where the
+// sidecar is allowed to repair an unusable payload.
 func TestSidecarPropsMatchTheirPayloadOnlyReader(t *testing.T) {
 	var allowedDivergences int
 
@@ -305,10 +311,9 @@ func TestSidecarPropsMatchTheirPayloadOnlyReader(t *testing.T) {
 		"the matrix must actually exercise the repaired-payload cell, else it proves nothing")
 }
 
-// TestSidecarPropsPreservePassMatchesItsPayloadOnlyReader is the same claim for
-// the pass that decides which generations survive as deferred-finalize state.
-// It is what stands between the sweep and #10675-shape data loss, and it runs
-// off the same memo, so it has to be checked in its own right.
+// Same claim as above, for the pass that decides which generations survive
+// as deferred-finalize state — it runs off the same memo but is what stands
+// between the sweep and #10675-shape data loss, so it's checked separately.
 func TestSidecarPropsPreservePassMatchesItsPayloadOnlyReader(t *testing.T) {
 	for _, indexType := range diffIndexTypes {
 		for _, payloadMode := range sidecarPayloadModes {
@@ -334,9 +339,8 @@ func TestSidecarPropsPreservePassMatchesItsPayloadOnlyReader(t *testing.T) {
 	}
 }
 
-// TestSidecarPropsSweepLeavesTheSameDirsBehind compares the survivor set of a
-// real sweep, dir for dir, against a sweep driven by the payload-only reader.
-// This is the claim that matters: the same directories are removed from disk.
+// Compares the survivor set of a real sweep, dir for dir, against a sweep
+// driven by the payload-only reader.
 func TestSidecarPropsSweepLeavesTheSameDirsBehind(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -369,20 +373,14 @@ func TestSidecarPropsSweepLeavesTheSameDirsBehind(t *testing.T) {
 	}
 }
 
-// TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable pins
-// the one approved divergence, and pins it against an oracle rather than a
-// hand-written expectation.
-//
-// Where payload.mig is present but unusable and properties.mig rebuilds the
-// dir's own name, the sweep now decides exactly as it would have with an intact
-// payload. The payload-only reader cannot: it has to fall back to guessing from
-// the name, and for a dir whose name reads as one property but whose task owns
-// several, that guess deletes a tracker belonging to the other properties.
-// Recovering the list from the sidecar is what removes the guess.
-//
-// The divergence is deliberate and cannot be closed from here: deciding whether
-// to trust the payload means parsing it, which is the cost this whole path
-// exists to avoid.
+// Pins the one approved divergence against an oracle (an intact-payload
+// tree) rather than a hand-written expectation: where payload.mig is
+// unusable but properties.mig rebuilds the dir's own name, the sweep now
+// decides as it would with an intact payload — the payload-only reader
+// falls back to guessing from the name instead, which can delete a
+// multi-property tracker. The divergence can't be closed here: deciding
+// whether to trust the payload means parsing it, the cost this path exists
+// to avoid.
 func TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var repaired int
@@ -452,12 +450,9 @@ func TestSidecarIsRefusedWhereItCannotRebuildTheDirName(t *testing.T) {
 	}
 }
 
-// TestSidecarZeroByteWouldDeleteAnotherPropertysTrackerWithoutTheCorroboration
-// is the reason the corroboration is not optional. A zero-byte properties.mig
-// is one kill away on any node — createFile creates the file, then writes it,
-// and discards the close error — and a reader that trusted its emptiness would
-// read a multi-property tracker as belonging to no property at all.
-func TestSidecarZeroByteWouldDeleteAnotherPropertysTrackerWithoutTheCorroboration(t *testing.T) {
+// Pins the read alone: a zero-byte properties.mig still costs a payload
+// read and still answers with every property the task recorded.
+func TestZeroByteSidecarDoesNotNarrowTheTrackersProperties(t *testing.T) {
 	const indexType = "filterable"
 	lsm, fixtures := writeSidecarTree(t, indexType, payloadValid, sidecarZeroByte, false)
 
@@ -482,14 +477,10 @@ func TestSidecarZeroByteWouldDeleteAnotherPropertysTrackerWithoutTheCorroboratio
 	require.Positive(t, checked)
 }
 
-// TestAbsentPayloadStaysAbsentHoweverGoodTheSidecarIs pins the distinction the
-// whole change rests on: a missing payload.mig and an unusable one are not the
-// same state, and only the second is the sidecar's to answer over.
-//
-// "No payload" means the task recorded nothing, which is what lets the
-// unloaded-shard gate call a shard clean and skip it. A sidecar may not forge
-// that, in either direction — so where payload.mig is absent the sidecar is not
-// even read, however well it rebuilds the dir name.
+// Pins the distinction the whole change rests on: a missing payload.mig and
+// an unusable one are not the same state — "no payload" is what lets the
+// unloaded-shard gate call a shard clean, so a sidecar may not forge that in
+// either direction, and is not even read where the payload is absent.
 func TestAbsentPayloadStaysAbsentHoweverGoodTheSidecarIs(t *testing.T) {
 	for _, indexType := range diffIndexTypes {
 		for _, propsMode := range sidecarPropsModes {
@@ -503,8 +494,8 @@ func TestAbsentPayloadStaysAbsentHoweverGoodTheSidecarIs(t *testing.T) {
 					indexType, propsMode, f.name)
 				require.False(t, got.ok)
 				require.False(t, got.unreadable)
-				require.True(t, readPayload,
-					"the sidecar must not stand in for a payload that was never written")
+				require.False(t, readPayload,
+					"a payload that is not on disk is never opened, so it must not count as a read")
 				require.Equal(t, headTaskProps(migDir), got)
 			}
 		}

@@ -381,11 +381,8 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 	}
 }
 
-// LocalCallbacksDone runs from the scheduler bootstrap, so it fires at node
-// startup with every tenant of the collection as cold as the restart left
-// it. The tracker dir it reads sits at a path this node can join, and
-// loading a 10k-tenant collection to ask each shard for that path is the
-// one thing the startup path cannot afford.
+// Pins that LocalCallbacksDone, firing at bootstrap with every tenant cold,
+// reads the tracker dir at a path it can join without loading the shard.
 func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"

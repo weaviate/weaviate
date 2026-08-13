@@ -18,8 +18,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -44,7 +47,7 @@ var sweepMemoFixtures = []memoFixture{
 	},
 	{
 		dir:       "filterable_retokenize_bird_cat_1",
-		props:     []string{"bird", "cat"},
+		props:     []string{"bird_cat"},
 		sentinels: []string{"started.mig"},
 	},
 	{
@@ -104,35 +107,70 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 }
 
 // TestDeleteSweepReportsItsPayloadReads pins that the DELETE path's read count
-// reaches the operator, which is the only place the sweep's cost is visible.
+// reaches the operator once for the whole class, summed over shards. Per-shard
+// lines would be 30k lines for a 10k-tenant class, emitted inside the RAFT FSM
+// apply, so the count is the aggregate or it is nothing.
 func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
 	ctx := testCtx()
 	className := "DeleteSweepReads_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"cat", "dog"})
 	hookLogger, hook := test.NewNullLogger()
-	shd, _ := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"cat", "dog"}),
+	shd, idx := testShardWithSettings(t, ctx, class,
 		enthnsw.UserConfig{Skip: true}, false, false, false,
 		func(i *Index) { i.logger = hookLogger })
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	defer shd.Shutdown(ctx)
 
-	for _, f := range sweepMemoFixtures {
-		mkTrackerDir(t, shard.pathLSM(), f.dir, f.sentinels...)
-		mkRecoveryPayload(t, shard.pathLSM(), f.dir, f.props...)
+	// A second shard, so no single shard's count can pass for the aggregate.
+	second, err := idx.initShard(ctx, "shard2", class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store("shard2", second)
+	defer second.Shutdown(ctx)
+
+	var shards int64
+	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
+		shards++
+		for _, f := range sweepMemoFixtures {
+			mkTrackerDir(t, s.(*Shard).pathLSM(), f.dir, f.sentinels...)
+			mkRecoveryPayload(t, s.(*Shard).pathLSM(), f.dir, f.props...)
+		}
+		return nil
+	}))
+	require.EqualValues(t, 2, shards)
+
+	// Text properties have no rangeable index, so switching filterable off
+	// sweeps both types; each contributes to the one reported count.
+	disableFilterable := &models.Property{
+		Name:            "cat",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWord,
+		IndexFilterable: boolPtr(false),
+		IndexSearchable: boolPtr(true),
 	}
+	require.Equal(t, []string{"filterable", "rangeable"}, disabledIndexTypes(disableFilterable))
+
+	logger, _ := test.NewNullLogger()
+	var perShard int64
+	for _, indexType := range disabledIndexTypes(disableFilterable) {
+		perShard += int64(cleanStaleMigrationDirsAt(
+			writeSweepMemoFixtures(t), "cat", indexType, logger))
+	}
+	require.Positive(t, perShard, "fixtures must cost the sweep something to report")
 
 	hook.Reset()
-	shard.cleanStaleMigrationDirs("cat", "filterable")
+	require.NoError(t, idx.updateProperty(ctx, disableFilterable))
 
 	const sweepDone = "partial-reindex cleanup: migration dirs swept after index DELETE"
-	var lines int
+	var lines []*logrus.Entry
 	for _, entry := range hook.AllEntries() {
-		if entry.Message != sweepDone {
-			continue
+		if entry.Message == sweepDone {
+			lines = append(lines, entry)
 		}
-		lines++
-		require.Equal(t, payloadReadingFixtures, entry.Data["payload_reads"])
 	}
-	require.Equal(t, 1, lines, "one completion line per DELETE-path sweep")
+	require.Len(t, lines, 1, "one completion line per sweep, whatever the shard count")
+	require.Equal(t, shards*perShard, lines[0].Data["payload_reads"],
+		"the reported count sums every shard and every swept index type")
+	require.Equal(t, "cat", lines[0].Data["property"])
+	require.Equal(t, []string{"filterable", "rangeable"}, lines[0].Data["index_types"])
 }
 
 // TestSweepMemoLeavesTheDeletedSetAlone pins the memo as pure memoization: the
