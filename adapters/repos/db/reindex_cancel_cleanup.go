@@ -149,6 +149,9 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	shardErrs := errorcompounder.New()
 	skippedShards, payloadReads := 0, 0
+	// One cache serves every sweep of a request, so only the delta belongs to
+	// this one; its running total would re-report the first sweep's refusals.
+	refusedBefore := dirs.refusedListings()
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -195,7 +198,7 @@ func (i *Index) cleanStalePartialReindexState(
 
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
 	msg, level := sweepSummary(outcome)
-	uncachedListings := dirs.refusedListings()
+	uncachedListings := dirs.refusedListings() - refusedBefore
 	if uncachedListings > 0 {
 		// logrus orders its levels descending, so this only ever raises severity:
 		// a bound the cache silently hit has no other signal.

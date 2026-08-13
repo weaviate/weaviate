@@ -793,6 +793,42 @@ func TestIndexCleanStalePartialReindexStateReportsAFullDirNamesCache(t *testing.
 		"the sweep is otherwise clean, so only the refused listing can raise this")
 }
 
+// One cache serves every sweep of a request, so a count taken off its total
+// re-reports the first sweep's refusals on every later sweep — and raises them
+// to Warn on a sweep that refused nothing.
+func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"),
+		"enable_filterable_title_1", "started.mig")
+	storeUnloadableTenant(idx, "tenant-a")
+
+	full := &dirNamesCache{cost: maxCachedDirNames}
+	require.Error(t,
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+	first := onlySweepSummary(t, hook)
+	require.Positive(t, full.refusedListings(), "the first sweep has to fill the cache")
+	require.Equal(t, full.refusedListings(), first.Data["uncached_listings"],
+		"every refusal so far is this sweep's")
+
+	// The tenant left this node between the two sweeps, so the second asks the
+	// cache nothing at all.
+	hook.Reset()
+	_, dropped := idx.shards.LoadAndDelete("tenant-a")
+	require.True(t, dropped)
+	require.NoError(t,
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+
+	second := onlySweepSummary(t, hook)
+	require.Equal(t, 0, second.Data["uncached_listings"],
+		"a sweep reports the listings it was refused, not the ones an earlier sweep was")
+	require.Equal(t, logrus.InfoLevel, second.Level,
+		"nothing about this sweep warrants raising it above its own outcome")
+	require.Positive(t, full.refusedListings(),
+		"the cache still carries the first sweep's refusals")
+}
+
 // Pins that a collection already gone is reported as dropped, not clean.
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
