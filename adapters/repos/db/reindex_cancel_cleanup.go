@@ -20,6 +20,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -131,6 +133,9 @@ func classifyIncompleteWalk(err error) error {
 // An unloaded shard is only hydrated if it actually has on-disk state to
 // remove. dirs caches directory listings across the run; nil reads the
 // filesystem every time.
+//
+// A walk that starts leaves exactly one summary line naming its outcome, at
+// the level that outcome warrants (see [sweepSummary]).
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -142,7 +147,7 @@ func (i *Index) cleanStalePartialReindexState(
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
 	shardErrs := errorcompounder.New()
-	skippedShards, skippedPayloadReads := 0, 0
+	skippedShards, payloadReads := 0, 0
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -153,15 +158,19 @@ func (i *Index) cleanStalePartialReindexState(
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
 			if !isLazy {
-				// Unreachable in production (only two implementations exist); if it
-				// weren't, this counts as skipped, not failed, since the next
-				// submit for this tuple sweeps again.
+				// Unreachable in production (only two implementations exist).
+				shardErrs.Add(fmt.Errorf(
+					"shard %q: partial-reindex cleanup cannot sweep a %T", name, shardLike))
 				return nil
 			}
+			// Charged whichever way the gate answers: the reads are paid before
+			// it decides, so billing only the hydrating half reports zero exactly
+			// where a node full of cold tenants pays the most.
+			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs)
+			payloadReads += gateReads
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
-			if skip, payloadReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs); skip {
+			if skip {
 				skippedShards++
-				skippedPayloadReads += payloadReads
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
@@ -177,18 +186,50 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		return nil
 	})
-	i.logger.WithFields(map[string]any{
-		"property":       propName,
-		"index_type":     indexType,
-		"operation":      "CleanStalePartialReindexState",
-		"skipped_shards": skippedShards,
-		"payload_reads":  skippedPayloadReads,
-	}).Info("partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded")
 	var failedShards error
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
 	}
-	return errors.Join(failedShards, classifyIncompleteWalk(walkErr))
+	sweepErr := errors.Join(failedShards, classifyIncompleteWalk(walkErr))
+
+	outcome, _ := classifyTerminalSweep(sweepErr)
+	msg, level := sweepSummary(outcome)
+	uncachedListings := dirs.refusedListings()
+	if uncachedListings > 0 {
+		// logrus orders its levels descending, so this only ever raises severity:
+		// a bound the cache silently hit has no other signal.
+		level = min(level, logrus.WarnLevel)
+	}
+	i.logger.WithFields(map[string]any{
+		"property":          propName,
+		"index_type":        indexType,
+		"operation":         "CleanStalePartialReindexState",
+		"skipped_shards":    skippedShards,
+		"payload_reads":     payloadReads,
+		"uncached_listings": uncachedListings,
+	}).Log(level, msg)
+	return sweepErr
+}
+
+// sweepSummary is the one line [Index.cleanStalePartialReindexState] leaves per
+// sweep: what the sweep left behind, at the level that outcome warrants. Only a
+// shard the sweep reached and could not sweep is known to still hold state,
+// which is why it alone is an error.
+func sweepSummary(outcome terminalSweepOutcome) (msg string, level logrus.Level) {
+	switch outcome {
+	case terminalSweepFailed:
+		return "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
+			logrus.ErrorLevel
+	case terminalSweepUnknown:
+		return "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there",
+			logrus.WarnLevel
+	case terminalSweepDropped:
+		return "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
+			logrus.InfoLevel
+	default:
+		return "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
+			logrus.InfoLevel
+	}
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath
@@ -290,14 +331,28 @@ const maxCachedDirNames = 100_000
 // reads the filesystem every time; the zero value caches. Not safe for
 // concurrent use.
 //
-// Staleness only over-reports: a name removed since caching costs an extra
-// hydration, and a name added since caching may be skipped — bounded by the
-// cache's lifetime (one HTTP request or one [reindexTerminalCleanupTimeout]
-// window) and caught by the next submit's fresh sweep.
+// Staleness cuts both ways: a name removed since caching costs an extra
+// hydration, and a name added since caching makes the gate skip a shard that
+// has since acquired the very state the sweep exists to remove. Both are
+// bounded by the cache's lifetime (one HTTP request or one
+// [reindexTerminalCleanupTimeout] window) and caught by the next submit's
+// fresh sweep.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].
 	cost int
+	// refused counts the listings the bound kept out, which the sweep reports
+	// so a cache that stopped caching is visible.
+	refused int
+}
+
+// refusedListings reports how many listings [maxCachedDirNames] kept out. A nil
+// cache refuses nothing because it admits nothing.
+func (c *dirNamesCache) refusedListings() int {
+	if c == nil {
+		return 0
+	}
+	return c.refused
 }
 
 // dirNamesKey identifies one cached answer. filter is part of the key since a
@@ -336,16 +391,18 @@ func (c *dirNamesCache) listMatching(key dirNamesKey, keep func(string) bool) ([
 		return listing.names, listing.err
 	}
 	names, err := listDirNames(key.path, keep)
-	if c.cost+len(names)+1 <= maxCachedDirNames {
-		if c.listings == nil {
-			c.listings = map[dirNamesKey]dirNamesListing{}
-		}
-		// Cloned, not clipped: clipping only shrinks the header, so the full
-		// backing array from listDirNames would otherwise stay alive for the
-		// rest of the run, even for an empty filtered listing.
-		c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
-		c.cost += len(names) + 1
+	if c.cost+len(names)+1 > maxCachedDirNames {
+		c.refused++
+		return names, err
 	}
+	if c.listings == nil {
+		c.listings = map[dirNamesKey]dirNamesListing{}
+	}
+	// Cloned, not clipped: clipping only shrinks the header, so the full
+	// backing array from listDirNames would otherwise stay alive for the
+	// rest of the run, even for an empty filtered listing.
+	c.listings[key] = dirNamesListing{names: slices.Clone(names), err: err}
+	c.cost += len(names) + 1
 	return names, err
 }
 

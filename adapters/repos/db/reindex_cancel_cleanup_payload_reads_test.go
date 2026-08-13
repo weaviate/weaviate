@@ -31,11 +31,10 @@ type tracker struct {
 	props []string
 }
 
-// writeDeferredFinalizeTracker materializes one tracker dir in the state that
-// makes a sweep walk all three passes and preserve rather than delete.
-func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
+// writeTrackerPayload writes the payload.mig an existing tracker dir claims its
+// properties with, honoring the empty-props convention on [tracker].
+func writeTrackerPayload(t *testing.T, lsm string, tr tracker) {
 	t.Helper()
-	mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
 	if len(tr.props) == 0 {
 		require.NoError(t, os.WriteFile(
 			filepath.Join(lsm, ".migrations", tr.dir, reindexRecoveryPayloadFile),
@@ -43,6 +42,14 @@ func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
 		return
 	}
 	mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+}
+
+// writeDeferredFinalizeTracker materializes one tracker dir in the state that
+// makes a sweep walk all three passes and preserve rather than delete.
+func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
+	t.Helper()
+	mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
+	writeTrackerPayload(t, lsm, tr)
 }
 
 // TestSweepPayloadReadCount pins how many tracker payloads one loaded-shard
@@ -357,9 +364,12 @@ func TestTaskPropsCacheReadsEachPayloadOnce(t *testing.T) {
 // gate reads the same payload once per pass.
 func TestGatePayloadReadCount(t *testing.T) {
 	tests := []struct {
-		name      string
-		propName  string
-		trackers  []tracker
+		name     string
+		propName string
+		trackers []tracker
+		// markers are the sentinel files every tracker dir gets; empty means a
+		// completed-but-deferred migration the gate has to preserve.
+		markers   []string
 		sidecars  []string
 		wantStale bool
 		wantReads int
@@ -411,13 +421,29 @@ func TestGatePayloadReadCount(t *testing.T) {
 			wantStale: false,
 			wantReads: 0,
 		},
+		{
+			// The case a sweep of 5,000 cold tenants is made of: the gate pays a
+			// read and then reports the shard stale, so a count taken only off
+			// the skip arm reads zero where the cost is highest.
+			name:      "a read the gate paid before answering stale",
+			propName:  "cat",
+			markers:   []string{"started.mig"},
+			trackers:  []tracker{{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}}},
+			wantStale: true,
+			wantReads: 1,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			markers := tc.markers
+			if len(markers) == 0 {
+				markers = []string{"started.mig", "merged.mig", "tidied.mig"}
+			}
 			lsm := t.TempDir()
 			for _, tr := range tc.trackers {
-				writeDeferredFinalizeTracker(t, lsm, tr)
+				mkTrackerDir(t, lsm, tr.dir, markers...)
+				writeTrackerPayload(t, lsm, tr)
 			}
 			for _, s := range tc.sidecars {
 				mkSidecarDir(t, lsm, s)
