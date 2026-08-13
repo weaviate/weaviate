@@ -123,10 +123,11 @@ Response shapes:
   renamed bucket directories, or one this build does not recognize) and
   names the task ID and that status. The apply refuses a target that left
   `STARTED` after that read, and names no status, since it cannot tell a
-  coordination phase from a task that has already finished. Either way the
-  task is not cancelled. Only the apply refusal is settled, so re-reading
-  the index status shows where it landed; a pre-flight refusal leaves the
-  task in flight, and a status this build does not recognize keeps reading
+  coordination phase from a task that has already finished. Neither refusal
+  cancelled anything, but the apply refusal cannot tell you what did: a
+  concurrent cancel may have won the race, so re-read the index status to
+  see where it landed — `CANCELLED` included. A pre-flight refusal leaves
+  the task in flight, and a status this build does not recognize keeps reading
   as `indexing` here until it reaches a terminal state on the nodes that do.
 - `429` — per-collection in-flight cap reached (default 32).
 - `503` — an in-flight task carries a payload this build cannot decode, so
@@ -138,11 +139,11 @@ Response shapes:
 Drop a configured inverted index. `indexName` is one of `filterable`,
 `searchable`, `rangeFilters`. Flips the corresponding schema flag to
 false, drops the bucket dir, removes the sidecar buckets, and scrubs the
-stale migration trackers — a tracker carrying `tidied.mig` / `merged.mig`
-is live deferred-finalize state and is deliberately kept — so a
-subsequent re-enable starts from a clean slate. Subject to the same
-MutationGuard as `UpdateProperty` — rejected while a reindex on this
-property is in flight.
+stale migration trackers — a generation-suffixed tracker carrying
+`tidied.mig` / `merged.mig` is live deferred-finalize state and is
+deliberately kept — so a subsequent re-enable starts from a clean slate.
+Subject to the same MutationGuard as `UpdateProperty` — rejected while a
+reindex on this property is in flight.
 
 ### `GET /v1/schema/{class}/indexes`
 
@@ -1085,8 +1086,8 @@ them at 4 made multi-hour migrations into multi-week migrations. 32
 was chosen empirically as the point where LSM compaction throughput
 saturates on a single shard's disk for the typical migration mix; the
 REST handler returns 429 once the cap is reached
-(`reindexCapExceededResponder`; 503 is reserved for the cluster service
-being unavailable).
+(`reindexCapExceededResponder`; on this verb 503 instead means an
+in-flight task carries a payload this build cannot decode).
 
 **Per-collection worker pool** in `processUnits`. Bounded by the
 `concurrency` function passed to the provider (typically a
@@ -1386,8 +1387,8 @@ catches that gap.
 3. `removeBucket` drops the canonical bucket dir, `cleanStaleSidecarDirs`
    removes the leftover `__reindex` / `__ingest` / `__backup` dirs, and
    `cleanStaleMigrationDirs` removes the stale tracker dirs — preserving
-   any tracker carrying `tidied.mig` / `merged.mig`, which is live
-   deferred-finalize state, not stale partial state.
+   any generation-suffixed tracker carrying `tidied.mig` / `merged.mig`,
+   which is live deferred-finalize state, not stale partial state.
 4. Subsequent re-enable starts from clean state.
 
 ## 13. Out of scope (broken; tracked follow-up)
