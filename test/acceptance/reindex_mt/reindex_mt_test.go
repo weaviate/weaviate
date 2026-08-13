@@ -34,7 +34,12 @@ import (
 func TestMultiTenant_ReindexSuite(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := reindexhelpers.StartSingleNode(ctx)
+	// Lazy shard loading is what makes a HOT tenant an unloaded shard, and it
+	// is off below a thousand shards. Without it every tenant here is loaded
+	// eagerly and the cleanup sweep's unloaded-shard path is never reached.
+	compose, err := reindexhelpers.SingleNodeCompose().
+		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -82,6 +87,13 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 
 	t.Run("Validation", func(t *testing.T) {
 		testValidation(t, restURI)
+	})
+
+	// Cancel → deactivate → restart → re-submit, across the three tenant
+	// populations the cleanup sweep answers differently. Restarts the
+	// container itself, which remaps the published port.
+	t.Run("ColdAndUnhydratedTenantCancel", func(t *testing.T) {
+		restURI = testColdAndUnhydratedTenantCancel(t, compose)
 	})
 
 	// Restart for deferred finalization.
