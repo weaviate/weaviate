@@ -106,18 +106,18 @@ func IsCleanupCollectionDropped(err error) bool {
 	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
 }
 
-// truncatedByExpiry re-reports a shard error raised after the run's budget ran
-// out as [ErrCleanupSweepTruncated], and returns nil while the budget is live.
-// A run that could not finish confirms nothing about the shard it stopped on,
-// so reporting one as a shard that failed would page an operator over a
-// timeout. It stops the walk for the same reason the check at the top of the
-// next shard's turn does — the budget is gone either way.
+// truncatedByCancellation re-reports a shard error that a cancelled context
+// caused as [ErrCleanupSweepTruncated], and returns nil for every other error.
+// A run the context stopped confirms nothing about the shard it stopped on, so
+// reporting that as a shard that failed would page an operator over a timeout.
+// It stops the walk for the same reason the check at the top of the next
+// shard's turn does — the context is gone either way.
 //
-// Keyed on the context, not on the error: the shard load reports its own
-// cancellation as a fresh error, so the context cause is not in the chain to
-// match on.
-func truncatedByExpiry(ctx context.Context, reported error) error {
-	if ctx.Err() == nil {
+// Keyed on the error chain, not on ctx.Err(): a shard that broke for a reason
+// of its own while the context happened to be gone is a failure the operator
+// has to see, and the clock cannot tell that apart from a cancellation.
+func truncatedByCancellation(reported error) error {
+	if !errors.Is(reported, context.Canceled) && !errors.Is(reported, context.DeadlineExceeded) {
 		return nil
 	}
 	return fmt.Errorf("%w: the cleanup budget expired: %w", ErrCleanupSweepTruncated, reported)
@@ -200,7 +200,7 @@ func (i *Index) cleanStalePartialReindexState(
 			if unwrapErr != nil {
 				reported := fmt.Errorf(
 					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
-				if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+				if truncated := truncatedByCancellation(reported); truncated != nil {
 					return truncated
 				}
 				shardErrs.Add(reported)
@@ -214,7 +214,7 @@ func (i *Index) cleanStalePartialReindexState(
 		payloadReads += shardReads
 		if err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
-			if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
 			}
 			shardErrs.Add(reported)

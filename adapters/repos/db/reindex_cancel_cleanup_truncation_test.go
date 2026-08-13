@@ -25,32 +25,50 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// failToLoadMonitor makes every shard load fail, and runs onNthCall on the nth
-// attempt so a cancellation or a collection delete can land in the middle of
-// the walk. nthCall of 0 never runs it.
-type failToLoadMonitor struct {
+// loadAttemptMonitor counts shard-load attempts and runs onNthCall on the nth
+// one, so a cancellation or a collection delete can land in the middle of the
+// walk. nthCall of 0 never runs it.
+//
+// It fails the load itself by default, which is a shard breaking for its own
+// reason. admitLoad passes the load through instead, so the attempt goes on to
+// the load-permit wait — the step that takes the sweep's context and is
+// therefore the one an abort stops.
+type loadAttemptMonitor struct {
 	mu        sync.Mutex
 	onNthCall func()
 	nthCall   int
 	calls     int
+	admitLoad bool
 }
 
-func (m *failToLoadMonitor) CheckAlloc(sizeInBytes int64) error { return nil }
+func (m *loadAttemptMonitor) CheckAlloc(sizeInBytes int64) error { return nil }
 
-func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
+func (m *loadAttemptMonitor) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
 	if m.calls == m.nthCall && m.onNthCall != nil {
 		m.onNthCall()
 	}
+	if m.admitLoad {
+		return nil
+	}
 	return errors.New("memory pressure")
 }
 
-func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
+func (m *loadAttemptMonitor) Refresh(updateMappings bool) {}
+
+// newSweepLoadLimiter is the limiter a real shard load waits on. A load that
+// reaches it with the sweep's context already gone reports the cancellation
+// the same way production does, rather than an error the test invented.
+func newSweepLoadLimiter() *loadlimiter.LoadLimiter {
+	return loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "sweep_test", 1)
+}
 
 // tenantShardNames builds n shard names, for the cases that need more of them
 // than an operator-facing message is allowed to carry.
@@ -72,6 +90,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// cancelOnCall aborts the sweep's context on the nth shard load; 0
 		// lets the walk run to the end.
 		cancelOnCall int
+		// cancelStopsTheLoad makes the abort itself the reason the load fails:
+		// the load is admitted past the memory check and stops on the permit
+		// wait, which takes the sweep's context. Without it the load fails for
+		// a reason of its own that the abort merely coincides with.
+		cancelStopsTheLoad bool
 		// dropOnCall deletes the collection on the nth shard load, so the
 		// delete lands after that shard has already failed.
 		dropOnCall int
@@ -134,18 +157,34 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantShardsNamed: maxReportedErrors,
 		},
 		{
-			// The abort IS why this shard was not swept, so it is one the run
-			// never finished rather than one it found broken. Tagging it failed
-			// would report confirmed state on a shard nothing looked at, at the
-			// severity reserved for an operator having to act.
-			name:           "the abort lands on the first of two shards",
+			// The shard broke for its own reason; the abort only happened at the
+			// same moment. Reading that as a run out of time hides a broken shard
+			// behind the warning routine tenant churn produces, which is the one
+			// failure mode worse than the false alarm. The second shard really
+			// was left unvisited, so both markers are on the error.
+			name:           "a shard breaks for its own reason as the abort lands",
 			shards:         []string{"shard-a", "shard-b"},
 			cancelOnCall:   1,
 			staleOnDisk:    true,
 			wantErr:        true,
 			wantTruncated:  true,
-			wantShardErr:   false,
+			wantShardErr:   true,
 			wantShardNamed: true,
+		},
+		{
+			// The abort IS why this shard was not swept, so it is one the run
+			// never finished rather than one it found broken. Tagging it failed
+			// would report confirmed state on a shard nothing looked at, at the
+			// severity reserved for an operator having to act.
+			name:               "the abort stops the load itself",
+			shards:             []string{"shard-a", "shard-b"},
+			cancelOnCall:       1,
+			cancelStopsTheLoad: true,
+			staleOnDisk:        true,
+			wantErr:            true,
+			wantTruncated:      true,
+			wantShardErr:       false,
+			wantShardNamed:     true,
 		},
 		{
 			// The walk visits nothing here, so "swept every shard" would be a
@@ -197,7 +236,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			monitor := &failToLoadMonitor{}
+			monitor := &loadAttemptMonitor{admitLoad: tc.cancelStopsTheLoad}
+			var limiter *loadlimiter.LoadLimiter
+			if tc.cancelStopsTheLoad {
+				limiter = newSweepLoadLimiter()
+			}
 
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
@@ -236,8 +279,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 						"enable_filterable_title_1", "started.mig")
 				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
-					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
-					memMonitor: monitor,
+					shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
+					memMonitor:       monitor,
+					shardLoadLimiter: limiter,
 				})
 			}
 
@@ -346,7 +390,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 				logger:               logger,
 			}
 
-			monitor := &failToLoadMonitor{}
+			monitor := &loadAttemptMonitor{}
 			for _, name := range []string{"shard-a", "shard-b"} {
 				mkTrackerDir(t, shardPathLSM(idx.path(), name),
 					"enable_filterable_title_1", "started.mig")
@@ -638,7 +682,7 @@ func newSweepTestIndex(t *testing.T, logger *logrus.Logger) (
 func storeUnloadableTenant(idx *Index, name string) {
 	idx.shards.Store(name, &LazyLoadShard{
 		shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
-		memMonitor: &failToLoadMonitor{},
+		memMonitor: &loadAttemptMonitor{},
 	})
 }
 
