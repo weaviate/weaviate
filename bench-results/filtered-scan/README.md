@@ -80,3 +80,42 @@ workloads want a larger (or margin-adaptive) B1; it is nearly free.
 - Single-threaded: ~330 ms p50 at 9.9M members is one core walking 630 MB
   of lines+bitmap. The scan is embarrassingly parallel over members;
   concurrency is the next round.
+
+## Scan vs the current filtered graph path (ACORN), matched recall
+
+Same index corpus, same filters/queries/GT. ACORN arm: default-quality
+graph (M=32, efC=128, 23 min build), `SearchByVector` with the allowlist
+(ACORN is the shipped default strategy), bits=1 default rescore (512),
+ef ∈ {64,128,256,512}, untuned. Per filter, ACORN's cheapest ef matching
+the scan's recall is compared on p50. Combined data:
+`wikidpr-10m-combined.csv`.
+
+| members | winner | margin (median filter) |
+|---|---|---|
+| 10k–60k | **scan** | 89–156× (ACORN needs 390–500 ms to match recall at ~0.4% selectivity) |
+| 100k–600k | **scan** | 1.3–5.6× |
+| 1M–2M | **acorn** | 2.2–11× |
+| 5M–10M (incl. all anticorr) | **acorn** | 5–127× |
+
+**The routing threshold is a member count, not a family: ~600k–1M members
+(≈6–10% selectivity) on this corpus/machine.** Scan cost is linear in
+members; graph cost is ef-shaped and nearly size-independent, but explodes
+at low selectivity (the 10k–60k row) where traversal crawls through
+blocked nodes.
+
+**The predicted headline inverted.** Anti-correlated was expected to be
+ACORN's weakness and the scan's exact win; measured, ACORN cruises there
+(12–63 ms) and the scan pays its worst case (310–344 ms). Cause: these
+anti-correlated filters are anti-correlated in *direction* but ~99% DENSE
+(they exclude only the query's 100k near-field) — near-unfiltered graph
+search. ACORN's real weakness is *low selectivity*, which on this dataset
+is where the scan is 1.3–156× faster at equal recall. Caveats kept from
+the τ analysis: at τ=0 both methods sit in the tie-lottery regime (12/100
+ACORN-unmatched at ef512, regrets ~1e-4 on both sides — set-recall is not
+a meaningful axis there), and the scan's τ=0.01 retention gap is a
+budget artifact fixed by B1=32k at no latency cost.
+
+Routing picture this leaves: below the threshold the scan replaces the
+flat-search cutoff (today ~40k) and extends exact-quality filtered search
+to ~600k members at single-digit-to-tens of ms; above it, the graph path
+owns the regime — including dense-but-adversarial filters.
