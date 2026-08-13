@@ -185,6 +185,9 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 			MigrationDirPrefixFilterableToRangeable,
 		}
 	}
+	// Not "this index type owns no tracker dirs" — every one this build knows
+	// owns some. Callers refuse an index type they cannot map before they
+	// build a scope, so a nil here never reaches a deletion decision.
 	return nil
 }
 
@@ -195,10 +198,11 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // A dir name alone can be ambiguous (e.g. "enable_filterable_a_b_1" is both
 // a two-property tracker for "a"+"b" and a one-property tracker for "a_b"),
 // so an ambiguous name falls back to the task's recorded property list
-// ([readTaskProps]). Deletion only trusts an exact match, since guessing
-// wider could remove another property's tracker; preservation also matches
-// on a name token alone, since guessing too narrow could delete a live
-// sidecar bucket. Preservation's over-matching (e.g. "cat" also keeps
+// ([readTaskProps]). Deletion trusts that list only where it rebuilds the
+// dir's own name, and with no list only an exact one-property name, since
+// guessing wider could remove another property's tracker; preservation also
+// matches on a name token alone, since guessing too narrow could delete a
+// live sidecar bucket. Preservation's over-matching (e.g. "cat" also keeps
 // "cat_x") only costs a recoverable rename collision on re-enable — cheaper
 // than deletion's under-matching, which loses data.
 type migrationDirScope struct {
@@ -207,10 +211,11 @@ type migrationDirScope struct {
 	propName string
 	// prefixes are the per-property strategy prefixes this cleanup deletes.
 	prefixes []string
-	// classDirs are whole tracker dir names matched as they are. Only the
-	// preserve set carries them; see [migrationDirScope.preserving].
-	classDirs []string
-	// preserve widens the no-payload fallback in [migrationDirScope.matches];
+	// classDir is a whole tracker dir name matched as it is. An index type has
+	// at most one ([classLevelMigrationDirForIndexType]), and only the
+	// preserve set carries it; see [migrationDirScope.preserving].
+	classDir string
+	// preserve widens the no-payload fallback in [migrationDirScope.inScope];
 	// set by [migrationDirScope.preserving].
 	preserve bool
 	// props memoizes payloads across the passes of one sweep; nil reads every
@@ -222,6 +227,14 @@ type migrationDirScope struct {
 // it. See [taskPropsCache] for why it must not outlive one sweep.
 func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
 	s.props = c
+	return s
+}
+
+// cachingDirs scopes a directory-listing memo to this scope, for the scopes
+// [classLevelMigrationDirsOf] builds without one. See [dirNamesCache] for how
+// long it may live.
+func (s migrationDirScope) cachingDirs(c *dirNamesCache) migrationDirScope {
+	s.dirs = c
 	return s
 }
 
@@ -239,7 +252,7 @@ func migrationDirsOf(lsmPath string, dirs *dirNamesCache, propName, indexType st
 // classLevelMigrationDirsOf returns the scope of a single class-level tracker
 // dir, which every property of the collection shares.
 func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
-	return migrationDirScope{lsmPath: lsmPath, classDirs: []string{classDir}}
+	return migrationDirScope{lsmPath: lsmPath, classDir: classDir}
 }
 
 // preserving widens the scope to keep live data out of the sweep's reach:
@@ -250,9 +263,7 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	s = s.preservingPropertyOnly()
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		// Cloned so two preserving() results can't share a backing array —
-		// unreachable today, but kept for a constructor that pre-populates classDirs.
-		s.classDirs = append(slices.Clone(s.classDirs), classDir)
+		s.classDir = classDir
 	}
 	return s
 }
@@ -266,18 +277,18 @@ func (s migrationDirScope) preservingPropertyOnly() migrationDirScope {
 	return s
 }
 
-// matches reports whether the tracker dir called name is in this scope. See
+// inScope reports whether the tracker dir called name is in this scope. See
 // [migrationDirScope] for why the payload decides what the name leaves open,
 // and the name only fills in when there is no readable payload.
 //
 // Retokenize strategies name their dir with a bare property name; that's safe
 // only because [ReindexProvider.createReindexTasks] rejects such a payload
 // unless it carries exactly one property.
-func (s migrationDirScope) matches(name string) bool {
+func (s migrationDirScope) inScope(name string) bool {
 	if matched, decided := s.matchByName(name); decided {
 		return matched
 	}
-	matched, _ := s.match(name)
+	matched, _ := s.inScopeFailingOpen(name)
 	return matched
 }
 
@@ -291,23 +302,18 @@ func (s migrationDirScope) matches(name string) bool {
 // and payload always come from the same sorted list
 // ([TestMatchByNameOverridesAContradictingPayload] pins this).
 //
-// [migrationDirScope.match] deliberately skips this shortcut, so the
-// unloaded-shard gate still fails open on a payload it cannot parse.
+// [migrationDirScope.inScopeFailingOpen] takes only the negative arms, so the
+// unloaded-shard gate still fails open on a payload it cannot parse for a dir
+// the name does leave in scope.
 func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	base := migrationDirBase(name)
-	for _, classDir := range s.classDirs {
-		if base == classDir {
-			return true, true
-		}
+	if s.classDir != "" && base == s.classDir {
+		return true, true
 	}
 	if !s.hasStrategyPrefix(base) {
 		return false, true
 	}
-	var exact, token bool
-	for _, prefix := range s.prefixes {
-		exact = exact || base == migrationDirWithProps(prefix, []string{s.propName})
-		token = token || namesPropertyToken(base, prefix, s.propName)
-	}
+	exact, token := s.nameArms(base)
 	switch {
 	case exact && isProvablySingleProperty(s.propName):
 		return true, true
@@ -316,6 +322,17 @@ func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	default:
 		return false, false
 	}
+}
+
+// nameArms reports how a tracker dir's base relates to propName under any of
+// this scope's strategy prefixes: exact means the base is the one-property
+// name, token means its property list carries propName as a whole segment.
+func (s migrationDirScope) nameArms(base string) (exact, token bool) {
+	for _, prefix := range s.prefixes {
+		exact = exact || base == migrationDirWithProps(prefix, []string{s.propName})
+		token = token || namesPropertyToken(base, prefix, s.propName)
+	}
+	return exact, token
 }
 
 // maxProvablySinglePropertyTokens bounds the split enumeration below. A longer
@@ -367,8 +384,10 @@ func isNonDecreasingSplit(tokens []string, cuts int) bool {
 	return true
 }
 
-// migrationDirBase strips a tracker dir's generation suffix. A dir with none
-// predates [genSuffix] and carries the prefix as its whole name.
+// migrationDirBase strips a tracker dir's generation suffix, returning any
+// name without one unchanged — a pre-[genSuffix] tracker, but also any
+// directory that is no tracker at all, which the caller's prefix check
+// rejects.
 func migrationDirBase(name string) string {
 	if base, _, ok := parseMigrationDirName(name); ok {
 		return base
@@ -376,28 +395,33 @@ func migrationDirBase(name string) string {
 	return name
 }
 
-// match additionally reports a payload that exists but could not be read
-// or parsed. Deletion ([migrationDirScope.matches]) ignores it and keeps
-// the no-payload fallback (guessing wider could remove another property's
-// tracker); the unloaded-shard gate and recovery probe fail open on it
-// instead, since the narrowed fallback could wrongly report clean/recovered.
+// inScopeFailingOpen additionally reports a payload that exists but could not
+// be read or parsed. Deletion ([migrationDirScope.inScope]) ignores it and
+// keeps the no-payload fallback (guessing wider could remove another
+// property's tracker); the unloaded-shard gate and recovery probe fail open on
+// it instead, since the narrowed fallback could wrongly report
+// clean/recovered.
 //
-// That fail-open only covers a dir no properties.mig corroborates. Where one
-// rebuilds the dir's name, [readTaskProps] answers from it, unreadablePayload
-// stays false, and both probes decide from that list instead.
+// That fail-open only covers a dir whose name leaves this property possible
+// and no properties.mig corroborates. Where one rebuilds the dir's name,
+// [readTaskProps] answers from it, unreadablePayload stays false, and both
+// probes decide from that list instead.
 //
 // An intact payload still requires the exact sorted-name reconstruction —
 // unreachable from real writers, which always derive the name and payload
 // from the same sorted list.
-func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
+func (s migrationDirScope) inScopeFailingOpen(name string) (matched, unreadablePayload bool) {
 	base := migrationDirBase(name)
-	for _, classDir := range s.classDirs {
-		if base == classDir {
-			return true, false
-		}
+	if s.classDir != "" && base == s.classDir {
+		return true, false
 	}
 	if !s.hasStrategyPrefix(base) {
 		// Not this cleanup's dir; skip reading its payload.
+		return false, false
+	}
+	if exact, token := s.nameArms(base); !exact && !token {
+		// The name is the older half of one sorted list, so no payload of this
+		// dir can name a property the name left out.
 		return false, false
 	}
 	props, ok, unreadable := s.taskProperties(name)
@@ -431,7 +455,7 @@ func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) 
 // (e.g. "a_b" produces the same dir as a list containing "a"+"b") — see
 // [migrationDirScope] for why over-matching is the safe direction here. The
 // single-token shape (props == propName) is handled earlier, by the exact
-// match in [migrationDirScope.match].
+// match in [migrationDirScope.inScopeFailingOpen].
 func namesPropertyToken(base, prefix, propName string) bool {
 	props, ok := strings.CutPrefix(base, prefix+"_")
 	if !ok {
@@ -487,7 +511,7 @@ type taskProps struct {
 }
 
 // lookup answers for one tracker dir. The memo is keyed by dir alone —
-// safe because [migrationDirScope.match] only reaches here after
+// safe because [migrationDirScope.inScopeFailingOpen] only reaches here after
 // [migrationDirScope.hasStrategyPrefix] accepts the name, no strategy
 // prefix is a prefix of another, and [propsFromSidecar] needs whole-name
 // equality, so at most one prefix can ever satisfy a given dir.
@@ -520,10 +544,9 @@ func (c *taskPropsCache) count() int {
 }
 
 // readTaskProps answers from properties.mig where it corroborates the dir's
-// own name, falling back to payload.mig only when it doesn't. This path
-// used to fully parse payload.mig for every tracker whose name left the
-// property undecided — megabytes per tracker on a large migration, run
-// inside a RAFT apply that holds the FSM loop cluster-wide.
+// own name, falling back to payload.mig only when it doesn't. Parsing
+// payload.mig costs megabytes per tracker on a large migration, inside a RAFT
+// apply that holds the FSM loop cluster-wide.
 //
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says.
@@ -548,10 +571,10 @@ func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayl
 // the tracker dir's own name — an independent witness that catches a
 // truncated, deduped, or contradicting list for free.
 //
-// This is load-bearing: a rejected list makes [migrationDirScope.match]
-// report not-in-scope, dropping a completed migration from the preserve
-// pass ([forEachCompletedMigration]) and letting the sweep delete live
-// sidecar dirs still in use.
+// This is load-bearing: a rejected list makes
+// [migrationDirScope.inScopeFailingOpen] report not-in-scope, dropping a
+// completed migration from the preserve pass ([forEachCompletedMigration])
+// and letting the sweep delete live sidecar dirs still in use.
 func propsFromSidecar(migDir string, prefixes []string) ([]string, bool) {
 	if _, err := os.Stat(filepath.Join(migDir, reindexRecoveryPayloadFile)); err != nil {
 		return nil, false

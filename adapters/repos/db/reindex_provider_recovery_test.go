@@ -124,7 +124,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		// One tracker serves both properties; the payload says which.
 		// (enable_searchable, because retokenize payloads are rejected unless
-		// they name exactly one property — see [migrationDirScope.matches].)
+		// they name exactly one property — see [migrationDirScope.inScope].)
 		{
 			name: "a two-property task, started only → recovery NEEDED",
 			trackers: map[string][]string{
@@ -507,4 +507,73 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 					"loading a tenant to ask it for that path is what startup cannot afford")
 		})
 	}
+}
+
+// A tracker dir whose name already excludes "category" can't have that
+// decided by a corrupt payload next to it — the name settles it first.
+func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *testing.T) {
+	ctx := testCtx()
+	className := "OtherPropTracker_" + uuid.NewString()[:8]
+	shard, idx := testShard(t, ctx, className)
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	const tracker = MigrationDirPrefixEnableFilterable + "_other_1"
+	mkTrackerDir(t, concrete.pathLSM(), tracker)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(concrete.pathLSM(), ".migrations", tracker, reindexRecoveryPayloadFile),
+		[]byte("not a recovery record"), 0o644))
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    className,
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"category"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+		UnitToNode:    map[string]string{"u1": "n1"},
+	})
+	require.NoError(t, err)
+
+	logger, _ := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, logger, "n1", nil, ctx)
+
+	require.True(t, p.LocalCallbacksDone(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_other_prop", Version: 1},
+		Status:         distributedtask.TaskStatusFinished,
+		Payload:        payload,
+	}, "n1"))
+}
+
+// Pins the bootstrap probe's cost per shard: every tuple it walks asks the
+// same tracker dirs whose properties they name, and answering that from disk
+// is a full payload.mig parse — 126ms on an 8 MB payload.
+func TestLocalCallbacksDoneReadsAShardsPayloadOnce(t *testing.T) {
+	lsm := t.TempDir()
+	// A two-property name no shortcut can settle, so every tuple pays for the
+	// payload. Tidied, so the walk runs past it instead of stopping there.
+	const tracker = MigrationDirPrefixEnableFilterable + "_alpha_beta_1"
+	mkTrackerDir(t, lsm, tracker, "started.mig", "tidied.mig")
+	mkRecoveryPayload(t, lsm, tracker, "alpha", "beta")
+
+	payload := &ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"alpha", "beta"},
+	}
+	indexTypes := semanticMigrationIndexTypes(payload.MigrationType)
+	require.Equal(t, []string{"filterable"}, indexTypes)
+
+	// A memo per tuple is what the probe cost before they shared one.
+	var perTuple int
+	for _, propName := range payload.Properties {
+		own := &taskPropsCache{}
+		hasUntidiedTracker(migrationDirsOf(lsm, nil, propName, indexTypes[0]).cachingProps(own))
+		perTuple += own.count()
+	}
+	require.Equal(t, 2, perTuple, "a memo per tuple reads the same payload once each")
+
+	shared := &taskPropsCache{}
+	require.False(t, shardHasUntidiedTracker(lsm, payload, indexTypes, shared))
+	require.Equal(t, 1, shared.count(), "one memo per shard covers the whole walk")
 }

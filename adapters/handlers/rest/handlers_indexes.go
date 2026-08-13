@@ -560,19 +560,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// that motivated the multi-index sweep.
 		// One cache for the whole loop: every index type asks the same unloaded shards.
 		sweep := h.appState.DB.NewStalePartialReindexSweep()
-		cleanupErrs := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
+		// The dropped count is discarded: submit reports only what an operator
+		// must act on, and it has no completion line a drop could mis-word.
+		cleanupFailures, _ := sweepStaleReindexState(indexTypesForCleanup, func(indexTypeForCleanup string) error {
 			return sweep(ctx, collection, propertyName, indexTypeForCleanup)
 		})
-		// Error even for a benign truncation: the submit proceeds on state
-		// this node couldn't verify.
-		for _, failure := range cleanupErrs {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"collection":     collection,
-				"property":       propertyName,
-				"migration_type": migrationType,
-				"index_type":     failure.indexType,
-			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", failure.err)
-		}
+		logStaleSweepFailures(h.appState.Logger.WithFields(logrus.Fields{
+			"collection":     collection,
+			"property":       propertyName,
+			"migration_type": migrationType,
+		}), sweepPhaseSubmit, cleanupFailures)
 	}
 
 	// Semantic migrations opt into the two-phase RAFT PREP barrier;
@@ -735,9 +732,10 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 	}).Info("cancel: task stopped being cancellable between the list read and the apply; refusing")
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s changed status between the read and the cancel, and is no "+
-			"longer cancellable: it has either entered a cluster-wide coordination phase, where nodes may "+
-			"already have written merged state or renamed bucket directories, or it has already reached a "+
-			"terminal state — re-read the index status to see where it landed",
+			"longer cancellable. It has either entered a cluster-wide coordination phase, where nodes may "+
+			"already have written merged state or renamed bucket directories, reached a status this node's "+
+			"build does not recognize, or already reached a terminal state. Re-read the index status to see "+
+			"where it landed",
 			target.ID, collection, propertyName)))
 }
 
@@ -884,25 +882,17 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			}
 			// One cache for the whole loop; see the submit path for why.
 			sweep := h.appState.DB.NewStalePartialReindexSweep()
-			cleanupErrs := sweepStaleReindexState(indexTypesToClean, func(it string) error {
+			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
 				return sweep(ctx, collection, propertyName, it)
 			})
-			if len(cleanupErrs) > 0 {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-					"strategies": indexTypesToClean,
-				}).Errorf("cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry", len(cleanupErrs), cleanupErrs)
-			} else {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-				}).Info("cancel: on-disk cleanup complete")
-			}
+			// The log fields name every strategy this migration touches, not just
+			// the URL's index type; each failure line adds its own index_type.
+			logCancelCleanupOutcome(h.appState.Logger.WithFields(logrus.Fields{
+				"taskID":     target.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"strategies": indexTypesToClean,
+			}), cleanupFailures, cleanupDropped)
 		}
 	} else {
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -977,10 +967,12 @@ const (
 	finalizeWindowMax = 10 * time.Second
 )
 
-// staleSweepFailure pairs a sweep error with its index type so a handler can
-// log it as a structured field, not just text.
+// staleSweepFailure pairs a sweep error with its index type and with what the
+// sweep left behind, so a handler can name the index type as a structured
+// field and pick its wording from the outcome rather than from the error text.
 type staleSweepFailure struct {
 	indexType string
+	outcome   db.CleanupSweepOutcome
 	err       error
 }
 
@@ -988,22 +980,79 @@ func (f staleSweepFailure) Error() string {
 	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
 }
 
-func (f staleSweepFailure) Unwrap() error { return f.err }
-
-// sweepStaleReindexState runs sweep once per index type and returns only the
-// failures an operator must act on — a dropped collection
-// ([db.IsCleanupCollectionDropped]) is not one: with the class gone, no later
-// submit can short-circuit on whatever the delete left behind.
-func sweepStaleReindexState(indexTypes []string, sweep func(indexType string) error) []staleSweepFailure {
-	var failures []staleSweepFailure
+// sweepStaleReindexState runs sweep once per index type and splits the
+// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
+// failure (nothing left to short-circuit on) but also not a completed
+// cleanup, so it comes back as its own count rather than folded into either.
+func sweepStaleReindexState(
+	indexTypes []string, sweep func(indexType string) error,
+) (failures []staleSweepFailure, dropped int) {
 	for _, indexType := range indexTypes {
-		err := sweep(indexType)
-		if err == nil || db.IsCleanupCollectionDropped(err) {
-			continue
+		outcome, failure := db.ClassifyCleanupSweep(sweep(indexType))
+		switch {
+		case outcome == db.CleanupSweepDropped:
+			dropped++
+		case failure != nil:
+			failures = append(failures, staleSweepFailure{
+				indexType: indexType, outcome: outcome, err: failure,
+			})
 		}
-		failures = append(failures, staleSweepFailure{indexType: indexType, err: err})
 	}
-	return failures
+	return failures, dropped
+}
+
+// The two handlers that sweep, passed to [db.CleanupSweepSummary] so an
+// operator can tell which one ran, and used to word what the outcome means for
+// the caller (see [sweepConsequence]).
+const (
+	sweepPhaseSubmit = "submit"
+	sweepPhaseCancel = "cancel"
+)
+
+// sweepConsequence is what this caller does next about what the sweep left,
+// which is all the handlers add to the shared summary. The phases differ on an
+// incomplete walk: cancel is done once it has swept, so the state waits for a
+// later submit, while the submit that logs this dispatches its task anyway and
+// the task can resume against the state the sweep could not verify.
+func sweepConsequence(phase string, outcome db.CleanupSweepOutcome) string {
+	switch {
+	case outcome == db.CleanupSweepFailed:
+		return "a later task may short-circuit on the stale state and report a false success — " +
+			"operator inspection recommended"
+	case phase == sweepPhaseSubmit:
+		return "this submit proceeds anyway, so the task it dispatches may resume against them"
+	default:
+		return "the next submit sweeps them again"
+	}
+}
+
+// logStaleSweepFailures emits one operator-facing line per sweep that did not
+// finish. What it left behind and how loudly to say so both come from
+// [db.CleanupSweepSummary], so the handlers cannot rank the same outcome
+// differently from the sweep itself.
+func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSweepFailure) {
+	for _, failure := range failures {
+		msg, level := db.CleanupSweepSummary(phase, failure.outcome)
+		entry.WithField("index_type", failure.indexType).
+			Logf(level, "%s: %v; %s", msg, failure, sweepConsequence(phase, failure.outcome))
+	}
+}
+
+// logCancelCleanupOutcome reports what the cancel handler's on-disk cleanup
+// did. Only a run whose sweeps all reached every shard is a finished sweep: a
+// run a collection delete suppressed swept nothing past the delete, and
+// reporting it as finished would claim work that did not happen.
+func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, dropped int) {
+	if len(failures) > 0 {
+		logStaleSweepFailures(entry, sweepPhaseCancel, failures)
+		return
+	}
+	outcome := db.CleanupSweepClean
+	if dropped > 0 {
+		outcome = db.CleanupSweepDropped
+	}
+	msg, level := db.CleanupSweepSummary(sweepPhaseCancel, outcome)
+	entry.Log(level, msg)
 }
 
 // indexTypesFromMigrationType wraps [db.ReindexTargetIndexes] for cleanup

@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // -----------------------------------------------------------------------------
@@ -459,6 +460,48 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 	return nil
 }
 
+// createFileAtomic publishes content under filename by renaming a fully
+// written temp file over it, so a crash can only leave the previous file or
+// none — never a truncated one. Unlike [fileReindexTracker.createFile] it
+// overwrites, which is what lets a caller repair a torn file. Use it wherever
+// a reader keys off the file's content rather than its mere existence.
+func (t *fileReindexTracker) createFileAtomic(filename string, content []byte) (err error) {
+	// Same directory as the target, or the rename would cross filesystems.
+	// Nothing sweeps a temp file a crash leaves behind, so it stays out of
+	// backups by its .tmp extension alone — every walk that reaches this
+	// directory has to skip that extension.
+	tmp, err := os.CreateTemp(t.config.migrationPath, filename+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err != nil {
+			tmp.Close()
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err = tmp.Write(content); err != nil {
+		return err
+	}
+	// The bytes have to reach the disk before the name does, or a machine
+	// crash can publish the new name over content that never landed.
+	if err = tmp.Sync(); err != nil {
+		return err
+	}
+	// Close reports write errors the Write above can still be holding.
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmpPath, t.filepath(filename)); err != nil {
+		return err
+	}
+	// The rename is itself a directory entry, and survives a machine crash
+	// only once the directory holding it is synced.
+	return diskio.Fsync(t.config.migrationPath)
+}
+
 func (t *fileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -480,13 +523,23 @@ func (t *fileReindexTracker) decodeTime(tm string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, tm)
 }
 
+// HasProps sizes the file rather than merely stating it: a zero-byte
+// properties.mig is a torn write, and reporting it as a recorded list would
+// retire the shard's reindex with nothing left to repair it.
 func (t *fileReindexTracker) HasProps() bool {
-	return t.fileExists(t.config.filenameProperties)
+	info, err := os.Stat(t.filepath(t.config.filenameProperties))
+	return err == nil && info.Size() > 0
 }
 
 func (t *fileReindexTracker) saveProps(propNames []string) error {
+	if len(propNames) == 0 {
+		// Nothing to record, and a zero-byte file is reserved for the torn
+		// write [fileReindexTracker.HasProps] has to reject. A shard with no
+		// reindexable property rediscovers that from its buckets instead.
+		return nil
+	}
 	props := []byte(strings.Join(propNames, ","))
-	return t.createFile(t.config.filenameProperties, props)
+	return t.createFileAtomic(t.config.filenameProperties, props)
 }
 
 func (t *fileReindexTracker) GetProps() ([]string, error) {
@@ -494,10 +547,14 @@ func (t *fileReindexTracker) GetProps() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(content) == 0 {
+	// Trim before the split, as readMigrationProps does: content that is all
+	// whitespace names no property, and splitting it manufactures one whose
+	// name is empty.
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
 		return []string{}, nil
 	}
-	return strings.Split(strings.TrimSpace(string(content)), ","), nil
+	return strings.Split(trimmed, ","), nil
 }
 
 func (t *fileReindexTracker) IsReset() bool {

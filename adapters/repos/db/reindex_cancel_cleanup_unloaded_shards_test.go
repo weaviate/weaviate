@@ -23,10 +23,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -124,6 +126,133 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+// A completed migration leaves its data under the ingest sidecar name and a
+// full copy of the bucket it replaced under the backup name, both waiting for
+// the finalize a shard load runs. On an unloaded tenant nothing else ever runs
+// it, so a gate that skips the tenant is a gate that never reclaims either
+// copy.
+func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *testing.T) {
+	const (
+		residueTenant = "residue-tenant"
+		cleanTenant   = "clean-tenant"
+		// promoted rides along inside the ingest dir, so the canonical dir it
+		// becomes can be told apart from one the reopened bucket created.
+		promoted = "promoted.marker"
+	)
+	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
+
+	// mkBucketDir plants a bucket dir carrying one non-segment file, which the
+	// store ignores and a rename carries along.
+	mkBucketDir := func(t *testing.T, lsmPath, name, marker string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, name), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(lsmPath, name, marker), []byte("x"), 0o644))
+	}
+
+	tests := []struct {
+		name      string
+		propName  string
+		indexType string
+		tracker   string
+		// props is the property list the migration recorded, which is what
+		// finalize renames by.
+		props     string
+		ingestDir string
+		backupDir string
+		canonical string
+	}{
+		{
+			name:      "a per-property filterable enable",
+			propName:  "category",
+			indexType: "filterable",
+			tracker:   "enable_filterable_category_1",
+			props:     "category",
+			ingestDir: "property_category__enable_filterable_ingest_1",
+			backupDir: "property_category__enable_filterable_backup_1",
+			canonical: "property_category",
+		},
+		// A class-level tracker is out of the deletion scope altogether, so
+		// the leftovers here are only visible through the preserved sidecar.
+		{
+			name:      "a class-level roaringset refresh",
+			propName:  "category",
+			indexType: "filterable",
+			tracker:   "filterable_roaringset_refresh_2",
+			props:     "category",
+			ingestDir: "property_category__roaringset_ingest_2",
+			backupDir: "property_category__roaringset_backup_2",
+			canonical: "property_category",
+		},
+		{
+			name:      "a per-property searchable retokenize",
+			propName:  "descr",
+			indexType: "searchable",
+			tracker:   "searchable_retokenize_descr_1",
+			props:     "descr",
+			ingestDir: "property_descr_searchable__retokenize_ingest_1",
+			backupDir: "property_descr_searchable__retokenize_backup_1",
+			canonical: "property_descr_searchable",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("ResidueReclaim_"+uuid.NewString()[:8],
+				[]string{tc.propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer shd.Shutdown(context.Background())
+
+			residueLSM := shardPathLSM(idx.path(), residueTenant)
+			mkTrackerDir(t, residueLSM, tc.tracker, completed...)
+			require.NoError(t, os.WriteFile(
+				filepath.Join(residueLSM, ".migrations", tc.tracker, "properties.mig"),
+				[]byte(tc.props), 0o644))
+			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
+			mkBucketDir(t, residueLSM, tc.backupDir, "superseded.marker")
+
+			// The clean tenant carries the canonical bucket a migrated tenant
+			// ends up with, so the gate has a real listing to answer from
+			// rather than a missing directory.
+			cleanLSM := shardPathLSM(idx.path(), cleanTenant)
+			mkBucketDir(t, cleanLSM, tc.canonical, "untouched.marker")
+
+			tenants := map[string]*LazyLoadShard{}
+			for _, name := range []string{residueTenant, cleanTenant} {
+				lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
+					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
+					idx.shardReindexer, false, idx.bitmapBufPool)
+				idx.shards.Store(name, lazy)
+				tenants[name] = lazy
+			}
+			defer func() {
+				for _, lazy := range tenants {
+					if lazy.isLoaded() {
+						require.NoError(t, lazy.Shutdown(context.Background()))
+					}
+				}
+			}()
+
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, tc.propName, tc.indexType, nil))
+
+			assert.FileExists(t, filepath.Join(residueLSM, tc.canonical, promoted),
+				"the ingest dir is the migration's own data, so reclaiming it means "+
+					"promoting it to the canonical name, never deleting it")
+			assert.False(t, dirExistsAt(t, residueLSM, tc.ingestDir),
+				"the data is under its canonical name now")
+			assert.False(t, dirExistsAt(t, residueLSM, tc.backupDir),
+				"the copy of the bucket the migration replaced is what costs the disk")
+			assert.False(t, dirExistsAt(t, residueLSM, ".migrations/"+tc.tracker),
+				"and the tracker goes with them, so the next sweep skips this tenant")
+
+			assert.False(t, tenants[cleanTenant].isLoaded(),
+				"a tenant with no migration leftovers is the population the gate is "+
+					"for, and it must still be left alone")
 		})
 	}
 }
@@ -413,14 +542,15 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			corruptPayload: "enable_filterable_category_other_1",
 			wantStale:      true,
 		},
-		// The fail-open stays this broad on purpose: the corrupt payload
-		// could name this property even though the dir name does not.
+		// Name and payload are the same sorted property list, and the name is
+		// written first, so a name omitting this property is the older witness
+		// that no payload can overrule.
 		{
 			name:           "a corrupt payload on a dir whose name omits this property",
 			indexType:      "filterable",
 			trackers:       map[string][]string{"enable_filterable_other_1": {"started.mig"}},
 			corruptPayload: "enable_filterable_other_1",
-			wantStale:      true,
+			wantStale:      false,
 		},
 	}
 
@@ -464,7 +594,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				require.NoError(t, os.Chmod(denied, 0o000))
 			}
 
-			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			stale, _, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
 			require.Equal(t, tc.wantStale, stale)
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
@@ -474,7 +604,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			}
 
 			before := lsmDirNames(t, lsm)
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+			cleanSweep(t, ctx, shard, propName, tc.indexType)
 			require.Equal(t, before, lsmDirNames(t, lsm),
 				"the predicate said this shard has nothing to clean, so the sweep it gates "+
 					"must not find anything either — a shard it skips is never looked at again")
@@ -504,7 +634,7 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 	mkTrackerDir(t, lsm, theirs, "started.mig", "merged.mig", "swapped.mig", "tidied.mig")
 	mkSidecarDir(t, lsm, theirSidecar)
 
-	require.NoError(t, shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+	cleanSweep(t, ctx, shard, "category", "filterable")
 
 	assert.False(t, dirExistsAt(t, lsm, ".migrations/"+mine),
 		"this property's cancelled run is what the sweep is for")
@@ -562,10 +692,10 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			stale, _, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable"))
+			cleanSweep(t, ctx, shard, tc.propName, "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tracker))
 			// "a"'s sidecar is only in reach of "a"'s own sweep.
@@ -639,14 +769,76 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
+			gateHold, _, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, "a", "filterable"))
+			cleanSweep(t, ctx, shard, "a", "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tc.tracker))
 			require.Equal(t, tc.wantSidecar, dirExistsAt(t, lsm, sidecar),
 				"the bucket the in-memory pointer is on")
+		})
+	}
+}
+
+// A crash between [lsmkv.Store.ReplaceBuckets]' two renames leaves the
+// displaced bucket at "<mainBucket>___del". Nothing at startup removes it, so
+// the sweep that owns the bucket's other leftovers has to own this one, and the
+// gate has to hydrate for it.
+func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
+	const propName = "category"
+
+	tests := []struct {
+		name      string
+		indexType string
+		// completedTracker and its live sidecar give the sweep a non-empty
+		// preserve set, which the leftover must not slip into.
+		completedTracker string
+		liveSidecar      string
+	}{
+		{name: "filterable", indexType: "filterable"},
+		{name: "searchable", indexType: "searchable"},
+		{name: "rangeable", indexType: "rangeable"},
+		{
+			name:             "next to a completed migration whose sidecars are preserved",
+			indexType:        "filterable",
+			completedTracker: "enable_filterable_category_1",
+			liveSidecar:      "property_category__enable_filterable_ingest_1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("ReplacedBucketDir_"+uuid.NewString()[:8], []string{propName})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			lsm := shard.pathLSM()
+
+			mainBucket, ok := mainBucketForPropertyIndex(propName, tc.indexType)
+			require.True(t, ok)
+			leftover := mainBucket + lsmkv.ReplacedBucketDirSuffix
+			mkSidecarDir(t, lsm, leftover)
+			if tc.completedTracker != "" {
+				mkTrackerDir(t, lsm, tc.completedTracker,
+					"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+				mkSidecarDir(t, lsm, tc.liveSidecar)
+			}
+
+			stale, _, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			require.True(t, stale,
+				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
+
+			cleanSweep(t, ctx, shard, propName, tc.indexType)
+
+			require.False(t, dirExistsAt(t, lsm, leftover),
+				"the crash leftover of a bucket replacement has no other remover")
+			if tc.liveSidecar != "" {
+				require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
+					"the bucket the in-memory pointer is on")
+			}
 		})
 	}
 }
@@ -683,7 +875,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
 	require.True(t, err == nil || os.IsNotExist(err))
 	mkTrackerDir(t, lsm, tracker, "started.mig")
-	staleAfterArrival, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs)
+	staleAfterArrival, _, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs)
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 
@@ -691,6 +883,48 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 
 	require.False(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
 		"a loaded shard is swept whatever the gate would have said about it")
+}
+
+// A sweep that cannot even list a shard's .migrations removed nothing from it.
+// Summarizing that as a finished sweep tells an operator the partial state is
+// gone while every tracker is still on disk.
+func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+	)
+	ctx := testCtx()
+	logger, hook := test.NewNullLogger()
+	class := newTestClassWithProps("UnlistableMigrations_"+uuid.NewString()[:8], []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = logger })
+	// Loaded, so the sweep reaches the shard and the unlistable directory is
+	// the only thing that can fail.
+	hot := shd.(*Shard)
+	defer hot.Shutdown(context.Background())
+
+	lsm := hot.pathLSM()
+	mkTrackerDir(t, lsm, tracker, "started.mig")
+	migrations := filepath.Join(lsm, ".migrations")
+	require.NoError(t, os.Chmod(migrations, 0o000))
+	t.Cleanup(func() { os.Chmod(migrations, 0o755) })
+	if _, err := os.ReadDir(migrations); err == nil {
+		t.Skip("this user can list a directory with no permissions, so the failure cannot be staged")
+	}
+
+	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil)
+
+	require.ErrorIs(t, sweepErr, ErrCleanupShardFailed)
+	outcome, _ := ClassifyCleanupSweep(sweepErr)
+	require.Equal(t, CleanupSweepFailed, outcome)
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, logrus.ErrorLevel, summary.Level)
+	require.Contains(t, summary.Message, "could not be swept")
+
+	require.NoError(t, os.Chmod(migrations, 0o755))
+	require.True(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
+		"the state the summary must not report as swept")
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must
@@ -705,14 +939,36 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 	)
 
 	tests := []struct {
-		name              string
-		load              bool
+		name string
+		load bool
+		// plantOnGateShard writes whatever else the gate shard's disk holds.
+		plantOnGateShard  func(t *testing.T, lsm string)
 		staleOnGateShard  bool
 		staleOnOtherShard bool
 		wantSkip          bool
 	}{
 		{
 			name:     "unloaded with nothing to sweep",
+			wantSkip: true,
+		},
+		// Only a load reclaims these, so the gate has to stop skipping until
+		// one has run.
+		{
+			name: "unloaded with a completed migration's leftovers",
+			plantOnGateShard: func(t *testing.T, lsm string) {
+				mkTrackerDir(t, lsm, tracker,
+					"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+				mkSidecarDir(t, lsm, "property_category__enable_filterable_ingest_1")
+				mkSidecarDir(t, lsm, "property_category__enable_filterable_backup_1")
+			},
+		},
+		// The population the gate is for: migrated once, finalized already,
+		// nothing but its canonical buckets left.
+		{
+			name: "unloaded with nothing but its own bucket dirs",
+			plantOnGateShard: func(t *testing.T, lsm string) {
+				mkSidecarDir(t, lsm, "property_category")
+			},
 			wantSkip: true,
 		},
 		{
@@ -746,6 +1002,9 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			if tc.staleOnGateShard {
 				// A gate reading any other shard's path would answer "skip" here.
 				mkTrackerDir(t, shardPathLSM(idx.path(), gateShard), tracker, "started.mig")
+			}
+			if tc.plantOnGateShard != nil {
+				tc.plantOnGateShard(t, shardPathLSM(idx.path(), gateShard))
 			}
 			if tc.staleOnOtherShard {
 				mkTrackerDir(t, shardPathLSM(idx.path(), otherShard), tracker, "started.mig")
@@ -929,8 +1188,8 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
 	require.False(t, unloaded.isLoaded(),
 		"refusing the input must not cost a hydration of the whole collection")
-	outcome, _ := classifyTerminalSweep(err)
-	require.Equal(t, terminalSweepUnknown, outcome,
+	outcome, _ := ClassifyCleanupSweep(err)
+	require.Equal(t, CleanupSweepUnknown, outcome,
 		"an input the node cannot process is not a swept collection")
 }
 
@@ -1015,6 +1274,10 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		// "category__ingest_"'s own main bucket.
 		{name: "a property whose name ends in a role word and a separator", dir: main + "__ingest_", want: false},
 		{name: "a sidecar whose suffix carries a strategy word", dir: main + "__blockmax_ingest", want: true},
+		{
+			name: "the dir a crashed bucket replacement left behind",
+			dir:  main + lsmkv.ReplacedBucketDirSuffix, want: true,
+		},
 		// weaviate/weaviate#12621: "category__<word>_<role>" is a property's own
 		// main bucket on every index type, and sweeping "category" deletes it.
 		{name: "a property whose name ends in a role word", dir: main + "__ingest", want: true},

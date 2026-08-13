@@ -560,7 +560,7 @@ func (p *ReindexProvider) processOneUnit(
 	// goroutine holding no closeLock — same re-materialization race as
 	// newReindexTrackerGuarded.
 	if err := concreteShard.Index().withCloseRLockGuard(func() error {
-		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
+		return p.persistRecoveryRecord(task, payload, unitID, concreteShard, tasks)
 	}); err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Index is closing: cascade-cancel ends the task; don't fail the unit.
@@ -1035,17 +1035,19 @@ type reindexRecoveryRecord struct {
 // filterable) and therefore two migration directories per shard; the
 // same record is written into each.
 //
-// lsmPath must be the concrete shard's LSM directory
-// (<data>/<index>/<shard>/lsm) — the migration sub-directory under
-// <lsmPath>/.migrations/<dir>/ is what holds the per-strategy sentinels
-// and the new payload.mig file.
+// The migration sub-directory under <shard>/lsm/.migrations/<dir>/ is what
+// holds the per-strategy sentinels and the new payload.mig file. Each task's
+// property list is recorded beside it
+// ([ShardReindexTaskGeneric.SaveSelectedProps]) so a property DELETE landing
+// before the shard's first reindex pass need not parse payload.mig.
 func (p *ReindexProvider) persistRecoveryRecord(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	unitID string,
-	lsmPath string,
+	shard ShardLike,
 	tasks []*ShardReindexTaskGeneric,
 ) error {
+	lsmPath := shard.pathLSM()
 	if lsmPath == "" {
 		return fmt.Errorf("empty lsm path")
 	}
@@ -1062,6 +1064,12 @@ func (p *ReindexProvider) persistRecoveryRecord(
 	for _, t := range tasks {
 		if err := t.SaveRecoveryPayload(lsmPath, encoded); err != nil {
 			return fmt.Errorf("save recovery payload for task %q: %w", t.Name(), err)
+		}
+		// Not fatal: the DELETE path still answers from payload.mig, just at
+		// the cost this write exists to avoid.
+		if err := t.SaveSelectedProps(shard); err != nil {
+			p.logger.WithField("task", t.Name()).WithField("shard", shard.Name()).
+				Warnf("reindex provider: failed to record task properties: %v", err)
 		}
 	}
 	return nil
@@ -1719,108 +1727,144 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	// One sweep for the whole loop, so each shard's directories are read once.
+	// One sweep for the whole loop: every tuple asks the same unloaded shards.
+	// A loaded shard is read again per tuple, since each deletion changes what
+	// the next one would list.
 	sweep := p.db.NewStalePartialReindexSweep()
-	worst := sweepTerminalTuples(payload.Properties, indexTypes,
+	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
 		},
-		func(propName, indexType string, failure error) {
+		func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
+			// Off the shared taxonomy, like the handlers' logStaleSweepFailures:
+			// this line and the summary below report the same failure, so a level
+			// of its own would rank one event twice.
+			msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
 			logger.WithField("property", propName).WithField("index_type", indexType).
-				Warnf("auto-cleanup after terminal status failed: %v", failure)
+				Logf(level, "%s: %v", msg, failure)
 		})
-	msg, warn := terminalCleanupOutcome(worst)
-	if warn {
-		logger.Warn(msg)
-	} else {
-		logger.Info(msg)
-	}
+	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
+	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
 	return true
 }
 
-// sweepTerminalTuples runs sweep once per (property, index type), reporting
-// each failure to onFailure, and returns the worst outcome of the run — a
-// later clean tuple must not mask an earlier one that left state behind.
-func sweepTerminalTuples(
+// sweepEachPropertyIndexType runs sweep once per (property, index type),
+// reporting each failure to onFailure, and returns the worst outcome of the
+// run — a later clean sweep must not mask an earlier one that left state
+// behind.
+//
+// onFailure is handed the tuple's own outcome, not the fold, so it can word
+// and rank its line by the same taxonomy the summary uses.
+func sweepEachPropertyIndexType(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
-	onFailure func(propName, indexType string, failure error),
-) terminalSweepOutcome {
-	worst := terminalSweepClean
+	onFailure func(propName, indexType string, outcome CleanupSweepOutcome, failure error),
+) CleanupSweepOutcome {
+	worst := CleanupSweepClean
 	for _, propName := range propNames {
 		for _, indexType := range indexTypes {
-			outcome, failure := classifyTerminalSweep(sweep(propName, indexType))
+			outcome, failure := ClassifyCleanupSweep(sweep(propName, indexType))
 			worst = max(worst, outcome)
 			if failure != nil {
-				onFailure(propName, indexType, failure)
+				onFailure(propName, indexType, outcome, failure)
 			}
 		}
 	}
 	return worst
 }
 
-// terminalSweepOutcome is what one sweep left for the operator, ordered by
-// how certain it is that actionable state remains; the max across a run's
-// sweeps is reported.
+// CleanupSweepOutcome is what one stale-partial-reindex sweep left for the
+// operator, ordered by how certain it is that actionable state remains, so a
+// caller running several sweeps can report the max as the run's outcome.
 //
 // "Every shard" means every shard in the index's map when the sweep starts:
 // an already-COLD tenant isn't in it and waits for a later reindex task,
 // same as one activated mid-walk. One deactivated mid-walk was in the map
-// and reports [terminalSweepUnknown].
-type terminalSweepOutcome int
+// and reports [CleanupSweepUnknown].
+type CleanupSweepOutcome int
 
 const (
-	// terminalSweepClean: the walk reached every shard in the map. A shard
+	// CleanupSweepClean: the walk reached every shard in the map. A shard
 	// the gate skipped counts as reached — the gate found nothing to sweep,
 	// up to the staleness [dirNamesCache] names.
-	terminalSweepClean terminalSweepOutcome = iota
-	// terminalSweepDropped: the collection is not on this node — though shards
+	CleanupSweepClean CleanupSweepOutcome = iota
+	// CleanupSweepDropped: the collection is not on this node — though shards
 	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
-	terminalSweepDropped
-	// terminalSweepUnknown: shards were left unvisited. What is on them is
-	// unknown, which is not the same as knowing state is there.
-	terminalSweepUnknown
-	// terminalSweepFailed: a shard was reached and could not be swept. Nothing
-	// was removed from it, so whatever partial state it holds is still there.
-	terminalSweepFailed
+	CleanupSweepDropped
+	// CleanupSweepUnknown: the walk left shards unvisited, or ran out of time
+	// partway through one. What is on them is unknown, which is not the same as
+	// knowing state is there.
+	CleanupSweepUnknown
+	// CleanupSweepFailed: a shard was reached and could not be swept. It can
+	// fail after already removing part of its state, so what the shard holds
+	// is an unknown remainder rather than the state the sweep found.
+	CleanupSweepFailed
 )
 
-// classifyTerminalSweep splits one sweep's error into what it left behind and
+// ClassifyCleanupSweep splits one sweep's error into what it left behind and
 // the failure the operator has to act on. A shard can fail before the
-// collection is deleted mid-walk; that outcome is [terminalSweepFailed], not
-// [terminalSweepDropped] — the delete doesn't erase the earlier failure.
-func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure error) {
+// collection is deleted mid-walk; that outcome is [CleanupSweepFailed], not
+// [CleanupSweepDropped] — the delete doesn't erase the earlier failure.
+//
+// Exported so the REST handlers that run the same sweep word their outcome by
+// this taxonomy rather than a second one of their own.
+func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error) {
 	switch {
 	case err == nil:
-		return terminalSweepClean, nil
+		return CleanupSweepClean, nil
 	case IsCleanupCollectionDropped(err):
-		return terminalSweepDropped, nil
+		return CleanupSweepDropped, nil
 	case errors.Is(err, ErrCleanupShardFailed):
-		return terminalSweepFailed, err
+		return CleanupSweepFailed, err
 	case errors.Is(err, ErrCleanupSweepTruncated):
-		return terminalSweepUnknown, err
+		return CleanupSweepUnknown, err
 	default:
 		// Not expected to be reached; an unmarked error is unknown, not clean.
-		return terminalSweepUnknown, err
+		return CleanupSweepUnknown, err
 	}
 }
 
-// terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. A dropped collection warrants no warning — the delete removes the
-// whole collection directory (barring an in-flight backup's keepFiles,
-// reclaimed on release or restart). Failed and unknown both warrant one:
-// neither confirms the state is gone, and nothing removes it before the next
-// submit or the next-restart audit.
-func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
+// Sweep phases: which caller a sweep line belongs to, so two sweeps of the
+// same tuple in one log are told apart. The REST handlers name their own.
+const (
+	sweepPhaseIndexCleanup    = "partial-reindex cleanup"
+	sweepPhaseTerminalCleanup = "auto-cleanup after terminal status"
+)
+
+// CleanupSweepSummary is the one line a sweep leaves its operator: phase names
+// the caller, and everything after it is shared, so the same outcome never
+// reaches an operator as two claims at two severities.
+//
+// [CleanupSweepFailed] is the only Error. It reports a shard that was reached
+// and could not be swept, and was left partly swept with nothing scheduled to
+// finish it, so an operator has to act. A cancelled run can also stop a shard
+// partway through — that reaches the operator as unverified, not as confirmed.
+// Everything else is either clean or merely unverified, and routine tenant
+// churn produces unverified on a healthy node.
+//
+// Exported alongside [ClassifyCleanupSweep] so the REST handlers that run the
+// same sweep word and rank their outcome by this taxonomy rather than a second
+// one of their own. A caller with something to add appends it; it must not
+// restate what the outcome already says.
+func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
 	switch outcome {
-	case terminalSweepFailed:
-		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
-	case terminalSweepUnknown:
-		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
-	case terminalSweepDropped:
-		return "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files", false
+	case CleanupSweepClean:
+		return phase + ": sweep finished, unloaded shards with nothing to sweep left unloaded",
+			logrus.InfoLevel
+	case CleanupSweepDropped:
+		return phase + ": the collection is not on this node, so whatever is left here is removed " +
+				"with the collection directory, unless a backup in flight is keeping those files",
+			logrus.InfoLevel
+	case CleanupSweepFailed:
+		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
+				"scheduled to finish it",
+			logrus.ErrorLevel
 	default:
-		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
+		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
+		// confirms no more than an unfinished walk does.
+		return phase + ": the sweep did not reach every shard, so what is on the ones it missed " +
+				"or did not finish is unverified",
+			logrus.WarnLevel
 	}
 }
 
@@ -1904,10 +1948,10 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 }
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
-// terminal-task cleanup goroutine still inside its [sweepTerminalTuples] run
-// over [DB.NewStalePartialReindexSweep]?" probe. Sibling type to
-// [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
-// "is there a LIVE reindex task on this shard?" probe). The backup
+// terminal-task cleanup goroutine still inside its
+// [sweepEachPropertyIndexType] run over [StalePartialReindexSweep]?" probe.
+// Sibling type to [ShardReindexActivityLookup] (which is the cluster-wide
+// DTM-backed "is there a LIVE reindex task on this shard?" probe). The backup
 // gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
@@ -1937,8 +1981,10 @@ func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLook
 // stuck-task behavior.
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
-// reindexTerminalCleanupTimeout bounds cleanup per shard across all
-// (property, indexType) pairs.
+// reindexTerminalCleanupTimeout is one window for the whole cleanup run: every
+// shard and every (property, indexType) pair share it, and the shards it cuts
+// short are reported as ones the sweep never reached. [dirNamesCache] relies on
+// it being run-wide for the lifetime of its listings.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
@@ -2011,7 +2057,10 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 				"left the canonical inverted bucket holding new-tokenization "+
 				"data under the pre-migration schema "+
 				"— issue the repair_command above to re-run the migration "+
-				"against the current schema",
+				"against the current schema; an affected tenant still unloaded "+
+				"finalizes its own deferred swap the next time it is "+
+				"read, so try one read there before the repair_command's "+
+				"cluster-wide rebuild",
 			payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
@@ -2055,11 +2104,12 @@ func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskP
 // same as being done. An unreadable *task* payload goes the other way and
 // returns true: nothing here can be recovered from it.
 //
-// Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
-// the rehydrate path completes the swap; without it, a half-applied local
-// swap could leave this node at OLD tokenization after a cluster-wide schema
-// flip already committed (#10675 family). Tracker dirs are read at a path
-// this node joins itself, so an unloaded tenant stays unloaded.
+// False only suppresses the scheduler's bootstrap pre-mark. The task's
+// callbacks are then re-dispatched once on the next tick, where a terminal
+// status makes every one of them a no-op, so nothing is recovered — the one
+// lasting effect is a re-issued post-completion ack, once per process start,
+// until the completed-task TTL drops the task. Tracker dirs are read at a
+// path this node joins itself, so an unloaded tenant stays unloaded.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
@@ -2114,22 +2164,38 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		if !isHosted {
 			continue
 		}
-		lsmPath := shardPathLSM(idx.path(), shardName)
-		// ChangeAlgorithm uses a class-level tracker dir; the per-property
-		// scope deliberately omits it.
-		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
-			hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
+		// A memo per shard, not per shard walk: no two shards name the same
+		// tracker path, so nothing carries over between them anyway.
+		if shardHasUntidiedTracker(shardPathLSM(idx.path(), shardName),
+			&payload, indexTypes, &taskPropsCache{}) {
 			return false
-		}
-		for _, indexType := range indexTypes {
-			for _, propName := range payload.Properties {
-				if hasUntidiedTracker(migrationDirsOf(lsmPath, nil, propName, indexType)) {
-					return false
-				}
-			}
 		}
 	}
 	return true
+}
+
+// shardHasUntidiedTracker reports whether any (index type, property) tuple
+// this task owns left an uncommitted tracker on the shard at lsmPath. props
+// memoizes payload reads across tuples (nil re-reads); one read is a full
+// payload.mig parse — hundreds of milliseconds on a large migration.
+func shardHasUntidiedTracker(
+	lsmPath string, payload *ReindexTaskPayload, indexTypes []string, props *taskPropsCache,
+) bool {
+	// ChangeAlgorithm uses a class-level tracker dir; the per-property
+	// scope deliberately omits it.
+	if payload.MigrationType == ReindexTypeChangeAlgorithm &&
+		hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
+		return true
+	}
+	for _, indexType := range indexTypes {
+		for _, propName := range payload.Properties {
+			scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
+			if hasUntidiedTracker(scope) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
@@ -2153,17 +2219,14 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // promoted-and-removed).
 //
 // Generation-less dirs (pre-[genSuffix]) count too, matching what
-// [migrationDirScope.match] treats as this tuple's trackers. An unreadable
-// payload and an unlistable .migrations dir both count as well — either
+// [migrationDirScope.inScopeFailingOpen] treats as this tuple's trackers. An
+// unreadable payload and an unlistable .migrations dir both count as well — either
 // could hide a tracker naming this property, and reporting "done" on
 // unreadable state would deregister the local callbacks while an untidied
 // tracker remains. Like the unloaded-shard gate
 // ([hasStalePartialReindexState]), this fails toward recovery.
 //
-// The unreadable payload only counts while no properties.mig rebuilds the
-// dir's name. Where one does, [readTaskProps] answers from it, and a
-// tracker naming other properties stops counting — so this can report
-// "done" and deregister.
+// Same unreadable-payload rule as [hasStalePartialReindexState].
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -2174,7 +2237,7 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 		if !entry.IsDir() {
 			continue
 		}
-		matched, unreadablePayload := scope.match(entry.Name())
+		matched, unreadablePayload := scope.inScopeFailingOpen(entry.Name())
 		if !matched && !unreadablePayload {
 			continue
 		}

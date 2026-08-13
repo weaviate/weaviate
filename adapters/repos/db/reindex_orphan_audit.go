@@ -846,7 +846,9 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 
 	for _, propName := range o.properties {
 		for _, indexType := range o.indexTypes {
-			if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+			// The audit reports per orphan, not per payload, so the read count
+			// has no line here to land on.
+			if _, err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 				return fmt.Errorf("clean stale partial reindex state for (prop=%q,indexType=%q): %w", propName, indexType, err)
 			}
 		}

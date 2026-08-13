@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -28,10 +27,8 @@ import (
 // below can be put through both and the answers compared.
 func narrowMatchByName(s migrationDirScope, name string) (matched, decided bool) {
 	base := migrationDirBase(name)
-	for _, classDir := range s.classDirs {
-		if base == classDir {
-			return true, true
-		}
+	if s.classDir != "" && base == s.classDir {
+		return true, true
 	}
 	if !s.hasStrategyPrefix(base) {
 		return false, true
@@ -55,7 +52,7 @@ func narrowMatches(s migrationDirScope, name string) bool {
 	if matched, decided := narrowMatchByName(s, name); decided {
 		return matched
 	}
-	matched, _ := s.match(name)
+	matched, _ := s.inScopeFailingOpen(name)
 	return matched
 }
 
@@ -208,7 +205,7 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 						}
 						for _, d := range dirs {
 							narrow := narrowMatches(scope, d.name)
-							widened := scope.matches(d.name)
+							widened := scope.inScope(d.name)
 							if narrow != widened {
 								diverged = append(diverged, divergence{
 									propName: propName, indexType: indexType,
@@ -308,11 +305,17 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			for _, propName := range diffPropNames {
 				for _, indexType := range diffIndexTypes {
 					refLSM, dirs := writeDiffTree(t, payloadMode, completed)
-					want := narrowSweepSurvivors(t, refLSM,
-						migrationDirsOf(refLSM, nil, propName, indexType), dirs)
+					refScope := migrationDirsOf(refLSM, nil, propName, indexType)
+					var names []string
+					for _, d := range dirs {
+						names = append(names, d.name)
+					}
+					want := sweepSurvivors(names,
+						completedMigrationGensNarrow(t, refLSM, refScope, dirs),
+						func(name string) bool { return narrowMatches(refScope, name) })
 
 					lsm, _ := writeDiffTree(t, payloadMode, completed)
-					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger)
+					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
 
 					require.Equal(t, want, survivingTrackerDirs(t, lsm),
 						"payload %s completed %v prop %q index %q",
@@ -321,26 +324,4 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			}
 		}
 	}
-}
-
-// narrowSweepSurvivors is which tracker dirs [cleanStaleMigrationDirsIn] would
-// leave behind if it still asked the gate [isProvablySingleProperty] replaced.
-func narrowSweepSurvivors(
-	t *testing.T, lsm string, scope migrationDirScope, dirs []diffDir,
-) []string {
-	t.Helper()
-	preserved := completedMigrationGensNarrow(t, lsm, scope, dirs)
-
-	var survivors []string
-	for _, d := range dirs {
-		if !narrowMatches(scope, d.name) {
-			survivors = append(survivors, d.name)
-			continue
-		}
-		if _, gen, ok := parseMigrationDirName(d.name); ok && preserved[gen] {
-			survivors = append(survivors, d.name)
-		}
-	}
-	sort.Strings(survivors)
-	return survivors
 }

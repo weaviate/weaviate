@@ -31,6 +31,27 @@ type tracker struct {
 	props []string
 }
 
+// writeTrackerPayload writes the payload.mig an existing tracker dir claims its
+// properties with, honoring the empty-props convention on [tracker].
+func writeTrackerPayload(t *testing.T, lsm string, tr tracker) {
+	t.Helper()
+	if len(tr.props) == 0 {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(lsm, ".migrations", tr.dir, reindexRecoveryPayloadFile),
+			[]byte("{not json"), 0o644))
+		return
+	}
+	mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+}
+
+// writeDeferredFinalizeTracker materializes one tracker dir in the state that
+// makes a sweep walk all three passes and preserve rather than delete.
+func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
+	t.Helper()
+	mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
+	writeTrackerPayload(t, lsm, tr)
+}
+
 // TestSweepPayloadReadCount pins how many tracker payloads one loaded-shard
 // sweep reads off disk.
 func TestSweepPayloadReadCount(t *testing.T) {
@@ -145,36 +166,29 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			lsm := shard.pathLSM()
 
 			for _, tr := range tc.trackers {
-				// tidied.mig makes these deferred-finalize state, so the sweep
-				// walks all three passes and preserves rather than deletes.
-				mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
-				if len(tr.props) == 0 {
-					require.NoError(t, os.WriteFile(
-						filepath.Join(lsm, ".migrations", tr.dir, reindexRecoveryPayloadFile),
-						[]byte("{not json"), 0o644))
-					continue
-				}
-				mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+				writeDeferredFinalizeTracker(t, lsm, tr)
 			}
 
 			if tc.gateFailsOpenOn != "" {
-				gateStale, _ := hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil)
+				gateStale, _, _ := hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil)
 				require.True(t, gateStale,
 					"unloaded-shard gate must hydrate rather than report a shard with an "+
 						"unreadable payload as clean")
 				_, unreadable := migrationDirsOf(lsm, nil, tc.propName, tc.indexTypes[0]).
-					match(tc.gateFailsOpenOn)
+					inScopeFailingOpen(tc.gateFailsOpenOn)
 				require.True(t, unreadable,
-					"match must keep reporting the unreadable payload the gate fails open on")
+					"inScopeFailingOpen must keep reporting the unreadable payload the gate fails open on")
 			}
 
 			hook.Reset() // drop whatever shard startup logged
+			returned := 0
 			for _, indexType := range tc.indexTypes {
-				require.NoError(t,
-					shard.CleanStalePartialReindexState(ctx, tc.propName, indexType))
+				returned += cleanSweep(t, ctx, shard, tc.propName, indexType)
 			}
 			require.Equal(t, tc.wantReads, loggedPayloadReads(t, hook, len(tc.indexTypes)),
 				"payload.mig reads across the sweep")
+			require.Equal(t, tc.wantReads, returned,
+				"the count the sweep hands its caller is the one it logs")
 
 			for _, tr := range tc.trackers {
 				require.True(t, dirExistsAt(t, lsm, filepath.Join(".migrations", tr.dir)),
@@ -182,6 +196,35 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The unloaded gate is not the only arm that pays for payloads: a loaded shard
+// pays inside the per-shard sweep. On a collection with no cold tenants every
+// shard is loaded, so a summary fed by the gate alone reports zero reads for
+// every sweep the node ever runs.
+func TestIndexSweepReportsLoadedShardPayloadReads(t *testing.T) {
+	ctx := testCtx()
+	className := "LoadedSweepReads_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"cat", "dog"})
+	hookLogger, hook := test.NewNullLogger()
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = hookLogger })
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	// ["cat","dog"] sorts to exactly this name, so only the payload can say
+	// whether the tracker belongs to the swept property.
+	writeDeferredFinalizeTracker(t, shard.pathLSM(),
+		tracker{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}})
+
+	hook.Reset()
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, "cat", "filterable", nil))
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 0, summary.Data["skipped_shards"],
+		"the shard is loaded, so the gate never answered for it")
+	require.Equal(t, 1, summary.Data["payload_reads"],
+		"the summary carries what the loaded shard's own sweep paid")
 }
 
 // loggedPayloadReads sums the payload counts the sweeps reported on their
@@ -232,9 +275,21 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 	payloadModes := []string{"written", "absent", "unparseable"}
 	propNames := []string{"cat", "cat_dog", "category", "b"}
 
+	// What the name shortcut decides over the fixtures below, counted per arm.
+	// Without these the loop's "ask the payload" skip is also the skip a
+	// matchByName that decides nothing takes, and the test asserts nothing at
+	// all. matchByName never opens a payload, so the three counts hold for
+	// every payload mode.
+	const (
+		wantInScope    = 24
+		wantOutOfScope = 296
+		wantUndecided  = 16
+	)
+
 	for _, mode := range payloadModes {
 		lsm := t.TempDir()
 		var dirs []string
+		var inScope, outOfScope, undecided int
 		for _, w := range writers {
 			dir := migrationDirWithProps(w.prefix, w.props) + genSuffix(w.gen)
 			dirs = append(dirs, dir)
@@ -265,16 +320,34 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 					for _, dir := range dirs {
 						byName, decided := scope.matchByName(dir)
 						if !decided {
+							undecided++
 							continue
 						}
-						fromPayload, _ := scope.match(dir)
+						if byName {
+							inScope++
+						} else {
+							outOfScope++
+						}
+						fromPayload, unreadable := scope.inScopeFailingOpen(dir)
 						require.Equal(t, fromPayload, byName,
 							"dir %q prop %q index %q preserve %v payload %s",
+							dir, propName, indexType, preserve, mode)
+						if byName {
+							// A dir the name puts in scope still fails open on a
+							// payload it cannot read; see gateFailsOpenOn above.
+							continue
+						}
+						require.False(t, unreadable,
+							"a name that disowns the property leaves its payload nothing to add: "+
+								"dir %q prop %q index %q preserve %v payload %s",
 							dir, propName, indexType, preserve, mode)
 					}
 				}
 			}
 		}
+		require.Equal(t, wantInScope, inScope, "dirs the name alone puts in scope, payload %s", mode)
+		require.Equal(t, wantOutOfScope, outOfScope, "dirs the name alone disowns, payload %s", mode)
+		require.Equal(t, wantUndecided, undecided, "dirs left to the payload, payload %s", mode)
 	}
 }
 
@@ -294,7 +367,7 @@ func TestMatchByNameOverridesAContradictingPayload(t *testing.T) {
 	require.True(t, decided, "an underscore-free name is decided without the payload")
 	require.True(t, matched)
 
-	fromPayload, unreadable := scope.match(dir)
+	fromPayload, unreadable := scope.inScopeFailingOpen(dir)
 	require.False(t, fromPayload, "the payload alone would disown the dir it is stored in")
 	require.False(t, unreadable)
 }
@@ -343,9 +416,12 @@ func TestTaskPropsCacheReadsEachPayloadOnce(t *testing.T) {
 // gate reads the same payload once per pass.
 func TestGatePayloadReadCount(t *testing.T) {
 	tests := []struct {
-		name      string
-		propName  string
-		trackers  []tracker
+		name     string
+		propName string
+		trackers []tracker
+		// markers are the sentinel files every tracker dir gets; empty means a
+		// completed-but-deferred migration the gate has to preserve.
+		markers   []string
 		sidecars  []string
 		wantStale bool
 		wantReads int
@@ -386,20 +462,46 @@ func TestGatePayloadReadCount(t *testing.T) {
 			sidecars:  []string{"property_cat__enable_filterable_ingest_1"},
 			wantReads: 1,
 		},
+		{
+			// The dir name already disowns "category", and no writer can name a
+			// dir for one property while its payload lists another.
+			name:     "a corrupt payload cannot claim a dir another property is named in",
+			propName: "category",
+			trackers: []tracker{
+				{dir: "enable_filterable_other_1"},
+			},
+			wantStale: false,
+			wantReads: 0,
+		},
+		{
+			// The case a sweep of 5,000 cold tenants is made of: the gate pays a
+			// read and then reports the shard stale, so a count taken only off
+			// the skip arm reads zero where the cost is highest.
+			name:      "a read the gate paid before answering stale",
+			propName:  "cat",
+			markers:   []string{"started.mig"},
+			trackers:  []tracker{{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}}},
+			wantStale: true,
+			wantReads: 1,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			markers := tc.markers
+			if len(markers) == 0 {
+				markers = []string{"started.mig", "merged.mig", "tidied.mig"}
+			}
 			lsm := t.TempDir()
 			for _, tr := range tc.trackers {
-				mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
-				mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+				mkTrackerDir(t, lsm, tr.dir, markers...)
+				writeTrackerPayload(t, lsm, tr)
 			}
 			for _, s := range tc.sidecars {
 				mkSidecarDir(t, lsm, s)
 			}
 
-			stale, reads := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			stale, _, reads := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
 			require.Equal(t, tc.wantStale, stale)
 			require.Equal(t, tc.wantReads, reads, "payload.mig reads in one gate call")
 		})

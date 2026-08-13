@@ -74,7 +74,8 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 			require.True(t, idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, nil),
 				"a merged generation is what the next restart promotes")
 
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, indexType))
+			_, cleanErr := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+			require.NoError(t, cleanErr)
 
 			require.True(t, dirExistsAt(t, lsm, sidecar),
 				"cancel must not wipe a merged generation's sidecar")

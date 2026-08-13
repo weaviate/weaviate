@@ -853,11 +853,10 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// CleanUpTask removes a task from the Manager's state. It refuses tasks in a status this
-// build both declared and calls live, and tasks whose completedTaskTTL has not yet elapsed,
-// preventing premature removal of status information that other nodes may still need to
-// observe. A status this build cannot name is removable — see the guard below, that exit is
-// the only one such a task has.
+// CleanUpTask removes a task from the Manager's state. It refuses a task that is both
+// [TaskStatus.IsActive] and [TaskStatus.IsRecognized], and a task whose completedTaskTTL
+// has not yet elapsed, preventing premature removal of status information that other
+// nodes may still need to observe.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {

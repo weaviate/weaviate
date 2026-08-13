@@ -60,6 +60,10 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
+	// The repair_command costs a cluster-wide rebuild. Where the tear sits on
+	// a tenant nobody has read since, loading it is what clears it.
+	require.Contains(t, entry.Message,
+		"before the repair_command's cluster-wide rebuild")
 }
 
 func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {

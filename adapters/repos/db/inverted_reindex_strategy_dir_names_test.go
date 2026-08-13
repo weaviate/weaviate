@@ -147,8 +147,8 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 				got, MigrationDirSearchableMapToBlockmax)
 		}
 	}
-	require.Contains(t, migrationDirsOf("", nil, "text", "searchable").preserving("searchable").classDirs,
-		MigrationDirSearchableMapToBlockmax,
+	require.Equal(t, MigrationDirSearchableMapToBlockmax,
+		migrationDirsOf("", nil, "text", "searchable").preserving("searchable").classDir,
 		"the preserve set must still span it: a completed class-level migration owns live sidecars")
 }
 
@@ -305,7 +305,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 		// An unparseable payload keeps the narrow fallback for deletion —
 		// deleting on a guess could remove another property's tracker. The
 		// unloaded-shard gate fails open on it instead; see
-		// [migrationDirScope.match].
+		// [migrationDirScope.inScopeFailingOpen].
 		{
 			name:           "a two-property shape with an unparseable payload",
 			dir:            "enable_filterable_a_b_1",
@@ -379,7 +379,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			if tc.preserve {
 				scope = scope.preserving(indexType)
 			}
-			require.Equal(t, tc.want, scope.matches(tc.dir))
+			require.Equal(t, tc.want, scope.inScope(tc.dir))
 		})
 	}
 }

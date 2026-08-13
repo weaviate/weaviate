@@ -16,39 +16,59 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// failToLoadMonitor makes every shard load fail, and runs onNthCall on the nth
-// attempt so a cancellation or a collection delete can land in the middle of
-// the walk. nthCall of 0 never runs it.
-type failToLoadMonitor struct {
+// loadAttemptMonitor counts shard-load attempts and runs onNthCall on the nth
+// one, so a cancellation or a collection delete can land in the middle of the
+// walk. nthCall of 0 never runs it.
+//
+// It fails the load itself by default, which is a shard breaking for its own
+// reason. admitLoad passes the load through instead, so the attempt goes on to
+// the load-permit wait — the step that takes the sweep's context and is
+// therefore the one an abort stops.
+type loadAttemptMonitor struct {
 	mu        sync.Mutex
 	onNthCall func()
 	nthCall   int
 	calls     int
+	admitLoad bool
 }
 
-func (m *failToLoadMonitor) CheckAlloc(sizeInBytes int64) error { return nil }
+func (m *loadAttemptMonitor) CheckAlloc(sizeInBytes int64) error { return nil }
 
-func (m *failToLoadMonitor) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
+func (m *loadAttemptMonitor) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
 	if m.calls == m.nthCall && m.onNthCall != nil {
 		m.onNthCall()
 	}
+	if m.admitLoad {
+		return nil
+	}
 	return errors.New("memory pressure")
 }
 
-func (m *failToLoadMonitor) Refresh(updateMappings bool) {}
+func (m *loadAttemptMonitor) Refresh(updateMappings bool) {}
+
+// newSweepLoadLimiter is the limiter a real shard load waits on. A load that
+// reaches it with the sweep's context already gone reports the cancellation
+// the same way production does, rather than an error the test invented.
+func newSweepLoadLimiter() *loadlimiter.LoadLimiter {
+	return loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "sweep_test", 1)
+}
 
 // tenantShardNames builds n shard names, for the cases that need more of them
 // than an operator-facing message is allowed to carry.
@@ -70,6 +90,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// cancelOnCall aborts the sweep's context on the nth shard load; 0
 		// lets the walk run to the end.
 		cancelOnCall int
+		// cancelStopsTheLoad makes the abort itself the reason the load fails:
+		// the load is admitted past the memory check and stops on the permit
+		// wait, which takes the sweep's context. Without it the load fails for
+		// a reason of its own that the abort merely coincides with.
+		cancelStopsTheLoad bool
 		// dropOnCall deletes the collection on the nth shard load, so the
 		// delete lands after that shard has already failed.
 		dropOnCall int
@@ -85,8 +110,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantErr       bool
 		wantTruncated bool
 		wantDropped   bool
-		// wantShardErr expects the failing shard to still be named.
+		// wantShardErr expects the sweep to have reached a shard and failed on it.
 		wantShardErr bool
+		// wantShardNamed expects the shard the sweep stopped at to be named,
+		// whichever marker carries it.
+		wantShardNamed bool
 		// wantShardsNamed is how many failing shards the message may name; 0
 		// skips the check.
 		wantShardsNamed int
@@ -110,12 +138,13 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated: true,
 		},
 		{
-			name:          "one shard that cannot be loaded",
-			shards:        []string{"shard-a"},
-			staleOnDisk:   true,
-			wantErr:       true,
-			wantShardErr:  true,
-			wantTruncated: false,
+			name:           "one shard that cannot be loaded",
+			shards:         []string{"shard-a"},
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantShardErr:   true,
+			wantShardNamed: true,
+			wantTruncated:  false,
 		},
 		{
 			// A full disk fails every tenant at once; the message caps how many it names.
@@ -124,16 +153,38 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			staleOnDisk:     true,
 			wantErr:         true,
 			wantShardErr:    true,
+			wantShardNamed:  true,
 			wantShardsNamed: maxReportedErrors,
 		},
 		{
-			name:          "the abort lands on the first of two shards",
-			shards:        []string{"shard-a", "shard-b"},
-			cancelOnCall:  1,
-			staleOnDisk:   true,
-			wantErr:       true,
-			wantTruncated: true,
-			wantShardErr:  true,
+			// The shard broke for its own reason; the abort only happened at the
+			// same moment. Reading that as a run out of time hides a broken shard
+			// behind the warning routine tenant churn produces, which is the one
+			// failure mode worse than the false alarm. The second shard really
+			// was left unvisited, so both markers are on the error.
+			name:           "a shard breaks for its own reason as the abort lands",
+			shards:         []string{"shard-a", "shard-b"},
+			cancelOnCall:   1,
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantTruncated:  true,
+			wantShardErr:   true,
+			wantShardNamed: true,
+		},
+		{
+			// The abort IS why this shard was not swept, so it is one the run
+			// never finished rather than one it found broken. Tagging it failed
+			// would report confirmed state on a shard nothing looked at, at the
+			// severity reserved for an operator having to act.
+			name:               "the abort stops the load itself",
+			shards:             []string{"shard-a", "shard-b"},
+			cancelOnCall:       1,
+			cancelStopsTheLoad: true,
+			staleOnDisk:        true,
+			wantErr:            true,
+			wantTruncated:      true,
+			wantShardErr:       false,
+			wantShardNamed:     true,
 		},
 		{
 			// The walk visits nothing here, so "swept every shard" would be a
@@ -159,13 +210,14 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		},
 		{
 			// A shard fails, then the collection is deleted before the walk ends.
-			name:         "a shard fails and the collection is deleted before the walk ends",
-			shards:       []string{"shard-a", "shard-b"},
-			dropOnCall:   1,
-			staleOnDisk:  true,
-			wantErr:      true,
-			wantDropped:  true,
-			wantShardErr: true,
+			name:           "a shard fails and the collection is deleted before the walk ends",
+			shards:         []string{"shard-a", "shard-b"},
+			dropOnCall:     1,
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantDropped:    true,
+			wantShardErr:   true,
+			wantShardNamed: true,
 		},
 		{
 			// A close nobody named a cause for could still be a shutdown, and
@@ -184,7 +236,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			monitor := &failToLoadMonitor{}
+			monitor := &loadAttemptMonitor{admitLoad: tc.cancelStopsTheLoad}
+			var limiter *loadlimiter.LoadLimiter
+			if tc.cancelStopsTheLoad {
+				limiter = newSweepLoadLimiter()
+			}
 
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
@@ -223,8 +279,9 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 						"enable_filterable_title_1", "started.mig")
 				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
-					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
-					memMonitor: monitor,
+					shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
+					memMonitor:       monitor,
+					shardLoadLimiter: limiter,
 				})
 			}
 
@@ -264,13 +321,15 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				require.NotErrorIs(t, err, ErrCleanupCollectionDropped,
 					"the collection is not being deleted, so its state outlives this sweep")
 			}
+			if tc.wantShardNamed {
+				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
+					"the shard the sweep stopped at must still be reported")
+			}
 			if tc.wantShardErr {
 				require.ErrorIs(t, err, ErrCleanupShardFailed,
 					"a shard the sweep reached and could not sweep has to be tagged as one, "+
 						"or a caller that asks only about the delete reports state as gone "+
 						"while that shard's is still on disk")
-				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
-					"the shard that failed before the abort must still be reported")
 			} else {
 				require.NotErrorIs(t, err, ErrCleanupShardFailed,
 					"no shard was reached and failed, so nothing was left on one")
@@ -331,7 +390,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 				logger:               logger,
 			}
 
-			monitor := &failToLoadMonitor{}
+			monitor := &loadAttemptMonitor{}
 			for _, name := range []string{"shard-a", "shard-b"} {
 				mkTrackerDir(t, shardPathLSM(idx.path(), name),
 					"enable_filterable_title_1", "started.mig")
@@ -597,6 +656,234 @@ func TestReportedShardNames(t *testing.T) {
 			require.Equal(t, tc.want, reportedShardNames(tc.names))
 		})
 	}
+}
+
+// newSweepTestIndex builds the smallest Index a sweep can walk. The returned
+// funcs are the two halves of a teardown: the cause a delete or a shutdown
+// signals, and the close itself.
+func newSweepTestIndex(t *testing.T, logger *logrus.Logger) (
+	idx *Index, signalCloseRequested func(error), closeIndex func(),
+) {
+	t.Helper()
+	closingCtx, closeIndex := context.WithCancel(context.Background())
+	closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { signalCloseRequested(nil) })
+	return &Index{
+		Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+		closingCtx:           closingCtx,
+		closeRequestedCtx:    closeRequestedCtx,
+		signalCloseRequested: signalCloseRequested,
+		logger:               logger,
+	}, signalCloseRequested, closeIndex
+}
+
+// storeUnloadableTenant adds a tenant whose every load attempt fails, so a
+// sweep that decides to hydrate it says so through an error.
+func storeUnloadableTenant(idx *Index, name string) {
+	idx.shards.Store(name, &LazyLoadShard{
+		shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
+		memMonitor: &loadAttemptMonitor{},
+	})
+}
+
+// onlySweepSummary returns the one line the index-level sweep leaves. Only that
+// line carries skipped_shards, which is what tells it apart from the per-shard
+// lines filed under the same operation.
+func onlySweepSummary(t *testing.T, hook *test.Hook) *logrus.Entry {
+	t.Helper()
+	var found []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if _, ok := entry.Data["skipped_shards"]; ok {
+			found = append(found, entry)
+		}
+	}
+	require.Len(t, found, 1, "one sweep leaves exactly one summary line")
+	return found[0]
+}
+
+// One sweep, one line, and that line names the outcome. A reassuring line the
+// classification then contradicts is one an operator reads first and stops at.
+func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) {
+	const cleanMsg = "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded"
+
+	tests := []struct {
+		name string
+		// staleOnDisk puts a tracker dir on every tenant, which is what makes
+		// the gate hydrate rather than skip.
+		staleOnDisk bool
+		// requestedCause is what a delete or a shutdown signalled before the sweep.
+		requestedCause error
+		wantMsg        string
+		wantLevel      logrus.Level
+		wantSkipped    int
+	}{
+		{
+			name:        "nothing on disk to sweep",
+			wantMsg:     cleanMsg,
+			wantLevel:   logrus.InfoLevel,
+			wantSkipped: 2,
+		},
+		{
+			name:        "a shard the sweep reached and could not load",
+			staleOnDisk: true,
+			wantMsg:     "partial-reindex cleanup: a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
+			wantLevel:   logrus.ErrorLevel,
+		},
+		{
+			name:           "a collection already being deleted",
+			staleOnDisk:    true,
+			requestedCause: errIndexDropped,
+			wantMsg:        "partial-reindex cleanup: the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files",
+			wantLevel:      logrus.InfoLevel,
+		},
+		{
+			name:           "a node already shutting down",
+			staleOnDisk:    true,
+			requestedCause: errIndexShutdown,
+			wantMsg:        "partial-reindex cleanup: the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified",
+			wantLevel:      logrus.WarnLevel,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			idx, signalCloseRequested, closeIndex := newSweepTestIndex(t, logger)
+			defer closeIndex()
+
+			for _, name := range []string{"tenant-a", "tenant-b"} {
+				if tc.staleOnDisk {
+					mkTrackerDir(t, shardPathLSM(idx.path(), name),
+						"enable_filterable_title_1", "started.mig")
+				}
+				storeUnloadableTenant(idx, name)
+			}
+			if tc.requestedCause != nil {
+				signalCloseRequested(tc.requestedCause)
+			}
+
+			_ = idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil)
+
+			summary := onlySweepSummary(t, hook)
+			require.Equal(t, tc.wantMsg, summary.Message)
+			require.Equal(t, tc.wantLevel, summary.Level)
+			require.Equal(t, tc.wantSkipped, summary.Data["skipped_shards"],
+				"a truncated sweep must not lose the numbers it did gather")
+		})
+	}
+}
+
+// The sweep's own line has to carry what the gate paid, whichever way the gate
+// then answered. Counting only the shards it skipped reports zero reads on the
+// node doing the most reading: thousands of cold tenants each holding one
+// tracker dir only a payload can attribute.
+func TestIndexCleanStalePartialReindexStateReportsGatePayloadReads(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+
+	// ["cat","dog"] sorts to exactly this name, so only the payload can say
+	// whether the dir belongs to the swept property.
+	lsm := shardPathLSM(idx.path(), "tenant-a")
+	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
+	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
+	storeUnloadableTenant(idx, "tenant-a")
+
+	err := idx.cleanStalePartialReindexState(context.Background(), "cat", "filterable", nil)
+
+	require.ErrorIs(t, err, ErrCleanupShardFailed,
+		"the gate must have answered stale, or the read this pins was never paid")
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 1, summary.Data["payload_reads"])
+	require.Equal(t, 0, summary.Data["skipped_shards"])
+}
+
+// A ShardLike that is neither implementation is a shard the sweep reached and
+// could not sweep. Reporting it as a clean walk would tell the operator every
+// shard was swept while one was not touched at all.
+func TestIndexCleanStalePartialReindexStateFailsOnAnUnknownShardImplementation(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	idx.shards.Store("tenant-a", NewMockShardLike(t))
+
+	err := idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil)
+
+	require.ErrorIs(t, err, ErrCleanupShardFailed)
+	require.Contains(t, err.Error(), "tenant-a", "the shard nothing swept has to be named")
+	require.Equal(t, logrus.ErrorLevel, onlySweepSummary(t, hook).Level)
+}
+
+// A cache at its bound answers off the filesystem from then on, which nothing
+// else reports.
+func TestDirNamesCacheReportsRefusedListings(t *testing.T) {
+	lsm := t.TempDir()
+	mkTrackerDir(t, lsm, "enable_filterable_title_1", "started.mig")
+
+	full := &dirNamesCache{cost: maxCachedDirNames}
+	names, err := full.list(filepath.Join(lsm, ".migrations"))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"enable_filterable_title_1"}, names,
+		"a listing the bound refuses is still answered, just not remembered")
+	require.Equal(t, 1, full.refused)
+	require.Empty(t, full.listings)
+	require.Zero(t, (*dirNamesCache)(nil).refusedListings(),
+		"a nil cache admits nothing, so it refuses nothing")
+}
+
+// A sweep whose cache stopped caching says so on its own line, at a level that
+// is not "everything is fine".
+func TestIndexCleanStalePartialReindexStateReportsAFullDirNamesCache(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	storeUnloadableTenant(idx, "tenant-a")
+
+	full := &dirNamesCache{cost: maxCachedDirNames}
+	require.NoError(t,
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 1, summary.Data["uncached_listings"])
+	require.Equal(t, logrus.WarnLevel, summary.Level,
+		"the sweep is otherwise clean, so only the refused listing can raise this")
+}
+
+// One cache serves every sweep of a request, so a count taken off its total
+// re-reports the first sweep's refusals on every later sweep — and raises them
+// to Warn on a sweep that refused nothing.
+func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"),
+		"enable_filterable_title_1", "started.mig")
+	storeUnloadableTenant(idx, "tenant-a")
+
+	full := &dirNamesCache{cost: maxCachedDirNames}
+	require.Error(t,
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+	first := onlySweepSummary(t, hook)
+	require.Positive(t, full.refusedListings(), "the first sweep has to fill the cache")
+	require.Equal(t, full.refusedListings(), first.Data["uncached_listings"],
+		"every refusal so far is this sweep's")
+
+	// The tenant left this node between the two sweeps, so the second asks the
+	// cache nothing at all.
+	hook.Reset()
+	_, dropped := idx.shards.LoadAndDelete("tenant-a")
+	require.True(t, dropped)
+	require.NoError(t,
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+
+	second := onlySweepSummary(t, hook)
+	require.Equal(t, 0, second.Data["uncached_listings"],
+		"a sweep reports the listings it was refused, not the ones an earlier sweep was")
+	require.Equal(t, logrus.InfoLevel, second.Level,
+		"nothing about this sweep warrants raising it above its own outcome")
+	require.Positive(t, full.refusedListings(),
+		"the cache still carries the first sweep's refusals")
 }
 
 // Pins that a collection already gone is reported as dropped, not clean.

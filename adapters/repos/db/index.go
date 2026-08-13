@@ -956,11 +956,10 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	// Gated on work done, not on property shape: every property has some index
-	// type switched off (rangeable on text, searchable on int), so a shape gate
-	// announces a sweep on every property update. The gate under-reports on
-	// purpose: a tracker matched by name alone is removed without reading a
-	// payload, so no line does not mean no dirs were removed.
+	// Gated on work done, not property shape: every property has some index
+	// type disabled, so gating on shape alone would log a sweep on every
+	// update. This under-reports on purpose: a tracker removed by name match
+	// alone costs no payload read, so an absent line doesn't mean nothing swept.
 	if reads := payloadReads.Load(); reads > 0 {
 		i.logger.WithFields(map[string]any{
 			"property":      property.Name,

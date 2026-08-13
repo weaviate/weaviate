@@ -563,8 +563,10 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch swept too. Not its body: an unloaded shard
-		// has no migration dirs or sidecars to sweep.
+		// log names what this branch removed too. Not its body: this path
+		// removes the main bucket dir by name and nothing else, so a cold
+		// tenant's migration and sidecar dirs outlive the property delete.
+		// That is a gap, not a property of unloaded shards.
 		for _, indexType := range disabledIndexTypes(prop) {
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
@@ -1084,6 +1086,22 @@ func (l *LazyLoadShard) blockLoading() func() {
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
+// A completed migration's leftovers are the second reason not to skip: a
+// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
+// data under the ingest sidecar name plus a full backup copy of the bucket it
+// replaced reclaims neither until something hydrates it. One load per tenant
+// per completed migration settles that — finalize removes the tracker dir it
+// answers from, so the next sweep skips the tenant again. A tenant with no
+// migration leftovers at all, which is the population this gate is for, is
+// never loaded.
+//
+// Skipping holds only while reindex state arrives through a load. Shutdown does
+// not remove the shard from the index map — [Index.Shutdown] shuts its shards
+// down in place — so what keeps the gate off a shard being shut down is the
+// mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
+// sweep racing an index shutdown then comes back truncated from
+// [Index.forEachShardStrict] rather than as a walk that reached every shard.
+//
 // The second return is the tracker-payload read count for the caller's log;
 // a loaded shard reads none.
 func (l *LazyLoadShard) canSkipUnloadedSweep(
@@ -1095,6 +1113,7 @@ func (l *LazyLoadShard) canSkipUnloadedSweep(
 	if l.loaded {
 		return false, 0
 	}
-	stale, payloadReads := hasStalePartialReindexState(l.pathLSM(), propName, indexType, dirs)
-	return !stale, payloadReads
+	stale, finalizable, payloadReads := hasStalePartialReindexState(
+		l.pathLSM(), propName, indexType, dirs)
+	return !stale && !finalizable, payloadReads
 }

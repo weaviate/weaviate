@@ -15,17 +15,23 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// writerSidecar is the properties.mig content getPropsToReindex writes for a
-// task. Mirrors findPropsToReindex, the only non-test caller of saveProps.
+// writerSidecar is the properties.mig content a task's own writers produce.
+// Mirrors selectedProps, which both getPropsToReindex and SaveSelectedProps
+// answer from.
 func writerSidecar(cfg reindexTaskConfig, collectionName string) []byte {
 	var props []string
 	for p := range cfg.selectedPropsByCollection[collectionName] {
@@ -158,6 +164,272 @@ func TestPropsFromSidecarRefusesAnEmptyListOnABarePrefixDir(t *testing.T) {
 	}
 }
 
+// Drives the real payload-save path and pins that the property sidecar lands
+// with payload.mig rather than waiting for the shard's first reindex pass. A
+// property DELETE arriving in between is answered from the sidecar instead of
+// parsing payload.mig, which runs inside the RAFT apply that holds the FSM loop
+// cluster-wide.
+func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
+	tests := []struct {
+		name      string
+		migration ReindexMigrationType
+		props     []string
+		// tokenization and bucketStrategy are only read by the migration types
+		// that require them.
+		tokenization   string
+		bucketStrategy string
+		// sweptProp and sweptIndexType are the property DELETE the sidecar has
+		// to answer.
+		sweptProp      string
+		sweptIndexType string
+		// sweptDirs are the tracker dirs that DELETE removes; every one must
+		// carry a sidecar and cost no payload read.
+		sweptDirs []string
+	}{
+		{
+			// ["cat","dog"] sorts to the same dir name a lone "cat_dog"
+			// property would produce, so only a recorded list settles it.
+			name:           "two properties share a dir name with one",
+			migration:      ReindexTypeEnableFilterable,
+			props:          []string{"dog", "cat"},
+			sweptProp:      "cat",
+			sweptIndexType: "filterable",
+			sweptDirs:      []string{"enable_filterable_cat_dog_1"},
+		},
+		{
+			name:           "one property carrying the join character",
+			migration:      ReindexTypeEnableRangeable,
+			props:          []string{"cat_dog"},
+			sweptProp:      "cat_dog",
+			sweptIndexType: "rangeable",
+			sweptDirs:      []string{"filterable_to_rangeable_cat_dog_1"},
+		},
+		{
+			// Two tasks, two migration dirs, one payload — the sidecar has to
+			// reach both.
+			name:           "change-tokenization writes one sidecar per sub-task",
+			migration:      ReindexTypeChangeTokenization,
+			props:          []string{"cat_dog"},
+			tokenization:   "field",
+			bucketStrategy: "MapCollection",
+			sweptProp:      "cat_dog",
+			sweptIndexType: "filterable",
+			sweptDirs:      []string{"filterable_retokenize_cat_dog_1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "PropsSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, tc.props),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			lsm := shard.pathLSM()
+
+			p, _ := newTestProvider(t)
+			payload := &ReindexTaskPayload{
+				MigrationType:      tc.migration,
+				Collection:         className,
+				Properties:         tc.props,
+				TargetTokenization: tc.tokenization,
+				BucketStrategy:     tc.bucketStrategy,
+				UnitToShard:        map[string]string{"unit-1": shard.Name()},
+			}
+			tasks, err := p.createReindexTasks(payload, lsm, false)
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
+
+			dtmTask := &distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-1", Version: 1},
+			}
+			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks))
+
+			want := slices.Clone(tc.props)
+			sort.Strings(want)
+			for _, task := range tasks {
+				migDir := filepath.Join(lsm, ".migrations", task.MigrationDirName())
+				got, err := readMigrationProps(migDir)
+				require.NoErrorf(t, err, "task %q wrote no properties.mig", task.Name())
+				require.Equal(t, want, got)
+			}
+
+			logger, _ := test.NewNullLogger()
+			// A real memo, never nil: the read count accrues into it, and a nil
+			// one reads every payload again while counting nothing, which would
+			// make the assertion below hold no matter what the sweep read.
+			props := &taskPropsCache{}
+			cleanStaleMigrationDirsAt(lsm, tc.sweptProp, tc.sweptIndexType, logger, props)
+			require.Zero(t, props.count(),
+				"every swept tracker was answerable from its sidecar")
+			// Without this the zero above would also hold for a sweep that
+			// matched nothing at all.
+			for _, dir := range tc.sweptDirs {
+				require.NoDirExistsf(t, filepath.Join(lsm, ".migrations", dir),
+					"the sweep must have owned %s to have read its properties", dir)
+			}
+		})
+	}
+}
+
+// Pins the guard the early write rests on: a task that has to discover its
+// properties per shard records nothing, leaving properties.mig absent so the
+// discovery still runs on the shard.
+func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name    string
+		newTask func(className, shardName string) *ShardReindexTaskGeneric
+	}{
+		{
+			name: "whole-collection task selects no properties",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				return newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+			},
+		},
+		{
+			name: "properties are selected for another collection",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				return NewRuntimeEnableFilterableTask(logger, []string{"cat"}, className+"Other", 1)
+			},
+		},
+		{
+			name: "properties are selected for another shard",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				task := NewRuntimeEnableFilterableTask(logger, []string{"cat"}, className, 1)
+				task.constrainToShard(className, shardName+"-other")
+				return task
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "NoSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, []string{"cat"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			task := tc.newTask(className, shard.Name())
+			migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+			require.NoError(t, os.MkdirAll(migDir, 0o777))
+
+			require.NoError(t, task.SaveSelectedProps(shard))
+			require.NoFileExists(t, filepath.Join(migDir, "properties.mig"))
+		})
+	}
+}
+
+// A zero-byte properties.mig is what a machine crash between the sidecar
+// write's create and its content leaves behind. Nothing else on the shard
+// records that a property list was ever computed, so every writer that meets
+// one has to rebuild it — reading it as a finished discovery retires the
+// shard's reindex for good.
+func TestAZeroBytePropsSidecarIsRebuiltNotObeyed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name string
+		// newTask builds the task whose writer has to notice the torn file.
+		newTask func(className string) *ShardReindexTaskGeneric
+		// repair is that writer, returning the props it resolved (nil where
+		// the writer does not report any).
+		repair func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error)
+		want   []string
+	}{
+		{
+			name: "whole-collection discovery",
+			newTask: func(className string) *ShardReindexTaskGeneric {
+				return newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+			},
+			repair: func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error) {
+				return task.getPropsToReindex(shard, rt)
+			},
+			want: []string{"cat", "dog"},
+		},
+		{
+			name: "the early selected-props write",
+			newTask: func(className string) *ShardReindexTaskGeneric {
+				return NewRuntimeEnableFilterableTask(logger, []string{"cat", "dog"}, className, 1)
+			},
+			repair: func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error) {
+				return nil, task.SaveSelectedProps(shard)
+			},
+			want: []string{"cat", "dog"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TornSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, []string{"cat", "dog"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			task := tc.newTask(className)
+			rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+			require.NoError(t, rt.init())
+			migDir := rt.config.migrationPath
+			require.NoError(t, os.WriteFile(filepath.Join(migDir, "properties.mig"), nil, 0o644))
+
+			props, err := tc.repair(task, shard, rt)
+			require.NoError(t, err)
+			if props != nil {
+				require.ElementsMatch(t, tc.want, props)
+			}
+
+			// The repair has to reach disk: the next boot reads the file, not
+			// this call's return value.
+			onDisk, err := readMigrationProps(migDir)
+			require.NoError(t, err)
+			require.ElementsMatch(t, tc.want, onDisk)
+
+			entries, err := os.ReadDir(migDir)
+			require.NoError(t, err)
+			for _, entry := range entries {
+				require.NotContains(t, entry.Name(), ".tmp",
+					"the atomic write must not leave its temp file behind")
+			}
+		})
+	}
+}
+
+// properties.mig is the shard's only record of what it has to reindex, so
+// content that names no property is a corrupt file, not an empty list. Reading
+// it as an empty list makes the shard report "nothing to do" forever.
+func TestAPropsSidecarNamingNoPropertyIsAnError(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := test.NewNullLogger()
+	className := "BlankSidecar" + uuid.NewString()[:8]
+	shd, _ := testShardWithSettings(t, ctx,
+		newTestClassWithProps(className, []string{"cat", "dog"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+	rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+	require.NoError(t, rt.init())
+	// Non-empty, so the file reads as a recorded list, yet it names nothing.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(rt.config.migrationPath, "properties.mig"), []byte(" \n"), 0o644))
+
+	_, err := task.getPropsToReindex(shard, rt)
+	require.Error(t, err)
+	_, err = task.readPropsToReindex(rt)
+	require.Error(t, err)
+}
+
 // ambiguousSweepDirs is how many tracker dirs the hot cell carries.
 const ambiguousSweepDirs = 100
 
@@ -202,14 +474,16 @@ func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	lsm := writeAmbiguousSweepTree(t, true)
-	require.Zero(t, cleanStaleMigrationDirsAt(lsm, "a_b", "filterable", logger),
-		"every tracker was answerable from its sidecar")
+	withSidecars := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(lsm, "a_b", "filterable", logger, withSidecars)
+	require.Zero(t, withSidecars.count(), "every tracker was answerable from its sidecar")
 
 	// Without sidecars the same sweep has to open every payload, which is what
 	// pins the count above as a property of the sidecars and not of the names.
 	bare := writeAmbiguousSweepTree(t, false)
-	require.Equal(t, ambiguousSweepDirs,
-		cleanStaleMigrationDirsAt(bare, "a_b", "filterable", logger),
+	noSidecars := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(bare, "a_b", "filterable", logger, noSidecars)
+	require.Equal(t, ambiguousSweepDirs, noSidecars.count(),
 		"without a sidecar there is nothing to answer from")
 
 	const maxBytesPerSweep = 2 << 20
@@ -221,7 +495,7 @@ func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 		for i := 0; i < b.N; i++ {
 			pass := scope.cachingProps(&taskPropsCache{})
 			for _, name := range names {
-				pass.matches(name)
+				pass.inScope(name)
 			}
 		}
 	})
@@ -262,7 +536,7 @@ func BenchmarkAmbiguousSweep(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				pass := scope.cachingProps(&taskPropsCache{})
 				for _, n := range names {
-					pass.matches(n)
+					pass.inScope(n)
 				}
 			}
 		})
