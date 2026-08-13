@@ -2078,7 +2078,10 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 				"data while the schema reverted to pre-migration state "+
 				"— issue the repair_command above to rebuild the "+
 				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+				"the current schema; an affected tenant still unloaded "+
+				"finalizes its own deferred swap the next time it is "+
+				"read, so try one read there before the repair_command's "+
+				"cluster-wide rebuild",
 			payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
