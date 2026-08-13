@@ -105,14 +105,30 @@ func (h *hnsw) tailReadsFire(bucket *lsmkv.Bucket) bool {
 	return true
 }
 
+// targetedScanStats records how each row was served. The whole-value fallback is what
+// decides whether this path helps or hurts: a row that takes it reads the same bytes as
+// the cursor scan through a per-row pread, and pays for the peek on top. A scan that
+// fell back on every row is otherwise indistinguishable from one that did not, since
+// both decode the same vectors.
+type targetedScanStats struct {
+	tail    atomic.Int64
+	whole   atomic.Int64
+	foreign atomic.Int64
+}
+
+func (s *targetedScanStats) fields() logrus.Fields {
+	return logrus.Fields{
+		"tail_reads":            s.tail.Load(),
+		"whole_value_fallbacks": s.whole.Load(),
+	}
+}
+
 // scanObjectVectorsTargeted reads a bounded peek per row plus, for large
 // schemas, only the vector-bearing tail. The bucket hides superseded and deleted
 // rows itself, so nothing here re-filters for them.
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
-	// a bucket that is not uuid-keyed would skip every row, so report the count once
-	// rather than leaving an empty cache explained only by per-row debug lines
 	// same node-wide pool as the cursor scan: both are bound by the volume, and a
 	// node restoring many tenants runs one of these per named vector per shard
 	parallel, release, err := acquirePrefillWorkers(ctx, prefillScanParallelism(), h.logger)
@@ -121,24 +137,29 @@ func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Buck
 	}
 	defer release()
 
-	var foreign atomic.Int64
+	var stats targetedScanStats
 	err = bucket.ScanTargetedReplace(ctx, prefillPeekBytes, parallel,
-		h.targetedRowCallback(targetVector, onVector, &foreign), h.logger)
-	if n := foreign.Load(); n > 0 {
-		h.logger.WithFields(logrus.Fields{
-			"action": "hnsw_vector_cache_prefill",
-			"rows":   n,
-		}).Warn("skipped object rows whose uuid does not match their bucket key")
+		h.targetedRowCallback(targetVector, onVector, &stats), h.logger)
+
+	entry := h.logger.WithFields(stats.fields()).
+		WithFields(logrus.Fields{"action": "hnsw_vector_cache_prefill", "index_id": h.id})
+	entry.Info("targeted vector cache prefill scan finished")
+
+	// a bucket that is not uuid-keyed would skip every row, so report the count once
+	// rather than leaving an empty cache explained only by per-row debug lines
+	if n := stats.foreign.Load(); n > 0 {
+		entry.WithField("rows", n).
+			Warn("skipped object rows whose uuid does not match their bucket key")
 	}
 	return err
 }
 
 func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector,
-	foreign *atomic.Int64,
+	stats *targetedScanStats,
 ) func(*lsmkv.TargetedScanEntry) error {
 	return func(e *lsmkv.TargetedScanEntry) error {
 		if err := objectRowMatchesKey(e.Key, e.Peek); err != nil {
-			foreign.Add(1)
+			stats.foreign.Add(1)
 			h.prefillSkipDebug("row does not match its key", err)
 			return nil
 		}
@@ -151,7 +172,7 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 		if !h.prefillEligible(id) {
 			return nil
 		}
-		vec, ok := h.targetedVectorFromEntry(e, targetVector)
+		vec, ok := h.targetedVectorFromEntry(e, targetVector, stats)
 		if !ok || len(vec) == 0 {
 			return nil
 		}
@@ -164,9 +185,11 @@ func (h *hnsw) prefillSkipDebug(reason string, err error) {
 		Debugf("skipping object with %s: %v", reason, err)
 }
 
-func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector string) ([]float32, bool) {
+func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector string,
+	stats *targetedScanStats,
+) ([]float32, bool) {
 	if targetVector == "" {
-		return h.legacyVectorFromEntry(e)
+		return h.legacyVectorFromEntry(e, stats)
 	}
 
 	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(e.Peek)
@@ -182,9 +205,10 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 		return nil, false
 	}
 	if !ok || schemaLen < prefillTargetedMinSchemaLen {
-		return h.wholeVectorFromEntry(e, targetVector)
+		return h.wholeVectorFromEntry(e, targetVector, stats)
 	}
 
+	stats.tail.Add(1)
 	tail, err := e.ReadRange(tailStart, 0)
 	if err != nil {
 		h.prefillSkipDebug("unreadable vector tail", err)
@@ -203,7 +227,7 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 
 // legacyVectorFromEntry: the legacy vector sits at a fixed front offset — served
 // from the peek, or via a bounded prefix read, never the whole value.
-func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, bool) {
+func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry, stats *targetedScanStats) ([]float32, bool) {
 	need, ok, err := storobj.LegacyVectorPrefixLen(e.Peek)
 	if err != nil {
 		h.prefillSkipDebug("undecodable header", err)
@@ -216,7 +240,7 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, boo
 		return nil, false
 	}
 	if !ok {
-		return h.wholeVectorFromEntry(e, "")
+		return h.wholeVectorFromEntry(e, "", stats)
 	}
 
 	buf := e.Peek
@@ -230,11 +254,21 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, boo
 	return h.decodeVectorRow(buf, "")
 }
 
-func (h *hnsw) wholeVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector string) ([]float32, bool) {
-	whole, err := e.ReadRange(0, 0)
-	if err != nil {
-		h.prefillSkipDebug("unreadable value", err)
-		return nil, false
+func (h *hnsw) wholeVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector string,
+	stats *targetedScanStats,
+) ([]float32, bool) {
+	stats.whole.Add(1)
+
+	// ReadRange has no short-circuit, so a row already complete in the peek would pay a
+	// second read for bytes in hand. A bucket averaging past the admission gate still
+	// carries small rows, and every one whose schema falls under the tail gate lands here.
+	whole := e.Peek
+	if uint64(len(whole)) < e.ValueSize {
+		var err error
+		if whole, err = e.ReadRange(0, 0); err != nil {
+			h.prefillSkipDebug("unreadable value", err)
+			return nil, false
+		}
 	}
 	return h.decodeVectorRow(whole, targetVector)
 }
@@ -252,10 +286,12 @@ func (h *hnsw) decodeVectorRow(value []byte, targetVector string) ([]float32, bo
 	return vec, true
 }
 
-// objectRowMatchesKey guards the one corruption the scan cannot catch on its
-// own: an index node whose offsets point at a different live row passes every
-// bounds check, and its bytes would be cached under this key's doc id. The
-// objects bucket is keyed by uuid and the row repeats it, so they must agree.
+// objectRowMatchesKey catches a segment index whose offsets land on a different live
+// row, which passes every bounds check. The doc id comes from the same bytes as the
+// vector, so the pair preloaded would be self-consistent; what it would not be is this
+// key's, and the duplicate consumes the slot reserved for a key that then never gets
+// cached. The objects bucket is keyed by uuid and the row repeats it, so the two agree
+// unless the segment index is wrong.
 func objectRowMatchesKey(key, peek []byte) error {
 	if len(key) == 0 {
 		return nil // not the objects bucket layout; nothing to check against

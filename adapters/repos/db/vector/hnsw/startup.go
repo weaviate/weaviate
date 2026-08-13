@@ -517,9 +517,8 @@ func (h *hnsw) resetTombstoneMetric() {
 // the shard creation. Some post-startup routines, such as prefilling the
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
-// Nothing here may start after Drop or Shutdown. PostStartup can arrive that late —
-// dynamic's flat->hnsw upgrade drives one on its own context, which a shard teardown
-// does not cancel, and Drop never cancels shutdownCtx at all.
+// Nothing here may start after Drop or Shutdown. PostStartup can arrive that late,
+// since Drop never cancels shutdownCtx.
 func (h *hnsw) PostStartup(ctx context.Context) {
 	if !h.initMaintenanceUnlessTornDown() {
 		h.logger.WithFields(logrus.Fields{
@@ -539,13 +538,31 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		return
 	}
 
-	limit := 0
-	if h.compressed.Load() {
-		limit = int(h.compressor.GetCacheMaxSize())
-	} else {
+	// limit is read only by the serial prefiller, which runs under the same
+	// !h.compressed.Load() a compressed index never reaches. h.cache is nil there, so
+	// nothing below may touch it either.
+	nodes, limit := h.nodeCount(), 0
+	if !h.compressed.Load() {
+		maxSize := h.cache.CopyMaxSize()
+
+		// A cache that cannot hold every node cannot keep what a prefill loads: the
+		// first query on an uncached node takes the count to maxSize and replaceIfFull
+		// drops the lot. Filling it anyway costs a whole pass, one random seek per
+		// vector on the serial path, for a cache that is empty again on first use.
+		if !cacheHoldsEveryNode(maxSize, nodes) {
+			h.cachePrefilled.Store(true)
+			h.logger.WithFields(logrus.Fields{
+				"action":     "hnsw_vector_cache_prefill",
+				"index_id":   h.id,
+				"cache_size": maxSize,
+				"nodes":      nodes,
+			}).Info("skipping vector cache prefill: cache too small to hold every node")
+			return
+		}
+
 		// one short of maxSize: replaceIfFull wipes the whole cache at that count, so
 		// a prefill that fills the last slot is discarded on the next deletion tick
-		limit = int(h.cache.CopyMaxSize()) - 1
+		limit = int(maxSize) - 1
 	}
 
 	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
@@ -556,7 +573,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		h.logger.WithFields(logrus.Fields{
 			"action":   "hnsw_vector_cache_prefill",
 			"index_id": h.id,
-		}).Debug("skipping vector cache prefill: index is shutting down")
+		}).Debug("skipping vector cache prefill: index is shutting down or already prefilling")
 		return
 	}
 
@@ -575,11 +592,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
+		} else if scan, reason := h.useParallelPrefill(); scan {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
+			// prefillCacheParallel logs which of the two scans it picked.
 			err = h.prefillCacheParallel(prefillCtx)
 		} else {
+			h.logPrefillPath(prefillPathSerial, reason)
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
 		}
 
@@ -593,14 +612,21 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}
 	}
 
+	// index_id and nodes on both: without them two of a thousand shards are told apart
+	// only by which fields the line happens to carry, and a resident count means little
+	// without the total it is a fraction of.
+	entry := h.logger.WithFields(logrus.Fields{
+		"index_id": h.id,
+		"nodes":    nodes,
+	})
 	if h.waitForCachePrefill {
-		h.logger.WithFields(logrus.Fields{
+		entry.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
 		}).Info("waiting for vector cache prefill to complete")
 		prefillCacheFunc()
 	} else {
-		h.logger.WithFields(logrus.Fields{
+		entry.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")

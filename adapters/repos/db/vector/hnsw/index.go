@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -782,7 +783,34 @@ func (h *hnsw) stopPostStartup() {
 	if h.prefillCancel != nil {
 		h.prefillCancel()
 	}
-	h.prefillWG.Wait()
+	h.waitForPrefillStop()
+}
+
+// waitForPrefillStop is deliberately unbounded: abandoning the wait reintroduces the
+// closed-segment read it exists to prevent. Shard.drop budgets ~20s for the whole
+// teardown and cannot see this, so an overrun says so rather than passing in silence.
+func (h *hnsw) waitForPrefillStop() {
+	const warnAfter = 5 * time.Second
+
+	stopped := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(stopped)
+		h.prefillWG.Wait()
+	}, h.logger)
+
+	t := time.NewTicker(warnAfter)
+	defer t.Stop()
+	for {
+		select {
+		case <-stopped:
+			return
+		case <-t.C:
+			h.logger.WithFields(logrus.Fields{
+				"action":   "hnsw_vector_cache_prefill",
+				"index_id": h.id,
+			}).Warn("still waiting for the vector cache prefill to stop")
+		}
+	}
 }
 
 // initMaintenanceUnlessTornDown registers the commit log's maintenance callbacks,
@@ -802,11 +830,14 @@ func (h *hnsw) initMaintenanceUnlessTornDown() bool {
 }
 
 // registerPrefill reports false once stopPostStartup has run: the index is torn down.
+// It also refuses a second live prefill. No current PostStartup caller produces one,
+// but overwriting prefillCancel would strand the first prefill with no way to cancel
+// it, so teardown would wait on it forever rather than log a skip.
 func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
 
-	if h.tornDown {
+	if h.tornDown || h.prefillCancel != nil {
 		return false
 	}
 	h.prefillCancel = cancel

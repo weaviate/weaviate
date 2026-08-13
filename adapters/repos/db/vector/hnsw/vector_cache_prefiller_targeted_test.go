@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -64,6 +65,78 @@ func newTargetedTestIndex(store *lsmkv.Store, c cache.Cache[float32], id string,
 		}
 	}
 	return h
+}
+
+// targetedScanCounts reads back how the scan served its rows. Asserting on the
+// counters is the only way to tell the tail read from the whole-value fallback: both
+// decode the same vector, so every contract test in this file passes with the tail
+// branch disabled outright.
+func targetedScanCounts(t *testing.T, hook *test.Hook) (tail, whole int64) {
+	t.Helper()
+	found := false
+	for _, e := range hook.AllEntries() {
+		if e.Message != "targeted vector cache prefill scan finished" {
+			continue
+		}
+		found = true
+		tail += e.Data["tail_reads"].(int64)
+		whole += e.Data["whole_value_fallbacks"].(int64)
+	}
+	require.True(t, found, "the targeted scan did not report how it served its rows")
+	return tail, whole
+}
+
+// TestTargetedScanTakesTheTailRead: the two-read path is the entire feature, so a scan
+// that quietly fell back to whole-value reads on every row has to fail. On a bucket
+// past both gates every row must take the tail.
+func TestTargetedScanTakesTheTailRead(t *testing.T) {
+	const n = 40
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTargetedObject(t, bucket, i, i, targetedGatePayload, nil,
+			map[string][]float32{"custom": {float32(i), 1}})
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, hook := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+
+	require.NoError(t, prefillTargeted(t, h, "custom"))
+	require.EqualValues(t, n, c.CountVectors())
+
+	tail, whole := targetedScanCounts(t, hook)
+	assert.EqualValues(t, n, tail, "every row past both gates must take the tail read")
+	assert.Zero(t, whole, "a whole-value fallback here reads the same bytes as the "+
+		"cursor scan and pays for the peek on top")
+}
+
+// TestTargetedScanCountsTheWholeValueFallback is the other half: a schema under the
+// tail gate must be reported as a fallback rather than pass as a tail read, or the
+// counter cannot distinguish the two paths it exists to distinguish.
+func TestTargetedScanCountsTheWholeValueFallback(t *testing.T) {
+	const n = 20
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTargetedObject(t, bucket, i, i, 8, nil, // schema far below prefillTargetedMinSchemaLen
+			map[string][]float32{"custom": {float32(i), 1}})
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, hook := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
+
+	require.NoError(t, prefillTargeted(t, h, "custom"))
+	require.EqualValues(t, n, c.CountVectors())
+
+	tail, whole := targetedScanCounts(t, hook)
+	assert.Zero(t, tail)
+	assert.EqualValues(t, n, whole)
 }
 
 // prefillTargeted runs the targeted scan directly, bypassing the avg-entry-size

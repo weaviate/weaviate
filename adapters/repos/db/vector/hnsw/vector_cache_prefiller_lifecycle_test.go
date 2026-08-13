@@ -106,7 +106,7 @@ func TestStopPrefillWaitsForInFlightScan(t *testing.T) {
 	h.store = store
 	h.waitForCachePrefill = false
 
-	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
+	require.True(t, usesParallelPrefill(h), "test must exercise the scan path")
 	h.prefillCache(context.Background())
 
 	waitFor(t, blocking.entered, 10*time.Second, "no scan worker reached the cache")
@@ -171,7 +171,7 @@ func TestStopPrefillCancelsBlockedPrefill(t *testing.T) {
 	// no store: routing falls through to the serial by-id prefiller
 	h := newLifecycleTestIndex(t, c, n)
 	h.waitForCachePrefill = false
-	require.False(t, h.useParallelPrefill())
+	require.False(t, usesParallelPrefill(h))
 
 	h.prefillCache(context.Background())
 	waitFor(t, started, 10*time.Second, "prefill never started")
@@ -229,6 +229,25 @@ func TestPrefillCancelPropagatesFromCallerContext(t *testing.T) {
 		"canceling the caller context did not stop the prefill")
 }
 
+// TestRegisterPrefillRefusesASecondLivePrefill: prefillCancel holds the only handle on
+// a running prefill, so overwriting it would strand the first one with nothing able to
+// cancel it and teardown would wait on it forever rather than log a skip.
+func TestRegisterPrefillRefusesASecondLivePrefill(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	h := newPrefillTestIndex("main", nil, nil, 0, distancer.NewDotProductProvider(), logger)
+
+	_, cancelFirst := context.WithCancel(context.Background())
+	require.True(t, h.registerPrefill(cancelFirst))
+
+	_, cancelSecond := context.WithCancel(context.Background())
+	require.False(t, h.registerPrefill(cancelSecond),
+		"a second prefill must be refused while the first is still live")
+	cancelSecond()
+
+	h.prefillWG.Done() // stand in for the first prefill returning
+	h.stopPostStartup()
+}
+
 // TestPrefillRefusedAfterStop: once stopPostStartup has run, no later prefill may start.
 // Drop reaches this directly — it never cancels shutdownCtx, so a PostStartup arriving
 // after it has nothing in its own context saying the index is gone.
@@ -248,7 +267,7 @@ func TestPrefillRefusedAfterStop(t *testing.T) {
 	h := newLifecycleTestIndex(t, c, n)
 	h.store = store
 	h.waitForCachePrefill = true // a started prefill would run to completion inline
-	require.True(t, h.useParallelPrefill(), "test must exercise the scan path")
+	require.True(t, usesParallelPrefill(h), "test must exercise the scan path")
 
 	h.stopPostStartup() // stands in for Drop, which does not cancel shutdownCtx
 	h.prefillCache(context.Background())

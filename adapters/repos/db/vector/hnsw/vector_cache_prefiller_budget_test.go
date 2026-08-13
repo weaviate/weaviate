@@ -26,6 +26,15 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+// resetPrefillBudgetForTest re-resolves the cap. Serial use only: reassigning the Once
+// races any scan resolving the budget concurrently, which is why it is not shipped
+// alongside the production helpers it reaches into.
+func resetPrefillBudgetForTest() {
+	prefillBudgetOnce = sync.Once{}
+	prefillBudget = nil
+	prefillBudgetCap = 0
+}
+
 // withPrefillWorkers pins the node-wide cap for one test. The budget is resolved once
 // per process, so it has to be reset on both sides or the first test to touch it
 // decides the value for every test after it.
@@ -108,8 +117,41 @@ func TestPrefillScanDisabledFallsBackToSerial(t *testing.T) {
 	c.Grow(n)
 	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
 
-	require.False(t, h.useParallelPrefill(),
+	require.False(t, usesParallelPrefill(h),
 		"with the scan disabled the index must route to the serial prefiller")
+}
+
+// TestPrefillScanWorkersDegradeRatherThanQueue: the default width is the entire pool,
+// so waiting for it would serialize scans node-wide and leave the last shard of a
+// restore queued behind every earlier one in full. A scan that cannot have its full
+// width takes what is free instead.
+func TestPrefillScanWorkersDegradeRatherThanQueue(t *testing.T) {
+	withPrefillWorkers(t, "4")
+	logger, _ := test.NewNullLogger()
+
+	held, release, err := acquirePrefillWorkers(context.Background(), 3, logger)
+	require.NoError(t, err)
+	defer release()
+	require.Equal(t, 3, held)
+
+	// asks for the whole pool with one permit free; must not block for the other three
+	got, release2, err := acquirePrefillWorkers(context.Background(), 4, logger)
+	require.NoError(t, err)
+	defer release2()
+	require.Equal(t, 1, got, "a scan that cannot have the full width must take what is free")
+}
+
+// TestAcquirePrefillWorkersRefusesWhenDisabled: the disabled result must not be a width.
+// Zero reads as one at both call sites — QuantileKeys(-1) yields no seeds, so the scan
+// would quietly run whole-bucket on a single cursor rather than not run.
+func TestAcquirePrefillWorkersRefusesWhenDisabled(t *testing.T) {
+	withPrefillWorkers(t, "0")
+	logger, _ := test.NewNullLogger()
+
+	got, release, err := acquirePrefillWorkers(context.Background(), 8, logger)
+	require.ErrorIs(t, err, errScanPrefillDisabled)
+	require.Zero(t, got)
+	require.NotNil(t, release, "callers defer the release before checking the error")
 }
 
 // TestPrefillScanEnabledByDefault guards the default: the bound exists to stop a node

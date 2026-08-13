@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"testing"
@@ -154,6 +155,76 @@ func TestPrefillTargetedSkipsTruncatedRows(t *testing.T) {
 				"the corrupt row must be skipped, not decoded from neighbouring bytes")
 		})
 	}
+}
+
+// putWrongTailOffsetObject rewrites the schema length so the tail offset it implies
+// still lands inside the value, just in the wrong place. tailStart is pos+4+schemaLen,
+// so the length field sits at tailStart-4-schemaLen and halving it moves the implied
+// tail into the middle of the schema.
+func putWrongTailOffsetObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64,
+	payloadBytes int, named map[string][]float32,
+) {
+	t.Helper()
+	obj := storobj.New(docID)
+	obj.Object = models.Object{
+		ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID)),
+		Class:      "Test",
+		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
+	}
+	obj.Vectors = named
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(data[:min(prefillPeekBytes, len(data))])
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Greater(t, schemaLen/2, uint32(prefillTargetedMinSchemaLen),
+		"the corrupt length must still clear the tail gate, or the row takes the fallback instead")
+
+	lenField := int(tailStart) - 4 - int(schemaLen)
+	binary.LittleEndian.PutUint32(data[lenField:lenField+4], schemaLen/2)
+	require.NoError(t, bucket.Put(keyForDocID(docID), data))
+}
+
+// TestPrefillTargetedSkipsRowWithWrongTailOffset covers the corruption that gets past
+// the tailStart >= ValueSize guard: an offset that is in range and wrong. Every other
+// case in this file is a truncation, which that guard catches. Here the tail read
+// succeeds and hands the decoder schema bytes, so only its own bound checks stop the
+// row being cached as a vector.
+func TestPrefillTargetedSkipsRowWithWrongTailOffset(t *testing.T) {
+	const healthy = 10
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	exp := map[uint64][]float32{}
+	live := map[uint64]bool{}
+	for i := uint64(0); i < healthy; i++ {
+		vec := []float32{float32(i) + 1, float32(i) + 2}
+		putTargetedObject(t, bucket, i, i, targetedGatePayload, nil,
+			map[string][]float32{"custom": vec})
+		exp[i] = vec
+		live[i] = true
+	}
+
+	const corruptID = healthy
+	putWrongTailOffsetObject(t, bucket, corruptID, targetedGatePayload,
+		map[string][]float32{"custom": {7, 7, 7}})
+	live[corruptID] = true // indexed, so only the corruption can exclude it
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(healthy + 1)
+	h := newTargetedTestIndex(store, c, "vectors_custom", live, healthy+1)
+
+	require.NoError(t, h.prefillFromScan(context.Background(),
+		func(ctx context.Context, onVector prefillOnVector) error {
+			return h.scanObjectVectorsTargeted(ctx, bucket, "custom", onVector)
+		}))
+
+	requireCacheContains(t, c, exp)
+	require.Equal(t, int64(healthy), c.CountVectors(),
+		"the row must be skipped, not cached as a vector decoded from its own schema")
 }
 
 // TestPrefillTargetedSkipsRowUnderForeignKey models the corruption the scan

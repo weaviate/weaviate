@@ -38,27 +38,44 @@ var (
 	errPrefillCompressionActive = errors.New("vector cache prefill aborted: compression activated")
 )
 
+// Prefill paths, as they appear in the routing log. The serial by-id prefiller issues
+// one random seek per vector, so which path an index took is the first thing a slow
+// restore needs to answer.
+const (
+	prefillPathSerial       = "serial"
+	prefillPathCursorScan   = "cursor-scan"
+	prefillPathTargetedScan = "targeted-scan"
+)
+
+func (h *hnsw) logPrefillPath(path, reason string) {
+	entry := h.logger.WithFields(logrus.Fields{
+		"action":   "hnsw_vector_cache_prefill",
+		"index_id": h.id,
+		"path":     path,
+	})
+	if reason != "" {
+		entry = entry.WithField("reason", reason)
+	}
+	entry.Info("selected vector cache prefill path")
+}
+
 // useParallelPrefill reports whether the cache can be filled by scanning the objects
-// bucket instead of the serial by-id prefiller. Three caches cannot be, each for its
-// own reason: a multivector slot is addressed by (docID, relativeID) and so cannot be
-// filled from a scan that has one id per row, muvera reads _muvera_vectors, and an
-// hfresh cache holds centroids rather than object vectors.
-func (h *hnsw) useParallelPrefill() bool {
-	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil || h.hfreshMode {
-		return false
+// bucket instead of the serial by-id prefiller, and why not when it cannot.
+func (h *hnsw) useParallelPrefill() (bool, string) {
+	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil {
+		return false, "no objects bucket to scan"
+	}
+	// an hfresh cache holds centroids rather than object vectors
+	if h.hfreshMode {
+		return false, "hfresh cache is not filled from object rows"
 	}
 	if !scanPrefillEnabled() {
-		return false // operator turned the scan off; the serial prefiller still runs
+		return false, "scan prefill disabled by " + prefillScanWorkersEnv
 	}
-
 	return parallelPrefillEligible(h.parallelPrefillInputs())
 }
 
 func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
-	h.RLock()
-	nodeCount := int64(len(h.nodes))
-	h.RUnlock()
-
 	_, ifAbsent := h.cache.(cache.IfAbsentPreloader[float32])
 
 	return parallelPrefillInputs{
@@ -66,8 +83,15 @@ func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
 		muvera:       h.muvera.Load(),
 		ifAbsent:     ifAbsent,
 		cacheMaxSize: h.cache.CopyMaxSize(),
-		nodeCount:    nodeCount,
+		nodeCount:    h.nodeCount(),
 	}
+}
+
+func (h *hnsw) nodeCount() int64 {
+	h.RLock()
+	defer h.RUnlock()
+
+	return int64(len(h.nodes))
 }
 
 type parallelPrefillInputs struct {
@@ -80,29 +104,46 @@ type parallelPrefillInputs struct {
 
 // parallelPrefillEligible is useParallelPrefill's decision core, split out so the
 // combinations can be tested directly.
-func parallelPrefillEligible(in parallelPrefillInputs) bool {
+func parallelPrefillEligible(in parallelPrefillInputs) (bool, string) {
+	// a multivector slot is addressed by (docID, relativeID), which a scan with one id
+	// per row cannot supply, and muvera fills its cache from _muvera_vectors
 	if in.multivector || in.muvera {
-		return false
+		return false, "cache is not addressed by doc id alone"
 	}
 	// running alongside live writes is only safe if the scan can fill empty slots
 	// without overwriting: its cursor holds a snapshot that may already be stale
 	if !in.ifAbsent {
-		return false
+		return false, "cache cannot preload if-absent"
 	}
-	return cacheFitsNodes(in)
+	// prefillCache screens this first, but nodes can grow between that check and the
+	// scan starting on the async path
+	if !cacheHoldsEveryNode(in.cacheMaxSize, in.nodeCount) {
+		return false, "cache is smaller than the node count"
+	}
+	return true, ""
 }
 
-// cacheFitsNodes admits an exact fit: the scan claims at most maxSize-1 slots, so it
-// cannot reach the count replaceIfFull wipes on. Requiring headroom would send those
-// caches to the serial prefiller for no benefit.
-func cacheFitsNodes(in parallelPrefillInputs) bool {
-	return in.cacheMaxSize >= in.nodeCount
+// cacheHoldsEveryNode reports whether a prefill's product can survive first use.
+// replaceIfFull wipes the whole cache at count == maxSize, so below this bound an
+// uncached node is guaranteed and the first query touching one discards everything
+// the prefill loaded.
+//
+// Exact fit is admitted deliberately. The reserved slot leaves one node uncached, so
+// a query on that node can still trigger the wipe, but every other node stays
+// resident and that wipe is one the workload reaches on its own once it has touched
+// them all.
+func cacheHoldsEveryNode(maxSize, nodeCount int64) bool {
+	return maxSize >= nodeCount
 }
 
 // prefillCacheParallel fills the cache by scanning the objects bucket. The by-id
 // prefiller issues one random seek per vector (the bucket is UUID-keyed), which is
 // latency-bound and can take hours on network storage with the CPU idle.
 func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err // a cancelled parent must not reach the store
+	}
+
 	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
@@ -110,10 +151,12 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 
 	targetVector := h.getTargetVector()
 	if h.useTargetedPrefillScan(bucket) {
+		h.logPrefillPath(prefillPathTargetedScan, "")
 		return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
 			return h.scanObjectVectorsTargeted(ctx, bucket, targetVector, onVector)
 		})
 	}
+	h.logPrefillPath(prefillPathCursorScan, "")
 	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
 		return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(targetVector, h.logger), onVector, h.logger)
 	})
@@ -207,6 +250,7 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 
 	entry.WithFields(logrus.Fields{
 		"count":    loaded.Load(),
+		"nodes":    h.nodeCount(),
 		"took":     time.Since(before),
 		"parallel": true,
 	}).Info("prefilled vector cache")

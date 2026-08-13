@@ -92,11 +92,14 @@ func VectorFromTail(tail []byte, targetVector string) ([]float32, error) {
 	return unmarshalSingleTargetVector(&rw, targetVector, nil)
 }
 
-// UUIDFromPeek returns the object's own uuid, which the marshaller writes after
-// the version, doc id and kind bytes. ok=false: the prefix is too short.
+// UUIDFromPeek returns the object's own uuid, which the marshaller writes after the
+// version, doc id and kind bytes. ok=false: the prefix is too short, or the version is
+// one this layout does not describe. Without the version check a format bump that moved
+// the uuid would report every row as mismatching its key, raising a corruption alarm
+// for a routine change.
 func UUIDFromPeek(peek []byte) (id []byte, ok bool) {
 	const uuidStart, uuidLen = 1 + 8 + 1, 16
-	if len(peek) < uuidStart+uuidLen {
+	if len(peek) < uuidStart+uuidLen || peek[0] != 1 {
 		return nil, false
 	}
 	return peek[uuidStart : uuidStart+uuidLen], true

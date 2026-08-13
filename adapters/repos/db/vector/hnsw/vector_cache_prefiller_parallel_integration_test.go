@@ -91,19 +91,19 @@ func muveraUserConfig() ent.UserConfig {
 func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
 	t.Run("single-vector uncompressed is eligible", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "single", prefillRoutingUserConfig(), storeWithObjectsBucket(t))
-		require.True(t, idx.useParallelPrefill())
+		require.True(t, usesParallelPrefill(idx))
 	})
 
 	t.Run("true multivector keeps serial path", func(t *testing.T) {
 		uc := prefillRoutingUserConfig()
 		uc.Multivector = ent.MultivectorConfig{Enabled: true}
 		idx := newPrefillRoutingIndex(t, "multivector", uc, storeWithObjectsBucket(t))
-		require.False(t, idx.useParallelPrefill())
+		require.False(t, usesParallelPrefill(idx))
 	})
 
 	t.Run("muvera keeps serial path", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "muvera", muveraUserConfig(), storeWithObjectsBucket(t))
-		require.False(t, idx.useParallelPrefill())
+		require.False(t, usesParallelPrefill(idx))
 	})
 
 	// An hfresh centroid index is built with the shard's store, so the objects bucket
@@ -114,7 +114,7 @@ func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
 		idx := newPrefillRoutingIndexHFresh(t, "hfresh", prefillRoutingUserConfig(),
 			storeWithObjectsBucket(t), true)
 		require.True(t, idx.hfreshMode, "Config.HFreshMode must reach the index")
-		require.False(t, idx.useParallelPrefill())
+		require.False(t, usesParallelPrefill(idx))
 	})
 }
 
@@ -135,7 +135,7 @@ func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 		require.NoError(t, idx.AddMulti(ctx, uint64(i), vec))
 	}
 
-	require.False(t, idx.useParallelPrefill(),
+	require.False(t, usesParallelPrefill(idx),
 		"muvera must route to the serial prefiller, not the objects-bucket scan")
 
 	expected := make(map[uint64][]float32, len(multiVectors))

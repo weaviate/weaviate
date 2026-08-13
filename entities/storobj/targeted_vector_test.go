@@ -130,21 +130,45 @@ func TestVectorFromTailPreTargetVectorObject(t *testing.T) {
 	require.Nil(t, got)
 }
 
-// TestVectorFromTailCorruptSections: a mislocated or truncated tail must fail as an
-// error, never panic in the shared decoder.
-func TestVectorFromTailCorruptSections(t *testing.T) {
-	data := marshalledTestObject(t, "Test", nil, map[string][]float32{"custom": {1, 2}}, 200)
-	tailStart, _, ok, err := VectorTailOffsetFromPeek(data[:min(512, len(data))])
+// TestVectorFromTailIgnoresBytesPastItsLength: in production the tail is a subslice of a
+// segment, so the bytes past its length are the next rows and are perfectly readable.
+// A decoder walking cap instead of len finds plausible sections there and returns a
+// vector assembled from another object, which the prefill then caches under this id.
+// The sweep in TestVectorDecodersOnTruncatedValues caps its slices and so cannot see
+// this; here cap is left running into a sentinel region that stands in for the
+// neighbouring rows.
+func TestVectorFromTailIgnoresBytesPastItsLength(t *testing.T) {
+	want := []float32{1, 2, 3}
+	full := marshalledTestObject(t, "Test", nil, map[string][]float32{"custom": want}, 4096)
+	tailStart, _, ok, err := VectorTailOffsetFromPeek(full[:min(512, len(full))])
 	require.NoError(t, err)
 	require.True(t, ok)
-	tail := data[tailStart:]
+	tail := full[tailStart:]
 
 	for cut := 1; cut < len(tail); cut++ {
-		_, err := VectorFromTail(tail[:cut], "custom")
-		_ = err // any outcome but a panic is acceptable for a truncated tail
+		backing := make([]byte, len(tail)+1024)
+		for i := range backing {
+			backing[i] = 0xAB
+		}
+		copy(backing, tail[:cut])
+		short := backing[:cut] // cap deliberately left at len(backing)
+		require.NotPanicsf(t, func() {
+			got, err := VectorFromTail(short, "custom")
+			if err == nil && got != nil {
+				require.Equalf(t, want, got,
+					"a %d byte tail decoded to a vector built from the bytes past its end", cut)
+			}
+		}, "decoder panicked on a %d byte tail", cut)
 	}
-	// garbage bytes where the section lengths should be
-	_, err = VectorFromTail([]byte{9, 9, 9, 9, 9}, "custom")
+}
+
+// TestVectorFromTailCorruptSections: garbage where the section lengths belong must fail
+// as an error, never panic in the shared decoder. Truncation is swept prefix by prefix
+// in TestVectorDecodersOnTruncatedValues, which caps the slice against a sentinel
+// backing array; asserting it here over a plain subslice would let an over-reading
+// decoder find the real remaining bytes and pass.
+func TestVectorFromTailCorruptSections(t *testing.T) {
+	_, err := VectorFromTail([]byte{9, 9, 9, 9, 9}, "custom")
 	require.Error(t, err)
 }
 
@@ -193,6 +217,13 @@ func TestVectorDecodersOnTruncatedValues(t *testing.T) {
 	named := map[string][]float32{"custom": {1, 2, 3}}
 	multi := map[string][][]float32{"multi": {{1, 2}, {3, 4}}}
 
+	tailOf := func(full []byte) []byte {
+		tailStart, _, ok, err := VectorTailOffsetFromPeek(full[:min(512, len(full))])
+		require.NoError(t, err)
+		require.True(t, ok)
+		return full[tailStart:]
+	}
+
 	cases := []struct {
 		name   string
 		full   []byte
@@ -222,6 +253,20 @@ func TestVectorDecodersOnTruncatedValues(t *testing.T) {
 				return out, err
 			},
 			want: []float32{4, 5, 6},
+		},
+		{
+			// the tail decoder is handed a subslice of a segment, so its bound checks
+			// are the only thing between a short tail and the neighbouring rows
+			name: "named target vector from the tail",
+			full: tailOf(marshalledTestObject(t, "Test", nil, named, 4096)),
+			decode: func(v []byte) (any, error) {
+				out, err := VectorFromTail(v, "custom")
+				if out == nil {
+					return nil, err
+				}
+				return out, err
+			},
+			want: []float32{1, 2, 3},
 		},
 		{
 			name: "multi vector",

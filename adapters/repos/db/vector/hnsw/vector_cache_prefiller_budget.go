@@ -13,10 +13,12 @@ package hnsw
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
@@ -78,14 +80,22 @@ func scanPrefillEnabled() bool {
 	return cap > 0
 }
 
-// acquirePrefillWorkers takes up to want permits and returns how many it got, along
-// with the release. It always returns at least one — a scan that cannot get a permit
-// waits for one rather than falling back, since the serial path it would fall back to
-// is the slow disk-seek prefiller this exists to avoid.
+// errScanPrefillDisabled reports that the operator turned the scan off. Callers route
+// on useParallelPrefill, which checks the same switch, so reaching this is a routing
+// bug rather than a configuration outcome. It is an error and not a zero width because
+// zero reads as a width at both call sites: QuantileKeys(-1) yields no seeds, which
+// would quietly scan the whole bucket on one cursor instead of not scanning.
+var errScanPrefillDisabled = errors.New("vector cache scan prefill is disabled")
+
+// acquirePrefillWorkers takes permits from the node-wide pool and returns how many it
+// got, along with the release. It degrades rather than queues: a scan that cannot have
+// its full width takes whatever is free, down to a single worker. Waiting for the full
+// width instead would serialize scans node-wide, since the default width is the whole
+// pool, and leave the last shard of a restore queued behind every earlier one.
 func acquirePrefillWorkers(ctx context.Context, want int, logger logrus.FieldLogger) (int, func(), error) {
 	sem, cap := prefillScanBudget()
 	if sem == nil {
-		return 0, func() {}, nil
+		return 0, func() {}, errScanPrefillDisabled
 	}
 	if int64(want) > cap {
 		want = int(cap)
@@ -93,17 +103,26 @@ func acquirePrefillWorkers(ctx context.Context, want int, logger logrus.FieldLog
 	if want < 1 {
 		want = 1
 	}
-	if err := sem.Acquire(ctx, int64(want)); err != nil {
+	for n := want; n > 0; n /= 2 {
+		if sem.TryAcquire(int64(n)) {
+			return n, releasePrefillWorkers(sem, n), nil
+		}
+	}
+
+	// Every permit is committed. Queueing for one beats falling back to the serial
+	// by-id prefiller, which is the disk-seek path this exists to avoid.
+	before := time.Now()
+	if err := sem.Acquire(ctx, 1); err != nil {
 		return 0, func() {}, err
 	}
-	var once sync.Once
-	return want, func() { once.Do(func() { sem.Release(int64(want)) }) }, nil
+	logger.WithFields(logrus.Fields{
+		"action": "hnsw_vector_cache_prefill",
+		"waited": time.Since(before),
+	}).Info("vector cache prefill scan queued for a worker; the node-wide pool was fully committed")
+	return 1, releasePrefillWorkers(sem, 1), nil
 }
 
-// resetPrefillBudgetForTest re-resolves the cap. Only tests need this; production
-// reads the environment once for the reason given on prefillScanBudget.
-func resetPrefillBudgetForTest() {
-	prefillBudgetOnce = sync.Once{}
-	prefillBudget = nil
-	prefillBudgetCap = 0
+func releasePrefillWorkers(sem *semaphore.Weighted, n int) func() {
+	var once sync.Once
+	return func() { once.Do(func() { sem.Release(int64(n)) }) }
 }

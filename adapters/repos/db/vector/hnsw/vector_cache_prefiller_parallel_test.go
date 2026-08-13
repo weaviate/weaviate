@@ -236,6 +236,13 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 	})
 }
 
+// usesParallelPrefill drops the routing reason for the tests that only assert on the
+// decision. TestParallelPrefillEligible covers the reasons.
+func usesParallelPrefill(h *hnsw) bool {
+	scan, _ := h.useParallelPrefill()
+	return scan
+}
+
 func TestParallelPrefillEligible(t *testing.T) {
 	base := parallelPrefillInputs{
 		multivector:  false,
@@ -270,7 +277,16 @@ func TestParallelPrefillEligible(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			in := base
 			tt.mod(&in)
-			assert.Equal(t, tt.want, parallelPrefillEligible(in))
+			got, reason := parallelPrefillEligible(in)
+			assert.Equal(t, tt.want, got)
+			// the reason reaches the routing log, so a rejection that names nothing
+			// leaves an operator with a slow index and no way to tell which check sent
+			// it to the serial path
+			if got {
+				assert.Empty(t, reason)
+			} else {
+				assert.NotEmpty(t, reason)
+			}
 		})
 	}
 }
@@ -615,10 +631,10 @@ func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
 
 	h := newPrefillTestIndex("main_centroids", store, c, 0, distancer.NewDotProductProvider(), logger)
 	h.hfreshMode = true
-	require.False(t, h.useParallelPrefill())
+	require.False(t, usesParallelPrefill(h))
 
 	h.hfreshMode = false
-	require.True(t, h.useParallelPrefill())
+	require.True(t, usesParallelPrefill(h))
 }
 
 // TestPrefillFromScanAbortIsSharedAcrossWorkers: when one worker's alloc probe fails,
@@ -705,7 +721,7 @@ func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
 	c.Grow(n)
 	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
 
-	require.True(t, h.useParallelPrefill(), "an exact fit must still take the scan")
+	require.True(t, usesParallelPrefill(h), "an exact fit must still take the scan")
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 
 	// the guard stops one short of maxSize, so all but the last vector are resident
@@ -750,6 +766,50 @@ func TestSerialPrefillerFillsUpToButBelowTheLimit(t *testing.T) {
 			require.Equal(t, tc.want, c.CountVectors())
 			require.Less(t, c.CountVectors(), c.CopyMaxSize(),
 				"a prefill that reaches maxSize is wiped by the next deletion tick")
+		})
+	}
+}
+
+// TestPrefillCacheStopsBelowMaxSize drives prefillCache itself rather than the prefiller
+// it calls. The test above computes the limit the same way prefillCache does, so it
+// pins the prefiller's stop condition and never prefillCache's choice of argument;
+// reverting that -1 leaves it green. This one holds the two together.
+//
+// It also covers the cache too small to hold every node, which is not prefilled at all:
+// there an uncached node is guaranteed, so the first query touching one takes the count
+// to maxSize and replaceIfFull discards the whole prefill.
+func TestPrefillCacheStopsBelowMaxSize(t *testing.T) {
+	cases := []struct {
+		name    string
+		nodes   int
+		maxSize int
+		want    int64
+	}{
+		{"cache larger than the nodes caches every node", 10, 11, 10},
+		{"cache exactly fits the nodes leaves one slot", 10, 10, 9},
+		{"cache smaller than the nodes is not prefilled at all", 10, 5, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			vecFor := func(ctx context.Context, id uint64) ([]float32, error) {
+				return []float32{float32(id), 1}, nil
+			}
+			c := cache.NewShardedFloat32LockCache(vecFor, nil, tc.maxSize, 1, logger, false, 0, nil)
+			c.Grow(uint64(tc.nodes)) // restore covers the node range before any prefill
+
+			// no store, so the routing lands on the serial by-id prefiller
+			h := newPrefillTestIndex("main", nil, c, tc.nodes, distancer.NewDotProductProvider(), logger)
+			h.waitForCachePrefill = true
+			h.prefillCache(context.Background())
+
+			require.Equal(t, tc.want, c.CountVectors())
+			require.Less(t, c.CountVectors(), c.CopyMaxSize(),
+				"a prefill that reaches maxSize is wiped by the next deletion tick")
+			require.True(t, h.cachePrefilled.Load(),
+				"a prefill that never clears cachePrefilled leaves tombstone cleanup and "+
+					"every compression path disabled for the life of the index")
 		})
 	}
 }
