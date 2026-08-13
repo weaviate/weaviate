@@ -414,7 +414,12 @@ func TestSweepEachPropertyIndexType(t *testing.T) {
 					calls++
 					return err
 				},
-				func(propName, indexType string, failure error) { failures++ })
+				func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
+					want, _ := ClassifyCleanupSweep(tc.errs[calls-1])
+					require.Equal(t, want, outcome,
+						"a failure is reported with its own tuple's outcome, not the fold")
+					failures++
+				})
 
 			require.Equal(t, tc.wantOutcome, outcome)
 			require.Equal(t, tc.wantFailures, failures,

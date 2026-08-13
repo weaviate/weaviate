@@ -1715,9 +1715,13 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
 		},
-		func(propName, indexType string, failure error) {
+		func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
+			// Off the shared taxonomy, like the handlers' logStaleSweepFailures:
+			// this line and the summary below report the same failure, so a level
+			// of its own would rank one event twice.
+			msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
 			logger.WithField("property", propName).WithField("index_type", indexType).
-				Warnf("auto-cleanup after terminal status failed: %v", failure)
+				Logf(level, "%s: %v", msg, failure)
 		})
 	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
 	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
@@ -1727,10 +1731,13 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 // reporting each failure to onFailure, and returns the worst outcome of the
 // run — a later clean sweep must not mask an earlier one that left state
 // behind.
+//
+// onFailure is handed the tuple's own outcome, not the fold, so it can word
+// and rank its line by the same taxonomy the summary uses.
 func sweepEachPropertyIndexType(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
-	onFailure func(propName, indexType string, failure error),
+	onFailure func(propName, indexType string, outcome CleanupSweepOutcome, failure error),
 ) CleanupSweepOutcome {
 	worst := CleanupSweepClean
 	for _, propName := range propNames {
@@ -1738,7 +1745,7 @@ func sweepEachPropertyIndexType(
 			outcome, failure := ClassifyCleanupSweep(sweep(propName, indexType))
 			worst = max(worst, outcome)
 			if failure != nil {
-				onFailure(propName, indexType, failure)
+				onFailure(propName, indexType, outcome, failure)
 			}
 		}
 	}
