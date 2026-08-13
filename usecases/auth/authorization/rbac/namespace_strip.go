@@ -277,14 +277,17 @@ func StaticAPIKeyUsers(conf config.Authentication) []string {
 	return conf.APIKey.Users
 }
 
-// ValidateNamespaceStrip runs the stripNamespaces path of [Manager.Restore]
-// against blob without changing any state, returning the same collision error a
-// real strip-restore would hit. It needs no casbin store, so the backup
-// coordinator can reject a doomed restore before any node stages data.
-//
-// staticAPIKeyUsers must be the same list the nodes will strip with, which is
-// the restoring cluster's configured static API key users.
+// ValidateNamespaceStrip runs the strip path of [Manager.Restore] against blob
+// without changing state, returning the collision error a real strip would hit.
+// staticAPIKeyUsers is the restoring cluster's configured list.
 func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
+	return ValidateSnapshot(blob, true, staticAPIKeyUsers)
+}
+
+// ValidateSnapshot runs [Manager.Restore]'s pre-mutation checks without
+// mutating: the decode, plus the strip when stripNamespaces is set. Restore has
+// no version check of its own, so with the strip off only the decode runs.
+func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []string) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(blob) == 0 {
 		return nil
@@ -293,6 +296,75 @@ func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
 	if err := json.Unmarshal(blob, &snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+	if !stripNamespaces {
+		return nil
+	}
 	_, err := stripRBACSnapshot(snap, staticAPIKeyUsers)
 	return err
+}
+
+// ReferencedNamespaces returns every namespace the snapshot's rows name, read
+// from every id-bearing column. db grouping subjects always count: a dynamic
+// user name cannot hold a colon of its own, so its colon always marks a
+// namespace (the restoring cluster's static API key users exempt). The strip's
+// own namespace set omits db subjects; that deliberately does not carry over.
+// Other columns trust the snapshot's Namespaces list: only the source cluster
+// could tell a namespace prefix from a colon in a global id such as an OIDC
+// "urn:foo". With no list the fallback reads role names alone and, like the
+// strip, misses a namespace named only by a resource path or OIDC subject.
+func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, error) {
+	if len(blob) == 0 {
+		return nil, nil
+	}
+	snap := snapshot{}
+	if err := json.Unmarshal(blob, &snap); err != nil {
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	staticUsers := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, user := range staticAPIKeyUsers {
+		staticUsers[user] = struct{}{}
+	}
+
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+
+	for _, g := range snap.GroupingPolicy {
+		if len(g) == 0 {
+			continue
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) {
+			continue
+		}
+		if _, ok := staticUsers[user]; ok {
+			continue
+		}
+		add(user)
+	}
+
+	if len(snap.Namespaces) > 0 {
+		for _, ns := range snap.Namespaces {
+			if ns != "" {
+				seen[ns] = struct{}{}
+			}
+		}
+		return slices.Sorted(maps.Keys(seen)), nil
+	}
+
+	for _, p := range snap.Policy {
+		if len(p) > 0 {
+			add(conv.TrimRoleNamePrefix(p[0]))
+		}
+	}
+	for _, g := range snap.GroupingPolicy {
+		if len(g) > 1 {
+			add(conv.TrimRoleNamePrefix(g[1]))
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
 }

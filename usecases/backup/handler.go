@@ -160,7 +160,6 @@ type NodeResolver interface {
 // Snapshot filters to a user subset for backups; zero args is the full snapshot.
 type dynUserSnapshotter interface {
 	Snapshot(userIDs ...string) ([]byte, error)
-	Restore(snapshot []byte, stripNamespaces bool) error
 }
 
 // RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
@@ -169,7 +168,12 @@ type dynUserSnapshotter interface {
 // RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
 type RBACSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
-	Restore(snapshot []byte, stripNamespaces bool) error
+}
+
+// rolesAndUsersRestorer applies a backup's role and user snapshots through RAFT.
+// Implemented by *cluster.Raft.
+type rolesAndUsersRestorer interface {
+	RestoreRolesAndUsers(ctx context.Context, roles, users []byte, stripNamespaces bool) error
 }
 
 type Status struct {
@@ -212,8 +216,7 @@ func NewHandler(
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
-			sourcer, rbacSourcer, dynUserSourcer,
-			backends, schema.NamespacesEnabled(),
+			sourcer, backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m

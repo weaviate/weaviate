@@ -24,6 +24,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -296,5 +297,50 @@ func (m *Manager) Restore(b []byte) error {
 		return err
 	}
 	m.logger.Info("successfully restored rbac from snapshot")
+	return nil
+}
+
+// ValidateBackupSnapshot checks the role blob without touching the policy
+// store. On a namespace-enabled target every referenced namespace must be
+// active.
+func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
+	if m.authZ == nil || len(req.Roles) == 0 {
+		return nil
+	}
+	staticAPIKeyUsers := rbac.StaticAPIKeyUsers(m.authNconfig)
+	if err := rbac.ValidateSnapshot(req.Roles, req.StripNamespaces, staticAPIKeyUsers); err != nil {
+		return err
+	}
+	if req.StripNamespaces {
+		// The strip drops every qualification; nothing to resolve.
+		return nil
+	}
+	refs, err := rbac.ReferencedNamespaces(req.Roles, staticAPIKeyUsers)
+	if err != nil {
+		return err
+	}
+	if err := usecasesNamespaces.RequireActiveAll(ns, refs); err != nil {
+		return fmt.Errorf("restore roles: %w", err)
+	}
+	return nil
+}
+
+// RestoreFromBackup replaces the whole role store. Restore is the
+// snapshot-install path and never strips.
+func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
+	if m.authZ == nil || len(req.Roles) == 0 {
+		return nil
+	}
+	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
+		// Restore clears the policy store before its fallible steps, so this node
+		// can be left with no custom roles while the rest of the cluster applied
+		// the entry cleanly. The marker is what an operator greps for.
+		m.logger.WithField("action", "restore_roles_from_backup").
+			Errorf("rbac_restore_torn: role store may be cleared on this node only: %v", err)
+		return err
+	}
+	m.logger.WithField("action", "restore_roles_from_backup").
+		WithField("strip_namespaces", req.StripNamespaces).
+		Info("replaced rbac state from backup")
 	return nil
 }

@@ -18,8 +18,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -713,6 +715,13 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 // snapshot version, and attempts the namespace strip, returning the exact
 // collision error a real restore would hit.
 func ValidateNamespaceStrip(snapshot []byte) error {
+	return ValidateSnapshot(snapshot, true)
+}
+
+// ValidateSnapshot runs [DBUser.Restore]'s pre-mutation checks without
+// mutating: decode, snapshot version, and the strip when stripNamespaces is
+// set. The version check runs either way.
+func ValidateSnapshot(snapshot []byte, stripNamespaces bool) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(snapshot) == 0 {
 		return nil
@@ -727,8 +736,44 @@ func ValidateNamespaceStrip(snapshot []byte) error {
 		return fmt.Errorf("invalid snapshot version")
 	}
 
+	if !stripNamespaces {
+		return nil
+	}
+
 	_, err := stripDBUserNamespace(snapshotRestore.Data)
 	return err
+}
+
+// ReferencedNamespaces returns each user's Namespace field, or the
+// "<namespace>:" qualifier on its id when the field is empty. A user id never
+// holds a colon of its own.
+func ReferencedNamespaces(snapshot []byte) ([]string, error) {
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	if err := json.Unmarshal(snapshot, &snapshotRestore); err != nil {
+		return nil, err
+	}
+	if snapshotRestore.Version != SnapshotVersion {
+		return nil, fmt.Errorf("invalid snapshot version")
+	}
+
+	seen := map[string]struct{}{}
+	for id, user := range snapshotRestore.Data.Users {
+		ns := ""
+		if user != nil {
+			ns = user.Namespace
+		}
+		if ns == "" {
+			ns = namespacing.NamespaceFromQualified(id)
+		}
+		if ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
 }
 
 // stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
@@ -795,6 +840,15 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	}
 
 	return out, nil
+}
+
+// Persist writes the user state to the file NewDBUser reads at boot: a cache
+// in front of RAFT state, never the source of truth. Callers must not hold the
+// lock.
+func (c *DBUser) Persist() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.storeToFile()
 }
 
 func (c *DBUser) storeToFile() error {

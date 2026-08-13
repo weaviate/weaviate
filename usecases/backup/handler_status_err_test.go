@@ -696,7 +696,7 @@ func TestCoordinatorOnStatusServesTheFailureTheGlobalRestoreDescriptorNeverGot(t
 		NodeMapping: map[string]string{},
 	}
 	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
-	require.NoError(t, c.Restore(ctx, store, &req, desc, nil))
+	require.NoError(t, c.Restore(ctx, store, &req, desc, nil, rolesAndUsersBlobs{}))
 
 	require.Eventually(t, func() bool { return c.lastOp.get().ID == "" },
 		10*time.Second, 5*time.Millisecond, "the restore goroutine never released the slot")

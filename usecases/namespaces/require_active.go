@@ -12,6 +12,10 @@
 package namespaces
 
 import (
+	"fmt"
+	"slices"
+	"strings"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -38,4 +42,20 @@ func RequireActive(e Exister, name string) error {
 	default:
 		return ErrInvalidState
 	}
+}
+
+// RequireActiveAll returns nil when every name is active, else one error
+// naming each offender and its state, sorted so the message is stable.
+func RequireActiveAll(e Exister, names []string) error {
+	var offenders []string
+	for _, name := range names {
+		if err := RequireActive(e, name); err != nil {
+			offenders = append(offenders, fmt.Sprintf("%q: %v", name, err))
+		}
+	}
+	if len(offenders) == 0 {
+		return nil
+	}
+	slices.Sort(offenders)
+	return fmt.Errorf("namespace not active: %s", strings.Join(offenders, "; "))
 }

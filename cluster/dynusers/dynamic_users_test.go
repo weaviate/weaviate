@@ -62,13 +62,17 @@ func newNamespacesMockInState(t *testing.T, states map[string]cmd.NamespaceState
 	return m
 }
 
-func newTestManager(t *testing.T, ns usecasesNamespaces.Exister) (*Manager, *apikey.DBUser) {
+// newTestManager builds a manager over a fresh directory and returns that
+// directory too: the backup-restore path writes the user file, so tests that
+// reopen or remove the store need the path.
+func newTestManager(t *testing.T, ns usecasesNamespaces.Exister) (*Manager, *apikey.DBUser, string) {
 	t.Helper()
+	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger, ns)
+	dynUser, err := apikey.NewDBUser(dir, false, logger, ns)
 	require.NoError(t, err)
-	return NewManager(dynUser, ns, false, logger), dynUser
+	return NewManager(dynUser, ns, false, logger), dynUser, dir
 }
 
 func mustMarshalJSON(t *testing.T, v any) []byte {
@@ -139,7 +143,7 @@ func TestManager_CreateUser(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m, dynUser := newTestManager(t, tc.makeMock(t))
+			m, dynUser, _ := newTestManager(t, tc.makeMock(t))
 
 			apply := &cmd.ApplyRequest{SubCommand: mustMarshalJSON(t, cmd.CreateUsersRequest{
 				UserId:         "u1",
@@ -215,7 +219,7 @@ func TestManager_MalformedJSON(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m, _ := newTestManager(t, newNamespacesMock(t))
+			m, _, _ := newTestManager(t, newNamespacesMock(t))
 			err := tc.call(m)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrBadRequest)
@@ -224,7 +228,7 @@ func TestManager_MalformedJSON(t *testing.T) {
 }
 
 func TestManager_CheckUserIdentifierExists(t *testing.T) {
-	m, _ := newTestManager(t, newNamespacesMock(t))
+	m, _, _ := newTestManager(t, newNamespacesMock(t))
 
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
@@ -305,7 +309,7 @@ func TestManager_DeleteUsersInNamespace(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m, dyn := newTestManager(t, newNamespacesMock(t, tc.known...))
+			m, dyn, _ := newTestManager(t, newNamespacesMock(t, tc.known...))
 			for _, s := range tc.seeds {
 				seed(t, m, s.id, s.namespace)
 			}

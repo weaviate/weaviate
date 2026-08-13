@@ -113,6 +113,8 @@ type coordinator struct {
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
 	backends     BackupBackendProvider
+	// nil on the backupper, which never restores roles or users.
+	rolesAndUsers rolesAndUsersRestorer
 
 	// state
 	Participants map[string]participantStatus
@@ -134,6 +136,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	rolesAndUsers rolesAndUsersRestorer,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -142,6 +145,7 @@ func newCoordinator(
 		log:                log,
 		nodeResolver:       nodeResolver,
 		backends:           backends,
+		rolesAndUsers:      rolesAndUsers,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -252,6 +256,10 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	return nil
 }
 
+// rolesAndUsersBlobs are the snapshots applied cluster-wide. An empty field: the
+// backup lacks it, the subsystem is off, or the request opted out.
+type rolesAndUsersBlobs struct{ roles, users []byte }
+
 // Restore coordinates a distributed restoration among participants
 func (c *coordinator) Restore(
 	ctx context.Context,
@@ -259,6 +267,7 @@ func (c *coordinator) Restore(
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
+	blobs rolesAndUsersBlobs,
 ) error {
 	req.Method = OpRestore
 
@@ -362,15 +371,18 @@ func (c *coordinator) Restore(
 			}
 		}
 
-		// Only proceed with schema apply if we successfully transitioned to Finalizing
-		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
-		if c.descriptor.Status == backup.Finalizing {
+		// Staging success gates the auth apply, not the class outcome: an
+		// already-existing class fails only the class restore.
+		reachedFinalizing := c.descriptor.Status == backup.Finalizing
+		if reachedFinalizing {
 			// Time schema apply phase (Raft commits for each class)
 			schemaApplyStart := time.Now()
 			c.restoreClasses(ctx, schema, req)
 			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
-			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			c.restoreRolesAndUsers(ctx, blobs)
+
+			// Both restore steps only ever set Failed; still Finalizing means both succeeded.
 			if c.descriptor.Status == backup.Finalizing {
 				c.descriptor.Status = backup.Success
 			}
@@ -457,6 +469,24 @@ func (c *coordinator) restoreClasses(
 	}
 }
 
+// restoreRolesAndUsers issues the one RAFT entry. The strip flag matches the class
+// restore's. Errors append to the descriptor error so a class failure and an
+// auth failure both reach the operator.
+func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
+	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
+		return
+	}
+	strip := !c.schema.NamespacesEnabled()
+	if err := c.rolesAndUsers.RestoreRolesAndUsers(ctx, blobs.roles, blobs.users, strip); err != nil {
+		msg := fmt.Sprintf("restore roles and users: %v", err)
+		if c.descriptor.Error != "" {
+			msg = c.descriptor.Error + "; " + msg
+		}
+		c.descriptor.Error = msg
+		c.descriptor.Status = backup.Failed
+	}
+}
+
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
 	// check if backup is still active
 	st := c.lastOp.get()
@@ -528,13 +558,6 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
-
-	// Apply node mapping to the descriptor shall happen before
-	// asking candidates if they agree to participate in DBRO and before creating the request channel.
-	// This ensures that the request channel contains the correct node names and RESOLVES
-	// correctly the NEW node names and hosts if mapping exists.
-	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
-	c.descriptor.ApplyNodeMapping()
 
 	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)

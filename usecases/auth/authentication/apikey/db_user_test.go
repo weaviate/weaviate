@@ -1227,6 +1227,86 @@ func TestValidateNamespaceStrip(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid snapshot version")
 	})
+
+	// Backup restore validates both blobs before either store is mutated, and the
+	// version check is the user blob's only validation when the strip is off.
+	t.Run("WrongVersionErrorsWithoutStrip", func(t *testing.T) {
+		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+		require.NoError(t, err)
+		err = ValidateSnapshot(snap, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid snapshot version")
+	})
+
+	// Without the strip there is nothing to collide: the qualified ids are kept.
+	t.Run("CollidingSnapshotPassesWithoutStrip", func(t *testing.T) {
+		require.NoError(t, ValidateSnapshot(colliding, false))
+	})
+}
+
+// TestReferencedNamespaces pins which namespaces a backup's user blob is
+// checked against on a namespace-enabled target: the explicit field, falling
+// back to the "<namespace>:" qualifier on the id.
+func TestReferencedNamespaces(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+	seedUser(t, src, MakeUserKey("bob", "ns2"), "ns2")
+	seedUser(t, src, "carol", "")
+	// A user written before the Namespace field existed carries its namespace
+	// on the id alone.
+	seedUser(t, src, MakeUserKey("dave", "ns3"), "")
+
+	tests := []struct {
+		name string
+		snap func(t *testing.T) []byte
+		want []string
+	}{
+		{
+			name: "namespace field is preferred",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot(MakeUserKey("alice", "ns1"), MakeUserKey("bob", "ns2"))
+				require.NoError(t, err)
+				return b
+			},
+			want: []string{"ns1", "ns2"},
+		},
+		{
+			name: "qualified id is the fallback",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot(MakeUserKey("dave", "ns3"))
+				require.NoError(t, err)
+				return b
+			},
+			want: []string{"ns3"},
+		},
+		{
+			name: "unqualified users yield nothing",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot("carol")
+				require.NoError(t, err)
+				return b
+			},
+		},
+		{
+			name: "empty snapshot yields nothing",
+			snap: func(t *testing.T) []byte { return nil },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ReferencedNamespaces(tt.snap(t))
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("WrongVersionErrors", func(t *testing.T) {
+		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+		require.NoError(t, err)
+		_, err = ReferencedNamespaces(snap)
+		require.Error(t, err)
+	})
 }
 
 // TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget: restoring an

@@ -203,3 +203,46 @@ func (m *Manager) Restore(snapshot []byte) error {
 	m.logger.Info("successfully restored dynamic users from snapshot")
 	return nil
 }
+
+// ValidateBackupSnapshot checks the user blob without touching the user store.
+// On a namespace-enabled target every referenced namespace must be active.
+func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := apikey.ValidateSnapshot(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	if req.StripNamespaces {
+		// The strip drops every qualification, so there is no namespace to resolve.
+		return nil
+	}
+	refs, err := apikey.ReferencedNamespaces(req.Users)
+	if err != nil {
+		return err
+	}
+	if err := usecasesNamespaces.RequireActiveAll(ns, refs); err != nil {
+		return fmt.Errorf("restore users: %w", err)
+	}
+	return nil
+}
+
+// RestoreFromBackup replaces the whole user store and persists it. Restore is
+// the snapshot-install path: it never strips and must stay IO-free, because a
+// failed FSM restore is fatal at boot.
+func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := m.dynUser.Restore(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	// Boot cache only; a write failure must not fail an apply other nodes completed.
+	if err := m.dynUser.Persist(); err != nil {
+		m.logger.WithField("action", "restore_users_from_backup").
+			Warnf("restored users are not on disk yet, RAFT state remains authoritative: %v", err)
+	}
+	m.logger.WithField("action", "restore_users_from_backup").
+		Info("replaced dynamic-user state from backup")
+	return nil
+}

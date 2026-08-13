@@ -180,21 +180,6 @@ func (d *DistributedBackupDescriptor) ToOriginalNodeName(nodeName string) string
 	return nodeName
 }
 
-// ApplyNodeMapping applies d.NodeMapping translation to d.Nodes. If a node in d.Nodes is not translated by d.NodeMapping, it will remain
-// unchanged.
-func (d *DistributedBackupDescriptor) ApplyNodeMapping() {
-	if len(d.NodeMapping) == 0 {
-		return
-	}
-
-	for k, v := range d.NodeMapping {
-		if nodeDescriptor, ok := d.Nodes[k]; !ok {
-			d.Nodes[v] = nodeDescriptor
-			delete(d.Nodes, k)
-		}
-	}
-}
-
 // AllExist checks if all classes exist in d.
 // It returns either "" or the first class which it could not find
 func (d *DistributedBackupDescriptor) AllExist(classes []string) string {

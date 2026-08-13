@@ -62,3 +62,54 @@ func TestRequireActive_UnknownStateIsRejected(t *testing.T) {
 
 	assert.ErrorIs(t, RequireActive(c, "customer1"), ErrInvalidState)
 }
+
+// TestRequireActiveAll pins the operator-facing half of the contract: every
+// name that is not an active namespace appears in the message with the state
+// that made it fail.
+func TestRequireActiveAll(t *testing.T) {
+	tests := []struct {
+		name  string
+		seed  map[string]cmd.NamespaceState
+		names []string
+		want  []string // substrings the message must carry; empty means no error
+	}{
+		{
+			name:  "all active returns nil",
+			seed:  map[string]cmd.NamespaceState{"onens": cmd.NamespaceStateActive, "twons": cmd.NamespaceStateActive},
+			names: []string{"onens", "twons"},
+		},
+		{
+			name:  "empty input returns nil",
+			names: nil,
+		},
+		{
+			name:  "each offender is named with its state",
+			seed:  map[string]cmd.NamespaceState{"okay": cmd.NamespaceStateActive, "susp": cmd.NamespaceStateSuspended},
+			names: []string{"okay", "susp", "gone"},
+			want: []string{
+				`"susp"`, ErrNamespaceSuspended.Error(),
+				`"gone"`, ErrNamespaceGone.Error(),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			for name, state := range tc.seed {
+				seedNamespace(t, c, name, state)
+			}
+
+			err := RequireActiveAll(c, tc.names)
+			if len(tc.want) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tc.want {
+				assert.Contains(t, err.Error(), want)
+			}
+			assert.NotContains(t, err.Error(), `"okay"`, "an active namespace must not be reported")
+		})
+	}
+}
