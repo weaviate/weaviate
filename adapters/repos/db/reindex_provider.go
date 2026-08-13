@@ -1624,7 +1624,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					// No migration_type field on purpose: its presence is what
 					// tells a repair-guidance entry apart from this one, which
 					// is the negative of that.
-					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; the next restart would promote nothing here, so no repair guidance is issued for this node")
+					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; this task left nothing for the next restart to promote here, so no repair guidance is issued for this node")
 				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,

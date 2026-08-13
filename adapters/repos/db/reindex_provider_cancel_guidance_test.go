@@ -61,8 +61,18 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			// Checks the phrase shared by both repair-guidance variants, so
 			// this also catches the guidance firing without evidence on the
 			// arm the repair_command counter can't see.
-			wantInLog: []string{"no promotable generation on this node"},
-			notInLog:  []string{"canonical inverted bucket"},
+			wantInLog: []string{
+				"no promotable generation on this node",
+				// The gate establishes what THIS task left behind, nothing
+				// about what the next restart will do: a finished migration
+				// on another property can still leave a dir for it to
+				// promote, and the restart scan filters on neither.
+				"this task left nothing for the next restart to promote here",
+			},
+			notInLog: []string{
+				"canonical inverted bucket",
+				"the next restart would promote nothing here",
+			},
 		},
 		{
 			name:              "cancelled with a started-only generation",
