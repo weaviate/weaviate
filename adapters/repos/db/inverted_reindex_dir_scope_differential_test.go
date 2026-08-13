@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -306,8 +305,14 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			for _, propName := range diffPropNames {
 				for _, indexType := range diffIndexTypes {
 					refLSM, dirs := writeDiffTree(t, payloadMode, completed)
-					want := narrowSweepSurvivors(t, refLSM,
-						migrationDirsOf(refLSM, nil, propName, indexType), dirs)
+					refScope := migrationDirsOf(refLSM, nil, propName, indexType)
+					var names []string
+					for _, d := range dirs {
+						names = append(names, d.name)
+					}
+					want := sweepSurvivors(names,
+						completedMigrationGensNarrow(t, refLSM, refScope, dirs),
+						func(name string) bool { return narrowMatches(refScope, name) })
 
 					lsm, _ := writeDiffTree(t, payloadMode, completed)
 					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger)
@@ -319,26 +324,4 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			}
 		}
 	}
-}
-
-// narrowSweepSurvivors is which tracker dirs [cleanStaleMigrationDirsIn] would
-// leave behind if it still asked the gate [isProvablySingleProperty] replaced.
-func narrowSweepSurvivors(
-	t *testing.T, lsm string, scope migrationDirScope, dirs []diffDir,
-) []string {
-	t.Helper()
-	preserved := completedMigrationGensNarrow(t, lsm, scope, dirs)
-
-	var survivors []string
-	for _, d := range dirs {
-		if !narrowMatches(scope, d.name) {
-			survivors = append(survivors, d.name)
-			continue
-		}
-		if _, gen, ok := parseMigrationDirName(d.name); ok && preserved[gen] {
-			survivors = append(survivors, d.name)
-		}
-	}
-	sort.Strings(survivors)
-	return survivors
 }

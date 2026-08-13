@@ -956,6 +956,27 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			Properties:    []string{"foo"},
 		}, nil)
 
+	// The target still reads STARTED — the pre-flight would not have let the
+	// request reach the apply otherwise — and the apply has just proved it is
+	// not STARTED any more. The raced arm cannot tell which status it moved
+	// to, so it must name none of them.
+	var everyStatus []string
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		everyStatus = append(everyStatus, status.String())
+	}
+	// The coordination-phase advice is wrong on the raced arm for the same
+	// reason: the task may have raced to the very terminal state that advice
+	// tells the operator to wait for. cancelRefusalReason is where it comes
+	// from, so a refactor routing this arm through it must fail here.
+	racedAbsent := append([]string{"wait for it to reach a terminal state"}, everyStatus...)
+
 	for _, tc := range []struct {
 		name      string
 		err       error
@@ -965,6 +986,9 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 		// wantAbsent is text the body must not carry, for the arms
 		// where the obvious wording would be wrong.
 		wantAbsent []string
+		// wantStatusAtRead is the audit line's record of the status the
+		// list read saw, under a name that says it is stale.
+		wantStatusAtRead string
 	}{
 		{
 			// The FSM stamps the on-wire marker into the message, and it
@@ -976,9 +1000,22 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			err: fmt.Errorf("executing command: %w",
 				fmt.Errorf("[dtm-perm/task-not-running] task reindex/T1/1 is no longer running: %w",
 					distributedtask.ErrTaskNotRunning)),
-			wantCode:  http.StatusConflict,
-			wantAudit: "reindex_task_cancel_raced",
-			wantBody:  "T1",
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
+		},
+		{
+			// Same arm reached by a sentinel no marker was stamped on, since
+			// the switch classifies on errors.Is alone.
+			name:             "task is no longer running, unmarked",
+			err:              fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
 		},
 		{
 			name: "task does not exist",
@@ -1018,47 +1055,12 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 				return
 			}
 			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
+			if tc.wantStatusAtRead != "" {
+				require.Equal(t, tc.wantStatusAtRead, hook.LastEntry().Data["status_at_read"],
+					"the audit line keeps the status the read saw, under a name that says it is stale")
+			}
 		})
 	}
-}
-
-// Pins: the apply-race 409 names no status, since the held STARTED is stale
-// by the time [distributedtask.ErrTaskNotRunning] fires.
-func TestCancelApplyFailureResponder_ApplyRaceNamesNoStatus(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-	h := &indexesHandlers{appState: &state.State{Logger: logger}}
-
-	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		}, nil)
-
-	rec := httptest.NewRecorder()
-	h.cancelApplyFailureResponder(
-		fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
-		target, "C", "foo", "filterable", nil,
-	).WriteResponse(rec, runtime.JSONProducer())
-
-	require.Equal(t, http.StatusConflict, rec.Code)
-	body := rec.Body.String()
-	require.Contains(t, body, "T1", "the refusal must name the task it refuses")
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-		distributedtask.TaskStatusFinished,
-		distributedtask.TaskStatusFailed,
-		distributedtask.TaskStatusCancelled,
-	} {
-		require.NotContains(t, body, status.String(),
-			"this arm cannot tell which status the task moved to, so it must name none")
-	}
-
-	require.Equal(t, "reindex_task_cancel_raced", auditEvent(t, hook))
-	require.Equal(t, "STARTED", hook.LastEntry().Data["status_at_read"],
-		"the audit line keeps the status the read saw, under a name that says it is stale")
 }
 
 // Pins the selection policy when several in-flight tasks match: a

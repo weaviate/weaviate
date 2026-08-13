@@ -270,7 +270,12 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 
 			// The reference walk carries no memo, so it re-reads every payload.
 			refLSM := writeSweepMemoFixtures(t)
-			want := survivorsOfUncachedSweep(t, refLSM, tc.propName, tc.idxType)
+			refScope := migrationDirsOf(refLSM, nil, tc.propName, tc.idxType)
+			var names []string
+			for _, f := range sweepMemoFixtures {
+				names = append(names, f.dir)
+			}
+			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
 			cleanStaleMigrationDirsAt(lsm, tc.propName, tc.idxType, logger)
@@ -279,21 +284,19 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 	}
 }
 
-// survivorsOfUncachedSweep is which tracker dirs a sweep that re-reads every
-// payload would leave behind.
-func survivorsOfUncachedSweep(t *testing.T, lsm, propName, idxType string) []string {
-	t.Helper()
-	scope := migrationDirsOf(lsm, nil, propName, idxType)
-	preserved := completedMigrationGens(scope)
-
+// sweepSurvivors is which of names a sweep leaves behind: the ones inScope
+// rejects, plus the ones whose generation preserved holds. Both differential
+// tests build their reference answer with it, so the real sweep and its
+// reference can only differ where inScope or preserved does.
+func sweepSurvivors(names []string, preserved map[int]bool, inScope func(string) bool) []string {
 	var survivors []string
-	for _, f := range sweepMemoFixtures {
-		if !scope.inScope(f.dir) {
-			survivors = append(survivors, f.dir)
+	for _, name := range names {
+		if !inScope(name) {
+			survivors = append(survivors, name)
 			continue
 		}
-		if _, gen, ok := parseMigrationDirName(f.dir); ok && preserved[gen] {
-			survivors = append(survivors, f.dir)
+		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+			survivors = append(survivors, name)
 		}
 	}
 	sort.Strings(survivors)

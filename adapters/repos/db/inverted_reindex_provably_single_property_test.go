@@ -81,13 +81,18 @@ func namesOver(letters []string, maxTokens int) []string {
 
 // TestIsProvablySinglePropertyNamedCases pins the names whose answer the
 // deletion path turns on, including the two the predicate is easiest to get
-// wrong on.
+// wrong on, and the underscore-free names the narrower gate it replaced
+// accepted — the widening may only ever add names.
 func TestIsProvablySinglePropertyNamedCases(t *testing.T) {
 	tests := []struct {
 		name string
 		want bool
 		why  string
 	}{
+		{name: "", want: true, why: "no token to split"},
+		{name: "z", want: true, why: "underscore-free, one letter"},
+		{name: "cat", want: true, why: "underscore-free"},
+		{name: "category", want: true, why: "underscore-free, and a prefix of no split"},
 		{name: "title", want: true, why: "one token"},
 		{name: "price_cents", want: true, why: `"cents" sorts before "price"`},
 		{name: "created_at", want: true, why: `"at" sorts before "created"`},
@@ -99,7 +104,7 @@ func TestIsProvablySinglePropertyNamedCases(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%q", tc.name), func(t *testing.T) {
 			require.Equal(t, tc.want, isProvablySingleProperty(tc.name), tc.why)
 			require.Equal(t, tc.want, len(multiPropertyDecompositions(tc.name)) == 0,
 				"brute force disagrees with the named expectation")
@@ -153,14 +158,4 @@ func TestIsProvablySinglePropertyFallsThroughAboveTheTokenCap(t *testing.T) {
 	overCap := descending(maxProvablySinglePropertyTokens + 1)
 	require.False(t, isProvablySingleProperty(overCap),
 		"over the cap the name falls through to the payload: %q", overCap)
-}
-
-// TestIsProvablySinglePropertyKeepsTheUnderscoreFreeAnswer pins that the
-// widening only ever adds names: everything the narrower underscore-free gate
-// accepted is still accepted.
-func TestIsProvablySinglePropertyKeepsTheUnderscoreFreeAnswer(t *testing.T) {
-	for _, name := range []string{"", "title", "cat", "category", "z"} {
-		require.False(t, strings.Contains(name, "_"))
-		require.True(t, isProvablySingleProperty(name), "name %q", name)
-	}
 }

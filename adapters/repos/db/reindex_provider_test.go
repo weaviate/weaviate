@@ -380,19 +380,16 @@ func TestSweepSummary(t *testing.T) {
 	}
 }
 
-// A post-terminal cleanup runs one sweep per (property, index type) and reports
-// the worst of them, so the ordering decides which one speaks for the run.
-func TestTerminalSweepOutcomeOrdering(t *testing.T) {
+// The fold must keep the worst outcome, not the last one: a clean sweep on
+// the last tuple must not mask a shard an earlier one left state on. The fold
+// is a max, so the constants' order is what decides that.
+func TestSweepEachPropertyIndexType(t *testing.T) {
 	require.Greater(t, CleanupSweepFailed, CleanupSweepUnknown,
 		"knowing state is on disk outranks not knowing")
 	require.Greater(t, CleanupSweepUnknown, CleanupSweepDropped,
 		"a shard nobody looked at outranks a collection that is going away")
 	require.Greater(t, CleanupSweepDropped, CleanupSweepClean)
-}
 
-// The fold must keep the worst outcome, not the last one: a clean sweep on
-// the last tuple must not mask a shard an earlier tuple left state on.
-func TestSweepEachPropertyIndexType(t *testing.T) {
 	diskFull := fmt.Errorf("%w: %w", ErrCleanupShardFailed, errors.New("disk is full"))
 	truncated := classifyIncompleteWalk(errIndexShutdown)
 	dropped := classifyIncompleteWalk(errIndexDropped)
