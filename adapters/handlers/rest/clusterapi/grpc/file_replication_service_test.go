@@ -26,8 +26,10 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -54,12 +56,13 @@ func (s *noopGetChangeLogServer) RecvMsg(any) error            { return nil }
 type fakeIndex struct {
 	sharding.RemoteIndexIncomingRepo
 
-	startErr    error
-	snapshotLSN uint64
-	snapshotErr error
-	finalizeLSN uint64
-	finalizeErr error
-	stopErr     error
+	startErr           error
+	replicaSnapshotErr error
+	snapshotLSN        uint64
+	snapshotErr        error
+	finalizeLSN        uint64
+	finalizeErr        error
+	stopErr            error
 
 	startCalls    []startCall
 	snapshotCalls []opCall
@@ -80,6 +83,10 @@ type getCall struct {
 func (f *fakeIndex) IncomingStartChangeCapture(_ context.Context, shardName, opID string) error {
 	f.startCalls = append(f.startCalls, startCall{shardName, opID})
 	return f.startErr
+}
+
+func (f *fakeIndex) IncomingCreateReplicaSnapshot(_ context.Context, _, _ string) ([]string, error) {
+	return nil, f.replicaSnapshotErr
 }
 
 func (f *fakeIndex) IncomingSnapshotChangeLogLSN(_ context.Context, shardName, opID string) (uint64, error) {
@@ -184,17 +191,86 @@ func TestStartChangeCapture_UnknownIndex(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 }
 
-func TestStartChangeCapture_IndexError(t *testing.T) {
-	fi := &fakeIndex{startErr: errors.New("boom")}
-	svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
+// The code a refused shard call answers with decides whether the movement waits
+// or spends one of its errors: FailedPrecondition defers, anything else counts
+// against the budget and auto-cancels the movement at 50.
+func TestShardCallErrorCode(t *testing.T) {
+	entryPoints := []struct {
+		name string
+		call func(svc *FileReplicationService, refusal error) error
+	}{
+		{
+			name: "starting change capture",
+			call: func(svc *FileReplicationService, refusal error) error {
+				fi := &fakeIndex{startErr: refusal}
+				svc.repo = &fakeRepo{indices: map[string]*fakeIndex{"MyClass": fi}}
+				_, err := svc.StartChangeCapture(context.Background(), &pb.StartChangeCaptureRequest{
+					IndexName: "MyClass", ShardName: "shard1", OpId: "op-1",
+				})
+				return err
+			},
+		},
+		{
+			name: "creating the replica snapshot",
+			call: func(svc *FileReplicationService, refusal error) error {
+				fi := &fakeIndex{replicaSnapshotErr: refusal}
+				svc.repo = &fakeRepo{indices: map[string]*fakeIndex{"MyClass": fi}}
+				_, err := svc.CreateReplicaSnapshot(context.Background(), &pb.CreateReplicaSnapshotRequest{
+					IndexName: "MyClass", ShardName: "shard1", OpId: "op-1",
+				})
+				return err
+			},
+		},
+	}
 
-	_, err := svc.StartChangeCapture(context.Background(), &pb.StartChangeCaptureRequest{
-		IndexName: "MyClass",
-		ShardName: "shard1",
-		OpId:      "op-1",
-	})
-	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
+	refusals := []struct {
+		name string
+		// Wrapped, because the index returns the sentinel under its own context.
+		refusal error
+		want    codes.Code
+	}{
+		{
+			name:    "a structural vector op on the shard",
+			refusal: fmt.Errorf("halt shard: %w", enterrors.ErrShardBusyStructuralOp),
+			want:    codes.FailedPrecondition,
+		},
+		{
+			name:    "a suspended namespace",
+			refusal: fmt.Errorf("get shard %q: %w", "shard1", namespaces.ErrNamespaceSuspended),
+			want:    codes.FailedPrecondition,
+		},
+		{
+			name:    "a resuming namespace",
+			refusal: fmt.Errorf("get shard %q: %w", "shard1", namespaces.ErrNamespaceResuming),
+			want:    codes.FailedPrecondition,
+		},
+		{
+			name:    "a deleting namespace",
+			refusal: fmt.Errorf("get shard %q: %w", "shard1", namespaces.ErrNamespaceDeleting),
+			want:    codes.Internal,
+		},
+		{
+			name:    "an unrelated failure",
+			refusal: errors.New("boom"),
+			want:    codes.Internal,
+		},
+	}
+
+	for _, ep := range entryPoints {
+		for _, tc := range refusals {
+			t.Run(ep.name+" refused by "+tc.name, func(t *testing.T) {
+				svc := newService(t, map[string]*fakeIndex{})
+
+				err := ep.call(svc, tc.refusal)
+				require.Error(t, err)
+				require.Equal(t, tc.want, status.Code(err))
+				// The consumer matches the sentinel on the message, so dropping
+				// it from the wrapping cancels the movement just as a wrong code
+				// does.
+				require.Contains(t, status.Convert(err).Message(), tc.refusal.Error())
+			})
+		}
+	}
 }
 
 // StartChangeCapture must wait for the source to apply the op's HOT-activation

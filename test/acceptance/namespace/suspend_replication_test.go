@@ -12,7 +12,6 @@
 package namespace
 
 import (
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,6 +75,29 @@ func requireShardAbsentOnNode(t *testing.T, qualifiedClass, shardName, node stri
 
 	require.Zero(t, failed.Load(), "listing shards for %q failed", qualifiedClass)
 	require.Positive(t, listed.Load(), "no shard listing finished for %q", qualifiedClass)
+}
+
+// requireNoMovementErrors holds for a window asserting the op records no error.
+// The FSM cancels a movement at 50 and drops the files its target already
+// copied, so a suspension charged here would destroy a movement that only had to
+// wait for the namespace. Same two counters as requireShardAbsentOnNode, for the
+// same reason.
+func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
+	t.Helper()
+
+	var read, failed atomic.Int64
+	require.Never(t, func() bool {
+		_, messages, err := movementState(t, opID)
+		if err != nil {
+			failed.Add(1)
+			return false
+		}
+		read.Add(1)
+		return len(messages) > 0
+	}, 20*time.Second, 1*time.Second, "the suspension was charged to the movement's error budget")
+
+	require.Zero(t, failed.Load(), "reading the movement's state failed")
+	require.Positive(t, read.Load(), "no movement state was read")
 }
 
 // startCopyMovement registers a COPY of one shard onto targetNode and returns the
@@ -190,12 +212,15 @@ func TestNamespaces_SuspendKeepsEmptyReplicaAddClosed(t *testing.T) {
 //
 // The refusal comes from the source node: a movement opens change capture through
 // the request path, which a suspend refuses, so it stops there — before the target
-// has materialized anything. A movement already capturing changes when the suspend
-// lands is not refused; it drains the source through the shard map and finishes.
+// has materialized anything. It re-reads the source on every dispatch, so a
+// movement that was already copying files is refused the same way once its next
+// dispatch lands. Neither spends the op's error budget, which is what lets a
+// suspend of any length pause a movement rather than cancel it.
 //
-// What this does NOT cover: the target-side exemption itself. Reaching FINALIZING
-// with the namespace suspended needs a suspend landing inside that window, which
-// no hook here makes deterministic.
+// What this does NOT cover: the target-side exemption itself, which a movement
+// reaches once it starts finalizing. Getting there with the namespace suspended
+// needs a suspend landing inside that window, which no hook here makes
+// deterministic.
 func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Parallel()
 
@@ -243,27 +268,26 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	opID := startCopyMovement(t, qualified, shardName, sourceNode, targetNode)
 
 	t.Run("the movement stops on the source's namespace check", func(t *testing.T) {
-		// Asserting the message, not just a stall: a movement that never ran at
-		// all would also never reach READY.
+		// Asserting where it stops, not just that it stalls: a movement that
+		// never ran at all would also never reach READY, and would still read
+		// REGISTERED here.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			state, messages, err := movementState(t, opID)
 			if !assert.NoError(c, err) {
 				return
 			}
-			refused := false
-			for _, m := range messages {
-				refused = refused || strings.Contains(m, "namespace is suspended")
-			}
-			assert.True(c, refused, "no error named the suspension; state %q, errors %v", state, messages)
-		}, 60*time.Second, 1*time.Second, "the movement never recorded the source's refusal")
+			assert.Equal(c, "HYDRATING", state, "the movement stopped elsewhere; errors %v", messages)
+		}, 60*time.Second, 1*time.Second, "the movement never reached the source's refusal")
+	})
+
+	t.Run("the refusal is not charged to the movement", func(t *testing.T) {
+		requireNoMovementErrors(t, opID)
 	})
 
 	t.Run("the target materializes no shard", func(t *testing.T) {
 		requireShardAbsentOnNode(t, qualified, shardName, targetNode)
 
-		// The op keeps retrying, so it is neither done nor given up on. CANCELLED
-		// would be the error budget running out, which the window above stays
-		// well inside — read here so the resume below fails on its own terms.
+		// The op keeps retrying, so it is neither done nor given up on.
 		state, _, err := movementState(t, opID)
 		require.NoError(t, err)
 		require.NotContains(t, []string{"READY", "CANCELLED"}, state)

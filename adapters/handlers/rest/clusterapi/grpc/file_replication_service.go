@@ -18,7 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
@@ -42,6 +42,17 @@ func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding
 	}
 }
 
+// codeForShardCallError returns the gRPC code a failed shard call answers with.
+// FailedPrecondition tells a replica movement to wait for the refusal to be
+// undone rather than count it against its error budget, so the two sides read
+// the same list.
+func codeForShardCallError(err error) codes.Code {
+	if replication.IsReversibleRefusal(err) {
+		return codes.FailedPrecondition
+	}
+	return codes.Internal
+}
+
 func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, req *pb.CreateReplicaSnapshotRequest) (*pb.CreateReplicaSnapshotResponse, error) {
 	indexName := req.GetIndexName()
 	shardName := req.GetShardName()
@@ -55,10 +66,8 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 
 	files, err := index.IncomingCreateReplicaSnapshot(ctx, shardName, opID)
 	if err != nil {
-		if errors.Is(err, enterrors.ErrShardBusyStructuralOp) {
-			return nil, status.Errorf(codes.FailedPrecondition, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
-		}
-		return nil, status.Errorf(codes.Internal, "failed to create replica snapshot for index %q, shard %q, op %q: %v", indexName, shardName, opID, err)
+		return nil, status.Errorf(codeForShardCallError(err),
+			"failed to create replica snapshot for index %q, shard %q, op %q: %v", indexName, shardName, opID, err)
 	}
 
 	return &pb.CreateReplicaSnapshotResponse{
@@ -167,7 +176,7 @@ func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *
 	}
 
 	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
-		return nil, status.Errorf(codes.Internal, "start change capture for index %q, shard %q, op %q: %v",
+		return nil, status.Errorf(codeForShardCallError(err), "start change capture for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
 	}
 
