@@ -2690,7 +2690,7 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:     backupID,
 		Status: backup.Success,
-		// No Leader: the pre-RAFT union path reads every node's meta.
+		// No Leader recorded: fetchSchema reads every node's descriptor instead of the leader's alone.
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeA: {Classes: []string{"ClassA"}},
 			nodeB: {Classes: []string{"ClassB"}},
@@ -2790,7 +2790,7 @@ func TestFetchSchemaReturnsAuthSnapshots(t *testing.T) {
 		meta := backup.DistributedBackupDescriptor{
 			ID:     backupID,
 			Status: backup.Success,
-			// No Leader: the pre-RAFT union path reads every node's meta.
+			// No Leader recorded: fetchSchema reads every node's descriptor instead of the leader's alone.
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeA: {Classes: []string{"ClassA"}},
 				nodeB: {Classes: []string{"ClassB"}},

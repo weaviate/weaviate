@@ -284,9 +284,10 @@ func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
 	return ValidateSnapshot(blob, true, staticAPIKeyUsers)
 }
 
-// ValidateSnapshot runs [Manager.Restore]'s pre-mutation checks without
-// mutating: the decode, plus the strip when stripNamespaces is set. Restore has
-// no version check of its own, so with the strip off only the decode runs.
+// ValidateSnapshot runs the checks [Manager.Restore] makes before it clears
+// the policy store, without clearing it: the decode, plus the strip when
+// stripNamespaces is set. Restore has no version check of its own, so with the
+// strip off only the decode runs.
 func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []string) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(blob) == 0 {
@@ -303,15 +304,18 @@ func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []str
 	return err
 }
 
-// ReferencedNamespaces returns every namespace the snapshot's rows name, read
-// from every id-bearing column. db grouping subjects always count: a dynamic
-// user name cannot hold a colon of its own, so its colon always marks a
-// namespace (the restoring cluster's static API key users exempt). The strip's
-// own namespace set omits db subjects; that deliberately does not carry over.
-// Other columns trust the snapshot's Namespaces list: only the source cluster
-// could tell a namespace prefix from a colon in a global id such as an OIDC
-// "urn:foo". With no list the fallback reads role names alone and, like the
-// strip, misses a namespace named only by a resource path or OIDC subject.
+// ReferencedNamespaces returns every namespace the snapshot names in any
+// column: role names, resource paths, and user subjects. A "db:" user subject
+// always counts, because a dynamic user name cannot contain a colon, so a
+// colon there always marks a namespace. The restoring cluster's static API
+// key users are the exception. The strip leaves db subjects out of its own
+// namespace set; this set must include them, because it has to name every
+// namespace the blob touches.
+// For the other columns the snapshot's Namespaces list decides: only the
+// source cluster can tell a namespace prefix from a colon inside a global id
+// such as the OIDC subject "urn:foo". Without the list, the fallback reads
+// role names alone and, like the strip, misses a namespace that appears only
+// in a resource path or an OIDC subject.
 func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, error) {
 	if len(blob) == 0 {
 		return nil, nil

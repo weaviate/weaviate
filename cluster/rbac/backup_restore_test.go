@@ -37,7 +37,7 @@ func snapshotOf(t *testing.T, roles ...string) []byte {
 }
 
 // customRoleNames returns the manager's role names minus the built-ins, which
-// applyPredefinedRoles re-mints from this node's own configuration on every
+// applyPredefinedRoles rebuilds from this node's own configuration on every
 // restore and so say nothing about the blob.
 func customRoleNames(t *testing.T, m *Manager) []string {
 	t.Helper()
@@ -209,9 +209,10 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 // TestValidateBackupSnapshotNamespaceFromDBSubject covers a blob whose only
 // mention of a namespace is a role assignment: "db:ns3:bob -> viewer" names
 // ns3, while every role name and every resource path stays unqualified. The
-// fixture wires no namespace lister, so the snapshot carries no Namespaces list
-// and this pins the fallback arm; TestReferencedNamespaces and the scheduler
-// case pin the list arm. The users blob would carry ns3 too, but
+// fixture wires no namespace lister, so the snapshot carries no Namespaces
+// list and this pins the fallback path; TestReferencedNamespaces and the
+// scheduler case cover the path where the list is present. The users blob
+// would carry ns3 too, but
 // usersOptions=noRestore turns that check off, so the roles blob has to stand
 // alone.
 func TestValidateBackupSnapshotNamespaceFromDBSubject(t *testing.T) {

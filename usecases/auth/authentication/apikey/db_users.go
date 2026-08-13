@@ -710,7 +710,7 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }
 
-// ValidateNamespaceStrip dry-runs the stripNamespaces arm of [DBUser.Restore]
+// ValidateNamespaceStrip runs the strip path of [DBUser.Restore]
 // against snapshot without mutating any state: it unmarshals, checks the
 // snapshot version, and attempts the namespace strip, returning the exact
 // collision error a real restore would hit.
@@ -718,9 +718,9 @@ func ValidateNamespaceStrip(snapshot []byte) error {
 	return ValidateSnapshot(snapshot, true)
 }
 
-// ValidateSnapshot runs [DBUser.Restore]'s pre-mutation checks without
-// mutating: decode, snapshot version, and the strip when stripNamespaces is
-// set. The version check runs either way.
+// ValidateSnapshot runs the checks [DBUser.Restore] makes before it replaces
+// the user state, without replacing it: the decode, the snapshot version, and
+// the strip when stripNamespaces is set. The version check runs either way.
 func ValidateSnapshot(snapshot []byte, stripNamespaces bool) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(snapshot) == 0 {
@@ -745,8 +745,8 @@ func ValidateSnapshot(snapshot []byte, stripNamespaces bool) error {
 }
 
 // ReferencedNamespaces returns each user's Namespace field, or the
-// "<namespace>:" qualifier on its id when the field is empty. A user id never
-// holds a colon of its own.
+// "<namespace>:" prefix on its id when the field is empty. A user id never
+// contains a colon of its own.
 func ReferencedNamespaces(snapshot []byte) ([]string, error) {
 	if len(snapshot) == 0 {
 		return nil, nil

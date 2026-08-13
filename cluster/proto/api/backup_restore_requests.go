@@ -11,9 +11,9 @@
 
 package api
 
-// RestoreRolesAndUsersRequest carries a backup's role and user snapshots in one RAFT
-// entry. An empty blob leaves that store untouched. No version field: each
-// blob checks its own.
+// RestoreRolesAndUsersRequest carries a backup's role and user snapshots in
+// one RAFT entry. An empty blob leaves that store untouched. There is no
+// version field because each blob checks its own version.
 type RestoreRolesAndUsersRequest struct {
 	Roles           []byte
 	Users           []byte

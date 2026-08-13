@@ -301,8 +301,8 @@ func (m *Manager) Restore(b []byte) error {
 }
 
 // ValidateBackupSnapshot checks the role blob without touching the policy
-// store. On a namespace-enabled target every referenced namespace must be
-// active.
+// store. When namespaces are enabled, every namespace the blob references
+// must be active.
 func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
 	if m.authZ == nil || len(req.Roles) == 0 {
 		return nil
@@ -312,7 +312,7 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 		return err
 	}
 	if req.StripNamespaces {
-		// The strip drops every qualification; nothing to resolve.
+		// The strip removes every namespace prefix, so there is nothing to check.
 		return nil
 	}
 	refs, err := rbac.ReferencedNamespaces(req.Roles, staticAPIKeyUsers)
@@ -332,7 +332,7 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 		return nil
 	}
 	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
-		// Restore clears the policy store before its fallible steps, so this node
+		// Restore clears the policy store before the steps that can fail, so this node
 		// can be left with no custom roles while the rest of the cluster applied
 		// the entry cleanly. The marker is what an operator greps for.
 		m.logger.WithField("action", "restore_roles_from_backup").

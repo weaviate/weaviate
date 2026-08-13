@@ -205,7 +205,8 @@ func (m *Manager) Restore(snapshot []byte) error {
 }
 
 // ValidateBackupSnapshot checks the user blob without touching the user store.
-// On a namespace-enabled target every referenced namespace must be active.
+// When namespaces are enabled, every namespace the blob references must be
+// active.
 func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
 	if m.dynUser == nil || len(req.Users) == 0 {
 		return nil
@@ -214,7 +215,7 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 		return err
 	}
 	if req.StripNamespaces {
-		// The strip drops every qualification, so there is no namespace to resolve.
+		// The strip removes every namespace prefix, so there is nothing to check.
 		return nil
 	}
 	refs, err := apikey.ReferencedNamespaces(req.Users)
@@ -227,9 +228,9 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 	return nil
 }
 
-// RestoreFromBackup replaces the whole user store and persists it. Restore is
-// the snapshot-install path: it never strips and must stay IO-free, because a
-// failed FSM restore is fatal at boot.
+// RestoreFromBackup replaces the whole user store and persists it. Restore
+// serves RAFT snapshot install instead: it never strips and must not touch
+// disk, because a failure there stops the node booting.
 func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
 	if m.dynUser == nil || len(req.Users) == 0 {
 		return nil
@@ -237,7 +238,8 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 	if err := m.dynUser.Restore(req.Users, req.StripNamespaces); err != nil {
 		return err
 	}
-	// Boot cache only; a write failure must not fail an apply other nodes completed.
+	// The file is only a boot cache. A failed write must not fail an apply
+	// that the other nodes completed.
 	if err := m.dynUser.Persist(); err != nil {
 		m.logger.WithField("action", "restore_users_from_backup").
 			Warnf("restored users are not on disk yet, RAFT state remains authoritative: %v", err)

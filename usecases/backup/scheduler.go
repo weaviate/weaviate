@@ -70,7 +70,8 @@ type Scheduler struct {
 	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
 	// is the same one the nodes strip with.
 	staticAPIKeyUsers []string
-	// nil when namespaces are not wired; the FSM validators are then the only layer.
+	// nil when the cluster has no namespaces controller; the state-machine
+	// validators still run the same check at apply time.
 	namespaces usecasesNamespaces.Exister
 }
 
@@ -270,7 +271,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// A nil lister (subsystem disabled): blob stays empty, no entry, restore proceeds.
+	// A nil lister means the subsystem is disabled: the blob stays empty, no
+	// entry is issued, and the restore proceeds.
 	blobs := rolesAndUsersBlobs{}
 	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		if s.roleLister != nil {
@@ -1082,10 +1084,12 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	return fmt.Errorf("restoring into a cluster without namespaces strips namespace qualifications, which would cause name collisions: %s. Restore one namespace at a time using 'include'/'exclude', or remove the conflicting entities from the target cluster first", strings.Join(errs, "; "))
 }
 
-// validateNamespaceReferences rejects a restore whose blobs name a namespace not
-// active here, before any node stages data. Runs only with namespaces enabled;
-// the strip validation covers disabled targets. The FSM check at apply time is
-// the authority; this layer reaches the API caller early.
+// validateNamespaceReferences rejects a restore whose blobs name a namespace
+// that is not active on this cluster, before any node stages data. It runs
+// only when namespaces are enabled; the strip validation covers the disabled
+// case. The same check runs again at apply time and is the one that counts;
+// this early copy exists so the caller sees the error before any node does
+// work.
 func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userRestoreOption, rbacRestoreOption string) error {
 	if !s.schema.NamespacesEnabled() || s.namespaces == nil {
 		return nil // restore strips namespaces instead of resolving them
@@ -1127,10 +1131,10 @@ func (s *Scheduler) logSubsystemDisabled(backupID, artefact, subsystem string) {
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary.
-// It also returns the backup's dynamic-user and RBAC snapshots, each empty when
-// the backup carries no such artefact.
+// It also returns the backup's user and role snapshots, each empty when the
+// backup does not carry one.
 //
-// Only a leader-stamped descriptor can carry those snapshots: the per-node
+// Only a descriptor that records a leader can carry those snapshots: the
 // RbacBackups and UserBackups fields were added long after Leader was, so a
 // descriptor without a leader predates both. The union below therefore reads
 // classes alone.

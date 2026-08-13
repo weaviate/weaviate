@@ -370,8 +370,9 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS:
-		// Whole-store replace: a per-row namespace gate would drop rows silently.
-		// applyRestoreRolesAndUsers rejects the whole entry instead.
+		// The payload replaces both stores in full, so checking namespaces row by
+		// row would drop rows silently. applyRestoreRolesAndUsers rejects the
+		// whole entry instead.
 		f = func() {
 			ret.Error = applyRestoreRolesAndUsers(&cmd, st.authZManager, st.dynUserManager, st.namespaceManager)
 		}

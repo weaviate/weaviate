@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
-// RestoreRolesAndUsers applies a backup's role and user snapshots cluster-wide in one
-// RAFT entry. Both blobs empty is a bad request.
+// RestoreRolesAndUsers applies a backup's role and user snapshots cluster-wide
+// in one RAFT entry. A request with both blobs empty is rejected.
 func (s *Raft) RestoreRolesAndUsers(ctx context.Context, roles, users []byte, stripNamespaces bool) error {
 	if len(roles) == 0 && len(users) == 0 {
 		return fmt.Errorf("no roles or users to restore: %w", schema.ErrBadRequest)

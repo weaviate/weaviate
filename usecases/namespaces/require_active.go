@@ -44,8 +44,9 @@ func RequireActive(e Exister, name string) error {
 	}
 }
 
-// RequireActiveAll returns nil when every name is active, else one error
-// naming each offender and its state, sorted so the message is stable.
+// RequireActiveAll returns nil when every name is active, otherwise one error
+// naming every failing namespace and its state, sorted so the message is
+// stable.
 func RequireActiveAll(e Exister, names []string) error {
 	var offenders []string
 	for _, name := range names {

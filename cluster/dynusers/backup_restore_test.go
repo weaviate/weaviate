@@ -112,7 +112,7 @@ func TestSnapshotRestoreDoesNotWriteUserFile(t *testing.T) {
 
 // TestValidateBackupSnapshotNamespaceStates pins the fail-closed namespace
 // check for the user blob, across both places a dynamic user carries its
-// namespace: the explicit field and the qualifier on its id.
+// namespace: the explicit field and the "<namespace>:" prefix on its id.
 func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -151,7 +151,7 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			wantErr: "ns1",
 		},
 		{
-			// The id qualifier is the fallback when the field is empty, which is
+			// The id prefix is the fallback when the field is empty, which is
 			// what a user written by an older server carries.
 			name:    "qualified id alone is enough to be checked",
 			users:   map[string]string{"ns2:bob": ""},

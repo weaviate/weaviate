@@ -11,8 +11,8 @@
 
 // Package backup_rbac_raft covers backup restore of RBAC roles and dynamic
 // users reaching every node and surviving a restart. The restore issues one
-// RAFT entry that every voter's FSM applies, so a node that was not a backup
-// participant gets the state too, and a restart replays it.
+// RAFT entry that every node's state machine applies, so a node that was not
+// a backup participant gets the state too, and a restart replays it.
 package backup_rbac_raft
 
 import (
@@ -171,9 +171,9 @@ func restoreRolesAndUsers(t *testing.T, backupID string) {
 }
 
 // restartCluster stops every node and brings them all back. The nodes are
-// started concurrently because StartNode waits for readiness, and a node is not
-// ready until RAFT has quorum — starting them one at a time deadlocks on the
-// first.
+// started concurrently because StartNode waits for readiness, a node is not
+// ready until RAFT has quorum, and starting them one at a time therefore
+// deadlocks on the first.
 func restartCluster(t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -188,8 +188,8 @@ func restartCluster(t *testing.T, compose *docker.DockerCompose) {
 	require.NoError(t, g.Wait())
 }
 
-// Default RAFT knobs: the restore entry is replayed from the log on restart.
-// Subtests run in order and build on each other's state.
+// Default RAFT settings: the restore entry is replayed from the log on
+// restart. Subtests run in order and build on each other's state.
 func TestBackupRestoreRolesAndUsersPropagationAndRestart(t *testing.T) {
 	// helper.SetupClient mutates package globals; nothing here may run in parallel.
 	compose, down := newCluster(t, nil)
@@ -239,9 +239,10 @@ func TestBackupRestoreRolesAndUsersPropagationAndRestart(t *testing.T) {
 	})
 }
 
-// A snapshot per change makes a restarting node install it instead of replaying
-// the log. Only this test pins the roles half of the restart hole: pre-fix,
-// boot snapshot-install reverts RBAC and SavePolicy persists the revert.
+// A snapshot per change makes a restarting node install the snapshot instead
+// of replaying the log. Only this test proves restored roles survive that
+// path: without the RAFT entry, a node booting from a snapshot rebuilds the
+// old role state and SavePolicy writes it back to disk.
 func TestBackupRestoreRolesAndUsersSurvivesSnapshotRestart(t *testing.T) {
 	compose, down := newCluster(t, map[string]string{
 		"RAFT_SNAPSHOT_THRESHOLD": "1",

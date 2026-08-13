@@ -256,8 +256,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	return nil
 }
 
-// rolesAndUsersBlobs are the snapshots applied cluster-wide. An empty field: the
-// backup lacks it, the subsystem is off, or the request opted out.
+// rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
+// when the backup lacks that snapshot, the subsystem is off, or the request
+// opted out.
 type rolesAndUsersBlobs struct{ roles, users []byte }
 
 // Restore coordinates a distributed restoration among participants
@@ -371,8 +372,9 @@ func (c *coordinator) Restore(
 			}
 		}
 
-		// Staging success gates the auth apply, not the class outcome: an
-		// already-existing class fails only the class restore.
+		// Roles and users are applied once staging has committed, even when a
+		// class restore failed: a class that already exists is a class failure,
+		// not a roles-and-users one.
 		reachedFinalizing := c.descriptor.Status == backup.Finalizing
 		if reachedFinalizing {
 			// Time schema apply phase (Raft commits for each class)
@@ -382,7 +384,8 @@ func (c *coordinator) Restore(
 
 			c.restoreRolesAndUsers(ctx, blobs)
 
-			// Both restore steps only ever set Failed; still Finalizing means both succeeded.
+			// Both restore steps only ever set Failed, so a status still in
+			// Finalizing means both succeeded.
 			if c.descriptor.Status == backup.Finalizing {
 				c.descriptor.Status = backup.Success
 			}
@@ -469,9 +472,9 @@ func (c *coordinator) restoreClasses(
 	}
 }
 
-// restoreRolesAndUsers issues the one RAFT entry. The strip flag matches the class
-// restore's. Errors append to the descriptor error so a class failure and an
-// auth failure both reach the operator.
+// restoreRolesAndUsers issues the one RAFT entry. The strip flag matches the
+// one the class restore uses. Errors append to the descriptor error so a class
+// failure and a roles-and-users failure both reach the operator.
 func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
 	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
 		return

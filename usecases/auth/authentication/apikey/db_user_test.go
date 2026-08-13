@@ -1246,7 +1246,7 @@ func TestValidateNamespaceStrip(t *testing.T) {
 
 // TestReferencedNamespaces pins which namespaces a backup's user blob is
 // checked against on a namespace-enabled target: the explicit field, falling
-// back to the "<namespace>:" qualifier on the id.
+// back to the "<namespace>:" prefix on the id.
 func TestReferencedNamespaces(t *testing.T) {
 	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
 	require.NoError(t, err)
