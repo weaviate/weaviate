@@ -1031,6 +1031,21 @@ func NewCenteredRQ1Compressor(
 	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
 	}
+	// The centered rq1 code is a natural fit for the arena cache (fixed
+	// word count, prefix scans read the first line only), so this factory
+	// honors the process-level VECTOR_CACHE_IMPL toggle; the sharded cache
+	// remains the default.
+	if cache.ArenaCacheSelected(logger) {
+		recordWords := oneBitFieldWords + int(quantizer.rotation.OutputDim)/64
+		if c, err := cache.NewArenaUint64Cache(rqVectorsCompressor.getCompressedVectorForID,
+			recordWords, vectorCacheMaxObjects, 1, logger, 0, allocChecker); err == nil {
+			rqVectorsCompressor.cache = c
+			return rqVectorsCompressor, nil
+		} else {
+			logger.WithField("action", "vector_cache_impl").
+				Warnf("arena cache unavailable, using sharded: %v", err)
+		}
+	}
 	rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
 		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
