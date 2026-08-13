@@ -29,9 +29,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
+// offloadHaltOwnerPrefix marks the owner keys publishHaltTotalLocked counts into
+// offloadHaltTotal; no other owner kind may use it.
+const offloadHaltOwnerPrefix = "offload:"
+
 func replicaHaltOwner(opID string) string { return "replica:" + opID }
 
-func offloadHaltOwner(shard string) string { return "offload:" + shard }
+func offloadHaltOwner(shard string) string { return offloadHaltOwnerPrefix + shard }
 
 // haltTotalLocked returns the summed refcount across all owners. Caller must
 // hold haltForTransferMux.
@@ -43,18 +47,32 @@ func (s *Shard) haltTotalLocked() int {
 	return total
 }
 
-// publishHaltTotalLocked mirrors the owner map's total into haltForTransferTotal,
-// which haltedForTransfer reads without the mux. Every mutation of
+// publishHaltTotalLocked mirrors the owner map into the two atomics the lock-free
+// probes read: haltForTransferTotal (all owners) and offloadHaltTotal (offload
+// owners only). It is the single publish site; every mutation of
 // haltForTransferOwners must call it. Caller must hold haltForTransferMux.
 func (s *Shard) publishHaltTotalLocked() int {
-	total := s.haltTotalLocked()
+	total, offload := 0, 0
+	for owner, n := range s.haltForTransferOwners {
+		total += n
+		if strings.HasPrefix(owner, offloadHaltOwnerPrefix) {
+			offload += n
+		}
+	}
 	s.haltForTransferTotal.Store(int64(total))
+	s.offloadHaltTotal.Store(int64(offload))
 	return total
 }
 
 // haltedForTransfer is a lock-free probe: never parks behind backup prep, never misreads a concurrent reader as halted.
 func (s *Shard) haltedForTransfer() bool {
 	return s.haltForTransferTotal.Load() > 0
+}
+
+// haltedForOffload is the lock-free negative probe for the offload-halt healer.
+// See resumeOffloadHaltAfterAbortedFreeze for why a stale zero is safe.
+func (s *Shard) haltedForOffload() bool {
+	return s.offloadHaltTotal.Load() > 0
 }
 
 // haltAddOwnerLocked records one more halt held by owner and returns the new
@@ -601,7 +619,10 @@ func (s *Shard) resumeOwnerLocked(ctx context.Context, owner string) error {
 	return s.completeResumeLocked(ctx)
 }
 
-// reapplyAsyncReplicationAfterResume re-derives a skipped enable once a transfer halt fully lifts; disables are never skipped, so this only ever enables.
+// reapplyAsyncReplicationAfterResume re-derives a skipped enable once a transfer halt
+// fully lifts; disables are never skipped, so this only ever enables. It is also the
+// consume site for a rebuild a healer left pending, which must run even when async
+// replication is off for this shard: that rebuild still owes the snapshot scrub.
 func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
 	if s.shutOrDropped() || s.shutdownRequested.Load() {
 		return
@@ -611,11 +632,15 @@ func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
 			return nil // re-halted or tearing down; the next resume re-derives
 		}
 		enabled, config := s.index.asyncReplicationStateForShard(s.name)
-		if !enabled {
-			if !s.hasActiveAsyncReplicationTargetOverrides() {
-				return nil
-			}
+		if !enabled && s.hasActiveAsyncReplicationTargetOverrides() {
+			enabled = true
 			config = s.index.AsyncReplicationConfig()
+		}
+		if s.asyncReplicationRebuildIsPending() {
+			return s.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
+		}
+		if !enabled {
+			return nil
 		}
 		return s.enableAsyncReplication(ctx, config)
 	}); err != nil {

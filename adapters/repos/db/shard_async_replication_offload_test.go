@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -353,6 +354,94 @@ func TestHotTransitionWithoutOffloadHaltDoesNotRescan(t *testing.T) {
 	require.Same(t, before, after, "an unhalted HOT transition must not rebuild the hashtree")
 }
 
+// blockingDeactivateCtrl parks the vector-maintenance pause leg of HaltForTransfer.
+// That leg runs while haltForTransferMux is held, so it reproduces the shape of a
+// slow seal (compaction drain, vector and geo PrepareForBackup, memtable flush),
+// which is bounded only by HaltForTransferTimeout — one hour by default.
+type blockingDeactivateCtrl struct {
+	cyclemanager.CycleCallbackCtrl
+	entered     chan struct{}
+	release     chan struct{}
+	enteredOnce sync.Once
+	releaseOnce sync.Once
+}
+
+func (c *blockingDeactivateCtrl) Deactivate(ctx context.Context) error {
+	c.enteredOnce.Do(func() { close(c.entered) })
+	<-c.release
+	return c.CycleCallbackCtrl.Deactivate(ctx)
+}
+
+// unblock is idempotent so a failing test can free the parked seal from a cleanup
+// and still tear the shard down, instead of hanging until the suite timeout.
+func (c *blockingDeactivateCtrl) unblock() {
+	c.releaseOnce.Do(func() { close(c.release) })
+}
+
+// TestHotTransitionDoesNotBlockOnInFlightSeal: the offload-halt heal runs on the RAFT
+// apply goroutine, so it must decide "nothing to heal" without taking
+// haltForTransferMux. A replica snapshot or backup takes no backupLock, so a seal of
+// shard N overlaps a routine activation of tenant N freely; a heal that parked on the
+// mux would stall every RAFT apply on the node for the seal's whole duration.
+func TestHotTransitionDoesNotBlockOnInFlightSeal(t *testing.T) {
+	ctx := context.Background()
+	const class = "HotTransitionInFlightSeal"
+
+	_, idx, s := seedHealTestShard(t, ctx, class)
+
+	sealOwner := replicaHaltOwner("op-in-flight")
+	ctrl := &blockingDeactivateCtrl{
+		CycleCallbackCtrl: s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		entered:           make(chan struct{}),
+		release:           make(chan struct{}),
+	}
+	s.cycleCallbacks.vectorCombinedCallbacksCtrl = ctrl
+	t.Cleanup(ctrl.unblock)
+
+	sealed := make(chan error, 1)
+	go func() { sealed <- s.HaltForTransfer(ctx, sealOwner, false, 0) }()
+	<-ctrl.entered // the seal now holds haltForTransferMux
+
+	healed := make(chan error, 1)
+	go func() { healed <- idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name) }()
+
+	select {
+	case err := <-healed:
+		require.NoError(t, err, "a shard holding no offload halt heals to a clean no-op")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the offload heal parked on haltForTransferMux held by an in-flight seal; on the RAFT apply goroutine this stalls every apply on the node")
+	}
+
+	ctrl.unblock()
+	require.NoError(t, <-sealed)
+	requireTotal(t, s, 1, "the seal's own halt must survive the heal")
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, sealOwner))
+}
+
+// TestOffloadHaltProbeTracksOwnerMap pins the invariant the lock-free heal rests on:
+// publishHaltTotalLocked derives the offload count from the owner keys, so only an
+// offload owner's halt makes the probe positive and every mutation republishes.
+func TestOffloadHaltProbeTracksOwnerMap(t *testing.T) {
+	ctx := context.Background()
+	const class = "OffloadHaltProbeTracksOwners"
+
+	_, _, s := seedHealTestShard(t, ctx, class)
+
+	backupOwner := backup.NewOp("probe").HaltOwner()
+	require.NoError(t, s.HaltForTransfer(ctx, backupOwner, false, 0))
+	require.False(t, s.haltedForOffload(), "a backup halt is not an offload halt")
+
+	require.NoError(t, s.HaltForTransfer(ctx, offloadHaltOwner(s.name), true, 0))
+	require.True(t, s.haltedForOffload(), "an offload halt must be visible to the probe")
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, offloadHaltOwner(s.name)))
+	require.False(t, s.haltedForOffload(), "dropping the offload owner must republish the probe")
+	require.True(t, s.haltedForTransfer(), "the co-resident backup halt still holds the shard")
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx, backupOwner))
+	require.False(t, s.haltedForTransfer())
+}
+
 var errResumeLegFailed = errors.New("simulated failing resume leg")
 
 // failingActivateCtrl fails the vector-callback leg of the physical resume and
@@ -415,6 +504,161 @@ func TestOffloadHealRebuildsDespiteFailedResume(t *testing.T) {
 				"the failed resume already dropped the halt owner, so nothing can trigger a later rebuild")
 
 			awaitHashtreeInitialized(t, s)
+		})
+	}
+}
+
+// seedHealTestShardOnIndexConfig is seedHealTestShard with the shard enabled on the
+// index's own async-replication config rather than the minimal test one. The heights
+// then match what every later apply re-derives, so a snapshot planted on this shard
+// is one a later enable would actually load and trust.
+func seedHealTestShardOnIndexConfig(t *testing.T, ctx context.Context, class string) (ShardLike, *Index, *Shard) {
+	t.Helper()
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	enabled, config := idx.asyncReplicationStateForShard(s.name)
+	require.True(t, enabled, "pre-condition: async replication is enabled for this RF>1 shard")
+	require.NoError(t, s.enableAsyncReplication(ctx, config))
+	awaitHashtreeInitialized(t, s)
+
+	return sl, idx, s
+}
+
+// blockHashtreeScrub makes removePersistedHashtree fail on the planted stale
+// snapshot: the file cannot be deleted (the seam errors) and cannot be demoted (a
+// directory occupies the demotion target). It returns the stale file's path, which
+// survives every scrub until unblockHashtreeScrub runs.
+func blockHashtreeScrub(t *testing.T, s *Shard) string {
+	t.Helper()
+
+	files := htFilesInDir(t, s.pathHashTree())
+	require.Len(t, files, 1, "pre-condition: exactly one planted stale snapshot")
+	stale := filepath.Join(s.pathHashTree(), files[0].Name())
+	require.NoError(t, os.Mkdir(stale+".tmp", 0o755))
+
+	prev := removeHashtreeFile
+	removeHashtreeFile = func(name string) error {
+		if name == stale {
+			return os.ErrPermission
+		}
+		return os.Remove(name)
+	}
+	t.Cleanup(func() { removeHashtreeFile = prev })
+	return stale
+}
+
+// unblockHashtreeScrub reverses blockHashtreeScrub, leaving the stale snapshot in
+// place for the retry to scrub.
+func unblockHashtreeScrub(t *testing.T, stale string) {
+	t.Helper()
+	removeHashtreeFile = os.Remove
+	require.NoError(t, os.Remove(stale+".tmp"))
+}
+
+// TestOffloadHealRebuildFailureLeavesRetryHandle: rebuildAsyncReplicationFromScratch
+// nils the tree and deregisters the shard before its fallible legs, and the healers
+// consume the offload halt owner before calling it. A rebuild that then fails would
+// leave an RF>1 tenant serving writes with no hashtree, no scheduler entry, and a
+// stale snapshot a later enable would trust as authoritative — with nothing left to
+// trigger a repair. The failure must leave a retry handle instead.
+func TestOffloadHealRebuildFailureLeavesRetryHandle(t *testing.T) {
+	// consumeByHaltCycle drives the retry through a later transfer halt and resume,
+	// the trigger reapplyAsyncReplicationAfterResume owns.
+	consumeByHaltCycle := func(t *testing.T, ctx context.Context, idx *Index, s *Shard) {
+		t.Helper()
+		retryOwner := backup.NewOp("retry").HaltOwner()
+		require.NoError(t, s.HaltForTransfer(ctx, retryOwner, false, 0))
+		require.NoError(t, s.resumeMaintenanceCycles(ctx, retryOwner))
+	}
+
+	// consumeByReconcile drives it through an enable apply instead, the trigger a
+	// replica add or remove produces on a shard that was never re-halted.
+	consumeByReconcile := func(t *testing.T, ctx context.Context, idx *Index, s *Shard) {
+		t.Helper()
+		require.NoError(t, idx.ReconcileAsyncReplicationForShard(ctx, s.name))
+	}
+
+	tests := []struct {
+		name    string
+		class   string
+		heal    func(*Index, context.Context, string) error
+		consume func(*testing.T, context.Context, *Index, *Shard)
+	}{
+		{
+			name:    "heal after an aborted freeze, retried by a halt cycle",
+			class:   "OffloadHealRetryHandleFreeze",
+			heal:    (*Index).resumeOffloadHaltAfterAbortedFreeze,
+			consume: consumeByHaltCycle,
+		},
+		{
+			name:    "heal after an aborted offload, retried by a halt cycle",
+			class:   "OffloadHealRetryHandleOffload",
+			heal:    (*Index).resumeAfterAbortedOffload,
+			consume: consumeByHaltCycle,
+		},
+		{
+			name:    "heal after an aborted freeze, retried by a reconcile",
+			class:   "OffloadHealRetryHandleReconcile",
+			heal:    (*Index).resumeOffloadHaltAfterAbortedFreeze,
+			consume: consumeByReconcile,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sl, idx, s := seedHealTestShardOnIndexConfig(t, ctx, tt.class)
+
+			s.asyncReplicationRWMux.RLock()
+			rootAtHalt := s.hashtree.Root()
+			s.asyncReplicationRWMux.RUnlock()
+
+			haltForOffloadWithStaleSnapshot(t, ctx, s)
+			stale := blockHashtreeScrub(t, s)
+
+			// A write the stale snapshot cannot know about: trusting it hides this
+			// object from replica repair for as long as the tree lives.
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime(tt.class, uuidPostDump, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+
+			require.Error(t, tt.heal(idx, ctx, s.name), "a rebuild that cannot scrub the snapshot must report it")
+
+			s.haltForTransferMux.Lock()
+			_, held := s.haltForTransferOwners[offloadHaltOwner(s.name)]
+			s.haltForTransferMux.Unlock()
+			require.False(t, held, "the heal already consumed the halt owner, so no later heal can repair this shard")
+			s.asyncReplicationRWMux.RLock()
+			require.Nil(t, s.hashtree, "the failed rebuild left the shard not repairing")
+			s.asyncReplicationRWMux.RUnlock()
+			require.True(t, s.asyncReplicationRebuildIsPending(), "the failed rebuild must leave a retry handle")
+			require.FileExists(t, stale, "pre-condition: the stale snapshot survived the failed scrub")
+
+			unblockHashtreeScrub(t, stale)
+			tt.consume(t, ctx, idx, s)
+
+			awaitHashtreeInitialized(t, s)
+			s.asyncReplicationRWMux.RLock()
+			rebuilt := s.hashtree.Root()
+			s.asyncReplicationRWMux.RUnlock()
+			require.NotEqual(t, rootAtHalt, rebuilt,
+				"the retry must rebuild by full scan; the pre-halt root means the stale snapshot was trusted and the post-halt write is invisible to repair")
+			require.Empty(t, htFilesInDir(t, s.pathHashTree()), "the retry must scrub the stale snapshot")
+
+			sched := idx.asyncReplicationScheduler
+			require.Eventually(t, func() bool {
+				sched.mu.Lock()
+				defer sched.mu.Unlock()
+				_, ok := sched.entries[s]
+				return ok
+			}, 10*time.Second, 10*time.Millisecond, "the retry must re-register the shard with the scheduler")
+			require.False(t, s.asyncReplicationRebuildIsPending(), "a successful retry clears the handle")
 		})
 	}
 }

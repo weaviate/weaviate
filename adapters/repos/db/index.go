@@ -1752,6 +1752,9 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 // Both steps always run and their errors are returned joined: the resume clears
 // the halt bookkeeping before its fallible physical part, so a rebuild skipped on
 // that error would have no later trigger.
+//
+// No haltedForOffload probe here: the abort path can owe a rebuild with no halt
+// held (a HaltForTransfer that failed and self-resumed), so a probe would skip it.
 func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
@@ -1774,12 +1777,25 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 // resumeOffloadHaltAfterAbortedFreeze lifts an offload halt this node placed for a
 // freeze the cluster later aborted, and repairs the async replication that halt
 // stopped. offloadHaltOwner is deterministic, so this caller can name a halt its own
-// instance never placed. No-op when the shard is not loaded or holds no offload
-// halt, so a routine tenant activation pays one mutex acquisition and no rescan.
+// instance never placed. No-op when the shard is not loaded or holds no offload halt.
 //
-// One held halt gets exactly one repair: resumeHaltOwner drops the owner before its
-// fallible physical resume, so every later call reports wasHeld=false. The rebuild
-// therefore runs even when that resume fails, and both errors are returned joined.
+// The "holds no offload halt" test is haltedForOffload, a lock-free atomic read.
+// This runs on the RAFT apply goroutine, and HaltForTransfer holds
+// haltForTransferMux across its whole seal (up to HaltForTransferTimeout, 1h by
+// default); a locking probe would stall every apply on this node behind any
+// in-flight seal of the same shard.
+//
+// A stale zero cannot skip an owed repair. A repair is owed only after a freeze
+// round aborts, and offload halts are registered only by Migrator.freeze under the
+// synchronous FREEZING apply — serialised against this HOT apply by classLocks and
+// the single FSM goroutine. So a halt from an earlier round was published before
+// this apply began, and a concurrently registered halt is a live freeze this healer
+// must not touch.
+//
+// One held halt gets exactly one owner drop: resumeHaltOwner drops the owner before
+// its fallible physical resume, so every later call reports wasHeld=false. The rebuild
+// therefore runs even when that resume fails, and both errors are returned joined; a
+// rebuild that fails leaves its own retry handle (asyncReplicationRebuildPending).
 func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
@@ -1789,6 +1805,10 @@ func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardNa
 	resumer, ok := shard.(offloadHaltResumer)
 	if !ok {
 		return fmt.Errorf("shard %q does not implement offloadHaltResumer", shardName)
+	}
+
+	if !resumer.haltedForOffload() {
+		return nil
 	}
 
 	wasHeld, err := resumer.resumeHaltOwner(ctx, offloadHaltOwner(shardName))

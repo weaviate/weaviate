@@ -254,6 +254,9 @@ type asyncReplicationController interface {
 // one-decrement resumeMaintenanceCycles.
 type offloadHaltResumer interface {
 	resumeHaltOwner(ctx context.Context, owner string) (wasHeld bool, err error)
+	// haltedForOffload reports, without taking haltForTransferMux, whether an
+	// offload owner holds a halt on this shard.
+	haltedForOffload() bool
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -294,6 +297,11 @@ type Shard struct {
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
+	// asyncReplicationRebuildPending records that a failed rebuild or disable-time
+	// scrub left repair work outstanding (tree dropped, shard deregistered, or a
+	// stale .ht on disk) with no other retry trigger: the offload healers are
+	// one-shot on the halt owner. Guarded by asyncReplicationRWMux.
+	asyncReplicationRebuildPending bool
 
 	// Lock order, outermost → innermost:
 	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId].
@@ -389,6 +397,10 @@ type Shard struct {
 	// HaltForTransfer takes while holding haltForTransferMux: a probe that locked
 	// would close that cycle.
 	haltForTransferTotal atomic.Int64
+	// offloadHaltTotal mirrors the offload owners' (offloadHaltOwnerPrefix) share of
+	// the owner map so haltedForOffload can probe without the mux; mutated only via
+	// publishHaltTotalLocked. Why lock-free: see resumeOffloadHaltAfterAbortedFreeze.
+	offloadHaltTotal atomic.Int64
 	// haltForTransferInactivityOwners is the set of owners that armed the inactivity
 	// watchdog (halted with inactivityTimeout>0). On a watchdog fire every owner in
 	// this set is force-resumed; owners that never armed (backups, offload) survive.

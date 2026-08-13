@@ -1027,6 +1027,16 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		return nil
 	}
 
+	// A pending rebuild means a pre-failure snapshot may survive on disk and would
+	// be loaded below as authoritative, hiding every write since. Redo the rebuild
+	// (it scrubs first). Skipped mid-halt like the fresh-init path: the resume re-derives.
+	if s.asyncReplicationRebuildIsPending() {
+		if s.haltedForTransfer() {
+			return nil
+		}
+		return s.rebuildAsyncReplicationFromScratch(ctx, true, config)
+	}
+
 	// Fast path: if already running, skip disk I/O entirely.
 	s.asyncReplicationRWMux.RLock()
 	alreadyRunning := s.hashtree != nil
@@ -1145,17 +1155,29 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 
 	// Scrub even when already stopped (HaltForTransfer nils the tree without scrubbing); a surviving .ht is a divergence risk, so the failure propagates.
 	if err := s.removePersistedHashtree(); err != nil {
+		// On a disabled shard the scrub is the owed repair, so failure re-arms the handle.
+		s.setAsyncReplicationRebuildPending(true)
 		return fmt.Errorf("removing persisted hashtree on disable: %w", err)
 	}
+	// A completed disable leaves nothing for a pending rebuild to do: tree nil,
+	// deregistered, no snapshot on disk.
+	s.setAsyncReplicationRebuildPending(false)
 	return nil
 }
 
 // rebuildAsyncReplicationFromScratch drops any tree, deletes the snapshot, and rebuilds from a full scan when enabled — atomically, so no racing enable can trust the stale snapshot.
+//
+// A failure arms asyncReplicationRebuildPending: the tree is already nil and the
+// shard deregistered by then, and nothing else would retry. Cleared on success.
 func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
 	var clearStats bool
-	err := func() error {
+	err := func() (err error) {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
+
+		// Registered under the mux that guards the flag, so a concurrent consumer
+		// either waits for this outcome or acts on the previous one.
+		defer func() { s.asyncReplicationRebuildPending = err != nil }()
 
 		// A shut shard's .ht must survive and a dropped shard's dir is gone: scrub and install nothing (same in-lock ordering as enable's shut checks).
 		if s.shutOrDropped() {
@@ -1194,6 +1216,20 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 		s.asyncReplicationStatsMux.Unlock()
 	}
 	return err
+}
+
+// Callers must not hold asyncReplicationRWMux.
+func (s *Shard) asyncReplicationRebuildIsPending() bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return s.asyncReplicationRebuildPending
+}
+
+// Callers must not hold asyncReplicationRWMux.
+func (s *Shard) setAsyncReplicationRebuildPending(pending bool) {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	s.asyncReplicationRebuildPending = pending
 }
 
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {

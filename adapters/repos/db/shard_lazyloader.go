@@ -679,6 +679,14 @@ func (l *LazyLoadShard) resumeHaltOwner(ctx context.Context, owner string) (bool
 	return l.shard.resumeHaltOwner(ctx, owner)
 }
 
+// Never loads: an unloaded shard holds no halt, so it holds no offload halt either.
+func (l *LazyLoadShard) haltedForOffload() bool {
+	if !l.isLoaded() {
+		return false
+	}
+	return l.shard.haltedForOffload()
+}
+
 func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
 	if err := l.Load(ctx); err != nil {
 		return file.FileMetadata{}, err
