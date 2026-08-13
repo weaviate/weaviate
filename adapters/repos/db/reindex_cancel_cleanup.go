@@ -73,15 +73,14 @@ func (db *DB) cleanStalePartialReindexState(
 	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
 }
 
-// ErrCleanupSweepTruncated marks a sweep that didn't visit every shard —
+// ErrCleanupSweepTruncated marks a sweep that didn't get through every shard —
 // timeout, a shutting-down/closing index, an unmappable index type, or a
 // shard that left the map mid-walk. These shards are "unknown", not
 // "failed" (often benign, e.g. a HOT→COLD tenant transition), but still
-// unverified.
+// unverified: a shard the run stopped partway through may be partly swept.
 //
-// Callers log it at Error when a submit or cancel proceeds on possibly-stale
-// state, and at Warn from background cleanup, which sweeps the tuple again
-// before its next submit.
+// Every caller logs it at Warn: unvisited shards are unverified rather than
+// known bad, and a healthy node produces them from routine tenant churn.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
@@ -105,6 +104,23 @@ var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep 
 // false if a shard also failed before the delete landed.
 func IsCleanupCollectionDropped(err error) bool {
 	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
+}
+
+// truncatedByExpiry re-reports a shard error raised after the run's budget ran
+// out as [ErrCleanupSweepTruncated], and returns nil while the budget is live.
+// A run that could not finish confirms nothing about the shard it stopped on,
+// so reporting one as a shard that failed would page an operator over a
+// timeout. It stops the walk for the same reason the check at the top of the
+// next shard's turn does — the budget is gone either way.
+//
+// Keyed on the context, not on the error: the shard load reports its own
+// cancellation as a fresh error, so the context cause is not in the chain to
+// match on.
+func truncatedByExpiry(ctx context.Context, reported error) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: the cleanup budget expired: %w", ErrCleanupSweepTruncated, reported)
 }
 
 // classifyIncompleteWalk tags a walk that did not reach every shard: a
@@ -182,8 +198,12 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
 			if unwrapErr != nil {
-				shardErrs.Add(
-					fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr))
+				reported := fmt.Errorf(
+					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
+				if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+					return truncated
+				}
+				shardErrs.Add(reported)
 				return nil
 			}
 			shard = unwrapped
@@ -193,7 +213,11 @@ func (i *Index) cleanStalePartialReindexState(
 		shardReads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
 		payloadReads += shardReads
 		if err != nil {
-			shardErrs.Add(fmt.Errorf("shard %q: %w", name, err))
+			reported := fmt.Errorf("shard %q: %w", name, err)
+			if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+				return truncated
+			}
+			shardErrs.Add(reported)
 		}
 		return nil
 	})

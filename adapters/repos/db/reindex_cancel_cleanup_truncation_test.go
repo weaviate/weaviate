@@ -87,8 +87,11 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		wantErr       bool
 		wantTruncated bool
 		wantDropped   bool
-		// wantShardErr expects the failing shard to still be named.
+		// wantShardErr expects the sweep to have reached a shard and failed on it.
 		wantShardErr bool
+		// wantShardNamed expects the shard the sweep stopped at to be named,
+		// whichever marker carries it.
+		wantShardNamed bool
 		// wantShardsNamed is how many failing shards the message may name; 0
 		// skips the check.
 		wantShardsNamed int
@@ -112,12 +115,13 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantTruncated: true,
 		},
 		{
-			name:          "one shard that cannot be loaded",
-			shards:        []string{"shard-a"},
-			staleOnDisk:   true,
-			wantErr:       true,
-			wantShardErr:  true,
-			wantTruncated: false,
+			name:           "one shard that cannot be loaded",
+			shards:         []string{"shard-a"},
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantShardErr:   true,
+			wantShardNamed: true,
+			wantTruncated:  false,
 		},
 		{
 			// A full disk fails every tenant at once; the message caps how many it names.
@@ -126,16 +130,22 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			staleOnDisk:     true,
 			wantErr:         true,
 			wantShardErr:    true,
+			wantShardNamed:  true,
 			wantShardsNamed: maxReportedErrors,
 		},
 		{
-			name:          "the abort lands on the first of two shards",
-			shards:        []string{"shard-a", "shard-b"},
-			cancelOnCall:  1,
-			staleOnDisk:   true,
-			wantErr:       true,
-			wantTruncated: true,
-			wantShardErr:  true,
+			// The abort IS why this shard was not swept, so it is one the run
+			// never finished rather than one it found broken. Tagging it failed
+			// would report confirmed state on a shard nothing looked at, at the
+			// severity reserved for an operator having to act.
+			name:           "the abort lands on the first of two shards",
+			shards:         []string{"shard-a", "shard-b"},
+			cancelOnCall:   1,
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantTruncated:  true,
+			wantShardErr:   false,
+			wantShardNamed: true,
 		},
 		{
 			// The walk visits nothing here, so "swept every shard" would be a
@@ -161,13 +171,14 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		},
 		{
 			// A shard fails, then the collection is deleted before the walk ends.
-			name:         "a shard fails and the collection is deleted before the walk ends",
-			shards:       []string{"shard-a", "shard-b"},
-			dropOnCall:   1,
-			staleOnDisk:  true,
-			wantErr:      true,
-			wantDropped:  true,
-			wantShardErr: true,
+			name:           "a shard fails and the collection is deleted before the walk ends",
+			shards:         []string{"shard-a", "shard-b"},
+			dropOnCall:     1,
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantDropped:    true,
+			wantShardErr:   true,
+			wantShardNamed: true,
 		},
 		{
 			// A close nobody named a cause for could still be a shutdown, and
@@ -266,13 +277,15 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				require.NotErrorIs(t, err, ErrCleanupCollectionDropped,
 					"the collection is not being deleted, so its state outlives this sweep")
 			}
+			if tc.wantShardNamed {
+				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
+					"the shard the sweep stopped at must still be reported")
+			}
 			if tc.wantShardErr {
 				require.ErrorIs(t, err, ErrCleanupShardFailed,
 					"a shard the sweep reached and could not sweep has to be tagged as one, "+
 						"or a caller that asks only about the delete reports state as gone "+
 						"while that shard's is still on disk")
-				require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
-					"the shard that failed before the abort must still be reported")
 			} else {
 				require.NotErrorIs(t, err, ErrCleanupShardFailed,
 					"no shard was reached and failed, so nothing was left on one")
@@ -669,7 +682,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 		{
 			name:        "a shard the sweep reached and could not load",
 			staleOnDisk: true,
-			wantMsg:     "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
+			wantMsg:     "partial-reindex cleanup: a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
 			wantLevel:   logrus.ErrorLevel,
 		},
 		{
@@ -683,7 +696,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 			name:           "a node already shutting down",
 			staleOnDisk:    true,
 			requestedCause: errIndexShutdown,
-			wantMsg:        "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there",
+			wantMsg:        "partial-reindex cleanup: the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified",
 			wantLevel:      logrus.WarnLevel,
 		},
 	}

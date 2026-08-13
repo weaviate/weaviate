@@ -1715,9 +1715,13 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
 		},
-		func(propName, indexType string, failure error) {
+		func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
+			// Off the shared taxonomy, like the handlers' logStaleSweepFailures:
+			// this line and the summary below report the same failure, so a level
+			// of its own would rank one event twice.
+			msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
 			logger.WithField("property", propName).WithField("index_type", indexType).
-				Warnf("auto-cleanup after terminal status failed: %v", failure)
+				Logf(level, "%s: %v", msg, failure)
 		})
 	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
 	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
@@ -1727,10 +1731,13 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 // reporting each failure to onFailure, and returns the worst outcome of the
 // run — a later clean sweep must not mask an earlier one that left state
 // behind.
+//
+// onFailure is handed the tuple's own outcome, not the fold, so it can word
+// and rank its line by the same taxonomy the summary uses.
 func sweepEachPropertyIndexType(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
-	onFailure func(propName, indexType string, failure error),
+	onFailure func(propName, indexType string, outcome CleanupSweepOutcome, failure error),
 ) CleanupSweepOutcome {
 	worst := CleanupSweepClean
 	for _, propName := range propNames {
@@ -1738,7 +1745,7 @@ func sweepEachPropertyIndexType(
 			outcome, failure := ClassifyCleanupSweep(sweep(propName, indexType))
 			worst = max(worst, outcome)
 			if failure != nil {
-				onFailure(propName, indexType, failure)
+				onFailure(propName, indexType, outcome, failure)
 			}
 		}
 	}
@@ -1763,11 +1770,13 @@ const (
 	// CleanupSweepDropped: the collection is not on this node — though shards
 	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
 	CleanupSweepDropped
-	// CleanupSweepUnknown: shards were left unvisited. What is on them is
-	// unknown, which is not the same as knowing state is there.
+	// CleanupSweepUnknown: the walk left shards unvisited, or ran out of time
+	// partway through one. What is on them is unknown, which is not the same as
+	// knowing state is there.
 	CleanupSweepUnknown
-	// CleanupSweepFailed: a shard was reached and could not be swept. Nothing
-	// was removed from it, so whatever partial state it holds is still there.
+	// CleanupSweepFailed: a shard was reached and could not be swept. It can
+	// fail after already removing part of its state, so what the shard holds
+	// is an unknown remainder rather than the state the sweep found.
 	CleanupSweepFailed
 )
 
@@ -1806,8 +1815,8 @@ const (
 // reaches an operator as two claims at two severities.
 //
 // [CleanupSweepFailed] is the only Error. It is the only outcome that confirms
-// partial state is still on a shard this node holds, with nothing scheduled to
-// remove it, so an operator has to act. Everything else is either clean or
+// a shard this node holds was left partly swept, with nothing scheduled to
+// finish it, so an operator has to act. Everything else is either clean or
 // merely unverified, and routine tenant churn produces unverified on a healthy
 // node.
 //
@@ -1825,13 +1834,14 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 				"with the collection directory, unless a backup in flight is keeping those files",
 			logrus.InfoLevel
 	case CleanupSweepFailed:
-		return phase + ": a shard could not be swept, so the partial state on it is still there",
+		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
+				"scheduled to finish it",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
 		// confirms no more than an unfinished walk does.
-		return phase + ": the sweep did not reach every shard, so any partial state on the ones " +
-				"it missed is still there",
+		return phase + ": the sweep did not reach every shard, so what is on the ones it missed " +
+				"or did not finish is unverified",
 			logrus.WarnLevel
 	}
 }
@@ -2044,8 +2054,10 @@ func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLook
 // stuck-task behavior.
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
-// reindexTerminalCleanupTimeout bounds cleanup per shard across all
-// (property, indexType) pairs.
+// reindexTerminalCleanupTimeout is one window for the whole cleanup run: every
+// shard and every (property, indexType) pair share it, and the shards it cuts
+// short are reported as ones the sweep never reached. [dirNamesCache] relies on
+// it being run-wide for the lifetime of its listings.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // Matches the drain timeout: both run inline on the same dispatch.

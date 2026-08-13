@@ -282,7 +282,7 @@ func TestCancelCleanupOutcome(t *testing.T) {
 				"filterable": shardFailedDuringSweep(),
 			},
 			wantLevel: logrus.ErrorLevel,
-			wantInMsg: `cancel: a shard could not be swept, so the partial state on it is still there: indexType="filterable"`,
+			wantInMsg: `cancel: a shard could not be swept, so it is left partly swept with nothing scheduled to finish it: indexType="filterable"`,
 		},
 		{
 			name:       "shards were never reached",
