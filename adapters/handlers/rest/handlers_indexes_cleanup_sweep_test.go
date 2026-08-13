@@ -158,7 +158,7 @@ func TestStaleSweepFailureLogLevelFollowsTheOutcome(t *testing.T) {
 			sweepErr:  truncatedDuringSweep(),
 			wantLevel: logrus.WarnLevel,
 			wantInMsg: []string{
-				"the next submit sweeps them again",
+				"what those shards hold is unverified",
 				// The shards left unverified are named.
 				"tenant-a, tenant-b",
 			},
@@ -178,7 +178,7 @@ func TestStaleSweepFailureLogLevelFollowsTheOutcome(t *testing.T) {
 			failures, dropped := sweepStaleReindexState([]string{"searchable"},
 				func(string) error { return tc.sweepErr })
 			require.Zero(t, dropped)
-			logStaleSweepFailures(logrus.NewEntry(logger), "submit", failures)
+			logStaleSweepFailures(logrus.NewEntry(logger), sweepPhaseSubmit, failures)
 
 			require.Len(t, hook.Entries, 1)
 			entry := hook.Entries[0]
@@ -193,6 +193,51 @@ func TestStaleSweepFailureLogLevelFollowsTheOutcome(t *testing.T) {
 				"the failing index type is a field, not only text")
 			require.True(t, strings.HasPrefix(entry.Message, "submit: "),
 				"the phase tells the operator which handler swept")
+		})
+	}
+}
+
+// Shards a sweep never reached mean different things to the two callers:
+// cancel is finished once it has swept, so cleanup waits for a later submit,
+// while the submit that logs this dispatches its task regardless. Promising
+// deferred handling on the submit path would tell an operator the state is
+// still quarantined while the task is already running against it.
+func TestUnreachedShardsWordingFollowsThePhase(t *testing.T) {
+	const (
+		deferredToNextSubmit = "the next submit sweeps them again"
+		submitProceeds       = "this submit proceeds anyway"
+	)
+
+	tests := []struct {
+		phase        string
+		wantInMsg    string
+		wantNotInMsg string
+	}{
+		{
+			phase:        sweepPhaseSubmit,
+			wantInMsg:    submitProceeds,
+			wantNotInMsg: deferredToNextSubmit,
+		},
+		{
+			phase:        sweepPhaseCancel,
+			wantInMsg:    deferredToNextSubmit,
+			wantNotInMsg: submitProceeds,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.phase, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			failures, dropped := sweepStaleReindexState([]string{"searchable"},
+				func(string) error { return truncatedDuringSweep() })
+			require.Zero(t, dropped)
+			logStaleSweepFailures(logrus.NewEntry(logger), tc.phase, failures)
+
+			require.Len(t, hook.Entries, 1)
+			entry := hook.Entries[0]
+			require.Equal(t, logrus.WarnLevel, entry.Level)
+			require.Contains(t, entry.Message, tc.wantInMsg)
+			require.NotContains(t, entry.Message, tc.wantNotInMsg)
 		})
 	}
 }

@@ -611,7 +611,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			"collection":     collection,
 			"property":       propertyName,
 			"migration_type": migrationType,
-		}), "submit", cleanupFailures)
+		}), sweepPhaseSubmit, cleanupFailures)
 	}
 
 	// Semantic migrations opt into the two-phase RAFT PREP barrier;
@@ -1043,6 +1043,25 @@ func sweepStaleReindexState(
 	return failures, dropped
 }
 
+// The two handlers that sweep, named in the line the sweep leaves so an
+// operator can tell which one ran, and used to word what an incomplete sweep
+// means for the caller (see [unreachedShardsTail]).
+const (
+	sweepPhaseSubmit = "submit"
+	sweepPhaseCancel = "cancel"
+)
+
+// unreachedShardsTail says what happens to shards a sweep never reached. The
+// phases differ: cancel is done once it has swept, so the state waits for a
+// later submit, while the submit that logs this dispatches its task anyway and
+// the task can resume against the state the sweep could not verify.
+func unreachedShardsTail(phase string) string {
+	if phase == sweepPhaseSubmit {
+		return "this submit proceeds anyway, so the task it dispatches may resume against them"
+	}
+	return "the next submit sweeps them again"
+}
+
 // logStaleSweepFailures emits one operator-facing line per sweep that did not
 // finish, worded by what it left behind: an Error when a reached shard could
 // not be swept (state is known to still be there), a Warn when the walk never
@@ -1052,7 +1071,8 @@ func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSw
 		failureEntry := entry.WithField("index_type", failure.indexType)
 		if failure.outcome == db.CleanupSweepUnknown {
 			failureEntry.Warnf("%s: cleanup of stale partial reindex state did not reach every shard: %v; "+
-				"what those shards hold is unverified, and the next submit sweeps them again", phase, failure)
+				"what those shards hold is unverified, and %s",
+				phase, failure, unreachedShardsTail(phase))
 			continue
 		}
 		failureEntry.Errorf("%s: cleanup of stale partial reindex state failed: %v; "+
@@ -1068,7 +1088,7 @@ func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSw
 func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, dropped int) {
 	switch {
 	case len(failures) > 0:
-		logStaleSweepFailures(entry, "cancel", failures)
+		logStaleSweepFailures(entry, sweepPhaseCancel, failures)
 	case dropped > 0:
 		entry.Info("cancel: the collection is not on this node, so any partial reindex state left here " +
 			"is removed with the collection directory")
