@@ -164,18 +164,90 @@ func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
 	hook.Reset()
 	require.NoError(t, idx.updateProperty(ctx, disableFilterable))
 
-	const sweepDone = "partial-reindex cleanup: migration dirs swept after index DELETE"
-	var lines []*logrus.Entry
-	for _, entry := range hook.AllEntries() {
-		if entry.Message == sweepDone {
-			lines = append(lines, entry)
-		}
-	}
+	lines := sweepCompletionLines(hook)
 	require.Len(t, lines, 1, "one completion line per sweep, whatever the shard count")
 	require.Equal(t, shards*perShard, lines[0].Data["payload_reads"],
 		"the reported count sums every shard and every swept index type")
 	require.Equal(t, "cat", lines[0].Data["property"])
 	require.Equal(t, []string{"filterable", "rangeable"}, lines[0].Data["index_types"])
+}
+
+// sweepCompletionLine is the one line per operator action the DELETE sweep
+// reports its cost on.
+const sweepCompletionLine = "partial-reindex cleanup: migration dirs swept for disabled index types"
+
+func sweepCompletionLines(hook *test.Hook) []*logrus.Entry {
+	var lines []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Message == sweepCompletionLine {
+			lines = append(lines, entry)
+		}
+	}
+	return lines
+}
+
+// TestSweepReportsOnlyWhatItSwept pins that the completion line reports work
+// that happened rather than a property shape. Every property has some index
+// type switched off, so a shape gate announces a sweep on every update — even
+// one that deleted no index and cleaned nothing.
+func TestSweepReportsOnlyWhatItSwept(t *testing.T) {
+	textProp := func(filterable bool) *models.Property {
+		return &models.Property{
+			Name:            "cat",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWord,
+			IndexFilterable: boolPtr(filterable),
+			IndexSearchable: boolPtr(true),
+		}
+	}
+
+	tests := []struct {
+		name      string
+		prop      *models.Property
+		stale     bool
+		wantLines int
+	}{
+		{
+			name: "update that deletes no index at all",
+			prop: textProp(true),
+		},
+		{
+			name: "index DELETE with no stale state to clean",
+			prop: textProp(false),
+		},
+		{
+			name:      "index DELETE over stale state",
+			prop:      textProp(false),
+			stale:     true,
+			wantLines: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotEmpty(t, disabledIndexTypes(tc.prop),
+				"no property shape leaves this empty, so shape cannot gate the line")
+
+			ctx := testCtx()
+			class := newTestClassWithProps("SweepReport_"+uuid.NewString()[:8], []string{"cat", "dog"})
+			hookLogger, hook := test.NewNullLogger()
+			shd, idx := testShardWithSettings(t, ctx, class,
+				enthnsw.UserConfig{Skip: true}, false, false, false,
+				func(i *Index) { i.logger = hookLogger })
+			defer shd.Shutdown(ctx)
+
+			if tc.stale {
+				for _, f := range sweepMemoFixtures {
+					mkTrackerDir(t, shd.(*Shard).pathLSM(), f.dir, f.sentinels...)
+					mkRecoveryPayload(t, shd.(*Shard).pathLSM(), f.dir, f.props...)
+				}
+			}
+
+			hook.Reset()
+			require.NoError(t, idx.updateProperty(ctx, tc.prop))
+			require.Len(t, sweepCompletionLines(hook), tc.wantLines)
+		})
+	}
 }
 
 // TestSweepMemoLeavesTheDeletedSetAlone pins the memo as pure memoization: the

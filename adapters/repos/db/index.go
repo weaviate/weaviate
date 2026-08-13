@@ -956,12 +956,15 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	if disabled := disabledIndexTypes(property); len(disabled) > 0 {
+	// Gated on work done, not on property shape: every property has some index
+	// type switched off (rangeable on text, searchable on int), so a shape gate
+	// announces a sweep on every property update.
+	if reads := payloadReads.Load(); reads > 0 {
 		i.logger.WithFields(map[string]any{
 			"property":      property.Name,
-			"index_types":   disabled,
-			"payload_reads": payloadReads.Load(),
-		}).Info("partial-reindex cleanup: migration dirs swept after index DELETE")
+			"index_types":   disabledIndexTypes(property),
+			"payload_reads": reads,
+		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {
 		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
