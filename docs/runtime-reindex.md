@@ -743,9 +743,11 @@ shard. See §6 crash safety.
 **`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep()`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
 `Shard.CleanStalePartialReindexState` per shard. Called from the cancel
-handler (after `WaitForLocalTaskDrain`) and from the submit handler
-(defense in depth). Per-shard failures don't stop iteration so a stuck
-shard can't permanently wedge a `(collection, prop, indexType)` tuple.
+handler (after `WaitForLocalTaskDrain`), from the submit handler
+(defense in depth), and from `autoCleanupAfterTerminal` on every node once
+a task reaches FAILED or CANCELLED. Per-shard failures don't stop
+iteration so a stuck shard can't permanently wedge a
+`(collection, prop, indexType)` tuple.
 One sweep serves a whole call so an unloaded shard's directory listing is
 read once across the index types a single migration touches; a loaded
 shard's sweep always reads the filesystem directly and never acts on the
