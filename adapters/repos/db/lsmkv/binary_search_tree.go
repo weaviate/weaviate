@@ -103,6 +103,16 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	return t.root.flattenInOrder()
 }
 
+// flattenInOrderRange returns only nodes with min <= key <= max (inclusive; a
+// nil bound is unbounded), visiting just the subtrees intersecting the range.
+func (t *binarySearchTree) flattenInOrderRange(min, max []byte) []*binarySearchNode {
+	if t.root == nil {
+		return nil
+	}
+
+	return t.root.appendInOrderRange(nil, min, max)
+}
+
 type countStats struct {
 	upsertKeys     [][]byte
 	tombstonedKeys [][]byte
@@ -381,6 +391,24 @@ func (n *binarySearchNode) appendInOrder(dst []*binarySearchNode) []*binarySearc
 	dst = append(dst, n.shallowCopy())
 	if n.right != nil {
 		dst = n.right.appendInOrder(dst)
+	}
+	return dst
+}
+
+func (n *binarySearchNode) appendInOrderRange(dst []*binarySearchNode, min, max []byte) []*binarySearchNode {
+	if n == nil {
+		return dst
+	}
+	aboveMin := min == nil || bytes.Compare(n.key, min) >= 0
+	belowMax := max == nil || bytes.Compare(n.key, max) <= 0
+	if n.left != nil && aboveMin {
+		dst = n.left.appendInOrderRange(dst, min, max)
+	}
+	if aboveMin && belowMax {
+		dst = append(dst, n.shallowCopy())
+	}
+	if n.right != nil && belowMax {
+		dst = n.right.appendInOrderRange(dst, min, max)
 	}
 	return dst
 }
