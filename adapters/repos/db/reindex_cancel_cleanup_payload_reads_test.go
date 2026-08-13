@@ -275,9 +275,21 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 	payloadModes := []string{"written", "absent", "unparseable"}
 	propNames := []string{"cat", "cat_dog", "category", "b"}
 
+	// What the name shortcut decides over the fixtures below, counted per arm.
+	// Without these the loop's "ask the payload" skip is also the skip a
+	// matchByName that decides nothing takes, and the test asserts nothing at
+	// all. matchByName never opens a payload, so the three counts hold for
+	// every payload mode.
+	const (
+		wantInScope    = 24
+		wantOutOfScope = 296
+		wantUndecided  = 16
+	)
+
 	for _, mode := range payloadModes {
 		lsm := t.TempDir()
 		var dirs []string
+		var inScope, outOfScope, undecided int
 		for _, w := range writers {
 			dir := migrationDirWithProps(w.prefix, w.props) + genSuffix(w.gen)
 			dirs = append(dirs, dir)
@@ -308,7 +320,13 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 					for _, dir := range dirs {
 						byName, decided := scope.matchByName(dir)
 						if !decided {
+							undecided++
 							continue
+						}
+						if byName {
+							inScope++
+						} else {
+							outOfScope++
 						}
 						fromPayload, unreadable := scope.inScopeFailingOpen(dir)
 						require.Equal(t, fromPayload, byName,
@@ -327,6 +345,9 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 				}
 			}
 		}
+		require.Equal(t, wantInScope, inScope, "dirs the name alone puts in scope, payload %s", mode)
+		require.Equal(t, wantOutOfScope, outOfScope, "dirs the name alone disowns, payload %s", mode)
+		require.Equal(t, wantUndecided, undecided, "dirs left to the payload, payload %s", mode)
 	}
 }
 
