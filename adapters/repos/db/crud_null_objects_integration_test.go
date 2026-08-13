@@ -174,6 +174,7 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
+		QueryHybridMaximumResults: config.DefaultQueryHybridMaximumResults,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
