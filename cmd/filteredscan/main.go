@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -73,17 +74,19 @@ func main() {
 	sidecar := flag.String("sidecar", filepath.Join(os.Getenv("HOME"), "Documents/datasets/wikidpr-10m-scan"), "exported filters/GT dir")
 	limit := flag.Int("limit", corpusN, "corpus rows (smoke tests; GT invalid below full size)")
 	b1 := flag.Int("b1", 4096, "stage-1 budget")
+	b1Alt := flag.Int("b1alt", 0, "optional second stage-1 budget: run every filter at both")
+	only := flag.String("only", "", "only run filters whose name has this prefix")
 	b2 := flag.Int("b2", 700, "stage-2 budget")
 	trainLimit := flag.Int("trainlimit", 10000, "centering training limit")
 	csvPath := flag.String("csv", "filteredscan-results.csv", "per-filter CSV output")
 	flag.Parse()
-	if err := run(*hdf5Path, *sidecar, *limit, *b1, *b2, *trainLimit, *csvPath); err != nil {
+	if err := run(*hdf5Path, *sidecar, *limit, *b1, *b1Alt, *b2, *trainLimit, *csvPath, *only); err != nil {
 		fmt.Fprintf(os.Stderr, "filteredscan: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(hdf5Path, sidecar string, limit, b1, b2, trainLimit int, csvPath string) error {
+func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath string, only string) error {
 	ctx := context.Background()
 
 	// mmap the corpus floats straight out of the HDF5.
@@ -200,21 +203,31 @@ func run(hdf5Path, sidecar string, limit, b1, b2, trainLimit int, csvPath string
 	}
 	fmt.Fprintf(os.Stderr, "index built in %.0fs\n", time.Since(start).Seconds())
 
-	cfg := hnsw.FilteredScanConfig{Budget1: b1, Budget2: b2, FloatsForID: func(id uint64) []float32 {
-		return floatsFor(id)
-	}}
-	scratch := hnsw.NewFilteredScanScratch(cfg)
+	budgets := []int{b1}
+	if b1Alt > 0 {
+		budgets = append(budgets, b1Alt)
+	}
 
 	csv, err := os.Create(csvPath)
 	if err != nil {
 		return err
 	}
 	defer csv.Close()
-	fmt.Fprintln(csv, "filter,family,size,queries,recall_at_10,perfect_frac,p50_ms,p95_ms,p99_ms,"+
+	fmt.Fprintln(csv, "filter,family,size,b1,queries,recall_at_10,perfect_frac,sim_regret,p50_ms,p95_ms,p99_ms,"+
 		"allow_iter_p50_ms,stage1_p50_ms,stage2_p50_ms,stage3_p50_ms,stage1_mb_per_q,stage2_kb_per_q,stage3_kb_per_q")
 
 	k := 10
+	dot := func(a, b []float32) float64 {
+		var s float64
+		for i := range a {
+			s += float64(a[i]) * float64(b[i])
+		}
+		return s
+	}
 	for _, m := range metas {
+		if only != "" && !strings.HasPrefix(m.Name, only) {
+			continue
+		}
 		bits, err := os.ReadFile(filepath.Join(sidecar, "filters", m.Name+".bits"))
 		if err != nil {
 			return err
@@ -234,58 +247,80 @@ func run(hdf5Path, sidecar string, limit, b1, b2, trainLimit int, csvPath string
 			}
 		}
 
-		var totals, iters, s1s, s2s, s3s []float64
-		var b1MB, b2KB, b3KB float64
-		var hits, wanted, perfect int
-		for qi, qRow := range qRows {
-			q := queries[qRow*dims : (qRow+1)*dims]
-			ids, _, stats, err := index.FilteredPrefixScan(ctx, q, k, allow, cfg, scratch)
-			if err != nil {
-				return fmt.Errorf("filter %s query %d: %w", m.Name, qRow, err)
-			}
-			total := stats.AllowIter + stats.Stage1 + stats.Stage2 + stats.Stage3
-			totals = append(totals, total.Seconds()*1000)
-			iters = append(iters, stats.AllowIter.Seconds()*1000)
-			s1s = append(s1s, stats.Stage1.Seconds()*1000)
-			s2s = append(s2s, stats.Stage2.Seconds()*1000)
-			s3s = append(s3s, stats.Stage3.Seconds()*1000)
-			b1MB += float64(stats.Stage1Bytes) / (1 << 20)
-			b2KB += float64(stats.Stage2Bytes) / 1024
-			b3KB += float64(stats.Stage3Bytes) / 1024
+		for _, budget1 := range budgets {
+			cfg := hnsw.FilteredScanConfig{Budget1: budget1, Budget2: b2, FloatsForID: func(id uint64) []float32 {
+				return floatsFor(id)
+			}}
+			scratch := hnsw.NewFilteredScanScratch(cfg)
+			var regretSum float64
 
-			// GT row: global filters index by query row, per-query by 0
-			gtStart := qi * 100
-			if m.Scope == "per_query" {
-				gtStart = 0
-			} else {
-				gtStart = qRow * 100
-			}
-			truth := map[uint64]bool{}
-			for i := 0; i < k; i++ {
-				truth[binary.LittleEndian.Uint64(gtRaw[(gtStart+i)*8:])] = true
-			}
-			qHits := 0
-			for _, id := range ids {
-				if truth[id] {
-					qHits++
+			var totals, iters, s1s, s2s, s3s []float64
+			var b1MB, b2KB, b3KB float64
+			var hits, wanted, perfect int
+			for qi, qRow := range qRows {
+				q := queries[qRow*dims : (qRow+1)*dims]
+				ids, _, stats, err := index.FilteredPrefixScan(ctx, q, k, allow, cfg, scratch)
+				if err != nil {
+					return fmt.Errorf("filter %s query %d: %w", m.Name, qRow, err)
+				}
+				total := stats.AllowIter + stats.Stage1 + stats.Stage2 + stats.Stage3
+				totals = append(totals, total.Seconds()*1000)
+				iters = append(iters, stats.AllowIter.Seconds()*1000)
+				s1s = append(s1s, stats.Stage1.Seconds()*1000)
+				s2s = append(s2s, stats.Stage2.Seconds()*1000)
+				s3s = append(s3s, stats.Stage3.Seconds()*1000)
+				b1MB += float64(stats.Stage1Bytes) / (1 << 20)
+				b2KB += float64(stats.Stage2Bytes) / 1024
+				b3KB += float64(stats.Stage3Bytes) / 1024
+
+				// GT row: global filters index by query row, per-query by 0
+				gtStart := qi * 100
+				if m.Scope == "per_query" {
+					gtStart = 0
+				} else {
+					gtStart = qRow * 100
+				}
+				truth := map[uint64]bool{}
+				for i := 0; i < k; i++ {
+					truth[binary.LittleEndian.Uint64(gtRaw[(gtStart+i)*8:])] = true
+				}
+				qHits := 0
+				for _, id := range ids {
+					if truth[id] {
+						qHits++
+					}
+				}
+				hits += qHits
+				wanted += k
+				if qHits == k {
+					perfect++
+				}
+				// similarity regret: mean sim of GT top-k minus mean sim of the
+				// scan's returned k — quantifies answer QUALITY independent of
+				// set overlap (tie-band filters can have zero overlap and zero
+				// regret at once)
+				var gtSim, gotSim float64
+				for i := 0; i < k; i++ {
+					gtSim += dot(q, floatsFor(binary.LittleEndian.Uint64(gtRaw[(gtStart+i)*8:])))
+				}
+				for _, id := range ids {
+					gotSim += dot(q, floatsFor(id))
+				}
+				if len(ids) == k {
+					regretSum += (gtSim - gotSim) / float64(k)
 				}
 			}
-			hits += qHits
-			wanted += k
-			if qHits == k {
-				perfect++
-			}
+			nQ := float64(len(qRows))
+			recall := float64(hits) / float64(wanted)
+			fmt.Fprintf(csv, "%s,%s,%d,%d,%d,%.4f,%.4f,%.5f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.1f,%.1f\n",
+				m.Name, m.Family, m.Size, budget1, len(qRows), recall, float64(perfect)/nQ, regretSum/nQ,
+				pct(totals, 0.50), pct(totals, 0.95), pct(totals, 0.99),
+				pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50),
+				b1MB/nQ, b2KB/nQ, b3KB/nQ)
+			fmt.Fprintf(os.Stderr, "%-28s %-11s size=%-8d b1=%-6d recall@10=%.4f perfect=%.3f regret=%.5f p50=%.2fms (iter %.2f | s1 %.2f | s2 %.2f | s3 %.2f)\n",
+				m.Name, m.Family, m.Size, budget1, recall, float64(perfect)/nQ, regretSum/nQ,
+				pct(totals, 0.50), pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50))
 		}
-		nQ := float64(len(qRows))
-		recall := float64(hits) / float64(wanted)
-		fmt.Fprintf(csv, "%s,%s,%d,%d,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.1f,%.1f\n",
-			m.Name, m.Family, m.Size, len(qRows), recall, float64(perfect)/nQ,
-			pct(totals, 0.50), pct(totals, 0.95), pct(totals, 0.99),
-			pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50),
-			b1MB/nQ, b2KB/nQ, b3KB/nQ)
-		fmt.Fprintf(os.Stderr, "%-28s %-11s size=%-8d recall@10=%.4f perfect=%.3f p50=%.2fms (iter %.2f | s1 %.2f | s2 %.2f | s3 %.2f)\n",
-			m.Name, m.Family, m.Size, recall, float64(perfect)/nQ,
-			pct(totals, 0.50), pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50))
 		allow.Close()
 	}
 	return nil
