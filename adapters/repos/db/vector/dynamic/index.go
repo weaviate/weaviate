@@ -302,24 +302,33 @@ func dbKey(targetVector string) []byte {
 }
 
 // UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
-// switched to hnsw, reading the state its own startup reads: the shared state DB,
-// falling back to the hnsw commit log directory for an index written before the
-// state key existed. Unreadable state counts as not upgraded, so the caller never
-// claims hnsw's behaviour for a shard that may still be flat.
+// switched to hnsw, reading the same state the shard's own load reads: the
+// shared state DB, falling back for a named vector to the hnsw commit log
+// directory. An unnamed vector gets no such fallback, because its load reads a
+// missing key as not upgraded and then deletes that directory. Unreadable state
+// counts as not upgraded, so the caller never claims hnsw's behaviour for a shard
+// that may still be flat.
 func UpgradedOnDisk(rootPath, id, targetVector string) bool {
-	_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
-	hnswDirExists := err == nil
+	upgradedWithoutStateKey := false
+	if targetVector != "" {
+		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+		upgradedWithoutStateKey = err == nil
+	}
 
 	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
 		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
 	if err != nil {
-		return hnswDirExists
+		// only a shard that never wrote state may fall back to the directory; a
+		// locked or damaged DB is state we failed to read
+		if os.IsNotExist(err) {
+			return upgradedWithoutStateKey
+		}
+		return false
 	}
 	defer db.Close()
 
-	upgraded := hnswDirExists
-	//nolint:errcheck // the fallback above stands in for an unreadable state
-	db.View(func(tx *bbolt.Tx) error {
+	upgraded := upgradedWithoutStateKey
+	if err := db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		if b == nil {
 			return nil
@@ -328,7 +337,9 @@ func UpgradedOnDisk(rootPath, id, targetVector string) bool {
 			upgraded = v[0] != 0
 		}
 		return nil
-	})
+	}); err != nil {
+		return false
+	}
 	return upgraded
 }
 
@@ -357,8 +368,10 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		}
 
 		if cfg.TargetVector == "" {
+			// a stored empty value reads back non-nil, so length is what says
+			// whether a state was recorded
 			v := b.Get(dbKey)
-			if v == nil {
+			if len(v) == 0 {
 				return nil
 			}
 
@@ -372,7 +385,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 
 		// first, check if there's an entry for this specific target vector
 		v := b.Get(dbKey)
-		if v != nil {
+		if len(v) > 0 {
 			upgraded = v[0] != 0
 			return nil
 		}

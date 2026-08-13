@@ -1121,13 +1121,16 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		testAllObjectsIndexed(t, c, className)
 
 		var hotRatio float64
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			colHot, err := getDebugUsageWithPortAndCollection(debug, className)
 			require.NoError(ct, err)
 			require.Len(ct, colHot.Shards, 1)
 			hot := namedVectors(ct, colHot.Shards[0], dynamic1024)[dynamic1024]
 			require.Equal(ct, hnsw, hot.VectorIndexType)
 			require.Equal(ct, pq, hot.Compression)
+			// Compression comes from the config, so only a ratio above 1 says pq
+			// finished training and wrote the quantized vectors a cold read bills.
+			require.Greater(ct, hot.VectorCompressionRatio, float64(1))
 			hotRatio = hot.VectorCompressionRatio
 		}, 5*time.Minute, 500*time.Millisecond)
 
@@ -1141,9 +1144,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.Equal(t, hnsw, cold.VectorIndexType, "reading flat here would bill the wrong side of the config")
 		require.Equal(t, pq, cold.Compression)
 		require.True(t, cold.IsDynamic)
-		// pq trains off the indexing queue, so whether this tenant compressed
-		// before its writes stopped is timing rather than contract; what has to
-		// hold is that deactivating it does not change the answer
+		// deactivating a tenant must not change the ratio it bills
 		require.Equal(t, hotRatio, cold.VectorCompressionRatio)
 	})
 

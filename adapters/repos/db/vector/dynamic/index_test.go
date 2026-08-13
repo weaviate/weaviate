@@ -1388,6 +1388,26 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			storedState:  nil,
 			wantDirKept:  true,
 		},
+		{
+			// the unnamed vector gets no such migration, which is why a usage
+			// report may not read its commit log dir as an upgrade either
+			name:        "unnamed vector without state key: stale commit log removed",
+			storedState: nil,
+			wantDirKept: false,
+		},
+		{
+			// a stored empty value reads back non-nil, so it has to be treated
+			// as no recorded state rather than indexed into
+			name:        "unnamed vector with an empty state value: stale commit log removed",
+			storedState: []byte{},
+			wantDirKept: false,
+		},
+		{
+			name:         "target vector with an empty state value: dir kept",
+			targetVector: "vec1",
+			storedState:  []byte{},
+			wantDirKept:  true,
+		},
 	}
 
 	for _, tt := range tests {
