@@ -32,6 +32,9 @@ def tenant_objects_count(tenant_id: int) -> int:
 
 vector_names = ["first", "second", "third", "fourth"]
 
+# muvera holds a fixed encoded vector per object: repetitions x 2^ksim x dprojections
+muvera_encoded_dimensions = 10 * (1 << 4) * 16
+
 
 def test_usage_adding_named_vector(collection_factory: CollectionFactory):
     vec_config = vectors.self_provided(
@@ -334,7 +337,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera.name == vector_names[1]
     assert len(named_vector_muvera.dimensionalities) == 1
     dimensionality = named_vector_muvera.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera.compression == "standard"
     assert named_vector_muvera.vector_compression_ratio == 1
@@ -345,7 +348,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera_bq.name == vector_names[2]
     assert len(named_vector_muvera_bq.dimensionalities) == 1
     dimensionality = named_vector_muvera_bq.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera_bq.compression == "bq"
     assert named_vector_muvera_bq.vector_compression_ratio == 32
