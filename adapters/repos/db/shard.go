@@ -318,6 +318,7 @@ type Shard struct {
 	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
 	// after Deregister; Deregister settles Done()s for batches still queued, so
 	// Wait() only covers cycles that actually started.
+	// Adds come from apply-lock-serialized enables and the dispatcher; a theoretical 0→1 Add racing a drain Wait's reset (WaitGroup reuse) degrades to a recovered panic, not a wedge — drain observers and the worker pool are panic-safe.
 	asyncRepWg sync.WaitGroup
 
 	// asyncRepDrainObserver (guarded by asyncRepDrainMu) is shared by bounded drain waits so retries against a wedged worker don't accumulate waiter goroutines.

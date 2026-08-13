@@ -1137,8 +1137,8 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.asyncReplicationStatsMux.Unlock()
 	}
 
-	// Re-check post-mux: a shutdown that won the mux ordering owns the snapshot; a drop left nothing behind.
-	if s.shutOrDropped() {
+	// Re-check post-mux: a shutdown that won the mux ordering (or is in flight — its dump must survive) owns the snapshot; a drop left nothing behind. Residual: descheduling between this check and the Remove spans a full performShutdown only in theory; the loss direction is a safe boot rescan.
+	if s.shutOrDropped() || s.shutdownRequested.Load() {
 		return nil
 	}
 
@@ -1176,7 +1176,7 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 			clearStats = true
 		}
 
-		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached
+		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached; scrub (incl. dir fsync) stays under the mux — atomicity vs a racing enable is load-bearing on this rare offload-abort path
 			return err
 		}
 

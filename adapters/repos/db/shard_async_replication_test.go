@@ -2616,6 +2616,23 @@ func TestEnableAsyncReplicationConfigUpdateSurvivesHalt(t *testing.T) {
 	require.True(t, treeAlive, "the running tree must survive a fast-path config update during a halt")
 }
 
+// TestDisableAsyncReplicationSkipsScrubDuringShutdownRequest: a config disable racing a requested shutdown must not delete the snapshot the shutdown is about to publish.
+func TestDisableAsyncReplicationSkipsScrubDuringShutdownRequest(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "DisableScrubShutdownRaceTest")
+
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
+	published := filepath.Join(s.pathHashTree(), "hashtree-00000000000000aa.ht")
+	require.NoError(t, os.WriteFile(published, []byte("snapshot"), 0o600))
+
+	s.shutdownRequested.Store(true)
+	t.Cleanup(func() { s.shutdownRequested.Store(false) })
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	_, statErr := os.Stat(published)
+	require.NoError(t, statErr, "the scrub must stand down while a shutdown is in flight")
+}
+
 // TestDisableAsyncReplicationScrubsWhenAlreadyStopped: disable scrubs even when the tree is already nil (the offload-halt shape).
 func TestDisableAsyncReplicationScrubsWhenAlreadyStopped(t *testing.T) {
 	ctx := context.Background()
