@@ -1871,7 +1871,10 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 			continue
 		}
 		lsmPath := shardPathLSM(idx.path(), shardName)
-		if hasCompletedMigrationTracker(lsmPath, payload.MigrationType, payload.Properties) {
+		// Memos per shard, not per walk: no two shards name the same path, so
+		// nothing carries over between them anyway.
+		if hasCompletedMigrationTracker(lsmPath, payload.MigrationType, payload.Properties,
+			&dirNamesCache{}, &taskPropsCache{}) {
 			return true
 		}
 	}
@@ -1885,16 +1888,26 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 // next restart's FinalizeCompletedMigrations. If the task then ends
 // CANCELLED or FAILED the schema flip is correctly skipped, so the bucket
 // and the schema disagree and only an operator rebuild resolves it.
-func hasCompletedMigrationTracker(lsmPath string, migrationType ReindexMigrationType, properties []string) bool {
+//
+// Every tuple asks about the same .migrations, so dirs memoizes its listing
+// and props the tracker payloads it attributes; nil for either re-reads per
+// tuple. Both belong to one shard, since no two shards name the same path.
+func hasCompletedMigrationTracker(
+	lsmPath string, migrationType ReindexMigrationType, properties []string,
+	dirs *dirNamesCache, props *taskPropsCache,
+) bool {
 	// ChangeAlgorithm keeps a class-level tracker dir, which the
 	// per-property scope deliberately omits.
 	if migrationType == ReindexTypeChangeAlgorithm &&
-		len(completedMigrationGens(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax))) > 0 {
+		len(completedMigrationGens(
+			classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax).
+				cachingDirs(dirs).cachingProps(props))) > 0 {
 		return true
 	}
 	for _, indexType := range semanticMigrationIndexTypes(migrationType) {
 		for _, propName := range properties {
-			if len(completedMigrationGens(migrationDirsOf(lsmPath, nil, propName, indexType))) > 0 {
+			if len(completedMigrationGens(
+				migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props))) > 0 {
 				return true
 			}
 		}

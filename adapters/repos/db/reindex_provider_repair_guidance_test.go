@@ -257,7 +257,7 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 			}
 
 			require.Equal(t, tc.want,
-				hasCompletedMigrationTracker(lsmPath, tc.migrationType, []string{prop}))
+				hasCompletedMigrationTracker(lsmPath, tc.migrationType, []string{prop}, nil, nil))
 		})
 	}
 }
