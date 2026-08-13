@@ -298,7 +298,7 @@ func TestGateRemedyNamesOnlyACancelTheCancelPathAccepts(t *testing.T) {
 						Properties:         []string{"name"},
 						TargetTokenization: "word",
 					}
-					remedy := db.ReindexGateRemedy(status, payload, "name", dropsTheData)
+					remedy := db.ReindexGateRemedy(status, payload, "name", dropsTheData, false)
 					require.NotEmpty(t, remedy)
 
 					logger, _ := logrustest.NewNullLogger()

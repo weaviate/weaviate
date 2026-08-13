@@ -1471,7 +1471,7 @@ func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
 				Collection:    "C",
 				MigrationType: mt,
 				Properties:    []string{"name"},
-			}, "name", false)
+			}, "name", false, false)
 			require.Contains(t, remedy, "re-submit it via PUT /v1/schema/C/indexes/name {")
 			require.NotContains(t, remedy, "via  ")
 		})
@@ -1754,7 +1754,7 @@ func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
 			MigrationType: ReindexTypeEnableRangeable,
 			Properties:    []string{"name"},
 			Tenants:       []string{"t1", "t2"},
-		}, "name", false)
+		}, "name", false, false)
 
 	require.Contains(t, remedy,
 		`PUT /v1/schema/C/indexes/name?tenants=t1,t2 {"rangeable":{"enabled":true}}`)
@@ -1766,4 +1766,68 @@ func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
 		"an unscoped rangeable re-submit would rebuild every tenant")
 	require.NotContains(t, remedy, `name {"rangeable":{"rebuild":true}}`,
 		"an unscoped rangeable re-submit would rebuild every tenant")
+}
+
+// gateRemedyCallRE matches a `PUT <path> <body>` the reindex messages render.
+// Same shape as the rest package's renderedCallRE.
+var gateRemedyCallRE = regexp.MustCompile(`PUT /v1/schema/[^ ]+ (\{"[a-z]+":\{[^{}]*\}\})`)
+
+// TestPropertyIndexDeleteGateRendersNoRepairCall pins the property index DELETE
+// arm: it may name a cancel, and it may not name anything else.
+//
+// Every repair verb validates against the index flag that caller's own DELETE
+// clears, so a rendered repair is accepted while the migration runs and refused
+// once the DELETE succeeds — the state the caller is trying to reach. Cancel
+// does not read that flag, so it stays.
+//
+// The callerDropsTheIndex=false column is the control: it proves the flag is
+// what suppresses the repair, not that these inputs render nothing anyway.
+func TestPropertyIndexDeleteGateRendersNoRepairCall(t *testing.T) {
+	statuses := []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	}
+
+	for _, mt := range allDeclaredReindexMigrationTypes(t) {
+		for _, status := range statuses {
+			t.Run(string(mt)+"/"+string(status), func(t *testing.T) {
+				payload := ReindexTaskPayload{
+					Collection:         "C",
+					MigrationType:      mt,
+					Properties:         []string{"name"},
+					TargetTokenization: "word",
+				}
+
+				dropsIndex := ReindexGateRemedy(status, payload, "name", false, true)
+				require.NotEmpty(t, dropsIndex)
+
+				for _, m := range gateRemedyCallRE.FindAllStringSubmatch(dropsIndex, -1) {
+					require.Contains(t, m[1], `"cancel":true`,
+						"the property index DELETE arm rendered %s, which the API "+
+							"refuses once that DELETE clears the index flag", m[1])
+				}
+
+				// Cancel must survive where the API accepts one.
+				if status.IsCancellable() {
+					require.Contains(t, dropsIndex, `"cancel":true`,
+						"cancel is accepted at %s and must still be named", status)
+				}
+
+				// Control: the same inputs with callerDropsTheIndex=false.
+				keepsIndex := ReindexGateRemedy(status, payload, "name", false, false)
+				var repairs int
+				for _, m := range gateRemedyCallRE.FindAllStringSubmatch(keepsIndex, -1) {
+					if !strings.Contains(m[1], `"cancel":true`) {
+						repairs++
+					}
+				}
+				if repairs > 0 {
+					require.Contains(t, dropsIndex, "No repair call is named here",
+						"this arm renders %d repair call(s) without the flag, so with "+
+							"it the message must say why none is named", repairs)
+				}
+			})
+		}
+	}
 }

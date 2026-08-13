@@ -352,14 +352,17 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			continue
 		}
 		// callerDropsTheData is false: DELETE removes only the named index,
-		// so the remedy's repair suggestion is still meaningful.
+		// not the shards, so the migration's on-disk state survives it.
+		// callerDropsTheIndex is true: that same DELETE clears the index flag
+		// every repair verb validates against, so the remedy must not render
+		// a repair call the caller's own request is about to invalidate.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
 				"reindex reaches a terminal state — %s",
 			task.ID, payload.MigrationType, payload.Collection,
 			propertyName, task.Status,
-			db.ReindexGateRemedy(task.Status, payload, propertyName, false))
+			db.ReindexGateRemedy(task.Status, payload, propertyName, false, true))
 	}
 	return ""
 }

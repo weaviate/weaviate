@@ -329,6 +329,15 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // re-issue their request, since a follow-up repair call would 404. Tenant
 // mutations pass false — the migration's on-disk state survives them.
 //
+// callerDropsTheIndex is true only when the caller's action removes the very
+// index a repair call runs against (today only the property index DELETE,
+// which is the sole command that reaches [ReindexProvider.CheckPropertyUpdate]).
+// Those get prose instead of a rendered call: every repair verb validates
+// against the index flag the DELETE clears, so a command that is accepted
+// while the migration is in flight is refused once the DELETE the operator
+// came to make succeeds. The cancel call is still rendered — cancel does not
+// read that flag.
+//
 // STARTED is the only status a cancel is accepted in: both
 // [distributedtask.Manager.CancelTask] and the REST pre-flight key on
 // [distributedtask.TaskStatus.IsCancellable], a literal `== STARTED`, and
@@ -348,21 +357,38 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // type). Only the wording does. The gate returns an error either way, the
 // accept/reject decision never reads the remedy, and follower apply errors
 // are discarded — so the apply stays deterministic across binaries.
-func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
+func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData, callerDropsTheIndex bool) string {
 	if status.IsCancellable() {
-		return cancellableGateRemedy(p, askedProperty, callerDropsTheData)
+		return cancellableGateRemedy(p, askedProperty, callerDropsTheData, callerDropsTheIndex)
 	}
 	if status.IsCoordinationPhase() {
-		return coordinationPhaseGateRemedy(p, askedProperty, callerDropsTheData)
+		return coordinationPhaseGateRemedy(p, askedProperty, callerDropsTheData, callerDropsTheIndex)
 	}
 	return "this build does not know that status, most likely because a " +
 		"newer node reported it, so it cannot tell you whether cancel " +
 		"still applies; read the task on a node that knows the status"
 }
 
+// noRepairCallForIndexDelete is the tail a property index DELETE gets in place
+// of a rendered repair call.
+//
+// Deliberately prose. Every repair verb validates against the index flag the
+// caller's own DELETE clears, so any call rendered here is accepted while the
+// migration is in flight and refused once the DELETE succeeds — which is the
+// state the caller is trying to reach. Naming a verb that survives the DELETE
+// instead would only prove that verb is accepted, not that it is the right
+// repair, so this says what is true and leaves the choice with the operator.
+func noRepairCallForIndexDelete(p ReindexTaskPayload) string {
+	return "No repair call is named here: the index you are deleting is the " +
+		"one a repair would have to run against, so a call that is accepted " +
+		"now is refused once this DELETE succeeds. Decide whether you still " +
+		"want the index before repairing (GET /v1/schema/" + p.Collection +
+		"/indexes reports this collection's migrations)."
+}
+
 // cancellableGateRemedy is [ReindexGateRemedy] for a STARTED task — the one
 // status where the cancel it names is accepted.
-func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
+func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData, callerDropsTheIndex bool) string {
 	cancelCall := ReindexCancelCall(p, askedProperty)
 	if cancelCall == "" {
 		return "the cancel endpoint is keyed on one collection, property and " +
@@ -383,6 +409,9 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 				"data you are removing, so there is nothing to finish " +
 				"afterwards: cancel it, then re-issue this request."
 		}
+		if callerDropsTheIndex {
+			return partial + noRepairCallForIndexDelete(p)
+		}
 		if p.MigrationType == ReindexTypeEnableRangeable {
 			return partial + "To finish the job later, re-submit it via " +
 				reindexSubmitCall(p, askedProperty, `{"rangeable":{"enabled":true}}`) +
@@ -394,7 +423,10 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 				"two verbs is rejected in the state the other one covers."
 		}
 		// A format-only type flips no schema, so its original submit body
-		// stays accepted post-cancel — the re-submit IS the repair.
+		// stays accepted post-cancel — the re-submit IS the repair. That
+		// holds only because the caller is not dropping the index it runs
+		// against; a caller who is takes the callerDropsTheIndex arm above,
+		// since their own DELETE clears the flag this body validates against.
 		return partial + "To finish the job later, re-submit it via " +
 			ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
@@ -423,7 +455,7 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 // therefore leaves promotion-eligible data behind that the next restart
 // promotes into the bucket↔schema inversion [ReindexProvider.CheckClassMutation]
 // treats as catastrophic (weaviate/weaviate#12575).
-func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData bool) string {
+func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData, callerDropsTheIndex bool) string {
 	wait := "wait for it to reach a terminal state (GET /v1/schema/" +
 		p.Collection + "/indexes reports when it clears; GET /v1/tasks names " +
 		"the task itself but needs cluster read access). From this phase on " +
@@ -455,6 +487,9 @@ func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, cal
 		return inversion + "That inversion goes with the data you are removing, " +
 			"so there is nothing left to repair: re-issue this request once the " +
 			"task is terminal."
+	}
+	if callerDropsTheIndex {
+		return inversion + noRepairCallForIndexDelete(p)
 	}
 	repairCall := ReindexRepairCall(p, askedProperty)
 	if repairCall == "" {
@@ -554,13 +589,20 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
 			continue
 		}
+		// callerDropsTheIndex is a literal true because every command that
+		// reaches this gate is a property index DELETE: the guard fires only
+		// from SchemaManager.UpdateProperty, whose sole producer with the
+		// migration bypass off is Handler.DeleteClassPropertyIndex. Wire a
+		// property mutation here that does NOT drop an index and this must
+		// become a parameter, or the remedy will withhold a repair call the
+		// caller could have used.
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
 				"reindex reaches a terminal state — %s",
 			task.ID, existP.MigrationType,
 			existP.Collection, propertyName, task.Status,
-			ReindexGateRemedy(task.Status, existP, propertyName, false))
+			ReindexGateRemedy(task.Status, existP, propertyName, false, true))
 	}
 	return nil
 }
@@ -619,7 +661,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"replica, and the interrupted migration's partial state is "+
 				"removed with the class, so nothing is left to repair — %s",
 			task.ID, existP.MigrationType, existP.Collection, task.Status,
-			ReindexGateRemedy(task.Status, existP, "", true))
+			ReindexGateRemedy(task.Status, existP, "", true, false))
 	}
 	return nil
 }
@@ -692,7 +734,7 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 			task.ID, existP.MigrationType, existP.Collection,
 			task.Status, tenants,
 			abortedMigrationConsequence(existP.MigrationType),
-			ReindexGateRemedy(task.Status, existP, "", false))
+			ReindexGateRemedy(task.Status, existP, "", false, false))
 	}
 	return nil
 }
