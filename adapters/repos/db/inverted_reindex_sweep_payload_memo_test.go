@@ -100,7 +100,7 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 	deletionPass := &taskPropsCache{}
 	deletionScope := migrationDirsOf(lsm, nil, "cat", "filterable").cachingProps(deletionPass)
 	for _, f := range sweepMemoFixtures {
-		deletionScope.matches(f.dir)
+		deletionScope.inScope(f.dir)
 	}
 	require.Equal(t, payloadReadingFixtures, preservePass.count(),
 		"preserve pass on its own memo")
@@ -288,7 +288,7 @@ func survivorsOfUncachedSweep(t *testing.T, lsm, propName, idxType string) []str
 
 	var survivors []string
 	for _, f := range sweepMemoFixtures {
-		if !scope.matches(f.dir) {
+		if !scope.inScope(f.dir) {
 			survivors = append(survivors, f.dir)
 			continue
 		}

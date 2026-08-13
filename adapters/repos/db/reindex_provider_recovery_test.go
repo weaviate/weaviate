@@ -123,7 +123,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		},
 		// One tracker serves both properties; the payload says which.
 		// (enable_searchable, because retokenize payloads are rejected unless
-		// they name exactly one property — see [migrationDirScope.matches].)
+		// they name exactly one property — see [migrationDirScope.inScope].)
 		{
 			name: "a two-property task, started only → recovery NEEDED",
 			trackers: map[string][]string{

@@ -175,9 +175,9 @@ func TestSweepPayloadReadCount(t *testing.T) {
 					"unloaded-shard gate must hydrate rather than report a shard with an "+
 						"unreadable payload as clean")
 				_, unreadable := migrationDirsOf(lsm, nil, tc.propName, tc.indexTypes[0]).
-					match(tc.gateFailsOpenOn)
+					inScopeFailingOpen(tc.gateFailsOpenOn)
 				require.True(t, unreadable,
-					"match must keep reporting the unreadable payload the gate fails open on")
+					"inScopeFailingOpen must keep reporting the unreadable payload the gate fails open on")
 			}
 
 			hook.Reset() // drop whatever shard startup logged
@@ -279,7 +279,7 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 						if !decided {
 							continue
 						}
-						fromPayload, unreadable := scope.match(dir)
+						fromPayload, unreadable := scope.inScopeFailingOpen(dir)
 						require.Equal(t, fromPayload, byName,
 							"dir %q prop %q index %q preserve %v payload %s",
 							dir, propName, indexType, preserve, mode)
@@ -315,7 +315,7 @@ func TestMatchByNameOverridesAContradictingPayload(t *testing.T) {
 	require.True(t, decided, "an underscore-free name is decided without the payload")
 	require.True(t, matched)
 
-	fromPayload, unreadable := scope.match(dir)
+	fromPayload, unreadable := scope.inScopeFailingOpen(dir)
 	require.False(t, fromPayload, "the payload alone would disown the dir it is stored in")
 	require.False(t, unreadable)
 }

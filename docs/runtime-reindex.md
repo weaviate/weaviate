@@ -1393,20 +1393,20 @@ catches that gap.
    which is live deferred-finalize state, not stale partial state.
 4. Subsequent re-enable starts from clean state.
 
-## 13. Out of scope (broken; tracked follow-up)
+## 13. Known limitation: schema migration
 
-Schema migration across runtime-reindex state is intentionally left
-broken on this branch and will not be fixed in the v1.38 Preview merge.
-The fixes live on `backup-runtime-reindex-fixes` and will land as a
-follow-up PR. Tracking: weaviate/0-weaviate-issues#215.
+Schema migration across runtime-reindex state does not work, and the
+v1.38 Preview merge does not fix it. The fixes live on
+`backup-runtime-reindex-fixes` and land as a follow-up PR. Tracking:
+weaviate/0-weaviate-issues#215.
 
-The backup half has since landed here: `DB.AnyLiveReindexForShard`
+Backups are covered: `DB.AnyLiveReindexForShard`
 ([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
 refuses a backup on any shard DTM reports a live reindex on, and
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)
-covers it. Operators should still not rely on schema migration
-interacting cleanly with an in-flight or recently-completed reindex
-while running v1.38 Preview.
+covers it. Operators should not rely on schema migration interacting
+cleanly with an in-flight or recently-completed reindex while running
+v1.38 Preview.
 
 ## 14. Files of interest
 

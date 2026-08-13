@@ -228,7 +228,7 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
 // cleans up everything). Walk every entry, asking
-// [migrationDirScope.matches] about each, so we don't miss old
+// [migrationDirScope.inScope] about each, so we don't miss old
 // generations.
 //
 // Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
@@ -266,7 +266,7 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 			continue
 		}
 		name := entry.Name()
-		if !scope.matches(name) {
+		if !scope.inScope(name) {
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {

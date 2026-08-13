@@ -26,26 +26,30 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// NewStalePartialReindexSweep returns a sweep that wipes on-disk
-// runtime-reindex state for one (collection, property, indexType) tuple
-// across every local shard — the CANCEL→retry counterpart to the DELETE
-// path in updatePropertyBuckets.
+// StalePartialReindexSweep wipes on-disk runtime-reindex state for one
+// (collection, property, indexType) tuple across every local shard.
+//
+// One value belongs to one goroutine and must not outlive the request or
+// timeout window that built it: it caches directory listings across calls
+// (see [dirNamesCache]).
+//
+// Caller MUST ensure no local reindex goroutine is touching the tuple —
+// otherwise the cleanup races the worker's writes to the __reindex/__ingest
+// buckets. The cancel handler enforces this via
+// [ReindexProvider.WaitForLocalTaskDrain].
+type StalePartialReindexSweep func(ctx context.Context, collection, propName, indexType string) error
+
+// NewStalePartialReindexSweep returns the CANCEL→retry counterpart to the
+// DELETE path in updatePropertyBuckets.
 //
 // Call sites: the cancel handler (after DTM cancel and the local reindex
 // goroutine exits), submit-time pre-cleanup (covers a crash between those
 // two steps), and background cleanup once a task reaches FAILED/CANCELLED
 // ([autoCleanupAfterTerminal]).
 //
-// Caller MUST ensure no local reindex goroutine is touching this tuple —
-// otherwise the cleanup races the worker's writes to the __reindex/__ingest
-// buckets. The cancel handler enforces this via
-// [ReindexProvider.WaitForLocalTaskDrain].
-//
 // A missing local collection reports [ErrCleanupCollectionDropped], not a
-// clean sweep. The returned sweep caches directory listings across calls, so
-// it is not safe for concurrent use and must be short-lived (see
-// [dirNamesCache]).
-func (db *DB) NewStalePartialReindexSweep() func(ctx context.Context, collection, propName, indexType string) error {
+// clean sweep.
+func (db *DB) NewStalePartialReindexSweep() StalePartialReindexSweep {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
 		return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, dirs)
@@ -131,11 +135,8 @@ func classifyIncompleteWalk(err error) error {
 // behind is harmless.
 //
 // An unloaded shard is only hydrated if it actually has on-disk state to
-// remove. dirs caches directory listings across the run; nil reads the
-// filesystem every time.
-//
-// A walk that starts leaves exactly one summary line naming its outcome, at
-// the level that outcome warrants (see [sweepSummary]).
+// remove. A walk that starts leaves exactly one summary line naming its
+// outcome, at the level that outcome warrants (see [sweepSummary]).
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -215,20 +216,27 @@ func (i *Index) cleanStalePartialReindexState(
 // sweep: what the sweep left behind, at the level that outcome warrants. Only a
 // shard the sweep reached and could not sweep is known to still hold state,
 // which is why it alone is an error.
+//
+// Only a clean sweep gets the clean line: an outcome added later has nothing
+// here to say it was checked, so it falls through to the unknown one.
 func sweepSummary(outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
+	// Shared with the default arm: an outcome this build cannot name confirms
+	// no more than an unfinished walk does.
+	const unchecked = "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there"
 	switch outcome {
+	case CleanupSweepClean:
+		return "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
+			logrus.InfoLevel
 	case CleanupSweepFailed:
 		return "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
 			logrus.ErrorLevel
-	case CleanupSweepUnknown:
-		return "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there",
-			logrus.WarnLevel
 	case CleanupSweepDropped:
 		return "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
 			logrus.InfoLevel
+	case CleanupSweepUnknown:
+		return unchecked, logrus.WarnLevel
 	default:
-		return "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
-			logrus.InfoLevel
+		return unchecked, logrus.WarnLevel
 	}
 }
 
@@ -299,7 +307,7 @@ func hasStalePartialReindexState(
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
-		matched, unreadablePayload := scope.match(name)
+		matched, unreadablePayload := scope.inScopeFailingOpen(name)
 		if unreadablePayload {
 			// A payload this gate can't read could name this property; only
 			// hydrating and re-reading can tell, so this is not "clean".

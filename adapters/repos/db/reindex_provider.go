@@ -1701,7 +1701,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	defer cancel()
 	// One sweep for the whole loop, so each shard's directories are read once.
 	sweep := p.db.NewStalePartialReindexSweep()
-	worst := sweepTerminalTuples(payload.Properties, indexTypes,
+	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
 		},
@@ -1709,7 +1709,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 			logger.WithField("property", propName).WithField("index_type", indexType).
 				Warnf("auto-cleanup after terminal status failed: %v", failure)
 		})
-	msg, warn := terminalCleanupOutcome(worst)
+	msg, warn := terminalCleanupLogLine(worst)
 	if warn {
 		logger.Warn(msg)
 	} else {
@@ -1717,10 +1717,11 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 }
 
-// sweepTerminalTuples runs sweep once per (property, index type), reporting
-// each failure to onFailure, and returns the worst outcome of the run — a
-// later clean tuple must not mask an earlier one that left state behind.
-func sweepTerminalTuples(
+// sweepEachPropertyIndexType runs sweep once per (property, index type),
+// reporting each failure to onFailure, and returns the worst outcome of the
+// run — a later clean sweep must not mask an earlier one that left state
+// behind.
+func sweepEachPropertyIndexType(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
 	onFailure func(propName, indexType string, failure error),
@@ -1787,22 +1788,31 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 	}
 }
 
-// terminalCleanupOutcome is what the operator is told after the post-terminal
+// terminalCleanupLogLine is what the operator is told after the post-terminal
 // sweep. A dropped collection warrants no warning — the delete removes the
 // whole collection directory (barring an in-flight backup's keepFiles,
 // reclaimed on release or restart). Failed and unknown both warrant one:
 // neither confirms the state is gone, and nothing removes it before the next
 // submit or the next-restart audit.
-func terminalCleanupOutcome(outcome CleanupSweepOutcome) (msg string, warn bool) {
+//
+// Only a clean sweep gets the clean line. An outcome added later arrives here
+// through [sweepEachPropertyIndexType]'s max fold, and reporting it as clean
+// would tell the operator state is gone that nobody checked.
+func terminalCleanupLogLine(outcome CleanupSweepOutcome) (msg string, warn bool) {
+	// Shared with the default arm: an outcome this build cannot name confirms
+	// no more than an unfinished walk does.
+	const unchecked = "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there"
 	switch outcome {
+	case CleanupSweepClean:
+		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
 	case CleanupSweepFailed:
 		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
-	case CleanupSweepUnknown:
-		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
 	case CleanupSweepDropped:
 		return "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files", false
+	case CleanupSweepUnknown:
+		return unchecked, true
 	default:
-		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
+		return unchecked, true
 	}
 }
 
@@ -1968,10 +1978,10 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 }
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
-// terminal-task cleanup goroutine still inside its [sweepTerminalTuples] run
-// over [DB.NewStalePartialReindexSweep]?" probe. Sibling type to
-// [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
-// "is there a LIVE reindex task on this shard?" probe). The backup
+// terminal-task cleanup goroutine still inside its
+// [sweepEachPropertyIndexType] run over [StalePartialReindexSweep]?" probe.
+// Sibling type to [ShardReindexActivityLookup] (which is the cluster-wide
+// DTM-backed "is there a LIVE reindex task on this shard?" probe). The backup
 // gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
@@ -2229,8 +2239,8 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // promoted-and-removed).
 //
 // Generation-less dirs (pre-[genSuffix]) count too, matching what
-// [migrationDirScope.match] treats as this tuple's trackers. An unreadable
-// payload and an unlistable .migrations dir both count as well — either
+// [migrationDirScope.inScopeFailingOpen] treats as this tuple's trackers. An
+// unreadable payload and an unlistable .migrations dir both count as well — either
 // could hide a tracker naming this property, and reporting "done" on
 // unreadable state would deregister the local callbacks while an untidied
 // tracker remains. Like the unloaded-shard gate
@@ -2247,7 +2257,7 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 		if !entry.IsDir() {
 			continue
 		}
-		matched, unreadablePayload := scope.match(entry.Name())
+		matched, unreadablePayload := scope.inScopeFailingOpen(entry.Name())
 		if !matched && !unreadablePayload {
 			continue
 		}

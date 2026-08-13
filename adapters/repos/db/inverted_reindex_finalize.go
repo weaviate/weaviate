@@ -163,7 +163,7 @@ func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen
 		if !ok {
 			continue
 		}
-		if !scope.matches(name) {
+		if !scope.inScope(name) {
 			continue
 		}
 		dirPath := filepath.Join(migrationsDir, name)

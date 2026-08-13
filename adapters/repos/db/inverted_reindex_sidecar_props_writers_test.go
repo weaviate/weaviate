@@ -221,7 +221,7 @@ func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 		for i := 0; i < b.N; i++ {
 			pass := scope.cachingProps(&taskPropsCache{})
 			for _, name := range names {
-				pass.matches(name)
+				pass.inScope(name)
 			}
 		}
 	})
@@ -262,7 +262,7 @@ func BenchmarkAmbiguousSweep(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				pass := scope.cachingProps(&taskPropsCache{})
 				for _, n := range names {
-					pass.matches(n)
+					pass.inScope(n)
 				}
 			}
 		})

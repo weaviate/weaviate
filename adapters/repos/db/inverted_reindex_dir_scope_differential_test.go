@@ -28,10 +28,8 @@ import (
 // below can be put through both and the answers compared.
 func narrowMatchByName(s migrationDirScope, name string) (matched, decided bool) {
 	base := migrationDirBase(name)
-	for _, classDir := range s.classDirs {
-		if base == classDir {
-			return true, true
-		}
+	if s.classDir != "" && base == s.classDir {
+		return true, true
 	}
 	if !s.hasStrategyPrefix(base) {
 		return false, true
@@ -55,7 +53,7 @@ func narrowMatches(s migrationDirScope, name string) bool {
 	if matched, decided := narrowMatchByName(s, name); decided {
 		return matched
 	}
-	matched, _ := s.match(name)
+	matched, _ := s.inScopeFailingOpen(name)
 	return matched
 }
 
@@ -208,7 +206,7 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 						}
 						for _, d := range dirs {
 							narrow := narrowMatches(scope, d.name)
-							widened := scope.matches(d.name)
+							widened := scope.inScope(d.name)
 							if narrow != widened {
 								diverged = append(diverged, divergence{
 									propName: propName, indexType: indexType,

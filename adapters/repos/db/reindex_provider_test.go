@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -276,7 +277,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 // A dropped collection is not a failed sweep, and a sweep that did not reach
 // every shard is neither. What each one can leave on disk differs, and the
 // wording is the only place that difference reaches the operator.
-func TestTerminalCleanupOutcome(t *testing.T) {
+func TestTerminalCleanupLogLine(t *testing.T) {
 	tests := []struct {
 		name     string
 		outcome  CleanupSweepOutcome
@@ -307,13 +308,74 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 			wantWarn: true,
 			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
 		},
+		{
+			// A new outcome nobody wired in here arrives through the max
+			// fold, and reads as a clean sweep unless the unknown line is
+			// what falls out by default.
+			name:     "an outcome this build does not name",
+			outcome:  CleanupSweepFailed + 1,
+			wantWarn: true,
+			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg, warn := terminalCleanupOutcome(tc.outcome)
+			msg, warn := terminalCleanupLogLine(tc.outcome)
 			require.Equal(t, tc.wantMsg, msg)
 			require.Equal(t, tc.wantWarn, warn)
+		})
+	}
+}
+
+// The same rule for the per-sweep line: an outcome this build does not name
+// must not be summarized as the clean sweep it might not be.
+func TestSweepSummary(t *testing.T) {
+	const unknownMsg = "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there"
+
+	tests := []struct {
+		name      string
+		outcome   CleanupSweepOutcome
+		wantLevel logrus.Level
+		wantMsg   string
+	}{
+		{
+			name:      "every shard swept",
+			outcome:   CleanupSweepClean,
+			wantLevel: logrus.InfoLevel,
+			wantMsg:   "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
+		},
+		{
+			name:      "the collection is not on this node",
+			outcome:   CleanupSweepDropped,
+			wantLevel: logrus.InfoLevel,
+			wantMsg:   "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
+		},
+		{
+			name:      "shards were never reached",
+			outcome:   CleanupSweepUnknown,
+			wantLevel: logrus.WarnLevel,
+			wantMsg:   unknownMsg,
+		},
+		{
+			name:      "a shard could not be swept",
+			outcome:   CleanupSweepFailed,
+			wantLevel: logrus.ErrorLevel,
+			wantMsg:   "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
+		},
+		{
+			name:      "an outcome this build does not name",
+			outcome:   CleanupSweepFailed + 1,
+			wantLevel: logrus.WarnLevel,
+			wantMsg:   unknownMsg,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, level := sweepSummary(tc.outcome)
+			require.Equal(t, tc.wantMsg, msg)
+			require.Equal(t, tc.wantLevel, level)
 		})
 	}
 }
@@ -330,7 +392,7 @@ func TestTerminalSweepOutcomeOrdering(t *testing.T) {
 
 // The fold must keep the worst outcome, not the last one: a clean sweep on
 // the last tuple must not mask a shard an earlier tuple left state on.
-func TestSweepTerminalTuples(t *testing.T) {
+func TestSweepEachPropertyIndexType(t *testing.T) {
 	diskFull := fmt.Errorf("%w: %w", ErrCleanupShardFailed, errors.New("disk is full"))
 	truncated := classifyIncompleteWalk(errIndexShutdown)
 	dropped := classifyIncompleteWalk(errIndexDropped)
@@ -385,7 +447,7 @@ func TestSweepTerminalTuples(t *testing.T) {
 			var seen []string
 			var failures int
 
-			outcome := sweepTerminalTuples(props, indexTypes,
+			outcome := sweepEachPropertyIndexType(props, indexTypes,
 				func(propName, indexType string) error {
 					seen = append(seen, propName+"/"+indexType)
 					err := tc.errs[calls]
