@@ -49,6 +49,73 @@ maximum_allowed_collections_count: 13
 		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
+	t.Run("slice fields accept multiple YAML shapes", func(t *testing.T) {
+		cases := []struct {
+			name            string
+			yaml            string
+			wantVector      []string
+			wantCompression []string
+		}{
+			{
+				name: "empty-string scalar is equivalent to empty list",
+				yaml: `allowed_vector_index_types: ""
+allowed_compression_types: ""`,
+			},
+			{
+				name: "comma-separated scalar splits into elements",
+				yaml: `allowed_vector_index_types: "hfresh,hnsw,dynamic,flat"
+allowed_compression_types: "pq,bq"`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+			{
+				name: "explicit YAML list decodes as-is",
+				yaml: `allowed_vector_index_types: ["hfresh", "hnsw", "dynamic", "flat"]
+allowed_compression_types: ["pq", "bq"]`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg, err := ParseRuntimeConfig([]byte(tc.yaml))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantVector, cfg.AllowedVectorIndexTypes.Get())
+				assert.Equal(t, tc.wantCompression, cfg.AllowedCompressionTypes.Get())
+			})
+		}
+	})
+
+	t.Run("a malformed field is skipped and reported, valid fields still apply", func(t *testing.T) {
+		// empty-string into an int field cannot decode; it must be skipped and
+		// reported, while the other valid keys in the same document are applied.
+		in := []byte(`maximum_allowed_collections_count: ""
+maximum_allowed_objects_count: 42
+autoschema_enabled: true`)
+
+		cfg, fieldErrs, err := ParseRuntimeConfigPartial(in)
+		require.NoError(t, err)
+
+		require.Len(t, fieldErrs, 1)
+		assert.Equal(t, "maximum_allowed_collections_count", fieldErrs[0].Field)
+
+		// bad field left unset (nil pointer → Get() returns zero value)
+		assert.Equal(t, 0, cfg.MaximumAllowedCollectionsCount.Get())
+		// sibling valid fields still applied
+		assert.Equal(t, 42, cfg.MaximumAllowedObjectsCount.Get())
+		assert.Equal(t, true, cfg.AutoschemaEnabled.Get())
+
+		// back-compat wrapper drops field errors and does not fail the load
+		_, werr := ParseRuntimeConfig(in)
+		require.NoError(t, werr)
+	})
+
+	t.Run("malformed document is still a fatal error", func(t *testing.T) {
+		// a top-level scalar (no mapping) can't be decoded field-by-field
+		_, _, err := ParseRuntimeConfigPartial([]byte(`maximum_allowed_collections_count=13`))
+		require.Error(t, err)
+	})
+
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
 		var r WeaviateRuntimeConfig
 
@@ -77,6 +144,102 @@ maximum_allowed_collections_count: 13
 			// check if all the keys lower_snake_case.
 			assertConfigKey(t, k)
 		}
+	})
+}
+
+func TestDisableGraphQLRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	t.Run("parses disable_graphql from the overrides file", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		assert.Equal(t, true, cfg.DisableGraphQL.Get())
+	})
+
+	t.Run("override wins over the env default, then removal reverts (env default false)", func(t *testing.T) {
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(false),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+	})
+
+	t.Run("removal reverts to the env default, not a hardcoded false", func(t *testing.T) {
+		// Seed def=true (the DISABLE_GRAPHQL=true-at-boot operator). This is the case
+		// that discriminates a correct Reset() — which reverts to def — from one that
+		// zeroes the value: pushing a transient disable_graphql=false and then removing
+		// the key must land back on true, not false.
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(true),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: false"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+	})
+
+	t.Run("hook keyed on the DisableGraphQL field fires only on change", func(t *testing.T) {
+		// The lazy GraphQL rebuild relies on this hook firing when the flag flips;
+		// the key must match the struct field name, and a no-op reload must not fire.
+		source := &WeaviateRuntimeConfig{DisableGraphQL: runtime.NewDynamicValue(false)}
+		var calls int
+		hooks := map[string]func() error{"DisableGraphQL": func() error { calls++; return nil }}
+
+		apply := func(yaml string) {
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, hooks))
+		}
+
+		apply("disable_graphql: true")
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: true") // unchanged
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: false")
+		assert.Equal(t, 2, calls)
+	})
+}
+
+func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
+	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
+	// renamed or misspelled yaml tag.
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`backup_max_individual_files: 250`))
+		require.NoError(t, err)
+		assert.Equal(t, 250, cfg.BackupMaxIndividualFiles.Get())
+	})
+
+	t.Run("override applies to the env-registered value and rejects non-positive", func(t *testing.T) {
+		t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", "40")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
+
+		require.NoError(t, conf.Backup.MaxIndividualFiles.SetValue(250))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// The validator is attached to the value, so it guards the runtime path too.
+		require.Error(t, conf.Backup.MaxIndividualFiles.SetValue(0))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// Removing the key from the overrides file restores the env-supplied value.
+		conf.Backup.MaxIndividualFiles.Reset()
+		assert.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
 	})
 }
 
@@ -117,11 +280,44 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
+	})
+
+	t.Run("a malformed field keeps the previously-applied value", func(t *testing.T) {
+		var (
+			colCount   runtime.DynamicValue[int]  // default 0
+			autoSchema runtime.DynamicValue[bool] // default false
+		)
+		reg := &WeaviateRuntimeConfig{
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+		}
+
+		// 1. apply a valid override (13 differs from the default 0)
+		parsed, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: 13`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, 13, colCount.Get())
+
+		// 2. reload where that same field is malformed, alongside a valid sibling
+		parsed, fieldErrs, err := ParseRuntimeConfigPartial([]byte(`maximum_allowed_collections_count: "not-an-int"
+autoschema_enabled: true`))
+		require.NoError(t, err)
+		require.Len(t, fieldErrs, 1)
+		assert.Equal(t, "maximum_allowed_collections_count", fieldErrs[0].Field)
+
+		skipped := map[string]struct{}{fieldErrs[0].Field: {}}
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, skipped, nil))
+
+		// malformed field keeps the previously-applied 13: not reset to the
+		// default 0, and not the bad value
+		assert.Equal(t, 13, colCount.Get())
+		// the valid sibling field still applies
+		assert.Equal(t, true, autoSchema.Get())
 	})
 
 	t.Run("Add and remove workflow", func(t *testing.T) {
@@ -157,7 +353,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Nil(t, parsed.TenantActivityWriteLogLevel)
 		assert.Nil(t, parsed.RevectorizeCheckDisabled)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
 		assert.Equal(t, true, source.AutoschemaEnabled.Get())
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -171,7 +367,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 13, source.MaximumAllowedCollectionsCount.Get()) // changed
 		assert.Equal(t, false, source.AutoschemaEnabled.Get())           // changed
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -184,7 +380,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
 		assert.Equal(t, true, source.AutoschemaEnabled.Get())
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -216,7 +412,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 
-		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed, nil) })
+		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed, nil, nil) })
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -248,7 +444,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 7, colCount.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '7' to '13'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=13 old_value=7`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'false' to 'true'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=true old_value=false`)
 		logs.Reset()
@@ -259,7 +455,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '13' to '10'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=10 old_value=13`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'true' to 'false'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=false old_value=true`)
 		logs.Reset()
@@ -269,7 +465,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '10' to '7'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=7 old_value=10`)
 	})
 
@@ -307,7 +503,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -324,7 +520,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update.
 		assert.Equal(t, false, autoSchema.Get())
@@ -346,22 +542,42 @@ maximum_allowed_collections_count: 13`)
 		buf := []byte(`raft_drain_sleep: 5s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 5*time.Second, raftDrainSleep.Get())
 
 		// update to 10s
 		buf = []byte(`raft_drain_sleep: 10s`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 10*time.Second, raftDrainSleep.Get())
 
 		// remove -> back to default
 		buf = []byte(``)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
+	})
+
+	t.Run("updating grpc_web_enabled (default true)", func(t *testing.T) {
+		// registered default is true (grpc-web on by default); pin that the
+		// snake_case key toggles it off and that removing the override restores
+		// the default rather than sticking at false.
+		reg := &WeaviateRuntimeConfig{
+			GRPCWebEnabled: runtime.NewDynamicValue(true),
+		}
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
+
+		parsed, err := ParseRuntimeConfig([]byte(`grpc_web_enabled: false`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, false, reg.GRPCWebEnabled.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(``))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
 	})
 
 	t.Run("updating raft_timeouts_multiplier", func(t *testing.T) {
@@ -378,21 +594,21 @@ maximum_allowed_collections_count: 13`)
 		buf := []byte(`raft_timeouts_multiplier: 2`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 2, raftTimeoutsMultiplier.Get())
 
 		// update to 3
 		buf = []byte(`raft_timeouts_multiplier: 3`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 3, raftTimeoutsMultiplier.Get())
 
 		// remove -> back to default
 		buf = []byte(``)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 0, raftTimeoutsMultiplier.Get())
 	})
 
@@ -423,25 +639,25 @@ maximum_allowed_collections_count: 13`)
 			// set to 2h (without seconds)
 			parsed, err := ParseRuntimeConfig(buf("0 */2 * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf("* * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
 			// update to 3h (with seconds)
 			parsed, err = ParseRuntimeConfig(buf("0 0 */3 * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 0 */3 * * *", deleteSchedule.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "@every 1h", deleteSchedule.Get())
 		})
 
@@ -456,25 +672,25 @@ maximum_allowed_collections_count: 13`)
 			// set to 20k
 			parsed, err := ParseRuntimeConfig(buf(20_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20_000, batchSize.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-10_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20_000, batchSize.Get())
 
 			// update to 30k
 			parsed, err = ParseRuntimeConfig(buf(30_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 30_000, batchSize.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLBatchSize, batchSize.Get())
 		})
 
@@ -489,25 +705,25 @@ maximum_allowed_collections_count: 13`)
 			// set to 20
 			parsed, err := ParseRuntimeConfig(buf(20))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20, pauseEveryNoBatches.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-10))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20, pauseEveryNoBatches.Get())
 
 			// update to 30
 			parsed, err = ParseRuntimeConfig(buf(30))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 30, pauseEveryNoBatches.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLPauseEveryNoBatches, pauseEveryNoBatches.Get())
 		})
 
@@ -522,25 +738,25 @@ maximum_allowed_collections_count: 13`)
 			// set to 2 mins
 			parsed, err := ParseRuntimeConfig(buf("2m"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf("-1h"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
 
 			// update to 3 hours
 			parsed, err = ParseRuntimeConfig(buf("3h"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 3*time.Hour, pauseDuration.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLPauseDuration, pauseDuration.Get())
 		})
 
@@ -555,25 +771,25 @@ maximum_allowed_collections_count: 13`)
 			// set to 2
 			parsed, err := ParseRuntimeConfig(buf(2))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2., concurrencyFactor.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-1))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2., concurrencyFactor.Get())
 
 			// update to 3
 			parsed, err = ParseRuntimeConfig(buf(3))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 3., concurrencyFactor.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
 	})
@@ -620,9 +836,79 @@ func TestExportDefaultPathRuntimeOverride(t *testing.T) {
 
 			parsed, err := ParseRuntimeConfig([]byte(tt.runtimeConfig))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 
 			assert.Equal(t, tt.expectedPath, defaultPath.Get())
+		})
+	}
+}
+
+// TestUpdateRuntimeConfig_DefaultVectorIndex mirrors
+// TestEnvironmentDefaultVectorIndex but exercises the runtime YAML override
+// path. The validator attached at construction time must apply the same
+// allow-list at SetValue time — accepted values replace the prior one,
+// rejected values (including the "none" sentinel reserved for dropped
+// indexes) leave it in place. UpdateRuntimeConfig logs SetValue errors
+// rather than surfacing them, so the only observable signal is the
+// post-update Get() value.
+func TestUpdateRuntimeConfig_DefaultVectorIndex(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	const initial = "hnsw"
+	tests := []struct {
+		name        string
+		value       string // YAML scalar; "" means the field is omitted entirely
+		expected    string // Get() after UpdateRuntimeConfig
+		expectedErr string // substring of the direct SetValue error; "" means no error expected
+	}{
+		{"not set keeps initial", "", initial, ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"invalid value rejected", "invalid", initial, `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"none sentinel rejected", "none", initial, `invalid DEFAULT_VECTOR_INDEX "none"`},
+		{"noop sentinel rejected", "noop", initial, `invalid DEFAULT_VECTOR_INDEX "noop"`},
+		// Strict validator: runtime YAML must already be lowercase + trimmed.
+		// SetValue stores verbatim and downstream parsers compare case-
+		// sensitively, so mixed case is rejected rather than silently stored.
+		{"uppercase HNSW rejected", "HNSW", initial, `invalid DEFAULT_VECTOR_INDEX "HNSW"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Mirror FromEnv: validator attached at construction time so
+			// runtime YAML overrides go through the same gate as env vars.
+			defaultVectorIndexWithValidation, err := runtime.NewDynamicValueWithValidation(
+				initial, NewDefaultVectorIndexValidator())
+			require.NoError(t, err)
+
+			// Direct SetValue: explicit assertion on the validator error
+			// (UpdateRuntimeConfig swallows SetValue errors into a log line,
+			// so a direct call is the only way to observe the error itself).
+			if tt.value != "" {
+				err := defaultVectorIndexWithValidation.SetValue(tt.value)
+				if tt.expectedErr != "" {
+					require.Error(t, err, "validator must reject %q", tt.value)
+					assert.Contains(t, err.Error(), tt.expectedErr)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+
+			source := &WeaviateRuntimeConfig{
+				DefaultVectorIndexType: defaultVectorIndexWithValidation,
+			}
+			yaml := ""
+			if tt.value != "" {
+				yaml = "default_vector_index: " + tt.value
+			}
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+
+			assert.Equal(t, tt.expected, source.DefaultVectorIndexType.Get())
 		})
 	}
 }

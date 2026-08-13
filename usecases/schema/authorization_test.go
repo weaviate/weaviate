@@ -87,16 +87,21 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
+			// Symmetric with PUT/rebuild/cancel: dropping a per-property index
+			// rewrites indexed data, so it demands Collections (data+metadata),
+			// not metadata-only.
 			methodName:        "DeleteClassPropertyIndex",
 			additionalArgs:    []any{"classname", "someprop", "someindex"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.Collections("classname"),
 		},
 		{
+			// Collections (data+metadata), matching DeleteClassPropertyIndex:
+			// dropping a vector index irreversibly rewrites every object.
 			methodName:        "DeleteClassVectorIndex",
 			additionalArgs:    []any{"classname", "somevector"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.Collections("classname"),
 		},
 		{
 			methodName:        "UpdateShardStatus",
@@ -179,7 +184,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
-				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				"JoinNode", "RemoveNode", "Nodes", "NodeName", "NamespacesEnabled", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
 				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant", "GetAliases":
 				// don't require auth on methods which are exported because other

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -46,6 +47,13 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	// Reject writes carrying a dropped vector before persisting anything.
+	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+		if err := rejectDroppedObjectVectors(s.index.getClass(), object); err != nil {
+			return err
+		}
+	}
+
 	status, err := s.putObjectLSM(ctx, object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -188,6 +196,23 @@ func (s *Shard) updateMultiVectorIndex(ctx context.Context, vector [][]float32,
 	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
+// localIsNewer reports whether the shard's stored state for idBytes, the live
+// object, or a tombstone's deletion time so an older entry can't resurrect a
+// deleted object, is strictly newer than incoming. Callers hold the docIdLock.
+func (s *Shard) localIsNewer(bucket *lsmkv.Bucket, idBytes []byte, prevObj *storobj.Object, incoming int64) (bool, error) {
+	if prevObj != nil {
+		return prevObj.LastUpdateTimeUnix() > incoming, nil
+	}
+	deleted, deletionTime, err := bucket.WasDeleted(idBytes)
+	if err != nil {
+		return false, err
+	}
+	if !deleted || deletionTime.IsZero() {
+		return false, nil
+	}
+	return deletionTime.UnixMilli() > incoming, nil
+}
+
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
 	objBytes, err := bucket.Get(idBytes)
 	if err != nil {
@@ -271,6 +296,17 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return err
 		}
 
+		if fromChangeLogReplay(ctx) {
+			lIsNewer, err := s.localIsNewer(bucket, idBytes, prevObj, obj.LastUpdateTimeUnix())
+			if err != nil {
+				return err
+			}
+			if lIsNewer {
+				status = objectInsertStatus{skipUpsert: true}
+				return nil
+			}
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return err
@@ -282,8 +318,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
-		if err != nil {
+		var objBinary []byte
+		if obj.PrecomputedDiskBinary != nil {
+			// raw path: persist source bytes verbatim, only patching our docID.
+			objBinary = obj.PrecomputedDiskBinary
+			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
+				return errors.Wrapf(err, "patch docID for object %s", obj.ID())
+			}
+		} else if objBinary, err = obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk); err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
 
@@ -338,42 +380,29 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	var objectDigest [16 + 8]byte
 	copy(objectDigest[:], uuidBytes)
 
+	// Update the live tree first so a checkpoint-fold error can never leave a torn leaf.
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	}
-
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	return nil
-}
-
-// upsertHashTreeLeaf updates the hashtree leaf for a single object identified
-// by its raw UUID bytes and update timestamp. Unlike upsertObjectHashTree it
-// accepts the two primitive values directly, avoiding the storobj.Object
-// allocation that would otherwise be needed on the initHashtree hot path.
-// Acquires asyncReplicationRWMux.RLock internally so the height read by
-// hashtreeLeafFor is consistent with the live hashtree pointer.
-func (s *Shard) upsertHashTreeLeaf(uuidBytes []byte, updateTime int64) error {
-	if len(uuidBytes) != 16 {
-		return fmt.Errorf("invalid object uuid")
-	}
-	if updateTime < 1 {
-		return fmt.Errorf("invalid object last update time")
-	}
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-	if s.hashtree == nil {
+	// Fold ≤cutoff changes into the checkpoint so it converges; >cutoff writes leave it frozen.
+	cpht := s.asyncCheckpointHashtree
+	if cpht == nil || object.Object.LastUpdateTimeUnix > s.asyncCheckpointCutoff {
 		return nil
 	}
-	leaf := s.hashtreeLeafFor(uuidBytes)
-	var objectDigest [16 + 8]byte
-	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
-	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
-	return nil
+	// Erase old only if the clone holds it (old ≤ cutoff); erasing a >cutoff version injects a phantom.
+	if status.oldUpdateTime > 0 && status.oldUpdateTime <= s.asyncCheckpointCutoff {
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	}
+	return cpht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
@@ -442,6 +471,14 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// any update of geo property needs new docID for updating geo index.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
+		// Content unchanged, but if the update time advanced, take the docID-preserved
+		// path instead of skipping: it refreshes the object row, hashtree leaf and
+		// inverted index (incl. timestamp postings) while leaving the unchanged vector
+		// index alone. Skipping would persist a stale update time and break
+		// timestamp-based reconciliation (async replication, read-repair).
+		if skip && nextObj.LastUpdateTimeUnix() > prevObj.LastUpdateTimeUnix() {
+			preserve, skip = true, false
+		}
 		out.docIDPreserved = preserve
 		out.skipUpsert = skip
 		return out, nil
@@ -503,6 +540,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// One snapshot for the whole write, so the double-write pass below sees
+	// the same {add,del,scope} as the inline suppression above.
+	st := s.loadPropValueIndexState()
+
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
 	var prevNestedProps []inverted.NestedProperty
@@ -556,7 +597,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
@@ -576,7 +617,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
@@ -594,6 +635,12 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
+	}
+
+	// Mirrors this write into the ingest bucket under the TARGET analysis for
+	// scope props suppressed above; no-op absent a migration.
+	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
+		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil

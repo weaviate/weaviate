@@ -61,9 +61,7 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 
 	const className = "PostRestartPlateau"
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, textProps("text"))
 	// Re-resolve at defer time: rollingRestart replaces each container,
 	// which testcontainers reallocates ports for. Capturing a URL at
 	// defer-registration time would bake in a pre-restart port and the
@@ -97,8 +95,8 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	// call: testcontainers reallocates ports across the
 	// stop+start in restartCluster, so pre-restart URIs are stale.
 	restURI := compose.GetWeaviateNode(1).URI()
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	t.Logf("submitted post-restart task: %s", taskID)
 
 	// Track the longest stretch of time the task spent at a
@@ -313,7 +311,7 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	const totalObjects = 10_000
 
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:              "price",
 			DataType:          []string{"int"},
@@ -369,18 +367,18 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"enabled":true}}`)
+			tp = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "price", "rangeFilters",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"enabled":true}}`)
+			tc = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "category", "filterable",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"field"}}`)
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+				`{"tokenization":"field"}`)
 		}()
 		wg.Wait()
 		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
@@ -442,6 +440,8 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	// OnAfterLsmInitAsync iterator path that #212 Issues C/D/G hit.
 	t.Log("submitting post-restart re-apply migrations (3 concurrent)")
 	uri1 = restURIOf(compose, 1)
+	// FINISHED is leader-read; gate on local schema before the next PUT.
+	reindexhelpers.AwaitTokenizationVisible(t, uri1, className, "path", "field")
 	{
 		var (
 			tp, tc, tk string
@@ -450,21 +450,19 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"rebuild":true}}`)
+			tp = reindexhelpers.RebuildIndex(t, uri1, className, "price", "rangeFilters")
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"rebuild":true}}`)
+			tc = reindexhelpers.RebuildIndex(t, uri1, className, "category", "filterable")
 		}()
 		go func() {
 			defer wg.Done()
 			// Flip tokenization back to word (the pre-Phase-2 value).
 			// This matches the migration shape from the original
 			// production-scale repro.
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"word"}}`)
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+				`{"tokenization":"word"}`)
 		}()
 		wg.Wait()
 		t.Logf("submitted post-restart re-apply migrations: price=%s category=%s path=%s",

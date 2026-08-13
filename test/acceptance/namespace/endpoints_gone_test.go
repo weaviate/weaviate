@@ -29,6 +29,7 @@ import (
 // TestNamespaces_EndpointsGone locks in that endpoints incompatible with
 // namespace-enabled clusters return HTTP 410 Gone with an ErrorResponse body.
 func TestNamespaces_EndpointsGone(t *testing.T) {
+	t.Parallel()
 	t.Run("GET /v1/graphql returns 410", func(t *testing.T) {
 		_, err := helper.Client(t).Graphql.GraphqlPost(
 			gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{Query: "{ Get { Foo { _additional { id } } } }"}),

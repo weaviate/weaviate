@@ -12,12 +12,52 @@
 package modstgs3
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 )
+
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// Validation runs before the SkipAccessCheck short-circuit: a valid bucket
+	// skips the probe, an empty one still errors.
+	tests := []struct {
+		name    string
+		bucket  string
+		wantErr string
+	}{
+		{name: "valid bucket skips probe", bucket: "my-bucket"},
+		{name: "empty bucket still validates", bucket: "", wantErr: "bucket must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &s3Client{config: &clientConfig{Bucket: tt.bucket, SkipAccessCheck: true}}
+			err := c.Initialize(context.Background(), "backup-1", "", "")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
 
 // setEnvVars sets environment variables and returns a cleanup function
 // that restores the original values.
@@ -75,7 +115,7 @@ func TestResolveCredentials_EnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -94,7 +134,7 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -102,6 +142,71 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-key", val.AccessKeyID)
 	assert.Equal(t, "legacy-secret", val.SecretAccessKey)
+}
+
+func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
+	const identityToken = "fake-irsa-jwt"
+	expected := awscommon.AuthBrokerCredentialValue{
+		AccessKeyID:     "AKIATESTBROKER",
+		SecretAccessKey: "broker-secret",
+		SessionToken:    "broker-session",
+		Expiration:      time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+	}
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		assert.Equal(t, fmt.Sprintf("Bearer %s", identityToken), r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(expected)
+	}))
+	defer srv.Close()
+
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte(identityToken), 0o600))
+
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": srv.URL,
+		"AUTH_PROXY_IDENTITY_FILE":      tokenPath,
+		"AWS_ACCESS_KEY_ID":             "static-key",
+		"AWS_SECRET_ACCESS_KEY":         "static-secret",
+	})
+
+	config := &clientConfig{
+		RoleARN: "arn:aws:iam::123456789012:role/TestRole",
+	}
+
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+	assert.Equal(t, 0, hits, "broker should not be contacted before first credential use")
+
+	val, err := creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, expected.AccessKeyID, val.AccessKeyID)
+	assert.Equal(t, expected.SecretAccessKey, val.SecretAccessKey)
+	assert.Equal(t, expected.SessionToken, val.SessionToken)
+	assert.Equal(t, expected.Expiration, val.Expiration)
+	assert.Equal(t, credentials.SignatureV4, val.SignerType)
+	assert.Equal(t, 1, hits, "broker should be hit exactly once on first use")
+
+	// Subsequent calls reuse the cached value until Expiry marks it stale.
+	_, err = creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, hits, "broker should not be re-hit while credentials are still fresh")
+}
+
+func TestResolveCredentials_AuthBrokerMissingIdentityFileFailsFast(t *testing.T) {
+	// The broker is configured but the IRSA identity file is not — module init
+	// should fail immediately rather than defer the error to the first backup.
+	clearEnvVars(t, []string{"AUTH_PROXY_IDENTITY_FILE"})
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": "https://broker.example.com/aws",
+	})
+
+	_, err := resolveCredentials(&clientConfig{}, "us-east-1", logrus.New())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AUTH_PROXY_IDENTITY_FILE")
 }
 
 func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
@@ -118,7 +223,7 @@ func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	_, err := resolveCredentials(config, "us-east-1")
+	_, err := resolveCredentials(config, "us-east-1", logrus.New())
 	// Should fail because no base credentials are available for the STS call
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "IAM credentials for STS AssumeRole")
@@ -138,7 +243,7 @@ func TestResolveCredentials_RoleARNWithEnvCreds(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 }
@@ -539,5 +644,87 @@ func TestHomeDir(t *testing.T) {
 			got := c.HomeDir(tt.backupID, tt.overrideBucket, tt.overridePath)
 			assert.Equal(t, tt.expected, got)
 		})
+	}
+}
+
+const (
+	listPage1 = `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>bucket</Name><Prefix>backups/</Prefix><Delimiter>/</Delimiter><CommonPrefixes><Prefix>backups/b0/</Prefix></CommonPrefixes><IsTruncated>true</IsTruncated><NextContinuationToken>t1</NextContinuationToken></ListBucketResult>`
+	listPage2 = `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>bucket</Name><Prefix>backups/</Prefix><Delimiter>/</Delimiter><CommonPrefixes><Prefix>backups/b1/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>backups/b2/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>backups/b3/</Prefix></CommonPrefixes><IsTruncated>false</IsTruncated></ListBucketResult>`
+)
+
+// cancelOnSecondPageTransport fakes S3 ListObjectsV2: serving page 2 cancels
+// the listing context, so minio yields the page-2 items with ctx already
+// cancelled — the interleaving that leaks without the channel drain.
+type cancelOnSecondPageTransport struct {
+	mu     sync.Mutex
+	page   int
+	cancel context.CancelFunc
+}
+
+func (f *cancelOnSecondPageTransport) reset(cancel context.CancelFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.page = 0
+	f.cancel = cancel
+}
+
+func (f *cancelOnSecondPageTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.page++
+	body := listPage1
+	if f.page > 1 {
+		body = listPage2
+		f.cancel()
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/xml"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    r,
+	}, nil
+}
+
+// AllBackups must drain the ListObjects channel on early return, otherwise
+// minio's producer goroutine blocks forever on an unguarded error-send.
+// The leaking interleaving is racy (~25% per run), hence the repetition.
+func TestAllBackupsNoGoroutineLeakOnCancel(t *testing.T) {
+	transport := &cancelOnSecondPageTransport{}
+	minioClient, err := minio.New("s3.example.invalid", &minio.Options{
+		Creds:     credentials.NewStaticV4("key", "secret", ""),
+		Region:    "us-east-1",
+		Transport: transport,
+	})
+	require.NoError(t, err)
+
+	s3c := &s3Client{
+		client: minioClient,
+		config: &clientConfig{Bucket: "bucket", BackupPath: "backups"},
+		logger: logrus.New(),
+	}
+
+	for i := 0; i < 50; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		transport.reset(cancel)
+		_, err := s3c.AllBackups(ctx)
+		require.Error(t, err)
+		cancel()
+	}
+
+	require.Eventually(t, func() bool {
+		return !strings.Contains(fullStackDump(), "minio-go")
+	}, 3*time.Second, 50*time.Millisecond, "minio ListObjects producer goroutine leaked")
+}
+
+// fullStackDump returns the full goroutine dump. runtime.Stack truncates
+// silently when the buffer is too small (n == len(buf)), so grow until it fits.
+func fullStackDump() string {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return string(buf[:n])
+		}
+		buf = make([]byte, 2*len(buf))
 	}
 }

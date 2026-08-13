@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -111,18 +113,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := make([]*apikey.User, 0, len(allDbUsers))
+	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
 	for _, dbUser := range allDbUsers {
 		allUsers = append(allUsers, dbUser)
 	}
 
-	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
+	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
 		ctx,
 		principal,
 		allUsers,
 		authorization.READ,
-		func(user *apikey.User) string {
+		func(user apikey.UserView) string {
 			return authorization.Users(user.Id)[0]
 		},
 	)
@@ -133,12 +135,13 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	}
 
 	exposeNamespace := principal != nil && principal.IsGlobalOperator
+	showAPIKeyFirstLetters := isRootUser || h.callerHasAdminRole(principal)
 
 	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
-		if isRootUser {
+		if showAPIKeyFirstLetters {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
 		var lastUsedTime time.Time
@@ -151,7 +154,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		}
 		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
 		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
-		response, err = h.addToListAllResponse(response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
+		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -166,7 +169,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
+			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
@@ -176,22 +179,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
 
-	roleNames := make([]string, 0, len(roles))
-	for role := range roles {
-		roleNames = append(roleNames, role)
-	}
-
+	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
 	resp := &models.DBUserInfo{
 		Active:             &active,
 		UserID:             &displayID,
 		DbUserType:         &userType,
-		Roles:              roleNames,
+		Roles:              h.visibleRoleNames(ctx, principal, roles, own),
 		APIKeyFirstLetters: apiKeyFirstLetter,
 		Namespace:          namespace,
 	}
@@ -204,6 +203,22 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, int
 
 	response = append(response, resp)
 	return response, nil
+}
+
+// visibleRoleNames returns the role names to expose for a db user, matching the
+// authz role-read paths: a role naming a foreign namespace, an operator-reserved
+// global role, and a role whose permissions the caller does not hold are dropped,
+// and the caller's own namespace prefix is stripped from the rest. A subject
+// reading its own roles keeps them all.
+func (h *dynUserHandler) visibleRoleNames(ctx context.Context, principal *models.Principal, roles map[string][]authorization.Policy, own bool) []string {
+	names := make([]string, 0, len(roles))
+	for roleName, policies := range roles {
+		if !own && !rolevisibility.RoleVisibleToCaller(ctx, h.authorizer, h.namespacesEnabled, principal, roleName, policies) {
+			continue
+		}
+		names = append(names, namespacing.StripOwnNamespace(principal, roleName))
+	}
+	return names
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
@@ -235,7 +250,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
-		if isRootUser {
+		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
 		if principal != nil && principal.IsGlobalOperator {
@@ -243,7 +258,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		}
 
 		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
-			usersWithTime := h.getLastUsed([]*apikey.User{user})
+			usersWithTime := h.getLastUsed([]apikey.UserView{user})
 			response.LastUsedAt = strfmt.DateTime(usersWithTime[internalKey])
 		}
 		userType = string(models.UserTypeOutputDbUser)
@@ -259,16 +274,13 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	roles := make([]string, 0, len(existingRoles))
-	for roleName := range existingRoles {
-		roles = append(roles, roleName)
-	}
-	response.Roles = roles
+	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time {
+func (h *dynUserHandler) getLastUsed(users []apikey.UserView) map[string]time.Time {
 	usersWithTime := make(map[string]time.Time, len(users))
 	for _, user := range users {
 		usersWithTime[user.Id] = user.LastUsedAt
@@ -412,15 +424,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
-	// Skip the RAFT round-trip when the namespace is locally known missing or
-	// deleting; the apply path re-validates authoritatively.
-	if ns != "" {
-		if !h.namespaces.Exists(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", ns)))
-		}
-		if !h.namespaces.IsActive(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", ns)))
-		}
+	// Skip the RAFT round-trip when the namespace is locally known not to be
+	// active; the apply path re-validates authoritatively.
+	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
+		return renderCreateUserNamespaceErr(principal, err)
 	}
 
 	if h.staticUserExists(internalKey) {
@@ -448,12 +455,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
-		// Apply-time race: surface a deleted/deleting namespace as 422 so
-		// clients can retry against current state.
-		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
-		}
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
+		// The namespace changed state between the pre-check above and the
+		// apply. Deleting renders 422 like the pre-check does — the namespace
+		// never returns to active, so the create is not retryable.
+		return renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
@@ -713,6 +718,35 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	return h.rbacConfig.IsRootUser(principal.Username, principal.Groups)
 }
 
+// callerHasAdminRole reports whether the principal holds the built-in admin
+// role, directly or through one of its groups. Only consulted on
+// namespace-enabled clusters. A role lookup that errors is treated as non-admin
+// so the api-key hint stays hidden.
+func (h *dynUserHandler) callerHasAdminRole(principal *models.Principal) bool {
+	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
+		return false
+	}
+	authType := authentication.AuthType(principal.UserType)
+	if h.subjectHasAdminRole(principal.Username, authType, false) {
+		return true
+	}
+	for _, group := range principal.Groups {
+		if h.subjectHasAdminRole(group, authType, true) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) subjectHasAdminRole(subject string, authType authentication.AuthType, isGroup bool) bool {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject, authType, isGroup)
+	if err != nil {
+		return false
+	}
+	_, ok := roles[authorization.Admin]
+	return ok
+}
+
 // validateRoleName validates that this string is a valid role name (format wise)
 func validateUserName(name string) error {
 	if len(name) > apikey.UserNameMaxLength {
@@ -722,4 +756,31 @@ func validateUserName(name string) error {
 		return fmt.Errorf("'%s' is not a valid user name", name)
 	}
 	return nil
+}
+
+// namespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500.
+func namespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
+// renderCreateUserNamespaceErr renders err for a caller that must not learn
+// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
+// is a genuine internal failure and keeps its detail.
+func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err)
+	if !lifecycle {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	public := errors.New(msg)
+	if namespaceErrRendersUnprocessable(err) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+	}
+	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 }

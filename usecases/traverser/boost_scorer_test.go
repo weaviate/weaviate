@@ -1217,6 +1217,66 @@ func TestApplyBoostScoring_OffsetBeyondResults(t *testing.T) {
 	assert.Nil(t, got, "offset beyond result count should return nil")
 }
 
+// Reproduces https://github.com/weaviate/weaviate/issues/11592: a missing
+// numeric property must not be treated as raw 0, which would outrank objects
+// whose actual values are negative.
+func TestApplyBoostScoring_PropertyValueMissingPropertyWithNegativeValues(t *testing.T) {
+	results := []search.Result{
+		makeResult("11111111-1111-1111-1111-111111111111", 0.5, map[string]any{"rating": float64(-1.0)}),
+		makeResult("22222222-2222-2222-2222-222222222222", 0.5, map[string]any{"rating": float64(-2.0)}),
+		makeResult("33333333-3333-3333-3333-333333333333", 0.5, map[string]any{"title": "missing rating"}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{propertyValueCondition("rating", filters.PropertyValueModifierNone)},
+		Weight:     1.0,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	require.Len(t, got, 3)
+	assert.Equal(t, strfmt.UUID("11111111-1111-1111-1111-111111111111"), got[0].ID,
+		"object with highest present rating (-1.0) must rank first")
+}
+
+// log1p clamps negatives to 0, collapsing all present values to the same raw
+// score (range 0). Present results must still rank above the missing one.
+func TestApplyBoostScoring_PropertyValueModifierNegativeAndMissing(t *testing.T) {
+	for _, modifier := range []filters.PropertyValueModifierType{
+		filters.PropertyValueModifierLog1p, filters.PropertyValueModifierSqrt,
+	} {
+		t.Run(string(modifier), func(t *testing.T) {
+			results := []search.Result{
+				makeResult("aaaaaaaa-0000-0000-0000-000000000001", 0.5, map[string]any{"rating": float64(-1.0)}),
+				makeResult("aaaaaaaa-0000-0000-0000-000000000002", 0.5, map[string]any{"rating": float64(-2.0)}),
+				makeResult("aaaaaaaa-0000-0000-0000-000000000003", 0.5, map[string]any{"title": "missing rating"}),
+			}
+			boost := &filters.Boost{
+				Conditions: []filters.BoostCondition{propertyValueCondition("rating", modifier)},
+				Weight:     1.0,
+			}
+			got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+			require.Len(t, got, 3)
+			assert.Equal(t, strfmt.UUID("aaaaaaaa-0000-0000-0000-000000000003"), got[2].ID,
+				"missing property must rank last")
+		})
+	}
+}
+
+func TestApplyBoostScoring_PropertyValueAllMissing(t *testing.T) {
+	results := []search.Result{
+		makeResult("low-primary", 0.2, map[string]any{"title": "x"}),
+		makeResult("high-primary", 0.9, map[string]any{"title": "y"}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{propertyValueCondition("rating", filters.PropertyValueModifierNone)},
+		Weight:     0.5,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	require.Len(t, got, 2)
+	// No result has the property: the condition is neutral and the primary
+	// score decides the order.
+	assert.Equal(t, strfmt.UUID("high-primary"), got[0].ID)
+	assert.Equal(t, strfmt.UUID("low-primary"), got[1].ID)
+}
+
 func cloneResults(results []search.Result) []search.Result {
 	out := make([]search.Result, len(results))
 	copy(out, results)

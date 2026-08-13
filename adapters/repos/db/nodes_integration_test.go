@@ -60,8 +60,9 @@ func TestNodesAPI_Journey(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
@@ -235,8 +236,7 @@ func TestLazyLoadedShards(t *testing.T) {
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantNamePopulated).
 		Return(types.WriteReplicaSet{
-			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
-			AdditionalReplicas: nil,
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 		}, nil).Maybe()
 	mockRouter.EXPECT().GetReadReplicasLocation(className, tenantNamePopulated, tenantNamePopulated).
 		Return(types.ReadReplicaSet{
@@ -263,9 +263,11 @@ func TestLazyLoadedShards(t *testing.T) {
 
 	// make sure that getting the node status does not trigger loading of lazy shards
 	status := &[]*models.NodeShardStatus{}
-	index.getShardsNodeStatus(ctx, status, "")
+	_, _, err = index.getShardsNodeStatus(ctx, status, "")
+	require.NoError(t, err)
 	status2 := &[]*models.NodeShardStatus{}
-	index.getShardsNodeStatus(ctx, status2, "")
+	_, _, err = index.getShardsNodeStatus(ctx, status2, "")
+	require.NoError(t, err)
 	require.Equal(t, status, status2)
 	require.Len(t, *status, 1)
 	require.False(t, (*status)[0].Loaded)

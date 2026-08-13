@@ -34,17 +34,19 @@ type CombinedReader struct {
 	logger         logrus.FieldLogger
 	readers        []InnerReader
 	releaseReaders func()
-	concurrency    int
+	// segmentConcurrency caps how many inner readers run at once; the
+	// bitmap-merge budget is a separate per-query axis carried in ctx.
+	segmentConcurrency int
 }
 
-func NewCombinedReader(readers []InnerReader, releaseReaders func(), concurrency int,
+func NewCombinedReader(readers []InnerReader, releaseReaders func(), segmentConcurrency int,
 	logger logrus.FieldLogger,
 ) *CombinedReader {
 	return &CombinedReader{
-		logger:         logger,
-		readers:        readers,
-		releaseReaders: releaseReaders,
-		concurrency:    concurrency,
+		logger:             logger,
+		readers:            readers,
+		releaseReaders:     releaseReaders,
+		segmentConcurrency: segmentConcurrency,
 	}
 }
 
@@ -85,6 +87,10 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		return layer.Additions, release, nil
 	}
 
+	// outerBudget bounds bitmap-merge parallelism; segmentConcurrency (below)
+	// bounds reader fan-out instead.
+	outerBudget := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
 	lock := new(sync.Mutex)
 	addReadTime := func(d time.Duration) {
 		lock.Lock()
@@ -101,9 +107,17 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// innerCtx splits outerBudget across the readers running at once; skipped
+	// when the kill switch is set so readers fall back to the fixed constant.
+	innerCtx := ctx
+	if !concurrency.BudgetCapDisabled() {
+		conc := min(count, r.segmentConcurrency+1)
+		innerCtx = concurrency.CtxWithBudget(ctx, max(1, outerBudget/conc))
+	}
+
 	errors.GoWrapper(func() {
-		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, ctx)
-		eg.SetLimit(r.concurrency)
+		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, innerCtx)
+		eg.SetLimit(r.segmentConcurrency)
 
 		for i := 1; i < count; i++ {
 			i := i
@@ -118,7 +132,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	}, r.logger)
 
 	t := time.Now()
-	layer, release, err := r.readers[0].Read(ctx, value, operator)
+	layer, release, err := r.readers[0].Read(innerCtx, value, operator)
 	addReadTime(time.Since(t))
 
 	ec := errorcompounder.New()
@@ -129,9 +143,11 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		ec.Add(response.err)
 
 		if ec.Len() == 0 {
+			// full budget rather than the inner share: remaining readers are
+			// draining while this merge runs, so a mild overshoot is acceptable
 			t := time.Now()
-			layer.Additions.AndNotConc(response.layer.Deletions, concurrency.SROAR_MERGE)
-			layer.Additions.OrConc(response.layer.Additions, concurrency.SROAR_MERGE)
+			layer.Additions.AndNotConc(response.layer.Deletions, outerBudget)
+			layer.Additions.OrConc(response.layer.Additions, outerBudget)
 			mergingSum += time.Since(t)
 		}
 		response.release()

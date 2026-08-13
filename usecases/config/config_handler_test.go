@@ -383,7 +383,7 @@ func TestConfigValidation_OIDCNamespaceClaims(t *testing.T) {
 				},
 				// RBAC is required whenever NS is on; enable in lockstep.
 				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.namespacesEnabled}},
-				DisableGraphQL: true,
+				DisableGraphQL: runtime.NewDynamicValue(true),
 				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
 			}
 			err := c.Validate()
@@ -447,7 +447,7 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 			c := &Config{
 				Authentication: Authentication{APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}}},
 				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.rbacEnabled}},
-				DisableGraphQL: tc.disableGraphQL,
+				DisableGraphQL: runtime.NewDynamicValue(tc.disableGraphQL),
 				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
 			}
 			err := c.Validate()

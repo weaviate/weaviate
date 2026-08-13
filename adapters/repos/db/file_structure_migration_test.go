@@ -326,7 +326,7 @@ func (sg *fakeMigrationSchemaGetter) TenantsShards(_ context.Context, class stri
 	return nil, nil
 }
 
-func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	return nil, nil
 }
 

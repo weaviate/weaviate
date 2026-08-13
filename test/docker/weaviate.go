@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -41,6 +42,7 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
+	hostGateway bool,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -89,6 +91,7 @@ func startWeaviate(ctx context.Context,
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
 		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
+		"DEBUG_ENDPOINTS_ENABLED":           "true",
 	}
 	// Forward replication gRPC flag from host env if set (for CI matrix testing)
 	if v := os.Getenv("REPLICATION_GRPC_ENABLED"); v != "" {
@@ -178,6 +181,14 @@ func startWeaviate(ctx context.Context,
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
 				IPv4Address: ip,
 			}
+		}
+	}
+	if hostGateway {
+		// Map host.docker.internal to the host gateway so container-side clients
+		// can reach a server on the test host. A plain extra-host entry, so it
+		// survives container Stop/Start (unlike testcontainers HostAccessPorts).
+		req.HostConfigModifier = func(hc *container.HostConfig) {
+			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 		}
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

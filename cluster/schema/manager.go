@@ -17,7 +17,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
+	"sort"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -26,8 +27,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var (
@@ -37,7 +39,8 @@ var (
 )
 
 type replicationFSM interface {
-	HasOngoingReplication(collection string, shard string, replica string) bool
+	HasActiveReplicationForShard(collection, shard string) bool
+	HasActiveReplicationForCollection(collection string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
 	SetUnCancellable(id uint64) error
@@ -68,12 +71,21 @@ type MutationGuard interface {
 	// conflict — callers must filter via
 	// [tenantsTransitioningAwayFromActive] before invoking.
 	CheckTenantMutation(className string, tenants []string) error
+
+	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
+	// entries: only the completing cleanup task's in-flight (SWAPPING)
+	// finalize vouches, and only when it covers every shard in shards —
+	// the collection's shard set from the FSM state being applied (the
+	// coverage baseline; FINISHED records never vouch). Returns non-nil to
+	// reject.
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
 // depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
+	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 }
 
 type SchemaManager struct {
@@ -84,6 +96,14 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
+	// nil = unenforced); read pre-commit, never in the FSM apply path.
+	tenantLimit func() int
+	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	tenantLimitErrTemplate func() string
+	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
+	// emitted.
+	shouldLogSlowApply func() bool
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -138,6 +158,24 @@ func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
 		}
 	}
 	return affected
+}
+
+// SetTenantLimit installs the tenant-cap resolvers used by PreApplyFilter
+// (negative = unlimited; nil = unenforced). Call once during FSM bootstrap.
+func (s *SchemaManager) SetTenantLimit(limit func() int, errTemplate func() string) {
+	s.tenantLimit = limit
+	s.tenantLimitErrTemplate = errTemplate
+}
+
+// SetShouldLogSlowApply installs the gate for slow RAFT apply diagnostics.
+func (s *SchemaManager) SetShouldLogSlowApply(fn func() bool) {
+	s.shouldLogSlowApply = fn
+}
+
+// TenantLimitEnforced reports whether a tenant cap is in effect; callers skip
+// the AddTenants serialization when it is not.
+func (s *SchemaManager) TenantLimitEnforced() bool {
+	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -204,12 +242,22 @@ func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
-	classInfo := s.schema.ClassInfo(req.Class)
-
-	// Discard restoring a class if it already exists
-	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
-		s.log.WithField("class", req.Class).Info("class already restored")
-		return fmt.Errorf("class name %s already exists", req.Class)
+	// Discard restoring a class if it, or a similar name, already exists.
+	// ClassEqual mirrors the ADD_CLASS branch below: index directories are
+	// lowercased on disk, so a variable case restore would land its data in
+	// the existing class's directory even though the exact name check passes.
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS {
+		if other, isAlias := s.schema.ClassEqual(req.Class); other != "" {
+			item := "class"
+			if isAlias {
+				item = "alias"
+			}
+			s.log.WithField("class", req.Class).Infof("restore discarded: %s %q already exists", item, other)
+			if other == req.Class {
+				return fmt.Errorf("%s name %s already exists", item, req.Class)
+			}
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
@@ -224,6 +272,31 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
 			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
+	}
+
+	// Per-collection tenant cap, enforced pre-commit. store.Execute serializes
+	// AddTenants per class so this count read can't race the apply increment.
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT && s.tenantLimit != nil {
+		if maxTenants := s.tenantLimit(); maxTenants >= 0 {
+			atr := &command.AddTenantsRequest{}
+			if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+			incoming := make([]string, 0, len(atr.Tenants))
+			for _, t := range atr.Tenants {
+				if t != nil {
+					incoming = append(incoming, t.Name)
+				}
+			}
+			if current, additions, ok := s.schema.tenantCapUsage(req.Class, incoming); ok &&
+				current+additions > maxTenants {
+				tmpl := ""
+				if s.tenantLimitErrTemplate != nil {
+					tmpl = s.tenantLimitErrTemplate()
+				}
+				return usagelimits.NewLimitExceededError(tmpl, usagelimits.LimitTenants, int64(maxTenants))
+			}
 		}
 	}
 
@@ -363,6 +436,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
 
+		// A structural vector change can't be reconciled by an in-flight movement's snapshot+CCL.
+		if s.replicationFSM != nil && s.replicationFSM.HasActiveReplicationForCollection(meta.Class.Class) {
+			if reason := dangerousVectorConfigChange(&meta.Class, u); reason != "" {
+				return fmt.Errorf("%w: %w: %s on collection %q; retry after it completes",
+					ErrBadRequest, ErrReplicaMovementInProgress, reason, meta.Class.Class)
+			}
+		}
+
 		// Capture previous and updated replication factors
 		var initialRF int64
 		if meta.Class.ReplicationConfig != nil {
@@ -384,6 +465,75 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 						updatedRF,
 						meta.Class.Class,
 					)
+				}
+			}
+		}
+
+		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
+		// sharding state is the coverage baseline: a shard neither in the vouching
+		// task's units nor its inherited cleaned-shard set has not been cleaned,
+		// and removing the marker would strand its data.
+		if s.mutationGuard != nil {
+			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
+				shards := make([]string, 0, len(meta.Sharding.Physical))
+				for name := range meta.Sharding.Physical {
+					shards = append(shards, name)
+				}
+				sort.Strings(shards)
+				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
+					return fmt.Errorf("%w: %w", ErrBadRequest, err)
+				}
+			}
+		}
+
+		// A NEWLY introduced drop marker purges the previous drop's task records
+		// for the same (collection, target) in this same apply — atomically and
+		// RAFT-deterministically. A re-created then re-dropped name therefore
+		// starts with a clean record slate: stale records must not exist next to
+		// a marker they don't belong to, or coverage inheritance and removal
+		// vouching could misattribute them to the new drop. An introduction next
+		// to a still-ACTIVE previous task (SWAPPING for a moment after its
+		// finalize) is refused instead — deterministic and, normally, promptly
+		// retryable; but a node that dies before delivering its post-completion
+		// ack holds SWAPPING indefinitely, and then only DeleteClass clears the
+		// refusal (finalize waits for every node, CancelTask accepts only
+		// STARTED, the TTL pruner skips active tasks).
+		//
+		// LAST reject path — nothing between here and the meta assignments may
+		// fail the apply: purging is a mutation, and this closure edits the live
+		// metaClass with no rollback, so a later reject would strand a purge
+		// from an update that never applied. (Moving the purge below the
+		// assignments is no safer: the refusal above must not fire after the
+		// meta was already mutated.)
+		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+			if s.distributedTaskManager == nil {
+				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
+				// with no task manager wired leaves the previous drop's
+				// records un-purged — visible, not silent.
+				s.log.WithField("class", meta.Class.Class).
+					Warnf("drop-vector marker introduced for %v with no distributed task manager wired; previous task records not purged", introduced)
+			} else {
+				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargetVectors(meta.Class.Class, introduced)
+				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargetVectors) {
+					// Operator signal: normally a ms-scale SWAPPING window, but a
+					// node that died holding its post-completion ack wedges the
+					// task (and this refusal) until DeleteClass — repeated lines
+					// here for the same class are that wedge, not retry noise.
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						Warnf("drop-vector marker introduction refused; previous drop still completing: %v", err)
+					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry: %w",
+						ErrBadRequest, introduced, meta.Class.Class, err)
+				} else if err != nil {
+					// Not the retryable refusal — surface as internal, not 4xx.
+					return fmt.Errorf("purge previous drop's task records for %v on %q: %w",
+						introduced, meta.Class.Class, err)
+				}
+				if len(removed) > 0 {
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						WithField("removed_count", len(removed)).
+						Info("purged previous drop's task records on new drop-vector marker")
 				}
 			}
 		}
@@ -420,6 +570,57 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// DropVectorMarkerPurgeMinVersion is the minimum cluster version at which a
+// drop-vector marker introduction is safe to accept: the record purge/refusal
+// in the UpdateClass apply is new behavior, so a mixed-version cluster
+// diverges on the same log entry (a pre-purge node neither purges nor
+// refuses). The AddTask apply has the same exposure: the enqueue-time
+// CleanedShards/DropEpochID claim re-check (CheckConflict) can reject on new
+// binaries while old binaries accept blindly. Both are fenced only
+// PROPOSAL-side — an in-apply version check would read node-local state and
+// be non-deterministic itself — so the rolling-upgrade min-version gate
+// (#11901, at the top of EnqueueDropVectorIndex) MUST consume this constant
+// to fence marker introductions until every node runs at least this version —
+// it exists so the release dependency is code-visible, not PR-description
+// prose. NOTE for the gate implementation: builds carry pre-release suffixes
+// ("1.39.0-rc.0"), and under semver rc.0 < 1.39.0 — the comparison must be
+// pre-release-tolerant or a homogeneous rc cluster would wrongly refuse.
+const DropVectorMarkerPurgeMinVersion = "1.39.0"
+
+// introducedDroppedVectorConfigs returns the names of VectorConfig entries that
+// are dropped ("none") in next but were live or absent in prev — i.e. markers
+// this update introduces.
+func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var introduced []string
+	for name, cfg := range next.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if prevCfg, ok := prev.VectorConfig[name]; ok && modelsext.IsVectorIndexDropped(prevCfg) {
+			continue
+		}
+		introduced = append(introduced, name)
+	}
+	sort.Strings(introduced)
+	return introduced
+}
+
+// removedDroppedVectorConfigs returns the names of dropped ("none") VectorConfig
+// entries in prev that are absent from next. Only "none" entries: removing a live
+// entry is already rejected by the parser.
+func removedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var removed []string
+	for name, cfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if _, ok := next.VectorConfig[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	return removed
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
@@ -535,6 +736,18 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		}
 	}
 
+	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
+	// snapshot+CCL can't reconcile. FromInFlightMigration bypasses, as with the reindex guard.
+	if s.replicationFSM != nil && !req.FromInFlightMigration &&
+		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
+		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {
+			if old := findProp(cls, req.Property.Name); old != nil && disablesAnyIndex(old, req.Property) {
+				return fmt.Errorf("%w: %w: property %q index removal blocked on collection %q; retry after it completes",
+					ErrBadRequest, ErrReplicaMovementInProgress, req.Property.Name, cmd.Class)
+			}
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -577,9 +790,11 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -600,9 +815,11 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -720,71 +937,6 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 	)
 }
 
-func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) error {
-	req := command.SyncShardRequest{}
-	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
-		return fmt.Errorf("%w: %w", ErrBadRequest, err)
-	}
-
-	if req.NodeId != s.schema.nodeID {
-		return nil
-	}
-
-	var physical *sharding.Physical
-	var partitioningEnabled bool
-	err := s.NewSchemaReader().Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
-		partitioningEnabled = state.PartitioningEnabled
-		p, ok := state.Physical[req.Shard]
-		if !ok {
-			// no physical, leave var as nil
-			return nil
-		}
-		physical = &p
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("read schema for sync shard: %w", err)
-	}
-
-	return s.apply(
-		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return nil },
-			updateStore: func() error {
-				// shard does not exist in the sharding state
-				if physical == nil {
-					// TODO: can we guarantee that the shard is not in use?
-					// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
-					// For now, to be safe and avoid data loss, we just shut it down
-					s.db.ShutdownShard(cmd.Class, req.Shard)
-					return nil
-				}
-				// shard is present but replica doesn't belong to this node
-				if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
-					s.db.ShutdownShard(cmd.Class, req.Shard)
-					return nil
-				}
-				// collection is ST, shard is present, and replica belongs to node
-				if !partitioningEnabled {
-					s.db.LoadShard(cmd.Class, req.Shard)
-					return nil
-				}
-				// collection is MT, shard is present, and replica belongs to node
-				switch physical.ActivityStatus() {
-				case models.TenantActivityStatusACTIVE:
-					s.db.LoadShard(cmd.Class, req.Shard)
-				case models.TenantActivityStatusINACTIVE:
-					s.db.ShutdownShard(cmd.Class, req.Shard)
-				default:
-					// do nothing
-				}
-				return nil
-			},
-			schemaOnly: schemaOnly,
-		},
-	)
-}
-
 func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := command.ReplicationAddReplicaToShard{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -803,9 +955,11 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -840,14 +994,47 @@ func (op applyOp) validate() error {
 	return nil
 }
 
+const slowApplyThreshold = 10 * time.Second
+
+func humanizeDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return d.Round(time.Millisecond).String()
+	case d < time.Minute:
+		return d.Round(10 * time.Millisecond).String()
+	default:
+		return d.Round(time.Second).String()
+	}
+}
+
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
 		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
+	begin := time.Now()
+	var schemaTook, callbackTook, storeTook time.Duration
+	defer func() {
+		total := time.Since(begin)
+		if s.shouldLogSlowApply == nil || !s.shouldLogSlowApply() || total < slowApplyThreshold || s.log == nil {
+			return
+		}
+		s.log.WithFields(logrus.Fields{
+			"action":        "raft_apply_time",
+			"op":            op.op,
+			"took":          humanizeDuration(total),
+			"schema_took":   humanizeDuration(schemaTook),
+			"callback_took": humanizeDuration(callbackTook),
+			"store_took":    humanizeDuration(storeTook),
+		}).Warnf("raft apply held the apply loop for %s; commands queued behind it are delayed",
+			humanizeDuration(total))
+	}()
+
 	// schema applied 1st to make sure any validation happen before applying it to db
+	schemaBegin := time.Now()
 	schemaErr := op.updateSchema()
+	schemaTook = time.Since(schemaBegin)
 	if schemaErr != nil {
 		var partialErr *PartialUpdateError
 		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
@@ -858,11 +1045,16 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if op.enableSchemaCallback && s.db != nil {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
+		callbackBegin := time.Now()
 		s.db.TriggerSchemaUpdateCallbacks()
+		callbackTook = time.Since(callbackBegin)
 	}
 
 	if !op.schemaOnly {
-		if err := op.updateStore(); err != nil {
+		storeBegin := time.Now()
+		err := op.updateStore()
+		storeTook = time.Since(storeBegin)
+		if err != nil {
 			if schemaErr != nil {
 				// Both the schema update (partial) and the DB update failed.
 				// Return both so the caller is informed of what was skipped

@@ -92,6 +92,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
@@ -176,4 +177,172 @@ func TestMapCursorConsistentView(t *testing.T) {
 		actual[string(k)] = v
 	}
 	require.Equal(t, expected, actual)
+}
+
+// MapCursorKeyOnly must walk every primary key just like MapCursor — it just
+// drops the values from the returned tuple. Regression for a bug where the
+// keyOnly fast-path left state[i].value=nil, the merger saw only empty
+// per-segment results, and every key was skipped (callers like
+// filterableToSearchableMigrator.isEmptyMapBucket then misclassified
+// non-empty buckets as empty).
+func TestMapCursorKeyOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	diskSegments := &SegmentGroup{
+		logger: logger,
+		segments: []Segment{
+			newFakeMapSegment(map[string][]MapPair{
+				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
+			}),
+			newFakeMapSegment(map[string][]MapPair{
+				"key2": {{Key: []byte("dk2"), Value: []byte("dv2")}},
+			}),
+		},
+	}
+
+	active := newTestMemtableMap(map[string][]MapPair{
+		"key3": {{Key: []byte("ak1"), Value: []byte("av1")}},
+	})
+
+	b := Bucket{
+		active:   active,
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	var keys []string
+	for k, v := cur.First(ctx); k != nil; k, v = cur.Next(ctx) {
+		assert.Nil(t, v, "keyOnly cursor must not return values")
+		keys = append(keys, string(k))
+	}
+	require.Equal(t, []string{"key1", "key2", "key3"}, keys)
+}
+
+// Mirrors the filterableToSearchableMigrator.isEmptyMapBucket usage: only the
+// first key is read. If the cursor's keyOnly path is broken, this looks like
+// an empty bucket even though it has data.
+func TestMapCursorKeyOnly_FirstKeyOnNonEmptyBucket(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	b := Bucket{
+		active: newTestMemtableMap(map[string][]MapPair{
+			"only": {{Key: []byte("sk"), Value: []byte("sv")}},
+		}),
+		disk:     &SegmentGroup{logger: logger},
+		strategy: StrategyMapCollection,
+		logger:   logger,
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	k, _ := cur.First(ctx)
+	require.Equal(t, []byte("only"), k)
+}
+
+// A cancelled context must end iteration like exhaustion (nil, nil), not
+// panic. The sorted-map merger returns ctx.Err() and the cursor used to
+// escalate every merger error to a panic ("unexpected error decoding map
+// values: context canceled").
+func TestMapCursor_CancelledContext(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	newBucket := func() *Bucket {
+		return &Bucket{
+			active: newTestMemtableMap(map[string][]MapPair{
+				"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
+				"key2": {{Key: []byte("k2"), Value: []byte("v2")}},
+			}),
+			disk:     &SegmentGroup{logger: logger},
+			strategy: StrategyMapCollection,
+			logger:   logger,
+		}
+	}
+
+	t.Run("First with already-cancelled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		cur, err := newBucket().MapCursor()
+		require.NoError(t, err)
+		defer cur.Close()
+
+		k, v := cur.First(ctx)
+		assert.Nil(t, k)
+		assert.Nil(t, v)
+	})
+
+	t.Run("cancel between Next calls", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		cur, err := newBucket().MapCursor()
+		require.NoError(t, err)
+		defer cur.Close()
+
+		k, _ := cur.First(ctx)
+		require.Equal(t, []byte("key1"), k)
+
+		cancel()
+		k, v := cur.Next(ctx)
+		assert.Nil(t, k)
+		assert.Nil(t, v)
+	})
+}
+
+// A key that is live on disk but tombstoned in the newer active memtable must
+// NOT surface from a keyOnly cursor. This guards the merge semantics from the
+// opposite direction of TestMapCursorKeyOnly: capturing values (needed to walk
+// keys) must not resurface deleted keys. The tombstone lives in the memtable
+// because the fake disk segment can't represent one.
+func TestMapCursorKeyOnly_TombstonedKeyDropped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	diskSegments := &SegmentGroup{
+		logger: logger,
+		segments: []Segment{
+			// disk (older): both keys live
+			newFakeMapSegment(map[string][]MapPair{
+				"gone": {{Key: []byte("d1"), Value: []byte("v1")}},
+				"keep": {{Key: []byte("d2"), Value: []byte("v2")}},
+			}),
+		},
+	}
+
+	b := Bucket{
+		// active memtable (newer) tombstones "gone"'s only entry
+		active: newTestMemtableMap(map[string][]MapPair{
+			"gone": {{Key: []byte("d1"), Tombstone: true}},
+		}),
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+		logger:   nullLogger(),
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	var keys []string
+	for k, v := cur.First(ctx); k != nil; k, v = cur.Next(ctx) {
+		assert.Nil(t, v, "keyOnly cursor must not return values")
+		keys = append(keys, string(k))
+	}
+	require.Equal(t, []string{"keep"}, keys, "a fully tombstoned key must not appear")
 }

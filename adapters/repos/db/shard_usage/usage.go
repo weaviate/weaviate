@@ -15,7 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 func shardPathLSM(indexPath, shardName string) string {
@@ -98,15 +101,24 @@ func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
 	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
 }
 
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
-	bucketPath := shardPathDimensionsLSM(path, tenantName)
+// unloadedDimensionsBucketLocks serializes access to the same unloaded dimensions bucket.
+// Concurrent usage reports (overlapping periodic collections, /debug/usage, both usage modules
+// enabled) and the node-wide metrics observer may otherwise open the same bucket at once,
+// which lsmkv's GlobalBucketRegistry rejects with "bucket already registered".
+var unloadedDimensionsBucketLocks = entsync.NewKeyLockerContext()
+
+// openUnloadedDimensionsBucket opens the dimensions bucket of an unloaded shard without
+// loading the shard into memory. The bucket is opened with a sequential-access hint, as the
+// dimension calculations scan it with cursors.
+// Callers must hold the unloadedDimensionsBucketLocks lock for bucketPath until the returned
+// bucket is shut down.
+func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger, path, bucketPath string) (*lsmkv.Bucket, error) {
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
-		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+		return nil, fmt.Errorf("determine dimensions bucket strategy: %w", err)
 	}
 
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+	return lsmkv.NewBucketCreator().NewBucket(ctx,
 		bucketPath,
 		path,
 		logger,
@@ -114,13 +126,58 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		lsmkv.WithStrategy(strategy),
+		lsmkv.WithSequentialAccess(true),
 	)
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
 	defer bucket.Shutdown(ctx)
 
 	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+}
+
+// CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
+// vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
+// once and shared by all target vector calculations, instead of once per target vector.
+func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
+	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
+) (map[string]types.Dimensionality, error) {
+	if len(targetVectors) == 0 {
+		return nil, nil
+	}
+
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
+	if err != nil {
+		return nil, err
+	}
+	defer bucket.Shutdown(ctx)
+
+	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
+	for _, targetVector := range targetVectors {
+		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+		if err != nil {
+			return nil, err
+		}
+		dimensionalities[targetVector] = dimensionality
+	}
+	return dimensionalities, nil
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk
@@ -137,15 +194,30 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int6
 		if !strings.HasPrefix(directory, "vector") {
 			continue
 		}
-		fullPath := filepath.Join(lsmPath, directory)
-
-		files, _, err := diskio.GetFileWithSizes(fullPath)
+		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
 			return 0, err
 		}
-		for _, size := range files {
-			totalSize += size
-		}
+		totalSize += int64(size)
+	}
+	return totalSize, nil
+}
+
+// bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted
+// after the directory listing was taken counts as zero, so dropping one property or vector
+// bucket does not zero out the whole shard's usage.
+func bucketSize(bucketPath string) (uint64, error) {
+	files, _, err := diskio.GetFileWithSizes(bucketPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	totalSize := uint64(0)
+	for _, size := range files {
+		totalSize += uint64(size)
 	}
 	return totalSize, nil
 }
@@ -201,7 +273,13 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 	totalSize := uint64(0)
 
 	// get the storage of all lsm properties that are not objects or vector
-	includedPrefixes := []string{helpers.DimensionsBucketLSM, helpers.BucketFromPropNameLSM("")}
+	includedPrefixes := []string{
+		helpers.DimensionsBucketLSM,
+		helpers.BucketFromPropNameLSM(""),
+		// nested buckets use "property." not "property_", so the prefix above misses them
+		helpers.BucketNestedFromPropNameLSM(""),
+		helpers.BucketNestedMetaFromPropNameLSM(""),
+	}
 
 	// check all folders and add their sizes
 	for _, directory := range directories {
@@ -212,14 +290,11 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 			continue
 		}
 
-		fullPath := filepath.Join(lsmPath, directory)
-		files, _, err := diskio.GetFileWithSizes(fullPath)
+		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
 			return 0, err
 		}
-		for _, size := range files {
-			totalSize += uint64(size)
-		}
+		totalSize += size
 	}
 	return totalSize, nil
 }
@@ -318,15 +393,23 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek(ctx, []byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next(ctx) {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
 			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = len(v)
+			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
 			}
 		}
 	default:
@@ -340,9 +423,12 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek([]byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next() {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			if !strings.HasPrefix(string(k), targetVector) {
 				break
+			}
+			// a longer name sharing this prefix can sort before the target's own keys
+			if len(k) != expectedKeyLen {
+				continue
 			}
 
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
@@ -350,8 +436,16 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 				dimensionality.Dimensions = int(dimLength)
 				dimensionality.Count = v.GetCardinality()
 			}
+			// remaining keys cannot change a complete result, and an empty name
+			// matches every key so the prefix break above never fires
+			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+				break
+			}
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return dimensionality, err
+	}
 	return dimensionality, nil
 }

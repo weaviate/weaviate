@@ -158,8 +158,8 @@ func TestRestartDuringSwap(t *testing.T) {
 	}
 
 	// Step 3: submit the change-tokenization reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "description",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "description", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Step 4: poll /v1/tasks until FINISHED. Keep a tight 20ms tick: this

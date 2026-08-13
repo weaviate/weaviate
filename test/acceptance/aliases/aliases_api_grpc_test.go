@@ -13,7 +13,6 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,23 +21,14 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func Test_AliasesAPI_gRPC(t *testing.T) {
+func testAliasesAPIgRPC(t *testing.T, grpcURI string) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
 
 	gRPCClient := func(t *testing.T, addr string) (pb.WeaviateClient, *grpc.ClientConn) {
 		conn, err := helper.CreateGrpcConnectionClient(addr)
@@ -49,13 +39,21 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		return grpcClient, conn
 	}
 
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	grpcClient, _ := gRPCClient(t, grpcURI)
 
-	helper.SetupClient(compose.GetWeaviate().URI())
-	grpcClient, _ := gRPCClient(t, compose.GetWeaviate().GrpcURI())
-	require.NotNil(t, gRPCClient)
+	booksAliasName := "GrpcBooksAlias"
 
-	booksAliasName := "BooksAlias"
+	// Shared container: leave no class/alias behind so the other suites'
+	// instance-wide alias counts stay correct. Delete only aliases that exist so
+	// a failure before the alias is created can't mask the original error.
+	defer func() {
+		resp := helper.GetAliases(t, nil)
+		require.NotNil(t, resp)
+		for _, alias := range resp.Aliases {
+			helper.DeleteAlias(t, alias.Alias)
+		}
+		helper.DeleteClass(t, books.DefaultClassName)
+	}()
 
 	t.Run("create schema", func(t *testing.T) {
 		booksClass := books.ClassModel2VecVectorizer()

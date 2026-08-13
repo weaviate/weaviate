@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -52,7 +53,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	creds, err := resolveCredentials(config, region)
+	creds, err := resolveCredentials(config, region, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve credentials")
 	}
@@ -68,7 +69,16 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	return &s3Client{client, config, logger, dataPath, region}, nil
 }
 
-func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+func resolveCredentials(config *clientConfig, region string, logger logrus.FieldLogger) (*credentials.Credentials, error) {
+	if endpoint := os.Getenv("BACKUP_S3_AUTH_PROXY_ENDPOINT"); endpoint != "" {
+		broker, err := awscommon.NewAuthBrokerCredentials(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("configure auth broker: %w", err)
+		}
+		logger.Info("backup-s3: using auth broker for AWS credentials")
+		return credentials.New(broker), nil
+	}
+
 	// When a Role ARN is configured, use STS AssumeRole to obtain
 	// temporary credentials. This supports cross-account access and
 	// the ExternalId parameter for confused-deputy prevention.
@@ -238,7 +248,8 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	if prefix != "" && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
-	objectsInfo := s.client.ListObjects(ctx,
+	objectsInfo := s.client.ListObjects(
+		ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
 			Recursive: false,
@@ -248,18 +259,29 @@ func (s *s3Client) AllBackups(ctx context.Context,
 
 	// Construct the exact backup_config.json key for each backup ID prefix.
 	var keys []string
+	var listErr error
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			listErr = err
+			break
 		}
 		if info.Err != nil {
-			return nil, fmt.Errorf("list objects: %w", info.Err)
+			listErr = fmt.Errorf("list objects: %w", info.Err)
+			break
 		}
 		// Non-recursive listing returns common prefixes (directories) as keys ending with "/".
 		// For each backup ID directory, the config file is at <prefix>backup_config.json.
 		if len(info.Key) > 0 && info.Key[len(info.Key)-1] == '/' {
 			keys = append(keys, info.Key+ubak.GlobalBackupFile)
 		}
+	}
+	if listErr != nil {
+		// Drain the channel as required by the ListObjects godoc ("caller
+		// must drain the channel entirely"); otherwise minio's producer
+		// goroutine blocks forever on an unguarded error-send.
+		for range objectsInfo {
+		}
+		return nil, listErr
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
@@ -345,7 +367,8 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath))
+			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath),
+		)
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -356,21 +379,26 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	client, err := s.getClient(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get client")
-	}
-
 	key := "access-check"
-
-	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check s3 backup module")
-	}
 
 	bucket, objectName, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 	if err != nil {
 		return err
 	}
+
+	if s.config.SkipAccessCheck {
+		return nil
+	}
+
+	client, err := s.getClient(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get client")
+	}
+
+	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
+		return errors.Wrap(err, "failed to access-check s3 backup module")
+	}
+
 	opt := minio.RemoveObjectOptions{}
 	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")

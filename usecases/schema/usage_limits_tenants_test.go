@@ -88,3 +88,79 @@ func TestAddTenants_WithUsageLimit(t *testing.T) {
 func namedTenant(i int) string {
 	return fmt.Sprintf("T_%d", i)
 }
+
+// TestAddTenants_WithUsageLimit_DedupesExistingNames asserts the per-collection
+// tenant cap counts only tenants from the request that are not already in the
+// collection, matching the RAFT-side check in cluster/schema/meta_class.go.
+func TestAddTenants_WithUsageLimit_DedupesExistingNames(t *testing.T) {
+	tests := []struct {
+		name           string
+		cap            int
+		existingNames  []string
+		requestedNames []string
+		expectExceed   bool
+	}{
+		{
+			name:           "at cap, only existing names re-asserted",
+			cap:            3,
+			existingNames:  []string{"T1", "T2", "T3"},
+			requestedNames: []string{"T3"},
+			expectExceed:   false,
+		},
+		{
+			name:           "at cap, existing + one new — new pushes over",
+			cap:            3,
+			existingNames:  []string{"T1", "T2", "T3"},
+			requestedNames: []string{"T3", "T4"},
+			expectExceed:   true,
+		},
+		{
+			name:           "below cap, existing + one new — exact fit",
+			cap:            3,
+			existingNames:  []string{"T1", "T2"},
+			requestedNames: []string{"T2", "T3"},
+			expectExceed:   false,
+		},
+		{
+			name:           "below cap, existing + two new — one over",
+			cap:            3,
+			existingNames:  []string{"T1", "T2"},
+			requestedNames: []string{"T2", "T3", "T4"},
+			expectExceed:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, fakeMgr := newTestHandler(t, &fakeDB{})
+			handler.config.UsageLimits.MaxTenantsPerCollection = runtime.NewDynamicValue(tt.cap)
+
+			existing := make([]*models.Tenant, len(tt.existingNames))
+			for i, name := range tt.existingNames {
+				existing[i] = &models.Tenant{Name: name}
+			}
+			fakeMgr.On("QueryTenants", "MTenabled", mock.Anything).
+				Return(existing, uint64(0), nil).Maybe()
+
+			if !tt.expectExceed {
+				fakeMgr.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+			}
+
+			requested := make([]*models.Tenant, len(tt.requestedNames))
+			for i, name := range tt.requestedNames {
+				requested[i] = &models.Tenant{Name: name}
+			}
+
+			_, err := handler.AddTenants(context.Background(), nil, "MTenabled", requested)
+			if tt.expectExceed {
+				require.Error(t, err)
+				le, ok := usagelimits.AsLimitExceeded(err)
+				require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+				assert.Equal(t, usagelimits.LimitTenants, le.Limit)
+				assert.Equal(t, int64(tt.cap), le.Value)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

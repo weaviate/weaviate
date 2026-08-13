@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -37,6 +36,7 @@ type Params struct {
 	Autocut              int
 	ModuleParams         map[string]interface{}
 	AdditionalProperties additional.Properties
+	SelectionFn          func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 }
 
 // sparseSearchFunc is the signature of a closure which performs sparse search.
@@ -68,7 +68,7 @@ type modulesProvider interface {
 }
 
 type targetVectorParamHelper interface {
-	GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error)
+	GetTargetVectorOrDefault(getClass func(string) *models.Class, className string, targetVector []string) ([]string, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -180,6 +180,17 @@ func HybridCombiner(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("hybrid search perform fusion: %w", err)
 	}
+	if params.SelectionFn != nil {
+		// autoCut must run before diversity selection as it relies on a monotonic
+		// relevance sequence
+		if params.Autocut > 0 {
+			fused = performAutocut(fused, params.Autocut)
+		}
+		fused, err = params.SelectionFn(ctx, fused)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search selection: %w", err)
+		}
+	}
 	if postProc != nil {
 		sr, err := postProc(fused)
 		if err != nil {
@@ -187,7 +198,7 @@ func HybridCombiner(ctx context.Context,
 		}
 		fused = sr
 	}
-	if params.Autocut > 0 {
+	if params.SelectionFn == nil && params.Autocut > 0 {
 		fused = performAutocut(fused, params.Autocut)
 	}
 	return fused, nil
@@ -254,7 +265,7 @@ func decideSearchVector(ctx context.Context,
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
-			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.ReadOnlyClass,
 				class, targetVectors)
 			targetVector := getTargetVector(targetVectors)
 			if err != nil {

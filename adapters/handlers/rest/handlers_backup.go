@@ -131,6 +131,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Path:         overridePath,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
+		IncludeUsers: params.Body.IncludeUsers,
 		Compression:  compressionFromBCfg(params.Body.Config),
 		BaseBackupID: baseBackupID,
 	})
@@ -268,21 +269,19 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		overridePath = *params.Path
 	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsRestoreStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrNotFound{}):
-			return backups.NewBackupsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsRestoreStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsRestoreStatusInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -371,14 +370,13 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsListForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-
 		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}

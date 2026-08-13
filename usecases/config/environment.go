@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,16 +40,30 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
-	DefaultHNSWAcornFilterRatio = 0.4
+	DefaultRaftBootstrapTimeout         = 600
+	DefaultRaftBootstrapExpect          = 1
+	DefaultRaftDir                      = "raft"
+	DefaultHNSWAcornFilterRatio         = 0.4
+	DefaultBM25FilterTombMergeGateRatio = 1.0
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
-	DefaultReindexConcurrency                    = 2
+	// The interval caps are operational sanity bounds on fat-fingered
+	// overrides (a multi-year tick or TTL disables its subsystem in all but
+	// name). They also sit far below the ~292-year point where the
+	// int-to-duration multiply would overflow negative — a negative tick
+	// interval panics time.NewTicker after boot, and a negative TTL silently
+	// expires every completed task record.
+	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
+	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
+	// DefaultDropVectorReconcileInterval paces the drop-vector marker
+	// reconciliation loop; a safety net, so infrequent by default.
+	DefaultDropVectorReconcileInterval = 15 * time.Minute
+	// maxDropVectorReconcileIntervalSeconds caps the override at 7 days.
+	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
+	DefaultReindexConcurrency             = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
@@ -59,6 +72,7 @@ const (
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultHaltForTransferTimeout    = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
@@ -178,6 +192,15 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = timeout
 	} else {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
+	err := parsePositiveDuration(
+		"HALT_FOR_TRANSFER_TIMEOUT",
+		func(val time.Duration) { config.HaltForTransferTimeout = val },
+		DefaultHaltForTransferTimeout,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
@@ -437,6 +460,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -535,38 +565,28 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
-	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
-		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
-	}
-
-	if err := parseNonNegativeInt(
+	//
+	// These variables were meaningful back when HNSW snapshots were an
+	// optional add-on layered on top of the commit log. In the compactv2
+	// world the compactor owns the full on-disk lifecycle — snapshots are
+	// first-class, not an optional speedup — and there is no safe or useful
+	// interpretation for "disable snapshots" or for the interval / delta
+	// thresholds that used to throttle their creation.
+	//
+	// The environment variables are still recognized so existing deployments
+	// parse without error. If any is set we emit a one-line warning so the
+	// operator is not silently misled into thinking their setting has an
+	// effect. Unset means no warning. See RFC / commit message for context.
+	for _, envVar := range []string{
+		"PERSISTENCE_HNSW_DISABLE_SNAPSHOTS",
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
-		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
-		DefaultHNSWSnapshotIntervalSeconds,
-	); err != nil {
-		return err
-	}
-
-	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
-	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
-		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
-	}
-
-	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP",
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
-		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
-		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
-	); err != nil {
-		return err
-	}
-
-	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
-		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
-		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
-	); err != nil {
-		return err
+	} {
+		if _, set := os.LookupEnv(envVar); set {
+			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+		}
 	}
 	// ---- HNSW snapshots ----
 
@@ -581,12 +601,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -631,6 +652,30 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
+	// One validator for both the startup value and, via NewDynamicValueWithValidation,
+	// runtime config updates — SetValue rejects an invalid new value instead of
+	// silently applying it.
+	bm25GateValidate := func(val float64) error {
+		if math.IsNaN(val) || val < 0 {
+			return fmt.Errorf("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", val)
+		}
+		return nil
+	}
+	bm25GateRatio := DefaultBM25FilterTombMergeGateRatio
+	if err := parseFloatVerify(
+		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
+		DefaultBM25FilterTombMergeGateRatio,
+		func(val float64) { bm25GateRatio = val },
+		func(val float64, _ string) error { return bm25GateValidate(val) },
+	); err != nil {
+		return err
+	}
+	bm25GateDV, err := configRuntime.NewDynamicValueWithValidation(bm25GateRatio, bm25GateValidate)
+	if err != nil {
+		return err
+	}
+	config.BM25FilterTombMergeGateRatio = bm25GateDV
 
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",
@@ -720,6 +765,17 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = parsed
 	} else {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
+	if err := parser.ParseDynamicIntWithValidation("BACKUP_MAX_INDIVIDUAL_FILES",
+		DefaultBackupMaxIndividualFiles,
+		parser.ValidateIntGreaterThan0,
+		func(val *configRuntime.DynamicValue[int]) { config.Backup.MaxIndividualFiles = val }); err != nil {
+		return err
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -939,6 +995,9 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	if config.GRPC.GrpcWebEnabled == nil {
+		config.GRPC.GrpcWebEnabled = configRuntime.NewDynamicValue(true)
+	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -968,7 +1027,8 @@ func FromEnv(config *Config) error {
 		config.MCP.ConfigPath = v
 	}
 
-	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1030,6 +1090,18 @@ func FromEnv(config *Config) error {
 			config.Replication.AsyncReplicationHashtreeInitConcurrency = configRuntime.NewDynamicValue(val)
 		},
 		DefaultAsyncReplicationHashtreeInitConcurrency,
+	); err != nil {
+		return err
+	}
+
+	// Out-of-range values are clamped (and warned) by the scheduler on read, so
+	// only a non-numeric override fails here.
+	if err := parseInt(
+		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationRootPrefilterBatchSize,
 	); err != nil {
 		return err
 	}
@@ -1303,18 +1375,32 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
-	if err = parsePositiveInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
-		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDistributedTasksSchedulerTickIntervalSeconds),
 	); err != nil {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		validateIntRange(0, maxDistributedTasksCompletedTaskTTLHours),
+	); err != nil {
+		return err
+	}
+
+	if err = parseIntVerify(
+		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+		int(DefaultDropVectorReconcileInterval.Seconds()),
+		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDropVectorReconcileIntervalSeconds),
 	); err != nil {
 		return err
 	}
@@ -1380,6 +1466,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
+	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
 
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
@@ -1702,6 +1794,16 @@ func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) err
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
 
+// validateIntRange builds a parseIntVerify verifier enforcing min <= val <= max.
+func validateIntRange(min, max int) func(val int, envName string) error {
+	return func(val int, envName string) error {
+		if val < min || val > max {
+			return fmt.Errorf("%s must be between %d and %d, got %d", envName, min, max, val)
+		}
+		return nil
+	}
+}
+
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
 	var err error
 	asInt := defaultValue
@@ -1813,20 +1915,24 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 10
+	DefaultAsyncReplicationSchedulerWorkers    = 1
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
 	// a code change, so we enforce it at config parse time rather than silently
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
-	DefaultAsyncReplicationHashtreeInitConcurrency = 100
-	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
-	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
-	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
-	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
-	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
-	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
+	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
+	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
+	DefaultAsyncReplicationRootPrefilterBatchSize = 128
+	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
+	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount             = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection     = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
@@ -1998,22 +2104,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }
@@ -2225,5 +2315,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
 	}
 }

@@ -163,6 +163,14 @@ func RestoreBackupWithAuthz(t *testing.T, cfg *models.RestoreConfig, className, 
 	return Client(t).Backups.BackupsRestore(params, authInfo)
 }
 
+func RestoreCancelWithAuthz(t *testing.T, backend, backupID string, authInfo runtime.ClientAuthInfoWriter) error {
+	params := backups.NewBackupsRestoreCancelParams().
+		WithBackend(backend).
+		WithID(backupID)
+	_, err := Client(t).Backups.BackupsRestoreCancel(params, authInfo)
+	return err
+}
+
 func RestoreBackupStatus(t *testing.T, backend, backupID, overrideBucket, overridePath string) (*backups.BackupsRestoreStatusOK, error) {
 	params := backups.NewBackupsRestoreStatusParams().
 		WithBackend(backend).
@@ -235,6 +243,9 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
+		if status == "FAILED" {
+			t.Fatalf("backup %s creation failed with error: %s", backupID, resp.Payload.Error)
+		}
 		require.Equal(c, "SUCCESS", status, "backup create status")
 	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }

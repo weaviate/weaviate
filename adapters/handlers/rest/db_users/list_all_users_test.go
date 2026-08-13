@@ -63,7 +63,7 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if tt.includeStatic {
@@ -93,12 +93,95 @@ func TestSuccessListAll(t *testing.T) {
 	}
 }
 
+// TestListUsersAPIKeyFirstLettersVisibility pins who sees the api-key hint on the
+// list endpoint: root always, a built-in admin only on namespace-enabled
+// clusters, everyone else never.
+func TestListUsersAPIKeyFirstLettersVisibility(t *testing.T) {
+	dbUser := "user1"
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		callerRoles       map[string][]authorization.Policy
+		groupRoles        map[string][]authorization.Policy
+		wantFirstLetters  string
+	}{
+		{
+			name:              "root sees on namespaced cluster",
+			principal:         &models.Principal{Username: "root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin via group sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb, Groups: []string{"admin-group"}},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			groupRoles:        map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "non-admin hidden on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			wantFirstLetters:  "",
+		},
+		{
+			name:              "admin hidden on non-namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: false,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser, ApiKeyFirstLetters: "abc"}}, nil)
+			// role-less target so role visibility never authorizes
+			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			if tt.callerRoles != nil {
+				// Maybe: not consulted on non-namespaced clusters.
+				dynUser.On("GetRolesForUserOrGroup", tt.principal.Username, authentication.AuthTypeDb, false).Return(tt.callerRoles, nil).Maybe()
+			}
+			for _, group := range tt.principal.Groups {
+				dynUser.On("GetRolesForUserOrGroup", group, authentication.AuthTypeDb, true).Return(tt.groupRoles, nil).Maybe()
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				dbUserEnabled:     true,
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.ListAllUsersOK)
+			require.True(t, ok)
+			require.Len(t, parsed.Payload, 1)
+			require.Equal(t, tt.wantFirstLetters, parsed.Payload[0].APIKeyFirstLetters)
+		})
+	}
+}
+
 func TestSuccessListAllAfterImport(t *testing.T) {
 	exStaticUser := "static"
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
+	dynUser.On("GetUsers").Return(map[string]apikey.UserView{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
 		map[string][]authorization.Policy{"role": {}}, nil)
 
@@ -195,9 +278,9 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
-			usersRet := make(map[string]*apikey.User)
+			usersRet := make(map[string]apikey.UserView)
 			for _, user := range tt.userIds {
-				usersRet[user] = &apikey.User{Id: user, LastUsedAt: baseTime}
+				usersRet[user] = apikey.UserView{Id: user, LastUsedAt: baseTime}
 			}
 
 			dynUser.On("GetUsers").Return(usersRet, nil)
@@ -243,7 +326,7 @@ func TestSuccessListForbidden(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
+	dynUser.On("GetUsers").Return(map[string]apikey.UserView{"test": {Id: "test"}}, nil)
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{
@@ -281,7 +364,7 @@ func TestListNoDynamic(t *testing.T) {
 // TestListUsers_Namespaces — per-item response stripping: short id (no
 // Namespace) for a namespaced caller; full id (with Namespace) for a global op.
 func TestListUsers_Namespaces(t *testing.T) {
-	storedUser := &apikey.User{Id: "customer1:bob", Namespace: "customer1", Active: true}
+	storedUser := apikey.UserView{Id: "customer1:bob", Namespace: "customer1", Active: true}
 
 	tests := []struct {
 		name             string
@@ -311,7 +394,7 @@ func TestListUsers_Namespaces(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(storedUser.Id)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{storedUser.Id: storedUser}, nil)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
 			dynUser.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
@@ -337,11 +420,11 @@ func TestListUsers_Namespaces(t *testing.T) {
 // specialization, exercised here via FilterAuthorizedResources) returns only
 // the caller's customer1:bob, stripped to the short name.
 func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
-	stored := map[string]*apikey.User{
+	stored := map[string]apikey.UserView{
 		"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true},
 		"customer2:bob": {Id: "customer2:bob", Namespace: "customer2", Active: true},
 	}
-	principal := &models.Principal{Namespace: "customer1"}
+	principal := &models.Principal{Namespace: "customer1", UserType: models.UserTypeInputDb}
 	nullLogger, _ := test.NewNullLogger()
 
 	authorizer := authorization.NewMockAuthorizer(t)
@@ -356,6 +439,7 @@ func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(stored, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+	dynUser.On("GetRolesForUserOrGroup", "", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:           dynUser,

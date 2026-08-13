@@ -63,10 +63,43 @@ var (
 
 type ReplicationTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+// SetupSuite starts one shared 3-node cluster for every test in the suite.
+// The methods run sequentially and each restarts the nodes it stops, so the
+// cluster stays healthy between them.
+func (suite *ReplicationTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
+
+	compose, err := docker.New().
+		With3NodeCluster().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	suite.compose = compose
+}
+
+func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+// TearDownTest drops the shared classes so the next test starts from a clean
+// schema. Node 1 is never stopped, so it is always reachable here.
+func (suite *ReplicationTestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Article", "")
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
 }
 
 func TestReplicationTestSuite(t *testing.T) {
@@ -80,16 +113,8 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
+	var err error
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()

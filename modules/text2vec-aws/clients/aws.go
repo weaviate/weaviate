@@ -54,6 +54,7 @@ func (v *awsClient) vectorize(ctx context.Context, input []string,
 		Region:        config.Region,
 		Service:       aws.Service(config.Service),
 		Endpoint:      config.Endpoint,
+		Dimensions:    config.Dimensions,
 		OperationType: operationType,
 	})
 }

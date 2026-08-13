@@ -122,6 +122,18 @@ func Test_Config(t *testing.T) {
 			expectedErr: errors.New("sharding only supported with function 'murmur3' " +
 				"for now, got: md5"),
 		},
+
+		{
+			name: "negative desiredCount",
+			input: map[string]interface{}{
+				"desiredCount": json.Number("-1"),
+				"key":          "_id",
+				"strategy":     "hash",
+				"function":     "murmur3",
+			},
+			expectedErr: errors.New("sharding config: desiredCount must not be " +
+				"negative, got: -1"),
+		},
 	}
 
 	for _, test := range tests {

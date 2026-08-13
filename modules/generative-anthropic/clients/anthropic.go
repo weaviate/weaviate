@@ -230,9 +230,9 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Anthropic-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Anthropic-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 	return url.JoinPath(passedBaseURL, "/v1/messages")
 }

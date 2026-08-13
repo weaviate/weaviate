@@ -59,16 +59,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -170,16 +161,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -281,11 +263,28 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 		// The peers fetched the throttled config on activation; its propagation
 		// delay exceeds this window, so no cycle can repair node 2 regardless of
 		// timing. Stale defaults would repair within the window, failing this.
-		require.Never(t, func() bool {
+		//
+		// Poll synchronously rather than with require.Never, whose condition
+		// goroutine can outlive the assertion and race the global helper client.
+		assertNotFullyRepaired := func() {
 			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, types.ConsistencyLevelOne, tenantName)
-			return len(resp) == objectCount
-		}, asyncRepairObservationWindow, 5*time.Second,
-			"restarted node received all objects despite async replication being throttled — the peers did not pick up the COLD-time config update")
+			require.NotEqual(t, objectCount, len(resp),
+				"restarted node received all objects despite async replication being throttled — the peers did not pick up the COLD-time config update")
+		}
+		timer := time.NewTimer(asyncRepairObservationWindow)
+		defer timer.Stop()
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		assertNotFullyRepaired()
+		for {
+			select {
+			case <-timer.C:
+				assertNotFullyRepaired() // also assert at the window boundary, not only on ticks
+				return
+			case <-ticker.C:
+				assertNotFullyRepaired()
+			}
+		}
 	})
 
 	t.Run("restore async replication frequency", func(t *testing.T) {
@@ -347,8 +346,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 // the toggle path through `runtime-overrides → AsyncReplicationDisabled hook
 // → DB.ReconcileAsyncReplication → per-tenant-shard apply` on a real
 // multi-tenant cluster.
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyRuntimeToggle() {
-	t := suite.T()
+func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	mainCtx := context.Background()
 
 	const (

@@ -17,10 +17,12 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	bolt "go.etcd.io/bbolt"
 )
@@ -97,6 +99,55 @@ func (index *flat) closeMetadata() {
 	}
 }
 
+// snapshotMetadata writes a torn-free point-in-time copy of the metadata bbolt
+// file to dst. It runs the copy inside a bbolt read transaction ((*Tx).CopyFile),
+// which keeps the meta page pinned for the duration so the copy stays consistent
+// even while writers (setDimensions/persistRQData) commit concurrently.
+//
+// metadataLock is held for the whole operation. setDimensions/persistRQData run
+// their bbolt Update WITHOUT this lock, but they take it via openMetadata to
+// publish/clear index.metadata; holding it here prevents openMetadata/closeMetadata
+// from clobbering or prematurely closing the handle mid-copy. openMetadata and
+// closeMetadata must NOT be called from here — they re-acquire the lock and deadlock.
+func (index *flat) snapshotMetadata(dst string) error {
+	index.metadataLock.Lock()
+	defer index.metadataLock.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return errors.Wrapf(err, "create staging dir for %q", dst)
+	}
+
+	copyTo := func(db *bolt.DB) error {
+		return db.View(func(tx *bolt.Tx) error {
+			return tx.CopyFile(dst, 0o600)
+		})
+	}
+
+	// Live handle: an open metadata DB may have uncommitted/in-flight writes, but a
+	// read tx still yields a consistent (MVCC) snapshot, so copy from it directly.
+	if index.metadata != nil {
+		if err := copyTo(index.metadata); err != nil {
+			return errors.Wrapf(err, "snapshot metadata to %q", dst)
+		}
+		return nil
+	}
+
+	// No live handle: open a private read-only handle just for the copy. ReadOnly
+	// takes a shared (not exclusive) flock and a finite Timeout avoids blocking
+	// forever should another process hold a conflicting lock.
+	path := filepath.Join(index.rootPath, index.getMetadataFile())
+	db, err := bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
+	if err != nil {
+		return errors.Wrapf(err, "open %q read-only for snapshot", path)
+	}
+	defer db.Close()
+
+	if err := copyTo(db); err != nil {
+		return errors.Wrapf(err, "snapshot metadata to %q", dst)
+	}
+	return nil
+}
+
 func (index *flat) openMetadata() error {
 	index.metadataLock.Lock()
 	defer index.metadataLock.Unlock()
@@ -106,7 +157,9 @@ func (index *flat) openMetadata() error {
 	}
 
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed shard teardown holds the flock;
+	// without it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}
@@ -499,8 +552,10 @@ func (index *flat) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
 		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }
 
@@ -520,7 +575,9 @@ func (index *flat) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &RotationalQuantizerWrapper{RotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -222,10 +223,10 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
-			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
 			require.Nil(t, err)
 
-			vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
 			require.Nil(t, err)
 			assert.Equal(t, tt.SearchVectors, vecs)
 			assert.Equal(t, tt.Targets, targets)
@@ -239,7 +240,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors[0], vecsOld)
 				assert.Equal(t, tt.Targets[0], targetsOld)
 
-				vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
 				require.Nil(t, err)
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)
@@ -570,6 +571,67 @@ func TestVersionedObjectListPayloadV2RoundTrip(t *testing.T) {
 	}
 }
 
+func TestVersionedObjectListPayloadRawRoundTrip(t *testing.T) {
+	mkRaw := func(id strfmt.UUID, docID uint64) []byte {
+		o := storobj.FromObject(
+			&models.Object{ID: id, Class: "C1", LastUpdateTimeUnix: 12345},
+			[]float32{0.1, 0.2, 0.3}, nil, nil,
+		)
+		o.DocID = docID
+		b, err := o.MarshalBinary()
+		require.NoError(t, err)
+		return b
+	}
+
+	input := []*objects.VObject{
+		{StaleUpdateTime: 111, RawBytes: mkRaw("73f2eb5f-5abf-447a-81ca-74b1dd168241", 1)},
+		{StaleUpdateTime: 222, RawBytes: mkRaw("73f2eb5f-5abf-447a-81ca-74b1dd168242", 2)},
+	}
+
+	data, err := IndicesPayloads.VersionedObjectList.MarshalRaw(input)
+	require.NoError(t, err)
+
+	got, err := IndicesPayloads.VersionedObjectList.UnmarshalRaw(data)
+	require.NoError(t, err)
+	require.Len(t, got, len(input))
+
+	for i, want := range input {
+		assert.Equal(t, want.StaleUpdateTime, got[i].StaleUpdateTime)
+		assert.Equal(t, want.RawBytes, got[i].RawBytes)
+		assert.Nil(t, got[i].LatestObject)
+
+		decoded, err := storobj.FromBinaryNetwork(got[i].RawBytes)
+		require.NoError(t, err)
+		assert.Equal(t, "C1", decoded.Object.Class)
+	}
+}
+
+// TestVersionedObjectListJSONUnmarshalRejectsRaw locks the graceful-degradation
+// contract: an older node, which only has the JSON Unmarshal, must return an
+// error (never panic) when handed a raw (or compressed-raw) payload.
+func TestVersionedObjectListJSONUnmarshalRejectsRaw(t *testing.T) {
+	o := storobj.FromObject(
+		&models.Object{ID: "73f2eb5f-5abf-447a-81ca-74b1dd168241", Class: "C1", LastUpdateTimeUnix: 1},
+		[]float32{0.1, 0.2}, nil, nil,
+	)
+	rawBytes, err := o.MarshalBinary()
+	require.NoError(t, err)
+
+	rawPayload, err := IndicesPayloads.VersionedObjectList.MarshalRaw(
+		[]*objects.VObject{{StaleUpdateTime: 1, RawBytes: rawBytes}})
+	require.NoError(t, err)
+
+	t.Run("raw payload", func(t *testing.T) {
+		_, err := IndicesPayloads.VersionedObjectList.Unmarshal(rawPayload)
+		require.Error(t, err)
+	})
+
+	t.Run("compressed raw payload", func(t *testing.T) {
+		_, err := IndicesPayloads.VersionedObjectList.Unmarshal(CompressOverwriteRaw(rawPayload))
+		require.Error(t, err)
+	})
+}
+
 func TestVersionedObjectListUnmarshalV2FramingErrors(t *testing.T) {
 	p := IndicesPayloads.VersionedObjectList
 
@@ -721,4 +783,96 @@ func TestErrorListPayload_MixedShape(t *testing.T) {
 	require.True(t, stderrors.As(got[1], &le))
 	assert.Equal(t, int64(5), le.Value)
 	assert.Equal(t, "third error", got[2].Error())
+}
+
+func objectListFramingTestObject() *storobj.Object {
+	obj := storobj.New(11)
+	obj.MarshallerVersion = 1
+	obj.Object = models.Object{
+		ID:                 strfmt.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+		Class:              "FramingClass",
+		CreationTimeUnix:   1700000000000,
+		LastUpdateTimeUnix: 1700000001000,
+		Properties: map[string]interface{}{
+			"prop": "value",
+		},
+	}
+	obj.Vector = []float32{1, 2, 3}
+	obj.VectorLen = 3
+	return obj
+}
+
+func TestObjectListUnmarshalFramingErrors(t *testing.T) {
+	obj := objectListFramingTestObject()
+	payload, err := IndicesPayloads.ObjectList.Marshal([]*storobj.Object{obj}, MethodGet)
+	require.NoError(t, err)
+
+	t.Run("empty input", func(t *testing.T) {
+		out, err := IndicesPayloads.ObjectList.Unmarshal(nil, MethodGet)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
+	t.Run("truncated length prefix", func(t *testing.T) {
+		_, err := IndicesPayloads.ObjectList.Unmarshal(payload[:5], MethodGet)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "truncated length prefix")
+	})
+
+	t.Run("truncated object payload", func(t *testing.T) {
+		_, err := IndicesPayloads.ObjectList.Unmarshal(payload[:len(payload)-3], MethodGet)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds remaining")
+	})
+
+	t.Run("crafted overflow length", func(t *testing.T) {
+		crafted := make([]byte, 8)
+		binary.LittleEndian.PutUint64(crafted, ^uint64(0))
+		_, err := IndicesPayloads.ObjectList.Unmarshal(crafted, MethodGet)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds remaining")
+	})
+
+	t.Run("trailing garbage after valid object", func(t *testing.T) {
+		withTrailing := append(append([]byte{}, payload...), 0x01, 0x02)
+		_, err := IndicesPayloads.ObjectList.Unmarshal(withTrailing, MethodGet)
+		require.Error(t, err)
+	})
+
+	t.Run("unsupported method", func(t *testing.T) {
+		_, err := IndicesPayloads.ObjectList.Unmarshal(payload, "POST")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported operation type")
+	})
+}
+
+// Clobbering the input buffer after Unmarshal must not affect decoded objects.
+func TestObjectListUnmarshalDoesNotAliasInput(t *testing.T) {
+	obj := objectListFramingTestObject()
+	obj.Vectors = map[string][]float32{"named": {4, 5}}
+	obj.MultiVectors = map[string][][]float32{"multi": {{6, 7}, {8}}}
+
+	for _, method := range []string{MethodGet, MethodPut} {
+		t.Run(method, func(t *testing.T) {
+			payload, err := IndicesPayloads.ObjectList.Marshal([]*storobj.Object{obj}, method)
+			require.NoError(t, err)
+
+			decoded, err := IndicesPayloads.ObjectList.Unmarshal(payload, method)
+			require.NoError(t, err)
+			require.Len(t, decoded, 1)
+
+			for i := range payload {
+				payload[i] = 0xFF
+			}
+
+			got := decoded[0]
+			assert.Equal(t, obj.DocID, got.DocID)
+			assert.Equal(t, obj.ID(), got.ID())
+			assert.Equal(t, obj.Object.Class, got.Object.Class)
+			assert.Equal(t, obj.Vector, got.Vector)
+			assert.Equal(t, obj.Vectors, got.Vectors)
+			assert.Equal(t, obj.MultiVectors, got.MultiVectors)
+			assert.Equal(t, obj.Object.Properties, got.Object.Properties)
+		})
+	}
 }

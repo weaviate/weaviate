@@ -12,11 +12,13 @@
 package roaringset
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func Test_BitmapLayers_Flatten(t *testing.T) {
@@ -98,24 +100,148 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 		},
 	}
 
+	// Flatten must be identical regardless of the merge concurrency: single
+	// threaded (1), the minimum fan-out (2), and the default cap (SROAR_MERGE).
+	maxConcs := []int{1, 2, concurrency.SROAR_MERGE}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := make(BitmapLayers, len(test.inputs))
-			for i, inp := range test.inputs {
-				input[i].Additions = NewBitmap(inp.additions...)
-				input[i].Deletions = NewBitmap(inp.deletions...)
-			}
+			for _, maxConc := range maxConcs {
+				t.Run(fmt.Sprintf("maxConc=%d", maxConc), func(t *testing.T) {
+					input := make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						input[i].Additions = NewBitmap(inp.additions...)
+						input[i].Deletions = NewBitmap(inp.deletions...)
+					}
 
-			res := input.Flatten(false)
-			for _, x := range test.expectedContained {
-				assert.True(t, res.Contains(x))
-			}
+					res := input.Flatten(false, maxConc)
+					for _, x := range test.expectedContained {
+						assert.True(t, res.Contains(x))
+					}
 
-			for _, x := range test.expectedNotContained {
-				assert.False(t, res.Contains(x))
+					for _, x := range test.expectedNotContained {
+						assert.False(t, res.Contains(x))
+					}
+				})
 			}
 		})
 	}
+}
+
+func Test_LayerMerger_MatchesFlatten(t *testing.T) {
+	// A left-fold via LayerMerger (base = first layer's additions, Add the rest
+	// in order) must produce the exact same set as BitmapLayers.Flatten over the
+	// same layers. Reuses Flatten's own cases as the oracle.
+	type inputSegment struct {
+		additions []uint64
+		deletions []uint64
+	}
+
+	tests := []struct {
+		name   string
+		inputs []inputSegment
+	}{
+		{name: "no inputs", inputs: nil},
+		{name: "single segment", inputs: []inputSegment{{additions: []uint64{4, 5}}}},
+		{name: "three segments, only additions", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}}, {additions: []uint64{6, 7, 8}},
+		}},
+		{name: "two segments, including a delete", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}, deletions: []uint64{4}},
+		}},
+		{name: "three segments, delete and re-add", inputs: []inputSegment{
+			{additions: []uint64{3, 4, 5}}, {additions: []uint64{6}, deletions: []uint64{4, 5}}, {additions: []uint64{5}},
+		}},
+	}
+
+	maxConcs := []int{1, 2, concurrency.SROAR_MERGE}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, maxConc := range maxConcs {
+				t.Run(fmt.Sprintf("maxConc=%d", maxConc), func(t *testing.T) {
+					layers := make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+
+					// oracle: Flatten (clone so it doesn't mutate the layers we
+					// reuse for the merger below)
+					want := layers.Flatten(true, maxConc).ToArray()
+
+					// LayerMerger: seed with base additions, Add the rest
+					var got []uint64
+					if len(layers) == 0 {
+						got = NewLayerMerger(nil, false, maxConc).Result().ToArray()
+					} else {
+						m := NewLayerMerger(layers[0].Additions, true, maxConc)
+						for i := 1; i < len(layers); i++ {
+							m.Add(layers[i])
+						}
+						got = m.Result().ToArray()
+					}
+
+					assert.Equal(t, want, got)
+
+					// nil base: the merger adopts the first Add'd layer, so
+					// folding every layer through Add must equal Flatten too;
+					// fresh layers because the adopted bitmap is mutated in
+					// place
+					layers = make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+					m := NewLayerMerger(nil, false, maxConc)
+					for _, layer := range layers {
+						m.Add(layer)
+					}
+					assert.Equal(t, want, m.Result().ToArray())
+				})
+			}
+		})
+	}
+}
+
+func Test_LayerMerger_NilBase(t *testing.T) {
+	t.Run("layers fold like Flatten", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap()})
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("no layers yield an empty, non-nil result", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		require.NotNil(t, m.Result())
+		assert.Empty(t, m.Result().ToArray())
+	})
+
+	t.Run("first layer's additions are adopted, not copied", func(t *testing.T) {
+		first := NewBitmap(1, 2)
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: first, Deletions: NewBitmap()})
+		assert.Same(t, first, m.Result())
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Same(t, first, m.Result())
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("adopted layer's own deletions are dropped", func(t *testing.T) {
+		// the first layer's deletions delete from older state, of which there
+		// is none — Flatten drops the base layer's deletions the same way
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{1, 2}, m.Result().ToArray())
+	})
+
+	t.Run("nil-additions layer defers adoption to the next layer", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: nil, Deletions: NewBitmap(1)})
+		m.Add(BitmapLayer{Additions: NewBitmap(2, 3), Deletions: NewBitmap(2)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
 }
 
 func Test_BitmapLayers_Merge(t *testing.T) {

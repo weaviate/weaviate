@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"context"
+	errors2 "errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -65,6 +67,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		return nil
 	}
 
+	// Names are segment-<unix-nano>.wal (fixed-width, so lexicographic == chronological).
+	// Recovery relies on order: only the last WAL is kept as the active memtable, the
+	// rest are flushed to segments. The source is a map, whose iteration order is random.
+	sort.Strings(walFileNames)
+
 	logOnceWhenRecoveringFromWAL.Do(func() {
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
 			WithField("path", b.dir).
@@ -88,6 +95,35 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	}()
 
 	recovered := false
+
+	// Data in these WALs predates any strip progress the edit-ops sidecar has
+	// recorded: keeping the last WAL's memtable as the live one would hold
+	// pre-strip bytes OUTSIDE the pending-segment bookkeeping, and a drop that
+	// already recorded those bytes as stripped would see them resurrect — with
+	// nothing left to re-clean them once its op is gone. With ops present,
+	// flush EVERY recovered WAL into a segment; the sidecar recovery that runs
+	// after this (see newSegmentGroup) then re-pends them all.
+	sidecarHasOps := false
+	if sg.editOps != nil {
+		hasOps, opsErr := sg.editOps.HasOps()
+		switch {
+		case opsErr == nil:
+			sidecarHasOps = hasOps
+		case errors2.Is(opsErr, bolterrors.ErrTimeout):
+			// Still flocked by a previous instance — same hard-fail as the
+			// sidecar recovery in newSegmentGroup: loading blind is how a
+			// completed drop's data got resurrected.
+			return errors.Wrap(opsErr, "probe edit-ops sidecar before WAL recovery")
+		default:
+			// Torn/corrupt-but-unlocked sidecar: mirror recoverEditOps's
+			// policy — never brick the shard over drop-progress bookkeeping.
+			// Fail-safe direction: assume ops exist, so every WAL flushes to
+			// segments (only the keep-last-WAL optimization is lost).
+			b.logger.WithField("path", b.dir).
+				Warnf("probe edit-ops sidecar before WAL recovery failed; flushing all WALs as a precaution: %v", opsErr)
+			sidecarHasOps = true
+		}
+	}
 
 	// recover from each log
 	for i, fname := range walFileNames {
@@ -131,7 +167,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			if errRecovery != nil {
 				b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 					WithField("path", filepath.Join(b.dir, fname)).
-					Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
+					Error(errors.Wrap(errRecovery, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 			}
 
 			if mt.strategy == StrategyInverted {
@@ -140,7 +176,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 			// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
 			// damaged and cannot be used for new writes.
-			if walForActiveMemtable && errRecovery == nil {
+			if walForActiveMemtable && errRecovery == nil && !sidecarHasOps {
 				_, err = cl.file.Seek(0, io.SeekEnd)
 				if err != nil {
 					return err

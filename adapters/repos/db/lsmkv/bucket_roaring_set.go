@@ -12,9 +12,12 @@
 package lsmkv
 
 import (
+	"context"
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -114,7 +117,8 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
-func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {
+// RoaringSetGet consults ctx only for the concurrency budget, not for cancellation.
+func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return nil, noopRelease, err
 	}
@@ -122,41 +126,72 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return b.roaringSetGetFromConsistentView(view, key)
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
+}
+
+// RoaringSetGetFromView reads key using a caller-held BucketConsistentView,
+// skipping the per-call GetConsistentView()/ReleaseView() pair (RLock +
+// disk-segment pinning) that RoaringSetGet performs on every invocation.
+// Intended for callers that read many keys from the same bucket in one
+// logical operation: call GetConsistentView() once, pass the result to every
+// RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
+// done. The view must come from this bucket's GetConsistentView: a view of
+// another bucket is not detected and would silently read that bucket's data.
+func (b *Bucket) RoaringSetGetFromView(
+	ctx context.Context, view BucketConsistentView, key []byte,
+) (bm *sroar.Bitmap, release func(), err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, noopRelease, err
+	}
+
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 
 func (b *Bucket) roaringSetGetFromConsistentView(
-	view BucketConsistentView, key []byte,
+	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	layers, release, err := b.disk.roaringSetGet(key, view.Disk)
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
+	diskLayer, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
+	// diskRelease (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a failed flushing/active
+	// read can't leak the disk layer's pooled buffer.
 	defer func() {
 		if err != nil {
-			release()
+			diskRelease()
 		}
 	}()
 
+	// Fold the disk, flushing and active layers one at a time, oldest first,
+	// without materializing a []BitmapLayer. diskLayer.Additions is the pooled
+	// base (with headroom); on a disk miss it is nil and the merger adopts the
+	// first memtable layer's clone instead of copying it.
+	merger := roaringset.NewLayerMerger(diskLayer.Additions, false, maxConc)
+
 	if view.Flushing != nil {
-		flushing, err := view.Flushing.roaringSetGet(key)
-		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
+		flushing, flushErr := view.Flushing.roaringSetGet(key)
+		if flushErr != nil {
+			if !errors.Is(flushErr, lsmkv.NotFound) {
+				err = flushErr
 				return nil, noopRelease, err
 			}
 		} else {
-			layers = append(layers, flushing)
+			merger.Add(flushing)
 		}
 	}
 
-	activeBM, err := view.Active.roaringSetGet(key)
-	if err != nil {
-		if !errors.Is(err, lsmkv.NotFound) {
+	activeBM, activeErr := view.Active.roaringSetGet(key)
+	if activeErr != nil {
+		if !errors.Is(activeErr, lsmkv.NotFound) {
+			err = activeErr
 			return nil, noopRelease, err
 		}
 	} else {
-		layers = append(layers, activeBM)
+		merger.Add(activeBM)
 	}
 
-	return layers.Flatten(false), release, nil
+	return merger.Result(), diskRelease, nil
 }

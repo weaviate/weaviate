@@ -11,10 +11,8 @@
 
 package types
 
-import (
-	"github.com/weaviate/weaviate/entities/models"
-)
-
+// UsageDiskVersion invalidates usage already stored on disk. Bump it when reported
+// sizes change meaning, or shards that stay cold keep serving the old numbers.
 const UsageDiskVersion int = 1
 
 // UsageDisk defines format of saved pre-computed shard usage data
@@ -42,9 +40,6 @@ type Report struct {
 
 	// CollectingTime The time of the collection of the metric
 	CollectingTime string `json:"-"`
-
-	// The local node's view of the schema
-	Schema *models.Schema `json:"schema,omitempty"`
 
 	GoMemLimit int64 `json:"go_mem_limit,omitempty"`
 }

@@ -73,7 +73,8 @@ func createNamespacedViewerUser(t *testing.T, userID, ns, adminKey string) strin
 // create / get / list / deactivate / activate / rotate / delete lifecycle
 // on a user in its own namespace, with responses stripped to the short form.
 func TestNamespacedAdminLifecycle(t *testing.T) {
-	const ns = "umg-lifecycle"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
@@ -90,6 +91,9 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 	bobFromAdmin := helper.GetUser(t, "bob", nsAdminKey)
 	require.Equal(t, "bob", *bobFromAdmin.UserID)
 	require.Empty(t, bobFromAdmin.Namespace)
+
+	// A namespaced admin (non-root) sees the api-key first letters.
+	require.Equal(t, bobKey[:3], bobFromAdmin.APIKeyFirstLetters)
 
 	// Admin can read bob's roles via the short id — proves the authz-handler
 	// resolver + matcher specialization end to end (bob has no roles yet).
@@ -135,7 +139,8 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 // each namespace's admin sees only its own users, deletes only its own, and
 // every response (success or 404) is free of the namespace separator.
 func TestNamespacedUserCrossNamespaceIsolation(t *testing.T) {
-	const ns1, ns2 = "umg-iso-a", "umg-iso-b"
+	t.Parallel()
+	ns1, ns2 := uniqueNS(), uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
 
@@ -184,7 +189,8 @@ func TestNamespacedUserCrossNamespaceIsolation(t *testing.T) {
 // TestNamespacedViewerDeniedUserMutations — viewer in a namespace can read
 // users, cannot mutate.
 func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
-	const ns = "umg-deny"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
 	helper.CreateUserWithNamespace(t, "bob", ns, adminKey)
@@ -192,8 +198,10 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 
 	viewerKey := createNamespacedViewerUser(t, "dan", ns, adminKey)
 
-	// Reads: allowed.
-	require.Equal(t, "bob", *helper.GetUser(t, "bob", viewerKey).UserID)
+	// Reads: allowed, but a non-admin never sees the api-key first letters.
+	bobFromViewer := helper.GetUser(t, "bob", viewerKey)
+	require.Equal(t, "bob", *bobFromViewer.UserID)
+	require.Empty(t, bobFromViewer.APIKeyFirstLetters)
 	require.Len(t, helper.ListAllUsers(t, viewerKey), 2)
 
 	// Mutations: 403.
@@ -230,7 +238,8 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 // revokes roles on a namespaced user (matcher blast-radius guard). The
 // deprecated role-read endpoint is gated off on NS clusters — 410.
 func TestGlobalOperatorReach(t *testing.T) {
-	const ns1, ns2 = "umg-reach-a", "umg-reach-b"
+	t.Parallel()
+	ns1, ns2 := uniqueNS(), uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
 
@@ -289,7 +298,8 @@ func TestGlobalOperatorReach(t *testing.T) {
 // the configured root user succeeds inside a namespace because the
 // resolver qualifies the storage key before the isRootUser check.
 func TestNamespacedAdminConflictsAndCollisions(t *testing.T) {
-	const ns = "umg-edges"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
 
@@ -336,12 +346,14 @@ func TestNamespacedAdminConflictsAndCollisions(t *testing.T) {
 	require.Equal(t, ns, adminUserInNs.Namespace)
 }
 
-// TestNamespacedAdminAuthzSurface — failure-mode pins for the authz user-role
-// surface from a namespaced caller's view: deprecated endpoint fails closed
-// (matcher cannot specialize the unqualified key), and assign/revoke fail at
-// authz on the qualified key (no AssignAndRevokeUsers in the widened admin).
+// TestNamespacedAdminAuthzSurface — pins the authz user-role surface from a
+// namespaced caller's view: the deprecated endpoint fails closed (matcher
+// cannot specialize the unqualified key), while assign and revoke succeed on the
+// qualified key — the widened admin holds AssignAndRevokeUsers, which the
+// matcher confines to the caller's own namespace.
 func TestNamespacedAdminAuthzSurface(t *testing.T) {
-	const ns = "umg-authz-deny"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
 
@@ -357,7 +369,8 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 	var deprecatedGone *authz.GetRolesForUserDeprecatedGone
 	require.True(t, errors.As(err, &deprecatedGone), "expected GetRolesForUserDeprecatedGone, got %T", err)
 
-	// 2. assign → 403-at-authz (no AssignAndRevokeUsers grant for namespaced admin).
+	// 2. assign a role the admin holds to an own-namespace user → succeeds; the
+	//    matcher confines the AssignAndRevokeUsers grant to ns:bob.
 	_, err = helper.Client(t).Authz.AssignRoleToUser(
 		authz.NewAssignRoleToUserParams().WithID("bob").WithBody(authz.AssignRoleToUserBody{
 			Roles:    []string{authorization.Viewer},
@@ -365,11 +378,9 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 		}),
 		helper.CreateAuth(nsAdminKey),
 	)
-	require.Error(t, err)
-	var assignForbidden *authz.AssignRoleToUserForbidden
-	require.True(t, errors.As(err, &assignForbidden), "expected AssignRoleToUserForbidden, got %T", err)
+	require.NoError(t, err)
 
-	// 3. revoke → same failure mode.
+	// 3. revoke the same binding → succeeds for the same reason.
 	_, err = helper.Client(t).Authz.RevokeRoleFromUser(
 		authz.NewRevokeRoleFromUserParams().WithID("bob").WithBody(authz.RevokeRoleFromUserBody{
 			Roles:    []string{authorization.Viewer},
@@ -377,16 +388,15 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 		}),
 		helper.CreateAuth(nsAdminKey),
 	)
-	require.Error(t, err)
-	var revokeForbidden *authz.RevokeRoleFromUserForbidden
-	require.True(t, errors.As(err, &revokeForbidden), "expected RevokeRoleFromUserForbidden, got %T", err)
+	require.NoError(t, err)
 }
 
 // TestCreateUserAgainstDeletingNamespace — createUser into a namespace
 // mid-delete is 422. A class makes cleanup non-instant so the race lands
 // somewhere between deleting and gone; both surface 422.
 func TestCreateUserAgainstDeletingNamespace(t *testing.T) {
-	const ns = "umg-deleting"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
@@ -413,7 +423,8 @@ func TestCreateUserAgainstDeletingNamespace(t *testing.T) {
 // short name hits the self-target guard on the resolved key; the 422
 // message must not leak the ':' separator.
 func TestNamespacedAdminSelfTargetIs422(t *testing.T) {
-	const ns = "umg-self"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns+":alice", adminKey) })

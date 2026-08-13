@@ -12,6 +12,7 @@
 package gcpcommon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,8 +49,8 @@ func TestFetchTokenSuccess(t *testing.T) {
 	assert.Equal(t, expected.Expiry, tok.Expiry)
 }
 
-func TestFetchToken5xxReturnsRetryable(t *testing.T) {
-	for _, status := range []int{500, 502, 503, 504} {
+func TestFetchTokenRetryableStatuses(t *testing.T) {
+	for _, status := range []int{429, 500, 502, 503, 504} {
 		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(status)
@@ -118,6 +119,76 @@ func TestFetchTokenWithRetryRetriesOnRetryableError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected.AccessToken, tok.AccessToken)
 	assert.Equal(t, 3, attempt)
+}
+
+func TestFetchTokenRejectsIncompleteResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty object", `{}`},
+		{"missing access token", `{"expiry":"2099-01-01T00:00:00Z","token_type":"Bearer"}`},
+		{"zero expiry", `{"access_token":"tok","token_type":"Bearer"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprint(w, tt.body)
+			}))
+			defer srv.Close()
+
+			b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+			_, err := b.fetchToken(t.Context(), testIdentityToken)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "missing required fields")
+			assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
+		})
+	}
+}
+
+func TestFetchTokenMalformedURLIsNotRetryable(t *testing.T) {
+	b := &AuthBrokerTokenSource{endpoint: "http://\x7f/bad", client: http.DefaultClient}
+
+	_, err := b.fetchToken(t.Context(), testIdentityToken)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
+}
+
+func TestFetchTokenWithRetryAbortsOnContextDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := b.fetchTokenWithRetry(ctx, testIdentityToken)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestResolveTokenTimeout(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"unset", "", defaultTokenTimeout},
+		{"valid duration", "5s", 5 * time.Second},
+		{"malformed", "not-a-duration", defaultTokenTimeout},
+		{"zero", "0s", defaultTokenTimeout},
+		{"negative", "-1s", defaultTokenTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTH_PROXY_TOKEN_TIMEOUT", tt.value)
+			assert.Equal(t, tt.want, resolveTokenTimeout())
+		})
+	}
 }
 
 func TestFetchTokenWithRetryNoRetryOnNonRetryableError(t *testing.T) {

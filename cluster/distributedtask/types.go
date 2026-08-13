@@ -41,22 +41,42 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// TargetVectorExtractor reads a task payload's (collection, target vectors) binding
+// for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
+// Same determinism contract as [CollectionExtractor].
+type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
+
+// CompletedTaskRetainer is an optional interface a [Provider] implements to
+// veto the TTL cleanup of a terminal task whose record is still load-bearing.
+// Consulted on the proposal side only (the scheduler's cleanup phase), so it
+// need not be deterministic; the FSM's CleanUpTask stays unchanged. Vetoed
+// records are re-evaluated every tick — return false once the record stops
+// mattering, or it lives forever.
+type CompletedTaskRetainer interface {
+	ShouldRetainCompletedTask(task *Task) bool
+}
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
-// TaskFinalizer is an interface for issuing a request to transition a task
-// from [TaskStatusSwapping] to [TaskStatusFinished]. The [Scheduler] calls
-// this from its tick after [Provider.OnTaskCompleted] returns successfully so
-// the FSM-level FINISHED state lines up with "every post-completion callback
-// committed cluster-wide" (not just "every unit terminal"). Idempotent at the
-// FSM layer — every node's scheduler issues this independently after its
-// local OnTaskCompleted returns; only the first commit actually flips the
-// status. See the godoc on [TaskStatusSwapping] for the underlying race
-// this discipline fixes.
+// TaskFinalizer is how the [Scheduler] transitions a task out of
+// [TaskStatusSwapping] once local [UnitAwareProvider.OnTaskCompleted] has
+// returned. Both methods are idempotent at the FSM layer: only the first
+// commit flips the status.
 type TaskFinalizer interface {
+	// MarkDistributedTaskFinalized transitions SWAPPING → FINISHED after
+	// OnTaskCompleted returns nil, so FINISHED means "every post-completion
+	// callback committed cluster-wide," not just "every unit terminal." See
+	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+
+	// MarkDistributedTaskFailed transitions SWAPPING → FAILED when
+	// OnTaskCompleted returns a terminal error: permanent
+	// ([ErrTaskCompletionPermanent]) or retry-exhausted transient. errMsg is
+	// recorded on the task (weaviate/0-weaviate-issues#297).
+	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
@@ -145,9 +165,10 @@ type Provider interface {
 // Motivation: the REST handler holds a per-(collection, property)
 // in-memory lock and runs [checkReindexConflict] before submitting,
 // which closes the same-node race. But two parallel PUT
-// /indexes/{prop} requests served by *different* nodes both pass the
-// per-node lock + check (neither has called AddDistributedTask yet at
-// the moment they each query the cluster task list) and both submit a
+// /properties/{prop}/index/{indexType} requests served by *different*
+// nodes both pass the per-node lock + check (neither has called
+// AddDistributedTask yet at the moment they each query the cluster task
+// list) and both submit a
 // RAFT task. At that point two reindex migrations race on shared
 // on-disk state for the property and one of them ends up FAILED —
 // the multi-node face of https://github.com/weaviate/weaviate/issues/10675 (issue tracked as
@@ -235,6 +256,25 @@ type SchemaMutationDetector interface {
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
+// VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
+// implements to gate removal of a dropped ("none") VectorConfig entry: only the
+// completing cleanup task's own in-flight finalize may remove it — a SWAPPING
+// task covering the entry whose units plus inherited cleaned-shard set span
+// every current shard. A shard in neither has not been stripped, so removing
+// the marker would strand its data; and FINISHED records never vouch — they
+// outlive finalize by the task TTL, and after a re-create + re-drop of the
+// name a stale record would remove the new drop's marker over unstripped
+// vectors. Dispatched by type assertion from the SchemaMutationDetector
+// registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
+// function of its arguments.
+type VectorConfigRemovalGate interface {
+	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
+	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
+	// from the FSM state being applied; existingTasks is the namespace-scoped
+	// list at apply time.
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
+}
+
 // RecoveryAwareProvider is an optional interface providers implement to
 // participate in post-restart callback retry. The Scheduler's bootstrap
 // pre-mark (which normally suppresses replay of callbacks that fired
@@ -312,7 +352,14 @@ type UnitAwareProvider interface {
 	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
 	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
 	// implementations MUST preserve this contract.
-	OnTaskCompleted(task *Task)
+	//
+	// Return value (weaviate/0-weaviate-issues#297): a non-nil error on the
+	// SWAPPING path withholds finalize and retries next tick. Wrap in
+	// [ErrTaskCompletionPermanent] for a deterministically-unrecoverable
+	// failure to fail the task immediately; a plain error is transient and
+	// retried up to a bounded count before failing. Errors on terminal-status
+	// invocations are best-effort and must not reopen the task (return nil).
+	OnTaskCompleted(task *Task) error
 }
 
 type UnitStatus string
@@ -416,6 +463,13 @@ func (t TaskStatus) IsActive() bool {
 	default:
 		return false
 	}
+}
+
+// IsCompleted is true once every unit of the task succeeded: SWAPPING
+// (completion callbacks in flight) or FINISHED. FAILED/CANCELLED tasks are
+// terminal but NOT completed — their units' work cannot be assumed done.
+func (t TaskStatus) IsCompleted() bool {
+	return t == TaskStatusSwapping || t == TaskStatusFinished
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases

@@ -612,6 +612,8 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 			h.testProviders = append(h.testProviders, tp)
 		case *unitAwareTestProvider:
 			h.testProviders = append(h.testProviders, tp.testTaskProvider)
+		case *retainingTestProvider:
+			h.testProviders = append(h.testProviders, tp.testTaskProvider)
 		}
 	}
 
@@ -668,6 +670,16 @@ func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namesp
 		Id:                    taskID,
 		Version:               taskVersion,
 		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+	}))
+}
+
+func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
+	return d.manager.MarkTaskFailed(toCmd(d.t, &cmd.MarkTaskFailedRequest{
+		Namespace:          namespace,
+		Id:                 taskID,
+		Version:            taskVersion,
+		Error:              errMsg,
+		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -1083,10 +1095,11 @@ func (p *unitAwareTestProvider) OnSwapRequested(_ *Task, _ string, _ []string) e
 	return nil
 }
 
-func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) {
+func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.onTaskCompletedCalls = append(p.onTaskCompletedCalls, task.ID)
+	return nil
 }
 
 func (p *unitAwareTestProvider) snapshotCalls() (groups, tasks []string) {

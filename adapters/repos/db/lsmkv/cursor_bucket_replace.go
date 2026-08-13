@@ -26,6 +26,9 @@ type CursorReplace struct {
 	serveCache   cursorStateReplace
 
 	reusableIDList []int
+
+	// surface deleted keys (nil value) instead of skipping; set by CursorInMemWithTombstones
+	emitTombstones bool
 }
 
 type innerCursorReplace interface {
@@ -93,10 +96,82 @@ func (b *Bucket) Cursor() *CursorReplace {
 	}
 }
 
-// CursorInMemWith returns a cursor which scan over the primary key of entries
+// CursorReplaceReusable behaves like Cursor but backs each disk segment with a
+// reusable cursor, avoiding per-node reader allocations on the pread path.
+// Prefer it for long sequential scans. Same locking/Close contract as Cursor.
+func (b *Bucket) CursorReplaceReusable() *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	innerCursors, unlockSegmentGroup := b.disk.newReusableCursors()
+
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCursor())
+	}
+	innerCursors = append(innerCursors, b.active.newCursor())
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock: func() {
+			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
+		},
+	}
+}
+
+// CursorReplaceDigestReusable behaves like CursorReplaceReusable but its disk
+// cursors run in digest mode, retaining only the first valuePrefixLen value
+// bytes (memtable entries are still served in full, being already in memory).
+func (b *Bucket) CursorReplaceDigestReusable(valuePrefixLen int) *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
+
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCursor())
+	}
+	innerCursors = append(innerCursors, b.active.newCursor())
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock: func() {
+			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
+		},
+	}
+}
+
+// CursorInMem returns a cursor which scans over the primary key of entries
 // not yet persisted on disk.
-// Segment creation and compaction will be blocked until the cursor is closed
+// Segment creation and compaction will be blocked until the cursor is closed.
 func (b *Bucket) CursorInMem() *CursorReplace {
+	return b.cursorInMem(false)
+}
+
+// CursorInMemWithTombstones behaves like CursorInMem but surfaces deleted keys with
+// a nil value (used by the hashtree init scan to record memtable-only tombstones).
+func (b *Bucket) CursorInMemWithTombstones() *CursorReplace {
+	return b.cursorInMem(true)
+}
+
+func (b *Bucket) cursorInMem(emitTombstones bool) *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 	b.flushLock.RLock()
 
@@ -105,10 +180,11 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
 	// states: either a flushing memtable currently exists - or it doesn't
-	var flushingMemtableCursor innerCursorReplace
 	var releaseFlushingMemtable func()
+	hadFlushing := b.flushing != nil
 
-	if b.flushing != nil {
+	if hadFlushing {
+		var flushingMemtableCursor innerCursorReplace
 		flushingMemtableCursor, releaseFlushingMemtable = b.flushing.newBlockingCursor()
 		innerCursors = append(innerCursors, flushingMemtableCursor)
 	}
@@ -119,9 +195,11 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 	return &CursorReplace{
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
-		innerCursors: innerCursors,
+		innerCursors:   innerCursors,
+		emitTombstones: emitTombstones,
+		// capture hadFlushing so unlock releases exactly what it acquired
 		unlock: func() {
-			if b.flushing != nil {
+			if hadFlushing {
 				releaseFlushingMemtable()
 			}
 			releaseActiveMemtable()
@@ -138,6 +216,19 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock:       unlockSegmentGroup,
+	}
+}
+
+// CursorOnDiskDigest behaves like CursorOnDisk but its disk cursors run in
+// digest mode (see CursorReplaceDigestReusable) over reusable per-segment cursors.
+func (b *Bucket) CursorOnDiskDigest(valuePrefixLen int) *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
 
 	return &CursorReplace{
 		innerCursors: innerCursors,
@@ -235,6 +326,10 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 		}
 
 		if errors.Is(c.serveCache.err, lsmkv.Deleted) {
+			if c.emitTombstones {
+				// literal nil, not the reused serveCache.value, so callers can detect the tombstone
+				return c.serveCache.key, nil
+			}
 			// element was deleted, proceed with next round
 			continue
 		}

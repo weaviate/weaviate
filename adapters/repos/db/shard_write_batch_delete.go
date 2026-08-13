@@ -175,6 +175,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		nil, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.version, s.isFallbackToSearchable,
 		s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("docIds: %w", err)

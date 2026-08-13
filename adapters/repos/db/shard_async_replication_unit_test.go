@@ -22,6 +22,7 @@ import (
 	routertypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 // TestResolveObjectConflict covers all branches of resolveObjectConflict that
@@ -116,6 +117,74 @@ func TestResolveObjectConflict(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantDeleted, deleted, "deleted")
 			assert.Equal(t, tc.wantNotResolved, notResolved, "notResolved")
+		})
+	}
+}
+
+func TestHashTreeRoot(t *testing.T) {
+	t.Run("not initialized", func(t *testing.T) {
+		s := &Shard{}
+		_, ok := s.HashTreeRoot()
+		assert.False(t, ok)
+	})
+
+	t.Run("initialized matches Root and Level(0)", func(t *testing.T) {
+		ht, err := hashtree.NewCompactHashTree(1024, 4)
+		require.NoError(t, err)
+		require.NoError(t, ht.AggregateLeafWith(0, []byte("payload")))
+
+		s := &Shard{hashtree: ht, hashtreeFullyInitialized: true}
+
+		root, ok := s.HashTreeRoot()
+		require.True(t, ok)
+		assert.Equal(t, ht.Root(), root)
+
+		disc := hashtree.NewBitset(1)
+		disc.Set(0)
+		level0 := make([]hashtree.Digest, 1)
+		n, err := ht.Level(0, disc, level0)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		assert.Equal(t, level0[0], root)
+	})
+}
+
+// TestGetAsyncReplicationStats pins that a shard reports its replication targets
+// in a fixed order, so repeating a node status scan does not reshuffle them.
+func TestGetAsyncReplicationStats(t *testing.T) {
+	tests := []struct {
+		name        string
+		targetNodes []string
+		wantTargets []string
+	}{
+		{
+			name: "no target", wantTargets: []string{},
+		},
+		{
+			name: "one target", targetNodes: []string{"node-B"},
+			wantTargets: []string{"node-B"},
+		},
+		{
+			name:        "many targets",
+			targetNodes: []string{"node-D", "node-A", "node-C", "node-B", "node-E"},
+			wantTargets: []string{"node-A", "node-B", "node-C", "node-D", "node-E"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := make(map[string]*hashBeatHostStats, len(tt.targetNodes))
+			for _, node := range tt.targetNodes {
+				stats[node] = &hashBeatHostStats{targetNodeName: node}
+			}
+			s := &Shard{asyncReplicationStatsByTargetNode: stats}
+
+			reported := make([]string, 0, len(tt.wantTargets))
+			for _, status := range s.getAsyncReplicationStats(context.Background()) {
+				reported = append(reported, status.TargetNode)
+			}
+
+			assert.Equal(t, tt.wantTargets, reported, "order of the reported targets")
 		})
 	}
 }

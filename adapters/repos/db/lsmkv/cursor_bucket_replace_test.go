@@ -63,6 +63,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyReplace,
+		logger:   nullLogger(),
 	}
 
 	cursor := b.Cursor()
@@ -169,4 +170,40 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		actual[string(k)] = string(v)
 	}
 	require.Equal(t, expected, actual)
+}
+
+// TestCursorInMemWithTombstones checks CursorInMemWithTombstones yields deleted keys with a literal nil value ("ccc" sorts after live keys to pin nil vs the reused buffer); plain CursorInMem skips them.
+func TestCursorInMemWithTombstones(t *testing.T) {
+	t.Parallel()
+
+	active := newTestMemtableReplace(map[string][]byte{
+		"aaa": []byte("va"),
+		"bbb": []byte("vb"),
+	})
+	active.key.setTombstone([]byte("ccc"), nil, nil)
+
+	b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace, logger: nullLogger()}
+
+	// plain in-mem cursor skips the tombstone
+	plain := map[string]string{}
+	c := b.CursorInMem()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		plain[string(k)] = string(v)
+	}
+	c.Close()
+	require.Equal(t, map[string]string{"aaa": "va", "bbb": "vb"}, plain)
+
+	// tombstone-emitting cursor surfaces "ccc" with a literal nil value
+	seen := map[string]bool{}
+	ct := b.CursorInMemWithTombstones()
+	for k, v := ct.First(); k != nil; k, v = ct.Next() {
+		seen[string(k)] = true
+		if string(k) == "ccc" {
+			require.Nil(t, v, "tombstone must yield a literal nil value, not a zero-length slice")
+		} else {
+			require.NotNil(t, v, "live entry must retain its value")
+		}
+	}
+	ct.Close()
+	require.Equal(t, map[string]bool{"aaa": true, "bbb": true, "ccc": true}, seen)
 }

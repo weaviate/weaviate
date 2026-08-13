@@ -953,6 +953,66 @@ func (_c *MockVectorIndex_Shutdown_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
+// SnapshotMutableFiles provides a mock function with given fields: ctx, basePath, stagingDir
+func (_m *MockVectorIndex) SnapshotMutableFiles(ctx context.Context, basePath string, stagingDir string) ([]string, error) {
+	ret := _m.Called(ctx, basePath, stagingDir)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SnapshotMutableFiles")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]string, error)); ok {
+		return rf(ctx, basePath, stagingDir)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) []string); ok {
+		r0 = rf(ctx, basePath, stagingDir)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, basePath, stagingDir)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockVectorIndex_SnapshotMutableFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotMutableFiles'
+type MockVectorIndex_SnapshotMutableFiles_Call struct {
+	*mock.Call
+}
+
+// SnapshotMutableFiles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - basePath string
+//   - stagingDir string
+func (_e *MockVectorIndex_Expecter) SnapshotMutableFiles(ctx interface{}, basePath interface{}, stagingDir interface{}) *MockVectorIndex_SnapshotMutableFiles_Call {
+	return &MockVectorIndex_SnapshotMutableFiles_Call{Call: _e.mock.On("SnapshotMutableFiles", ctx, basePath, stagingDir)}
+}
+
+func (_c *MockVectorIndex_SnapshotMutableFiles_Call) Run(run func(ctx context.Context, basePath string, stagingDir string)) *MockVectorIndex_SnapshotMutableFiles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockVectorIndex_SnapshotMutableFiles_Call) Return(_a0 []string, _a1 error) *MockVectorIndex_SnapshotMutableFiles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockVectorIndex_SnapshotMutableFiles_Call) RunAndReturn(run func(context.Context, string, string) ([]string, error)) *MockVectorIndex_SnapshotMutableFiles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Type provides a mock function with no fields
 func (_m *MockVectorIndex) Type() common.IndexType {
 	ret := _m.Called()

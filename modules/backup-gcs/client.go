@@ -48,7 +48,7 @@ type gcsClient struct {
 	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
-func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+func storageOptions(ctx context.Context, logger logrus.FieldLogger) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
@@ -63,6 +63,7 @@ func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
 		}
 		opts = append(opts, option.WithCredentials(creds))
 	} else if backupGCSAuthProxyEndpoint != "" {
+		logger.Info("backup-gcs: using auth broker for GCS credentials")
 		opts = append(
 			opts,
 			option.WithTokenSource(
@@ -89,7 +90,7 @@ func projectID() string {
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
-	opts, err := storageOptions(ctx)
+	opts, err := storageOptions(ctx, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +100,12 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		return nil, errors.Wrap(err, "create client")
 	}
 
-	client.SetRetry(storage.WithBackoff(gax.Backoff{
-		Initial:    2 * time.Second, // Note: the client uses a jitter internally
-		Max:        60 * time.Second,
-		Multiplier: 3,
-	}),
+	client.SetRetry(
+		storage.WithBackoff(gax.Backoff{
+			Initial:    2 * time.Second, // Note: the client uses a jitter internally
+			Max:        60 * time.Second,
+			Multiplier: 3,
+		}),
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
@@ -199,14 +201,21 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 	})
 }
 
-func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+func (g *gcsClient) resolveBucketName(bucketOverride string) (string, error) {
 	b := g.config.Bucket
-
 	if bucketOverride != "" {
 		b = bucketOverride
 	}
 	if b == "" {
-		return nil, fmt.Errorf("bucket must not be empty")
+		return "", fmt.Errorf("bucket must not be empty")
+	}
+	return b, nil
+}
+
+func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+	b, err := g.resolveBucketName(bucketOverride)
+	if err != nil {
+		return nil, err
 	}
 	bucket := g.client.Bucket(b)
 
@@ -282,6 +291,14 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	if _, err := g.resolveBucketName(overrideBucket); err != nil {
+		return err
+	}
+
+	if g.config.SkipAccessCheck {
+		return nil
+	}
+
 	// Each call gets a unique access-check file so concurrent Initialize calls
 	// from different nodes (or the same node) never interfere with each other.
 	seq := g.counter.Add(1)

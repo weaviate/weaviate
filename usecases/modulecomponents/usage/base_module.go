@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,27 +28,27 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
-	DefaultCollectionInterval = 1 * time.Hour
-	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
-	DefaultShardJitterInterval = 100 * time.Millisecond
+	DefaultCollectionInterval  = 1 * time.Hour
 	DefaultRuntimeLoadInterval = 2 * time.Minute
+	DefaultShardConcurrency    = clusterusage.DefaultShardConcurrency
 )
 
 // BaseModule contains the common logic for usage collection modules
 type BaseModule struct {
-	nodeID        string
-	policyVersion string
-	moduleName    string
-	config        *config.Config
-	storage       StorageBackend
-	interval      time.Duration
-	shardJitter   time.Duration
-	stopChan      chan struct{}
-	metrics       *Metrics
-	usageService  clusterusage.Service
+	nodeID           string
+	policyVersion    string
+	moduleName       string
+	config           *config.Config
+	storage          StorageBackend
+	interval         time.Duration
+	shardConcurrency int
+	stopChan         chan struct{}
+	metrics          *Metrics
+	usageService     clusterusage.Service
 	// support for resuming push after a restart
 	initialIntervalDefined bool
 	initialInterval        time.Duration
@@ -56,24 +57,47 @@ type BaseModule struct {
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
 	mu sync.RWMutex
+	// collectionInFlight guards against overlapping collection cycles when a
+	// report takes longer than the collection interval
+	collectionInFlight atomic.Bool
 }
 
 // NewBaseModule creates a new base module instance
 func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 	return &BaseModule{
-		interval:    DefaultCollectionInterval,
-		shardJitter: DefaultShardJitterInterval,
-		stopChan:    make(chan struct{}),
-		storage:     storage,
-		moduleName:  moduleName,
+		interval:         DefaultCollectionInterval,
+		shardConcurrency: DefaultShardConcurrency,
+		stopChan:         make(chan struct{}),
+		storage:          storage,
+		moduleName:       moduleName,
 	}
 }
 
 func (b *BaseModule) SetUsageService(usageService any) {
-	if service, ok := usageService.(clusterusage.Service); ok {
-		b.usageService = service
-		service.SetJitterInterval(b.shardJitter)
+	service, ok := usageService.(clusterusage.Service)
+	if !ok {
+		return
 	}
+
+	alreadySet := func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.usageService != nil {
+			// already set, the collector is running
+			return true
+		}
+		b.usageService = service
+		return false
+	}()
+	if alreadySet {
+		return
+	}
+
+	service.SetShardConcurrency(b.shardConcurrency)
+	// Start the collector only once the service it depends on is set.
+	enterrors.GoWrapper(func() {
+		b.collectAndUploadPeriodically(context.Background())
+	}, b.logger)
 }
 
 func (b *BaseModule) Name() string {
@@ -110,11 +134,15 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		}
 	}
 
-	// Initialize shard jitter interval
-	if b.config.Usage.ShardJitterInterval != nil {
-		if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval > 0 {
-			b.shardJitter = jitterInterval
+	// Initialize shard concurrency
+	if b.config.Usage.ShardConcurrency != nil {
+		if shardConcurrency := b.config.Usage.ShardConcurrency.Get(); shardConcurrency > 0 {
+			b.shardConcurrency = shardConcurrency
 		}
+	}
+	// push the parsed value in case the usage service was wired before Init
+	if b.usageService != nil {
+		b.usageService.SetShardConcurrency(b.shardConcurrency)
 	}
 
 	// Verify storage permissions (opt-in)
@@ -136,11 +164,6 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 	if err := b.adjustInitialInterval(config); err != nil {
 		b.logger.Errorf("cannot adjust initial interval, falling back to: %v: %v", b.interval, err)
 	}
-
-	// Start periodic collection and upload
-	enterrors.GoWrapper(func() {
-		b.collectAndUploadPeriodically(context.Background())
-	}, b.logger)
 
 	b.logger.Infof("%s module initialized successfully", b.moduleName)
 	return nil
@@ -165,10 +188,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}
 
 	b.logger.WithFields(logrus.Fields{
-		"base_interval":        b.interval.String(),
-		"load_interval":        loadInterval.String(),
-		"shard_jitter":         b.shardJitter.String(),
-		"default_shard_jitter": DefaultShardJitterInterval.String(),
+		"base_interval":     b.interval.String(),
+		"load_interval":     loadInterval.String(),
+		"shard_concurrency": b.shardConcurrency,
 	}).Debug("starting periodic collection with ticker")
 
 	// Create ticker with base interval
@@ -193,17 +215,10 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 				"interval":     b.interval.String(),
 			}).Debug("collection ticker fired - starting collection cycle")
 
-			enterrors.GoWrapper(func() {
-				if err := b.collectAndUploadUsage(ctx); err != nil {
-					b.logger.WithError(err).Error("Failed to collect and upload usage data")
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-				} else {
-					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-				}
-			}, b.logger)
-
-			// save last push date
-			b.storeLastPushDate()
+			if b.tryCollectAndUpload(ctx) {
+				// save last push date
+				b.storeLastPushDate()
+			}
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
@@ -223,6 +238,28 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// tryCollectAndUpload starts a collection cycle in the background unless the
+// previous one is still running, in which case the tick is skipped.
+func (b *BaseModule) tryCollectAndUpload(ctx context.Context) bool {
+	if !b.collectionInFlight.CompareAndSwap(false, true) {
+		b.logger.Warn("previous usage collection still in progress - skipping this cycle")
+		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "skipped").Inc()
+		return false
+	}
+
+	enterrors.GoWrapper(func() {
+		defer b.collectionInFlight.Store(false)
+		defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
+		if err := b.collectAndUploadUsage(ctx); err != nil {
+			b.logger.Errorf("Failed to collect and upload usage data: %v", err)
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+		} else {
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
+		}
+	}, b.logger)
+	return true
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
@@ -309,15 +346,16 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 		ticker.Reset(b.interval)
 	}
 
-	// Check for shard jitter interval updates
-	// Note: we allow 0 as a valid value for the shard jitter interval
-	if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval >= 0 && b.shardJitter != jitterInterval {
-		b.logger.WithFields(logrus.Fields{
-			"old_jitter": b.shardJitter.String(),
-			"new_jitter": jitterInterval.String(),
-		}).Info("shard jitter interval updated")
-		b.shardJitter = jitterInterval
-		b.usageService.SetJitterInterval(b.shardJitter)
+	// Check for shard concurrency updates
+	if b.config.Usage.ShardConcurrency != nil {
+		if shardConcurrency := b.config.Usage.ShardConcurrency.Get(); shardConcurrency > 0 && b.shardConcurrency != shardConcurrency {
+			b.logger.WithFields(logrus.Fields{
+				"old_shard_concurrency": b.shardConcurrency,
+				"new_shard_concurrency": shardConcurrency,
+			}).Info("usage shard concurrency updated")
+			b.shardConcurrency = shardConcurrency
+			b.usageService.SetShardConcurrency(b.shardConcurrency)
+		}
 	}
 
 	// Build common storage config

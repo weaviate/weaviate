@@ -17,8 +17,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -72,14 +75,6 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-func fromReplicas(xs []Replica) []*storobj.Object {
-	rs := make([]*storobj.Object, len(xs))
-	for i := range xs {
-		rs[i] = xs[i].Object
-	}
-	return rs
-}
-
 type DigestObjectsInRangeReq struct {
 	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
 	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`
@@ -88,6 +83,15 @@ type DigestObjectsInRangeReq struct {
 
 type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
+}
+
+// CompareHashTreeRootsReq / Resp are the REST payloads for the batched root pre-filter; roots use raw [high,low] pairs since Digest's pointer-receiver JSON breaks for map values.
+type CompareHashTreeRootsReq struct {
+	Roots map[string][2]uint64 `json:"roots"`
+}
+
+type CompareHashTreeRootsResp struct {
+	DivergingShards []string `json:"divergingShards,omitempty"`
 }
 
 // WClient is the client used to write to replicas
@@ -149,6 +153,11 @@ type RClient interface {
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
+	// CompareHashTreeRoots batches the level-0 root compare of many shards, returning
+	// the diverging subset. Returns ErrCompareHashTreeRootsUnsupported on too-old targets.
+	CompareHashTreeRoots(ctx context.Context, host, index string,
+		roots map[string]hashtree.Digest) (divergingShards []string, err error)
+
 	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 
 	// Async-checkpoint RPCs: createdAt is the initiator's value, propagated unchanged.
@@ -159,11 +168,12 @@ type RClient interface {
 
 // FinderClient extends RClient with consistency checks
 type FinderClient struct {
-	cl RClient
+	cl  RClient
+	log logrus.FieldLogger
 }
 
-func NewFinderClient(cl RClient) FinderClient {
-	return FinderClient{cl: cl}
+func NewFinderClient(cl RClient, log logrus.FieldLogger) FinderClient {
+	return FinderClient{cl: cl, log: log}
 }
 
 // FullRead reads full object
@@ -210,17 +220,84 @@ func (fc FinderClient) CompareDigests(ctx context.Context,
 	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
-// FullReads read full objects
+func (fc FinderClient) CompareHashTreeRoots(ctx context.Context,
+	host, index string, roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return fc.cl.CompareHashTreeRoots(ctx, host, index, roots)
+}
+
+// MaxFullReadIDsPerRequest bounds ids per FetchObjects request. The REST
+// transport base64-encodes them into the URL query string at ~53 bytes per id,
+// so 256 ids is ~14 KB: well inside the receiving server's 1 MiB header cap
+// (MaxHeaderBytes is unset) and the 60 KiB a service-mesh sidecar (Envoy
+// default) allows on node-to-node traffic. An unbounded list would overflow
+// those caps with a 414 that is not retried. The chunk also caps how many
+// whole objects one response holds in memory.
+const MaxFullReadIDsPerRequest = 256
+
+// MaxConcurrentFullReadRequests bounds how many chunked FetchObjects requests
+// are in flight at once against the single winning host, capping peak response
+// memory at MaxConcurrentFullReadRequests * MaxFullReadIDsPerRequest whole
+// objects per FullReads call. The repairer runs one FullReads per winning
+// replica concurrently, so the ceiling per repaired batch is that product
+// times the number of winning replicas (at most the replication factor).
+const MaxConcurrentFullReadRequests = 16
+
+// FullReads reads the current version of each id from host, one entry per
+// requested id in request order. Ids are fetched in bounded chunks, chunks
+// concurrently; any failed chunk fails the whole read. A response that does
+// not line up with its request is rejected rather than returned: callers
+// index the result positionally, so a mispair would repair the wrong object.
 func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
 ) ([]Replica, error) {
-	n := len(ids)
-	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
-	if m := len(rs); err == nil && n != m {
-		err = fmt.Errorf("malformed full read response: length expected %d got %d", n, m)
+	if len(ids) <= MaxFullReadIDsPerRequest {
+		return fc.fullReadChunk(ctx, host, index, shard, ids, 0)
 	}
-	return rs, err
+
+	rs := make([]Replica, len(ids))
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(fc.log, ctx)
+	gr.SetLimit(MaxConcurrentFullReadRequests)
+	for start := 0; start < len(ids); start += MaxFullReadIDsPerRequest {
+		start, end := start, min(start+MaxFullReadIDsPerRequest, len(ids))
+		gr.Go(func() error {
+			part, err := fc.fullReadChunk(ctx, host, index, shard, ids[start:end], start)
+			if err != nil {
+				return err
+			}
+			copy(rs[start:end], part)
+			return nil
+		})
+	}
+	if err := gr.Wait(); err != nil {
+		return nil, err
+	}
+	return rs, nil
+}
+
+// fullReadChunk performs one FetchObjects request and validates that the
+// response carries exactly the requested ids in request order. offset is the
+// chunk's position in the whole id list, so errors name absolute indices.
+func (fc FinderClient) fullReadChunk(ctx context.Context,
+	host, index, shard string,
+	chunk []strfmt.UUID, offset int,
+) ([]Replica, error) {
+	part, err := fc.cl.FetchObjects(ctx, host, index, shard, chunk)
+	if err != nil {
+		return nil, err
+	}
+	if len(part) != len(chunk) {
+		return nil, fmt.Errorf("malformed full read response: length expected %d got %d",
+			len(chunk), len(part))
+	}
+	for i := range part {
+		if part[i].ID != chunk[i] {
+			return nil, fmt.Errorf("malformed full read response: object %d is %q, expected %q",
+				offset+i, part[i].ID, chunk[i])
+		}
+	}
+	return part, nil
 }
 
 // Overwrite specified object with most recent contents

@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
-func (s *Raft) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
+func (s *Raft) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
 	req := cmd.QueryGetUsersRequest{
 		UserIds: userIds,
 	}
@@ -45,7 +45,14 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
-	return response.Users, nil
+	out := make(map[string]apikey.UserView, len(response.Users))
+	for id, u := range response.Users {
+		if u == nil {
+			continue
+		}
+		out[id] = *u
+	}
+	return out, nil
 }
 
 func (s *Raft) CheckUserIdentifierExists(userIdentifier string) (bool, error) {

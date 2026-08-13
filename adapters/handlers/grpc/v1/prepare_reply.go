@@ -13,10 +13,9 @@ package v1
 
 import (
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -75,7 +74,7 @@ func NewReplier(
 	}
 }
 
-func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
+func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:                    float32(tookSeconds),
@@ -85,7 +84,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := r.extractGroup(raw, searchParams, scheme)
+			group, generativeGroupResponse, err := r.extractGroup(raw, searchParams, resolver)
 			if err != nil {
 				return nil, err
 			}
@@ -95,7 +94,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupedResult, generativeGroupedResults, err := r.extractObjectsToResults(res, searchParams, scheme, false)
+		objects, generativeGroupedResult, generativeGroupedResults, err := r.extractObjectsToResults(res, searchParams, resolver, false)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +150,7 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 	return &pb.QueryProfile{Shards: shards}
 }
 
-func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
+func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, resolver *schemaResolver, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturnDeprecated := ""
 	var generativeGroupResults *pb.GenerativeResult
@@ -165,7 +164,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(resolver, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -207,11 +206,16 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(idStrfmtStr, "-", ""), 16)
-	if !success {
-		return nil, "", fmt.Errorf("failed to parse hex string to integer")
+	// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
+	parsed, err := uuid.Parse(idStrfmtStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse id %q as uuid: %w", idStrfmtStr, err)
 	}
-	return hexInteger.Bytes(), idStrfmtStr, nil
+	idBytes, err := parsed.MarshalBinary()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode id %q as bytes: %w", idStrfmtStr, err)
+	}
+	return idBytes, idStrfmtStr, nil
 }
 
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
@@ -423,7 +427,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	return addProps, nil
 }
 
-func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
+func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, resolver *schemaResolver) (*pb.GroupByResult, string, error) {
 	generativeSearchRaw, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
 	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
 	asMap, ok := raw.(map[string]interface{})
@@ -520,7 +524,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, _, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
+	objects, _, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, resolver, true)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
@@ -533,8 +537,8 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 // extractPropertiesAnswer fills the top-level result for one hit.
 // TargetCollection is the resolved class name, stripped of the caller's own
 // namespace prefix.
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
-	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
+func (r *Replier) extractPropertiesAnswer(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(resolver, results, properties, className, additionalPropsParams)
 	if err != nil {
 		return nil, err
 	}
@@ -545,8 +549,8 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 // extractRefPropertiesAnswer fills the result for a nested reference hit.
 // Strips the caller's own NS from the ref target class — symmetric with
 // extractPropertiesAnswer above.
-func (r *Replier) extractRefPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
-	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
+func (r *Replier) extractRefPropertiesAnswer(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(resolver, results, properties, className, additionalPropsParams)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +560,7 @@ func (r *Replier) extractRefPropertiesAnswer(scheme schema.Schema, results map[s
 
 // buildPropertiesResult assembles the per-hit non-ref + ref properties.
 // TargetCollection is set by the calling wrapper.
-func (r *Replier) buildPropertiesResult(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+func (r *Replier) buildPropertiesResult(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
@@ -571,11 +575,11 @@ func (r *Replier) buildPropertiesResult(scheme schema.Schema, results map[string
 			continue
 		}
 		if prop.IsPrimitive {
-			class := scheme.GetClass(className)
-			if class == nil {
-				return nil, fmt.Errorf("could not find class %s in schema", className)
+			class, err := resolver.resolve(className)
+			if err != nil {
+				return nil, err
 			}
-			dataType, err := schema.GetPropertyDataType(class, prop.Name)
+			dataType, err := class.primitiveDataType(prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting primitive property datatype")
 			}
@@ -587,11 +591,11 @@ func (r *Replier) buildPropertiesResult(scheme schema.Schema, results map[string
 			continue
 		}
 		if prop.IsObject {
-			class := scheme.GetClass(className)
-			if class == nil {
-				return nil, fmt.Errorf("could not find class %s in schema", className)
+			class, err := resolver.resolve(className)
+			if err != nil {
+				return nil, err
 			}
-			nested, err := schema.GetPropertyByName(class, prop.Name)
+			nested, err := class.property(prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting nested property")
 			}
@@ -612,7 +616,7 @@ func (r *Replier) buildPropertiesResult(scheme schema.Schema, results map[string
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractRefPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			extractedRefProp, err := r.extractRefPropertiesAnswer(resolver, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}

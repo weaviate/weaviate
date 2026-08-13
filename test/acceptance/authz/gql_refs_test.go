@@ -29,13 +29,12 @@ import (
 )
 
 func TestAuthZGraphQLRefs(t *testing.T) {
-	adminUser := "existing-user"
 	adminKey := "existing-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, teardown := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t)
 	defer teardown()
 
 	articlesCls := articles.ArticlesClass()
@@ -144,14 +143,13 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 }
 
 func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	articlesCls := articles.ArticlesClass()

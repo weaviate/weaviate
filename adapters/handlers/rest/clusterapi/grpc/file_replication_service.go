@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
@@ -41,9 +42,10 @@ func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding
 	}
 }
 
-func (fps *FileReplicationService) PauseFileActivity(ctx context.Context, req *pb.PauseFileActivityRequest) (*pb.PauseFileActivityResponse, error) {
+func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, req *pb.CreateReplicaSnapshotRequest) (*pb.CreateReplicaSnapshotResponse, error) {
 	indexName := req.GetIndexName()
 	shardName := req.GetShardName()
+	opID := req.GetOpId()
 	schemaVersion := req.GetSchemaVersion()
 
 	index, err := fps.indexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -51,61 +53,42 @@ func (fps *FileReplicationService) PauseFileActivity(ctx context.Context, req *p
 		return nil, status.Errorf(codes.Internal, "local index %q not found: %v", indexName, err)
 	}
 
-	err = index.IncomingPauseFileActivity(ctx, shardName)
+	files, err := index.IncomingCreateReplicaSnapshot(ctx, shardName, opID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
+		if errors.Is(err, enterrors.ErrShardBusyStructuralOp) {
+			return nil, status.Errorf(codes.FailedPrecondition, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to create replica snapshot for index %q, shard %q, op %q: %v", indexName, shardName, opID, err)
 	}
 
-	return &pb.PauseFileActivityResponse{
-		IndexName: indexName,
-		ShardName: shardName,
-	}, nil
-}
-
-func (fps *FileReplicationService) ResumeFileActivity(ctx context.Context, req *pb.ResumeFileActivityRequest) (*pb.ResumeFileActivityResponse, error) {
-	indexName := req.GetIndexName()
-	shardName := req.GetShardName()
-
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
-	}
-
-	err := index.IncomingResumeFileActivity(ctx, shardName)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to resume file activity for index %q, shard %q: %v", indexName, shardName, err)
-	}
-
-	return &pb.ResumeFileActivityResponse{
-		IndexName: indexName,
-		ShardName: shardName,
-	}, nil
-}
-
-func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFilesRequest) (*pb.ListFilesResponse, error) {
-	indexName := req.GetIndexName()
-	shardName := req.GetShardName()
-
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
-	}
-
-	files, err := index.IncomingListFiles(ctx, shardName)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list files for index %q, shard %q: %v", indexName, shardName, err)
-	}
-
-	return &pb.ListFilesResponse{
+	return &pb.CreateReplicaSnapshotResponse{
 		IndexName: indexName,
 		ShardName: shardName,
 		FileNames: files,
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFileMetadata(ctx context.Context, req *pb.GetFileMetadataRequest) (*pb.FileMetadata, error) {
+func (fps *FileReplicationService) ReleaseReplicaSnapshot(ctx context.Context, req *pb.ReleaseReplicaSnapshotRequest) (*pb.ReleaseReplicaSnapshotResponse, error) {
 	indexName := req.GetIndexName()
-	shardName := req.GetShardName()
+	opID := req.GetOpId()
+
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
+	}
+
+	if err := index.IncomingReleaseReplicaSnapshot(ctx, opID); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to release replica snapshot for index %q, op %q: %v", indexName, opID, err)
+	}
+
+	return &pb.ReleaseReplicaSnapshotResponse{
+		IndexName: indexName,
+	}, nil
+}
+
+func (fps *FileReplicationService) GetReplicaSnapshotFileMetadata(ctx context.Context, req *pb.GetReplicaSnapshotFileMetadataRequest) (*pb.FileMetadata, error) {
+	indexName := req.GetIndexName()
+	opID := req.GetOpId()
 	fileName := req.GetFileName()
 
 	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -113,33 +96,36 @@ func (fps *FileReplicationService) GetFileMetadata(ctx context.Context, req *pb.
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
 
-	md, err := index.IncomingGetFileMetadata(ctx, shardName, fileName)
+	md, err := index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, fileName)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in shard %q: %v", fileName, shardName, err)
+		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in op %q: %v", fileName, opID, err)
 	}
 
 	return &pb.FileMetadata{
 		IndexName: indexName,
-		ShardName: shardName,
 		FileName:  fileName,
 		Size:      md.Size,
 		Crc32:     md.CRC32,
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.FileReplicationService_GetFileServer) error {
+func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnapshotFileRequest, stream pb.FileReplicationService_GetReplicaSnapshotFileServer) error {
 	if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
 		return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
 	}
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	indexName := req.GetIndexName()
+	opID := req.GetOpId()
+	fileName := req.GetFileName()
+
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+		return status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
 
-	reader, err := index.IncomingGetFile(stream.Context(), req.ShardName, req.FileName)
+	reader, err := index.IncomingGetReplicaSnapshotFile(stream.Context(), opID, fileName)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get file %q: %v", req.FileName, err)
+		return status.Errorf(codes.Internal, "failed to get file %q: %v", fileName, err)
 	}
 	defer reader.Close()
 
@@ -151,12 +137,12 @@ func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.Fil
 		eof := errors.Is(err, io.EOF)
 
 		if err != nil && !eof {
-			return status.Errorf(codes.Internal, "failed to read file %q: %v", req.FileName, err)
+			return status.Errorf(codes.Internal, "failed to read file %q: %v", fileName, err)
 		}
 
 		if n == 0 && !eof {
 			return status.Errorf(codes.Internal,
-				"unexpected zero-byte read without EOF for file %q in shard %q", req.FileName, req.ShardName)
+				"unexpected zero-byte read without EOF for file %q in op %q", fileName, opID)
 		}
 
 		if err := stream.Send(&pb.FileChunk{
@@ -175,9 +161,9 @@ func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.Fil
 }
 
 func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *pb.StartChangeCaptureRequest) (*pb.StartChangeCaptureResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
-	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	index, err := fps.indexForIncomingWrite(ctx, req.GetIndexName(), req.GetSchemaVersion())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "cannot start change capture for index %q: %v", req.GetIndexName(), err)
 	}
 
 	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {

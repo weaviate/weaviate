@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,10 +61,53 @@ type BM25Searcher struct {
 	// use prop.Tokenization directly (tests and callers with no
 	// in-flight migration).
 	tokResolver TokenizationResolver
+	// bucketPinResolver, when non-nil, supersedes tokResolver + GetBucket for
+	// searchable text props: one consistent (tokenization, bucket) snapshot,
+	// pinned for the whole query. See [SearchableBucketPinningResolver].
+	bucketPinResolver SearchableBucketPinningResolver
 }
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
+}
+
+// pinnedSearchableBuckets carries the buckets one query pinned at prop
+// discovery, so lookup reuses the pinned pointer instead of re-fetching by
+// name. Per-query, never stored on the shared BM25Searcher.
+type pinnedSearchableBuckets struct {
+	byProp   map[string]*lsmkv.Bucket
+	releases []func()
+	released bool
+}
+
+func (p *pinnedSearchableBuckets) bucketFor(propName string) (*lsmkv.Bucket, bool) {
+	if p == nil || p.byProp == nil {
+		return nil, false
+	}
+	b, ok := p.byProp[propName]
+	return b, ok
+}
+
+// bucket may be nil; the release is still recorded so it runs at query end.
+func (p *pinnedSearchableBuckets) add(propName string, bucket *lsmkv.Bucket, release func()) {
+	if p.byProp == nil {
+		p.byProp = map[string]*lsmkv.Bucket{}
+	}
+	p.byProp[propName] = bucket
+	if release != nil {
+		p.releases = append(p.releases, release)
+	}
+}
+
+// release is idempotent and nil-safe.
+func (p *pinnedSearchableBuckets) release() {
+	if p == nil || p.released {
+		return
+	}
+	p.released = true
+	for _, r := range p.releases {
+		r()
+	}
 }
 
 type termListRequest struct {
@@ -105,6 +149,14 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 // Pass nil (the default) to use the schema-stored value directly.
 func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
 	b.tokResolver = r
+	return b
+}
+
+// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
+func (b *BM25Searcher) WithSearchableBucketPinningResolver(
+	r SearchableBucketPinningResolver,
+) *BM25Searcher {
+	b.bucketPinResolver = r
 	return b
 }
 
@@ -158,10 +210,54 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
-	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).Count(ctx)
+// queryTerms holds the per-tokenization query terms and per-property boosts
+// prepared for a BM25 search. Grouping them lets call sites bind fields by
+// name rather than positionally, where the several string-keyed maps are easy
+// to transpose.
+type queryTerms struct {
+	propNamesByTokenization       map[string][]string
+	queryTermsByTokenization      map[string][]string
+	duplicateBoostsByTokenization map[string][]int
+	propertyBoosts                map[string]float32
+	// Set only for SearchOperatorAndCross, and only once every searched property
+	// is known to tokenize the query the same way. Empty means the operator was
+	// not requested or the query has no terms, so the regular path applies.
+	crossPropQueryTerms      []string
+	crossPropDuplicateBoosts []int
+}
+
+// queryStats holds corpus-level BM25 statistics gathered alongside the terms.
+type queryStats struct {
+	// allBucketsAreInverted is false when any searched bucket is non-inverted,
+	// which forces the legacy WAND path instead of BlockMaxWAND.
+	allBucketsAreInverted bool
+	// n is the total number of documents in the collection (BM25's "N").
+	// Approximate (see Bucket.CountApproximate); terms.Idf clamps so an
+	// undercount cannot yield a negative idf.
+	n                 float64
+	averagePropLength float64
+}
+
+// Pin lifetime: on SUCCESS the caller owns the pins and MUST defer
+// pins.release(); on ERROR they are released here and the caller's
+// deferred release no-ops.
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (queryTerms, queryStats, *pinnedSearchableBuckets, error) {
+	pins := &pinnedSearchableBuckets{}
+	failed := true
+	defer func() {
+		if failed {
+			pins.release()
+		}
+	}()
+
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
+	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return queryTerms{}, queryStats{}, pins, fmt.Errorf("objects bucket not available (store shutting down?)")
+	}
+	count, err := objectsBucket.CountApproximate()
 	if err != nil {
-		return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("count objects: %w", err)
+		return queryTerms{}, queryStats{}, pins, fmt.Errorf("count objects: %w", err)
 	}
 	N := float64(count)
 
@@ -194,6 +290,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	props := make([]propInfo, 0, len(params.Properties))
+	seenProps := make(map[string]struct{}, len(params.Properties))
 	neededTokenizations := map[string]struct{}{}
 	needsASCIIFold := map[string]struct{}{}
 
@@ -208,35 +305,49 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 		propertyBoosts[property] = propBoost
 
+		// Skip duplicates: propertyBoosts already holds the last boost for
+		// this property; processing it again would double-count its score.
+		if _, dup := seenProps[property]; dup {
+			continue
+		}
+		seenProps[property] = struct{}{}
+
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
+			return queryTerms{}, queryStats{}, pins, err
 		}
 
-		bucket := b.GetBucket(property)
+		prop, err := schema.GetPropertyByName(class, property)
+		if err != nil {
+			return queryTerms{}, queryStats{}, pins, err
+		}
+
+		var (
+			bucket       *lsmkv.Bucket
+			effectiveTok string
+		)
+		if b.bucketPinResolver != nil {
+			var release func()
+			// Resolve by the user-supplied name, not prop.Name: a dotted
+			// input would otherwise silently search the parent prop's bucket
+			// instead of erroring like the non-pinning path.
+			effectiveTok, bucket, release = b.bucketPinResolver(property, prop.Tokenization)
+			// Record even when bucket==nil so the release still runs.
+			pins.add(property, bucket, release)
+		} else {
+			bucket = b.GetBucket(property)
+			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+		}
 		if bucket == nil {
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("could not find bucket for property %v", property)
+			return queryTerms{}, queryStats{}, pins, fmt.Errorf("could not find bucket for property %v", property)
 		}
 
 		if bucket.Strategy() != lsmkv.StrategyInverted {
 			allBucketsAreInverted = false
 		}
 
-		prop, err := schema.GetPropertyByName(class, property)
-		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
-		}
-
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			// effectiveTok consults the per-shard tokenization overlay
-			// (set during the FINALIZING window of a change-tokenization
-			// migration) before falling back to the schema-stored value.
-			// The rest of the BM25 pipeline for this property uses
-			// effectiveTok everywhere `prop.Tokenization` would have been
-			// read, so query input gets tokenized against the value that
-			// matches the bucket content on this shard.
-			effectiveTok := ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
 			tokKey := effectiveTok
 			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
@@ -262,7 +373,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 				meanValid:             !math.IsNaN(float64(propMean)),
 			})
 		default:
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return queryTerms{}, queryStats{}, pins, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -273,8 +384,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if tok == models.PropertyTokenizationWord {
 			sw = fallbackStopwords
 		}
-		queryTerms, dupBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
-		queryTermsByTokenization[tok] = queryTerms
+		tokenTerms, dupBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
+		queryTermsByTokenization[tok] = tokenTerms
 		duplicateBoostsByTokenization[tok] = dupBoosts
 		propNamesByTokenization[tok] = make([]string, 0)
 	}
@@ -314,7 +425,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if pi.effectiveTokenization == models.PropertyTokenizationWord {
 				d, err := b.stopwordProvider.Get(pi.prop)
 				if err != nil {
-					return false, 0, nil, nil, nil, nil, 0, err
+					return queryTerms{}, queryStats{}, pins, err
 				}
 				sw = d
 			}
@@ -326,7 +437,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		if _, exists := propNamesByTokenization[tokKey]; !exists {
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+			return queryTerms{}, queryStats{}, pins, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 				pi.effectiveTokenization, pi.prop.Name)
 		}
 		propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], pi.name)
@@ -341,7 +452,105 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
-	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+	// Validated here rather than in either search path so the BlockMax and legacy
+	// WAND implementations reject the same queries.
+	var crossPropQueryTerms []string
+	var crossPropDuplicateBoosts []int
+	if params.SearchOperator == common_filters.SearchOperatorAndCross {
+		analyzerByTokenization := make(map[string]string, len(props))
+		for _, pi := range props {
+			analyzerByTokenization[pi.tokKey] = analyzerFingerprint(pi.prop, pi.effectiveTokenization)
+		}
+		crossPropQueryTerms, crossPropDuplicateBoosts, err = sharedCrossPropQueryTerms(analyzerByTokenization,
+			propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization)
+		if err != nil {
+			return queryTerms{}, queryStats{}, pins, err
+		}
+	}
+
+	// Success: the caller now owns the pins; disarm the error-path release.
+	failed = false
+	return queryTerms{
+			propNamesByTokenization:       propNamesByTokenization,
+			queryTermsByTokenization:      queryTermsByTokenization,
+			duplicateBoostsByTokenization: duplicateBoostsByTokenization,
+			propertyBoosts:                propertyBoosts,
+			crossPropQueryTerms:           crossPropQueryTerms,
+			crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
+		}, queryStats{
+			allBucketsAreInverted: allBucketsAreInverted,
+			n:                     N,
+			averagePropLength:     averagePropLength,
+		}, pins, nil
+}
+
+// analyzerFingerprint identifies the settings that decide how a property tokenizes
+// the query. Properties agreeing on it produce the same query terms.
+//
+// The tokenization must be the effective one, not prop.Tokenization: the per-shard
+// overlay can resolve two properties carrying identical schema settings to different
+// live analyzers, and those tokenize the same query differently.
+func analyzerFingerprint(prop *models.Property, effectiveTokenization string) string {
+	asciiFold := false
+	stopwordPreset := ""
+	var asciiFoldIgnore []string
+	if analyzer := prop.TextAnalyzer; analyzer != nil {
+		asciiFold, stopwordPreset = analyzer.ASCIIFold, analyzer.StopwordPreset
+		asciiFoldIgnore = slices.Clone(analyzer.ASCIIFoldIgnore)
+		slices.Sort(asciiFoldIgnore)
+	}
+	return fmt.Sprintf("%s|asciiFold=%t|asciiFoldIgnore=%s|stopwordPreset=%s",
+		effectiveTokenization, asciiFold, strings.Join(asciiFoldIgnore, ","), stopwordPreset)
+}
+
+// sharedCrossPropQueryTerms returns the terms every searched property agrees on,
+// which cross-property AND needs to merge postings by query-term index.
+//
+// Compatibility is decided on the analyzer settings rather than on the number of
+// tokenization keys, because a property carrying custom stopwords or
+// ASCIIFoldIgnore gets a key of its own even when its settings match another's.
+// Deciding it on the terms themselves instead would make the operator succeed or
+// fail per query, since differently configured properties can still tokenize some
+// queries the same way.
+//
+// The shared list is sorted because terms come out of tokenization in map order
+// and a term's index has to mean the same thing in every property.
+func sharedCrossPropQueryTerms(analyzerByTokenization map[string]string,
+	propNamesByTokenization, queryTermsByTokenization map[string][]string,
+	duplicateBoostsByTokenization map[string][]int,
+) ([]string, []int, error) {
+	var (
+		sharedTerms    []string
+		sharedAnalyzer string
+		boostByTerm    map[string]int
+		found          bool
+	)
+	for tokKey, propNames := range propNamesByTokenization {
+		if len(propNames) == 0 {
+			continue
+		}
+		if found {
+			if analyzerByTokenization[tokKey] != sharedAnalyzer {
+				return nil, nil, fmt.Errorf("%s requires all searched properties to share the same tokenization and analyzer settings",
+					common_filters.SearchOperatorAndCross)
+			}
+			continue
+		}
+
+		found, sharedAnalyzer = true, analyzerByTokenization[tokKey]
+		sharedTerms = slices.Clone(queryTermsByTokenization[tokKey])
+		slices.Sort(sharedTerms)
+		boostByTerm = make(map[string]int, len(sharedTerms))
+		for i, term := range queryTermsByTokenization[tokKey] {
+			boostByTerm[term] = duplicateBoostsByTokenization[tokKey][i]
+		}
+	}
+
+	sharedBoosts := make([]int, len(sharedTerms))
+	for i, term := range sharedTerms {
+		sharedBoosts[i] = boostByTerm[term]
+	}
+	return sharedTerms, sharedBoosts, nil
 }
 
 // asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
@@ -354,36 +563,72 @@ func (b *BM25Searcher) wand(
 ) ([]*storobj.Object, []float32, error) {
 	start := time.Now()
 
-	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	qterms, qstats, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, err
 	}
+	// A leaked pin would block a future retokenization swap's Shutdown forever.
+	defer pins.release()
 
+	return b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, pins, start)
+}
+
+// wandFromStats is wand with the query terms/stats precomputed; start feeds
+// the slow-query timing annotations. The caller keeps ownership of pins and
+// must release them after this returns.
+func (b *BM25Searcher) wandFromStats(
+	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, pins *pinnedSearchableBuckets, start time.Time,
+) ([]*storobj.Object, []float32, error) {
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
 
-	for tokenization, propNames := range propNamesByTokenization {
-		if len(propNames) > 0 {
-			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
-			for queryTermIndex, queryTerm := range queryTerms {
-				allRequests = append(allRequests, termListRequest{
-					term:               queryTerm,
-					termId:             len(allRequests),
-					duplicateTextBoost: duplicateBoosts[queryTermIndex],
-					propertyNames:      propNames,
-					propertyBoosts:     propertyBoosts,
-				})
-				allQueryTerms = append(allQueryTerms, queryTerm)
+	if len(qterms.crossPropQueryTerms) > 0 {
+		// One request per shared term spanning every searched property, so a term is
+		// required once globally. Emitting per tokenization group instead would raise
+		// the term count without raising the threshold, letting a document satisfy the
+		// AND by matching one term in two groups and never matching the others.
+		propNames := make([]string, 0, len(params.Properties))
+		for _, groupPropNames := range qterms.propNamesByTokenization {
+			propNames = append(propNames, groupPropNames...)
+		}
+		slices.Sort(propNames)
+
+		for queryTermIndex, queryTerm := range qterms.crossPropQueryTerms {
+			allRequests = append(allRequests, termListRequest{
+				term:               queryTerm,
+				termId:             len(allRequests),
+				duplicateTextBoost: qterms.crossPropDuplicateBoosts[queryTermIndex],
+				propertyNames:      propNames,
+				propertyBoosts:     qterms.propertyBoosts,
+			})
+			allQueryTerms = append(allQueryTerms, queryTerm)
+		}
+		minimumOrTokensMatch = len(qterms.crossPropQueryTerms)
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_cross_prop", len(qterms.crossPropQueryTerms))
+	} else {
+		for tokenization, propNames := range qterms.propNamesByTokenization {
+			if len(propNames) > 0 {
+				tokenTerms, duplicateBoosts := qterms.queryTermsByTokenization[tokenization], qterms.duplicateBoostsByTokenization[tokenization]
+				for queryTermIndex, queryTerm := range tokenTerms {
+					allRequests = append(allRequests, termListRequest{
+						term:               queryTerm,
+						termId:             len(allRequests),
+						duplicateTextBoost: duplicateBoosts[queryTermIndex],
+						propertyNames:      propNames,
+						propertyBoosts:     qterms.propertyBoosts,
+					})
+					allQueryTerms = append(allQueryTerms, queryTerm)
+				}
+				minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
+				if common_filters.IsAndOperator(params.SearchOperator) {
+					minimumOrTokensMatchByTokenization = len(tokenTerms)
+				}
+				if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
+					minimumOrTokensMatch = minimumOrTokensMatchByTokenization
+				}
+				helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(tokenTerms))
 			}
-			minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
-			if params.SearchOperator == common_filters.SearchOperatorAnd {
-				minimumOrTokensMatchByTokenization = len(queryTerms)
-			}
-			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
-				minimumOrTokensMatch = minimumOrTokensMatchByTokenization
-			}
-			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
@@ -415,7 +660,7 @@ func (b *BM25Searcher) wand(
 				}
 			}()
 
-			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx)
+			termResult, termErr := b.createTerm(qstats.n, filterDocIds, term, termId, propNames, qterms.propertyBoosts, duplicateBoost, pins, ctx)
 			if termErr != nil {
 				err = termErr
 				return err
@@ -457,7 +702,7 @@ func (b *BM25Searcher) wand(
 	termSearchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 	start = time.Now()
-	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch, b.logger)
+	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, qstats.averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch, b.logger)
 
 	wandTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)
@@ -478,7 +723,11 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.New("objects bucket not available (store shutting down?)")
+	}
 	scores := make([]float32, 0, topKHeap.Len())
 	ids := make([]uint64, 0, topKHeap.Len())
 	explanations := make([][]*terms.DocPointerWithScore, 0, topKHeap.Len())
@@ -544,7 +793,7 @@ func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPoin
 	return ids, scores, explanations, nil
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, pins *pinnedSearchableBuckets, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
@@ -564,7 +813,12 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 		eg.Go(
 			func() error {
-				bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				// Reuse the bucket pinned at prop discovery — a by-name
+				// re-fetch could land on the post-swap bucket or a freed mmap.
+				bucket, pinned := pins.bucketFor(propName)
+				if !pinned {
+					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				}
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}
@@ -605,9 +859,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	if filterDocIds != nil {
+		mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 		for _, docIDs := range filteredDocIDsThread {
 			if docIDs != nil {
-				filteredDocIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+				filteredDocIDs.OrConc(docIDs, mergeConc)
 			}
 		}
 	}
@@ -635,7 +890,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if filterDocIds != nil {
 			n += float64(filteredDocIDs.GetCardinality())
 		}
-		termResult.SetIdf(math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoost))
+		termResult.SetIdf(terms.Idf(n, N) * float64(duplicateTextBoost))
 		termResult.SetPosPointer(0)
 		termResult.SetIdPointer(termResult.Data[0].Id)
 		return termResult, nil
@@ -710,7 +965,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	if filterDocIds != nil {
 		n += float64(filteredDocIDs.GetCardinality())
 	}
-	termResult.SetIdf(math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost))
+	termResult.SetIdf(terms.Idf(n, N) * float64(duplicateTextBoost))
 
 	// catch special case where there are no results and would panic termResult.data[0].id
 	// related to #4125

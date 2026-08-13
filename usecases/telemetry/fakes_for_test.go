@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type fakeNodesStatusGetter struct {
@@ -25,26 +24,17 @@ type fakeNodesStatusGetter struct {
 
 func (n *fakeNodesStatusGetter) LocalNodeStatus(ctx context.Context,
 	className, shardName, verbosity string,
-) *models.NodeStatus {
+) (*models.NodeStatus, error) {
 	args := n.Called(ctx, className, shardName, verbosity)
+	var status *models.NodeStatus
 	if args.Get(0) != nil {
-		return args.Get(0).(*models.NodeStatus)
+		status = args.Get(0).(*models.NodeStatus)
 	}
-	return nil
-}
-
-type fakeSchemaManager struct {
-	mock.Mock
-}
-
-func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
-	if len(f.ExpectedCalls) > 0 {
-		args := f.Called()
-		if args.Get(0) != nil {
-			return args.Get(0).(schema.Schema)
-		}
+	// expectations that set only a status have no error to return
+	if len(args) > 1 {
+		return status, args.Error(1)
 	}
-	return schema.Schema{}
+	return status, nil
 }
 
 type fakeCloudInfoProvider struct {

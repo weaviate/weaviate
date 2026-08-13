@@ -15,7 +15,6 @@ import (
 	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func (s *segment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
@@ -29,9 +28,8 @@ func (s *segment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 		segmentCursor = roaringsetrange.NewSegmentCursorPread(sectionReader, 2)
 	}
 
-	return roaringsetrange.NewSegmentReaderConcurrent(
-		roaringsetrange.NewGaplessSegmentCursor(segmentCursor),
-		concurrency.SROAR_MERGE)
+	return roaringsetrange.NewSegmentReader(
+		roaringsetrange.NewGaplessSegmentCursor(segmentCursor))
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {

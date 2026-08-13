@@ -43,10 +43,37 @@ import (
 // (CLUSTER_DATA_BIND_PORT) — there is no public REST surface today.
 type AsyncCheckpointConvergenceTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
 }
 
-func (suite *AsyncCheckpointConvergenceTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+func (suite *AsyncCheckpointConvergenceTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	suite.compose = compose
+}
+
+func (suite *AsyncCheckpointConvergenceTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+func (suite *AsyncCheckpointConvergenceTestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
 }
 
 func TestAsyncCheckpointConvergenceTestSuite(t *testing.T) {
@@ -157,21 +184,7 @@ func discoverShards(t *testing.T, restURI, className string) []string {
 // (frozen-clone invariant), and delete clears every node.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_ConvergenceAcrossReplicas() {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	nodeRESTs := []string{
 		compose.GetWeaviate().URI(),
@@ -212,7 +225,9 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 
 	// Single createdAt, propagated unchanged: replicas reject one another via the strict-greater-than guard.
 	createdAt := time.Now().UTC()
-	cutoffMs := createdAt.UnixMilli()
+	// Cutoff must be in every node's future at create (past-cutoff guard); short so the frozen subtest can outwait it.
+	cutoff := createdAt.Add(20 * time.Second)
+	cutoffMs := cutoff.UnixMilli()
 
 	t.Run("create checkpoint on every node with the same createdAt", func(t *testing.T) {
 		for i, cluster := range nodeClusters {
@@ -276,6 +291,10 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	})
 
 	t.Run("post-cutoff writes do NOT change the checkpoint root", func(t *testing.T) {
+		// Wait until wall-clock passes the cutoff so these writes are genuinely post-cutoff.
+		if d := time.Until(cutoff); d > 0 {
+			time.Sleep(d + time.Second)
+		}
 		batch := make([]*models.Object, 10)
 		for i := 0; i < 10; i++ {
 			batch[i] = articles.NewParagraph().
@@ -337,20 +356,10 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 // recreate is the operator's responsibility.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDropsLocalCheckpoint() {
 	t := suite.T()
-	mainCtx := context.Background()
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	node1REST := compose.GetWeaviate().URI()
 	node1Cluster := compose.GetWeaviate().ClusterURI()
@@ -371,8 +380,9 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 	shards := discoverShards(t, node1REST, paragraphClass.Class)
 
 	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 	for _, c := range []string{node1Cluster, node2Cluster, node3Cluster} {
-		asyncCheckpointCreate(t, c, paragraphClass.Class, shards, createdAt.UnixMilli(), createdAt.UnixMilli())
+		asyncCheckpointCreate(t, c, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
 	}
 
 	// Pre-restart: every node has an active checkpoint.

@@ -24,7 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -58,7 +60,7 @@ func TestGetAnswer(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -91,7 +93,7 @@ func TestGetAnswer(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -104,6 +106,84 @@ func TestGetAnswer(t *testing.T) {
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Google failed with status: 500 error: some error from the server")
 	})
+}
+
+func TestGetParameters(t *testing.T) {
+	c := &google{logger: nullLogger()}
+
+	t.Run("leaves generation params nil when class config does not set them", func(t *testing.T) {
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{
+			"projectId": "cloud-project",
+		}}
+
+		params := c.getParameters(cfg, nil, nil)
+
+		assert.Nil(t, params.Temperature)
+		assert.Nil(t, params.TopP)
+		assert.Nil(t, params.TopK)
+		assert.Nil(t, params.MaxTokens)
+
+		// the nil params must be omitted from the request body sent to Google
+		body, err := json.Marshal(c.getPayload(false, "prompt", params))
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "temperature")
+		assert.NotContains(t, string(body), "topP")
+		assert.NotContains(t, string(body), "topK")
+		assert.NotContains(t, string(body), "maxOutputTokens")
+	})
+
+	t.Run("uses generation params from class config when set", func(t *testing.T) {
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{
+			"projectId":   "cloud-project",
+			"temperature": 0.25,
+			"topP":        0.97,
+			"topK":        30,
+			"tokenLimit":  254,
+		}}
+
+		params := c.getParameters(cfg, nil, nil)
+
+		require.NotNil(t, params.Temperature)
+		require.NotNil(t, params.TopP)
+		require.NotNil(t, params.TopK)
+		require.NotNil(t, params.MaxTokens)
+		assert.Equal(t, 0.25, *params.Temperature)
+		assert.Equal(t, 0.97, *params.TopP)
+		assert.Equal(t, 30, *params.TopK)
+		assert.Equal(t, 254, *params.MaxTokens)
+	})
+}
+
+type fakeClassConfig struct {
+	classConfig map[string]interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
 }
 
 type testAnswerHandler struct {
