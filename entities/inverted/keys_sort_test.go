@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -638,4 +639,53 @@ func TestCutoffsAreBracketed(t *testing.T) {
 		assert.Contains(t, matchesInterfaceSizes, cutoff, "no size at cutoff %d", cutoff)
 		assert.Contains(t, matchesInterfaceSizes, cutoff+1, "no size above cutoff %d", cutoff)
 	}
+}
+
+// Ended keys tied with one long all-NUL key must fall back to comparison, not
+// re-pack the run once per 8 bytes of that key.
+func TestRepairCollisionsEndedKeysFallBack(t *testing.T) {
+	t.Parallel()
+
+	// distinct, since every length differs, yet tied at every depth
+	const (
+		n       = 4_000
+		longKey = 16 << 20
+	)
+	values := make([]string, 0, n+1)
+	total := 0
+	for i := 1; i <= n; i++ {
+		values = append(values, strings.Repeat("\x00", i))
+		total += i
+	}
+	values = append(values, strings.Repeat("\x00", longKey))
+	total += longKey
+
+	b := NewVarKeyBuilder(len(values), total)
+	for _, v := range values {
+		b.AppendString(v)
+	}
+
+	done := make(chan SortedKeys, 1)
+	go func() {
+		keys, err := b.Build()
+		require.NoError(t, err)
+		done <- keys
+	}()
+
+	var keys SortedKeys
+	select {
+	case keys = <-done:
+	// two orders of magnitude above a run that falls back and below one that
+	// does not — both ends measured against this fixture
+	case <-time.After(10 * time.Second):
+		t.Fatal("Build did not finish: the repair is walking the longest key rather than falling back")
+	}
+
+	// and still a sort: each NUL string is a prefix of the next
+	require.Equal(t, len(values), keys.Len(), "no key may be dropped")
+	require.True(t, keys.isAscending())
+	for i := 0; i < n; i++ {
+		require.Equalf(t, i+1, len(keys.At(i)), "key %d", i)
+	}
+	require.Len(t, keys.At(n), longKey, "the long key sorts last, being every other key's extension")
 }

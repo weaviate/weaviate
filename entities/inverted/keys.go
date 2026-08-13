@@ -85,6 +85,11 @@ var errUnbuiltKeys = fmt.Errorf("%w: keys were not made by a builder", ErrIntern
 // width, where i*0 slices to [0:0:0] and is legal against any slab. An unbuilt
 // SortedKeys would then answer every index with an empty key rather than
 // failing, so that one is refused here.
+//
+// One it cannot refuse and this does not either: an index near maxint, where
+// i*k.w wraps to a legal range and answers with the wrong key. No caller can
+// hold one — Len bounds every index a reader derives — and guarding it slows
+// the width arm of [BenchmarkIterate], so it is stated rather than checked.
 func (k SortedKeys) At(i int) []byte {
 	if k.offs == nil {
 		if k.w <= 0 {
