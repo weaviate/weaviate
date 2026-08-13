@@ -105,10 +105,10 @@ func NewStreamHandler(
 	return h
 }
 
-// registerStream admits one stream and registers it with the drain wait groups. It
-// reports false once drain has stopped accepting. Both Adds happen under registerMu,
-// which stopAccepting also holds while cancelling, so no Add can run after the cancel
-// and therefore none can run concurrently with drain's Waits.
+// registerStream admits one stream, or reports false if the server is draining.
+// Registration and stopAccepting share registerMu, so a stream either registers
+// before drain starts waiting or is turned away. The wait groups never see an Add
+// while drain is waiting on them, which sync.WaitGroup forbids.
 func (h *StreamHandler) registerStream() bool {
 	h.registerMu.Lock()
 	defer h.registerMu.Unlock()
@@ -120,8 +120,8 @@ func (h *StreamHandler) registerStream() bool {
 	return true
 }
 
-// stopAccepting closes the admission window for new streams. Every stream is then
-// either fully registered or rejected.
+// stopAccepting stops new streams from registering. After it returns, every
+// stream is either fully registered or turned away.
 func (h *StreamHandler) stopAccepting() {
 	h.registerMu.Lock()
 	defer h.registerMu.Unlock()
@@ -193,9 +193,9 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	// Add class cache to context for schema retrievals during this stream's lifetime
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	// Register against the drain wait groups only now that the client has sent its
-	// start message: registering before the unbounded wait for it would let a silent
-	// client block shutdown indefinitely.
+	// Register only after the client has sent its start message. A client that
+	// opens a stream and never sends one would otherwise hold up shutdown for as
+	// long as it stays connected.
 	if !h.registerStream() {
 		return errShutdown(fmt.Errorf("not accepting new streams: %w", h.shuttingDownCtx.Err()))
 	}
@@ -205,14 +205,15 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	recvErrCh := make(chan error, 1)
 	// Spawn recv process in its own goroutine
 	enterrors.GoWrapper(func() {
-		// The send loop exits on recvErrCh: an error if the receiver failed, a close if
-		// the client closed the stream. These defers are registered before the receiver
-		// call so that they also run when a panic unwinds through it.
+		// The send loop exits on recvErrCh: an error if the receiver failed, a close
+		// if the client hung up. The defers are set up before the receiver runs so a
+		// panic inside it still closes the channel and releases the send loop.
 		defer h.recvWg.Done()
 		defer close(recvErrCh)
 		defer func() {
 			if r := recover(); r != nil {
-				// a panicked receiver must not reach the sender as a clean close
+				// report the panic as a stream error: it must not look like the
+				// client simply closed the stream
 				recvErrCh <- fmt.Errorf("receiver panicked: %v", r)
 				panic(r)
 			}
@@ -307,9 +308,9 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 	batchResults.reset()
 }
 
-// syncStream serialises Send for the goroutines that share one stream. gRPC allows
-// one concurrent Send and one concurrent Recv per stream, so Recv is left unwrapped:
-// only the recv goroutine calls it.
+// syncStream lets several goroutines send on one stream by allowing only one
+// Send at a time, which gRPC requires. Recv needs no wrapper: only the recv
+// goroutine calls it.
 type syncStream struct {
 	pb.Weaviate_BatchStreamServer
 	mu sync.Mutex
@@ -325,8 +326,8 @@ func (s *syncStream) Send(msg *pb.BatchStreamReply) error {
 	return s.Weaviate_BatchStreamServer.Send(msg)
 }
 
-// send requires a stream that serialises Send, since concurrent sends error the
-// stream out. Handle passes a syncStream, whose lock is scoped to that one stream.
+// send expects a stream that allows only one Send at a time; Handle passes a
+// syncStream. Overlapping sends would corrupt the gRPC stream.
 func (h *StreamHandler) send(stream pb.Weaviate_BatchStreamServer, msg *pb.BatchStreamReply) error {
 	if err := stream.Send(msg); err != nil {
 		return fmt.Errorf("send message: %w", err)
@@ -422,12 +423,11 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-// recv decodes messages from the stream into reqCh until the stream ends or ctx is
-// cancelled. Both channels are unbuffered, so every send is guarded by ctx: the
-// receiver derives ctx itself and cancels it on every return, which releases this
-// goroutine (and the request it holds) on all of its early exits. The remaining
-// blocking point is stream.Recv(), which gRPC releases when Handle returns and the
-// RPC ends; the goroutine then hits the guarded errCh send and exits.
+// recv decodes messages from the stream into reqCh until the stream ends or ctx
+// is cancelled. Every channel send also waits on ctx, and the receiver cancels
+// ctx on every one of its exit paths, so this goroutine (and the decoded request
+// it holds) is freed as soon as the receiver is done. The only other place it
+// can block is stream.Recv itself, which gRPC releases when the RPC ends.
 func (h *StreamHandler) recv(ctx context.Context, stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
@@ -507,9 +507,8 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 		select {
 		case request, ok = <-reqCh:
 			if !ok {
-				// recv closes both channels once ctx is cancelled without delivering a
-				// value, so ctx.Err() is non-nil here and a nil request never reaches
-				// the message handling below
+				// a closed channel means recv was cancelled, never a real message:
+				// return the ctx error rather than treating the nil request as data
 				return ctx.Err()
 			}
 		case err, ok = <-errCh:
@@ -611,9 +610,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 	}
 }
 
-// push enqueues one message for the workers. size is the memory estimate the
-// admission gate was checked against, so the gate and the in-flight accounting cannot
-// disagree.
+// push enqueues one message for the workers. size is the same memory estimate
+// the admission check used, so the check and the in-flight counter never
+// disagree about what a batch costs.
 func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool, size int64) {
 	// Update metrics based on how many objects are being pushed
 	howMany := len(objs) + len(refs)
@@ -625,12 +624,8 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 	h.memInFlight.Add(size)
 	wg.Add(1)
 
-	// The queue is closed only by drain, which stops accepting new streams and waits
-	// for every registered receiver first, so the send below cannot panic. If that
-	// invariant is ever broken, this releases what the push took: a retained count
-	// parks h.close and a retained memInFlight tightens the admission gate. The guard
-	// is registered after the increments it undoes, so a panic in between cannot drive
-	// memInFlight negative.
+	// If the pushed value never gets consumed, we still need to decrement the in-flight memory and the wait group counter.
+	// This can happen if the server is shutting down and the stream is closed before the batch is processed.
 	pushed := false
 	defer func() {
 		if !pushed {
@@ -662,10 +657,11 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 	pushed = true
 }
 
-// reportRejectedBatch reports every object and reference of a rejected message back
-// to the client as an error. The error text is stripped for the principal:
-// Handle strips only its return value, so text copied into a Results message would
-// otherwise leak namespace-qualified class names to a confined principal.
+// reportRejectedBatch tells the client, object by object, that a rejected
+// message was dropped. The error text is stripped of namespace details here
+// because Handle strips only its own return error, not what goes into Results
+// messages; unstripped text would leak class names a confined principal must
+// not see.
 func (h *StreamHandler) reportRejectedBatch(stream pb.Weaviate_BatchStreamServer, log *logrus.Entry, principal *models.Principal, objs []*pb.BatchObject, refs []*pb.BatchReference, err error) {
 	uuids, beacons := uuidsAndBeacons(objs, refs)
 	if h.metrics != nil {

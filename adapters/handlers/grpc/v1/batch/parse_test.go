@@ -573,10 +573,8 @@ func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
 	require.Equal(t, "ns1:Movies", out[0].Class)
 }
 
-// TestBatchObjectsFromProtoDoesNotMutateRequest pins the parser's contract: the
-// worker keeps the same *pb.BatchObject pointers and re-sends them on retry, so a
-// parse that rewrites the request makes the retry a different request from the
-// first attempt.
+// The worker re-sends the same pointers on retry; a parse that rewrites the
+// request changes what the retry sends.
 func TestBatchObjectsFromProtoDoesNotMutateRequest(t *testing.T) {
 	const (
 		rawCollection      = "Zoo"
@@ -613,10 +611,9 @@ func TestBatchObjectsFromProtoDoesNotMutateRequest(t *testing.T) {
 		"the request reference target must be untouched")
 }
 
-// TestBatchObjectsFromProtoIsRepeatable parses the same request twice, as the
-// worker's retry round does. On a namespaced cluster a rewritten collection makes
-// the second pass fail the namespace-prefix check, turning a transient replication
-// error into a permanent, false schema error.
+// Parses the same request twice, as the retry round does. A rewritten collection
+// fails the namespace check on the second pass, turning a transient error into a
+// permanent one.
 func TestBatchObjectsFromProtoIsRepeatable(t *testing.T) {
 	principal := &models.Principal{Username: "u", Namespace: "customer1"}
 	classes := map[string]*models.Class{

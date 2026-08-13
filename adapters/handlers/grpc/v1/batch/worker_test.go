@@ -427,9 +427,8 @@ func TestWorkerLoop(t *testing.T) {
 	})
 }
 
-// processOneRequest runs a single batch through a real worker and returns its report.
-// A worker that dies inside the errgroup's recovery wrapper never reports, so the
-// absence of a report is itself a failure.
+// processOneRequest runs one batch through a real worker. No report means the
+// worker died in the recovery wrapper, which is itself a failure.
 func processOneRequest(t *testing.T, batcher batcher, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool) *report {
 	t.Helper()
 
@@ -516,9 +515,8 @@ func newObjs(collection string, howMany int) []*pb.BatchObject {
 	return objs
 }
 
-// TestSendObjectsSubBatchTransportErrorScope pins the blast radius of a failed
-// fanout call: only the objects of the sub-batch that failed are reported as errors,
-// and they are not also reported as successes.
+// Only the failed sub-batch's objects come back as errors, and none of them is
+// also a success.
 func TestSendObjectsSubBatchTransportErrorScope(t *testing.T) {
 	collection := "TestCollection"
 	objs := newObjs(collection, 20)
@@ -541,9 +539,8 @@ func TestSendObjectsSubBatchTransportErrorScope(t *testing.T) {
 		"every other object succeeds, and no failed object is also reported successful")
 }
 
-// TestSendObjectsMultiCollectionPartition pins success/error partitioning across
-// collections: reply errors are keyed by an index into one collection's slice, while
-// successes are reported over the whole batch.
+// Reply errors are keyed within one collection's slice while successes span the
+// whole batch; mixing collections must not cross the two up.
 func TestSendObjectsMultiCollectionPartition(t *testing.T) {
 	collectionA := "CollectionA"
 	collectionB := "CollectionB"
@@ -569,9 +566,8 @@ func TestSendObjectsMultiCollectionPartition(t *testing.T) {
 	require.ElementsMatch(t, uuidsOf(objs, 0, 1, 3), successUuids(rep))
 }
 
-// TestSendReferencesReplyIndexGuards pins the reference reply loop against entries
-// that cannot be attributed to a reference in the request. An unattributable entry is
-// dropped, never applied to the wrong beacon and never fatal to the worker.
+// An unattributable reply entry is dropped: never blamed on the wrong beacon,
+// never fatal to the worker.
 func TestSendReferencesReplyIndexGuards(t *testing.T) {
 	refs := []*pb.BatchReference{
 		{FromCollection: "Class", FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
@@ -638,10 +634,8 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 	}
 }
 
-// TestConsumeFanoutReplies drives the reply consumer directly, so reply order is an
-// input rather than a race. Sub-batches are dispatched concurrently and answered in
-// completion order, so every reply must be attributed through the sub-batch it
-// belongs to, never through the order it arrived in.
+// Drives the reply consumer directly, so reply order is a test input rather than
+// a race. Errors must be attributed through the sub-batch, never arrival order.
 func TestConsumeFanoutReplies(t *testing.T) {
 	type replySpec struct {
 		offset int

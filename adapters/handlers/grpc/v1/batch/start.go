@@ -58,8 +58,10 @@ func Start(
 	opts ...Option,
 ) (*StreamHandler, Drain) {
 	o := &options{
-		// a batch-unique live heap checker with a lower threshold catches OOMs earlier than the
-		// global one, so vectors can be held in memory before being processed downstream
+		// The batch stream gets its own memory monitor with a lower trip point
+		// than the global one (0.9 vs 0.97 of GOMEMLIMIT): imports should slow
+		// down before the rest of the process feels pressure, since admitted
+		// batches sit in memory until the workers drain them.
 		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
 	}
 	for _, opt := range opts {

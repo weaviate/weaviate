@@ -110,10 +110,10 @@ func (w *worker) isTransientReplicationError(err string) bool {
 		strings.Contains(err, "Node not ready") // rest: node is not ready to accept requests (still starting up or shutting down)
 }
 
-// fanoutReply carries the sub-batch it answers, because replies arrive in completion
-// order rather than in position order. subBatch bounds the reply's error indices, and
-// offset, the index of subBatch[0] in the collection's object slice, maps those
-// indices back to the objects they are for.
+// fanoutReply carries the sub-batch it answers, because replies arrive in
+// whatever order the concurrent calls finish. subBatch says which error indices
+// are valid; offset says where the sub-batch starts in the collection's object
+// list. Together they trace every error index back to its object.
 type fanoutReply struct {
 	reply    *pb.BatchObjectsReply
 	err      error
@@ -231,12 +231,12 @@ func (w *worker) sendObjects(
 	return successes, errors
 }
 
-// consumeFanoutReplies drains one collection's fanout replies, attributing every
-// reply error to the object the reply is for. outerIdxs[j] is the index in the full
-// batch of the collection's j-th object; errored is keyed by that index and is
-// mutated in place. Reply error indices are relative to the sub-batch the reply
-// answers, which is also their bound: an index outside it names no object, so it is
-// dropped rather than applied to whichever object happens to sit there.
+// consumeFanoutReplies drains one collection's fanout replies and pins every
+// reply error on the object it belongs to. outerIdxs[j] gives the position of
+// the collection's j-th object in the full batch; errored is keyed by that
+// position and mutated in place. A reply's error indices only mean something
+// inside its own sub-batch, so an out-of-range index is dropped rather than
+// blamed on whichever object happens to sit at that position.
 func (w *worker) consumeFanoutReplies(
 	streamId string,
 	replies <-chan fanoutReply,

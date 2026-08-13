@@ -460,9 +460,8 @@ func newBatchStreamStopRequest() *pb.BatchStreamRequest {
 	}
 }
 
-// mockBatchStream wraps the generated mock and enforces, for every test in this
-// package, the gRPC contract that a stream permits only one Send at a time. A
-// handler that sends from two goroutines at once fails the test that provoked it.
+// mockBatchStream fails any test whose handler runs two Sends on one stream at
+// once, which gRPC forbids.
 type mockBatchStream struct {
 	*mocks.MockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply]
 	t        *testing.T
@@ -589,10 +588,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 	}
 }
 
-// TestStreamHandlerReportsSchemaResolutionFailures pins that a message the receiver
-// rejects before it reaches the processing queue is still accounted for to the
-// client: every object and reference of the rejected message comes back as an error,
-// so the client knows what was lost.
+// The client must learn which objects a pre-queue rejection dropped.
 func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	logger := logrus.New()
 
@@ -645,8 +641,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			mockStream := newMockStream(t)
 			mockStream.EXPECT().Context().Return(ctx).Maybe()
 
-			// The callback runs on the receiver goroutine, so it only collects; every
-			// assertion happens on the test goroutine once Handle has returned.
+			// collect here on the handler's goroutine; assert only after Handle returns
 			var sentMu sync.Mutex
 			var reportedUuids, reportedBeacons, reportedErrors []string
 			mockStream.EXPECT().Send(mock.Anything).RunAndReturn(func(msg *pb.BatchStreamReply) error {
@@ -701,11 +696,8 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	}
 }
 
-// TestHandleRejectsStreamsThatStartDuringDrain parks a stream in the window between
-// the shutdown pre-check and the drain registration — it is inside its first Recv
-// while drain runs to completion. Such a stream must be rejected: unregistered, it
-// is invisible to drain's waits, so it would go on to push onto the closed
-// processing queue and never tear down.
+// A stream parked inside its first Recv while drain completes is invisible to
+// drain's waits. It must be rejected, or it would push onto the closed queue.
 func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 	logger := logrus.New()
 
@@ -770,10 +762,8 @@ func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 	}
 }
 
-// TestReceiverPanicEndsStreamWithError pins that a panicked receiver reaches the
-// client as an error. Without it the sender sees a closed error channel, reports a
-// graceful client close and returns nil, so a dropped batch looks like a clean end
-// of stream.
+// A receiver panic must reach the client as an error, not as a clean close that
+// makes a dropped batch look like success.
 func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 	logger := logrus.New()
 
@@ -833,14 +823,10 @@ func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 	}
 }
 
-// TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit drives every early exit of
-// the receiver loop while the client keeps sending. The recv goroutine has one
-// decoded request in hand at that moment, so an unguarded send on the unbuffered
-// request channel strands it, and the request's memory, for the process lifetime.
-//
-// The receiver's two grace-period exits are not table rows: both call cancel()
-// before returning, so they release the recv goroutine through the same ctx guard
-// these rows exercise.
+// Each row makes the receiver bail out while the recv goroutine holds a decoded
+// request; unguarded, both goroutine and request leak for the process lifetime.
+// The two grace-period exits are not rows: they cancel() before returning, the
+// same release these rows exercise.
 func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 	logger := logrus.New()
 
@@ -940,8 +926,6 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 					}
 					return dataRequest(), nil
 				default:
-					// the client keeps sending, so the recv goroutine always holds a
-					// decoded request when the receiver bails out
 					return dataRequest(), nil
 				}
 			}).Maybe()
@@ -962,11 +946,9 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 	}
 }
 
-// TestSendNotSerialisedAcrossStreams pins that one client stalling its side of the
-// wire cannot hold up another client's stream. stream.Send blocks while a client's
-// flow-control window is full, so a send lock shared by every stream would stall acks
-// and results process-wide, and would also stall the blocked streams' receive loops,
-// because acks are sent from the receiver.
+// One client stalling its side of the wire must not hold up other streams: Send
+// blocks while a client's window is full, so a send lock shared across streams
+// would freeze every stream's acks and receive loops.
 func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 	logger := logrus.New()
 
@@ -1001,8 +983,7 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 			{Collection: collection, Uuid: uuid.New().String()},
 		})
 	}
-	// Both clients send one data message and then keep the stream open until the test
-	// is done, so neither stream can end before the assertion.
+	// streams stay open until after the assertion, so neither can end early
 	recvSequence := func() func() (*pb.BatchStreamRequest, error) {
 		count := 0
 		return func() (*pb.BatchStreamRequest, error) {
@@ -1044,8 +1025,8 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 		return nil
 	}).Maybe()
 
-	// More workers than streams, so the batch of the stalled stream — whose report
-	// cannot be delivered while its sender is blocked — never starves the other one.
+	// more workers than streams: a worker parked on the stalled stream's
+	// undeliverable report must not starve the healthy stream
 	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 4, logger, false)
 
 	stalledHandled := make(chan error, 1)

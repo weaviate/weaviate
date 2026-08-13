@@ -395,8 +395,7 @@ func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
 	})
 }
 
-// TestEstimateBatchObjectMemory pins the batch admission estimate. An object can
-// carry several vector sources at once, and the gate must account for all of them.
+// An object can carry several vector sources at once; the gate must count all of them.
 func TestEstimateBatchObjectMemory(t *testing.T) {
 	namedVectors := func(sizes ...int) []*protocol.Vectors {
 		out := make([]*protocol.Vectors, 0, len(sizes))
