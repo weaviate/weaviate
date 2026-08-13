@@ -223,7 +223,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// report before the test gives up, so a failure shows whether they agree.
 	assert.GreaterOrEqual(t, skipped, coldCancelCleanTenants/2,
 		"the sweep hydrated most unloaded tenants: only %d were skipped, of %d clean HOT tenants that "+
-			"had nothing to sweep. Every tenant of a collection now pays a shard load per reindex submit",
+			"had nothing to sweep. Those loads run inside the submit handler, so its latency grows with "+
+			"tenant count, and tenants the submit does not name get loaded too",
 		skipped, coldCancelCleanTenants)
 
 	// Second reading, from a subsystem the sweep does not write: shard-scoped
