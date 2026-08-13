@@ -1038,7 +1038,7 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 		propName  = "price_cents"
 		indexType = "filterable"
 		tenant    = "skipped-tenant"
-		gateSkip  = "partial-reindex cleanup: unloaded shard has nothing to sweep, left unloaded"
+		gateSkip  = "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded"
 	)
 	ctx := testCtx()
 	class := newTestClassWithProps("GateSkipLog_"+uuid.NewString()[:8], []string{propName})
@@ -1060,18 +1060,20 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 	hook.Reset() // drop whatever shard startup logged
 	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil))
 
-	var skipped []string
+	var counts []int
 	for _, entry := range hook.AllEntries() {
 		if entry.Message != gateSkip {
 			continue
 		}
-		name, ok := entry.Data["shard"].(string)
-		require.True(t, ok, "the gate-skip line names the shard it skipped")
-		_, ok = entry.Data["payload_reads"].(int)
+		require.Equal(t, propName, entry.Data["property"])
+		require.Equal(t, indexType, entry.Data["index_type"])
+		_, ok := entry.Data["payload_reads"].(int)
 		require.True(t, ok, "the gate-skip line carries an int payload_reads")
-		skipped = append(skipped, name)
+		count, ok := entry.Data["skipped_shards"].(int)
+		require.True(t, ok, "the gate-skip line carries an int skipped_shards")
+		counts = append(counts, count)
 	}
-	require.Equal(t, []string{tenant}, skipped,
-		"exactly the unloaded, clean shard is reported as skipped")
+	require.Equal(t, []int{1}, counts,
+		"one line per sweep, counting exactly the unloaded, clean shard as skipped")
 	require.False(t, lazy.isLoaded(), "the skipped shard must not have been hydrated")
 }

@@ -172,6 +172,7 @@ func (i *Index) cleanStalePartialReindexState(
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
 	shardErrs := errorcompounder.New()
+	skippedShards, skippedPayloadReads := 0, 0
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -189,17 +190,8 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
 			if skip, payloadReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs); skip {
-				// Logged so a skipped shard is distinguishable from one the
-				// walk never reached: without a line here, a collection whose
-				// tenants are all unloaded and clean sweeps in silence, which
-				// reads exactly like a sweep that never ran.
-				i.logger.WithFields(map[string]any{
-					"shard":         name,
-					"property":      propName,
-					"index_type":    indexType,
-					"operation":     "CleanStalePartialReindexState",
-					"payload_reads": payloadReads,
-				}).Info("partial-reindex cleanup: unloaded shard has nothing to sweep, left unloaded")
+				skippedShards++
+				skippedPayloadReads += payloadReads
 				return nil
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
@@ -215,6 +207,13 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		return nil
 	})
+	i.logger.WithFields(map[string]any{
+		"property":       propName,
+		"index_type":     indexType,
+		"operation":      "CleanStalePartialReindexState",
+		"skipped_shards": skippedShards,
+		"payload_reads":  skippedPayloadReads,
+	}).Info("partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded")
 	var failedShards error
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
