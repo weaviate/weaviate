@@ -634,7 +634,7 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 	pushed := false
 	defer func() {
 		if !pushed {
-			wg.Done()
+			defer wg.Done()
 			h.memInFlight.Add(-size)
 		}
 	}()
