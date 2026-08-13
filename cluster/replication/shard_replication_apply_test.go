@@ -431,13 +431,14 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 			fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 			const opID uint64 = 1
 			uuid := seedOp(t, fsm, opID)
+			// SetUnCancellable refuses cancelled ops, so the flag is set first.
+			if tc.unCancellable {
+				require.NoError(t, fsm.SetUnCancellable(opID))
+			}
 			if !tc.driveCancelled {
 				driveToState(t, fsm, opID, tc.state)
 			} else {
 				driveToCancelled(t, fsm, opID)
-			}
-			if tc.unCancellable {
-				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
 			err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
@@ -490,6 +491,69 @@ func TestShardReplicationFSM_SetUnCancellable(t *testing.T) {
 		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		err := fsm.SetUnCancellable(999)
 		require.ErrorIs(t, err, types.ErrReplicationOperationNotFound)
+	})
+
+	// The cancel-race guard: without it the node registers with a change-capture
+	// log that never seals, and CANCELLED-inert routing serves the write gap.
+	t.Run("cancel accepted first refuses registration, cancel completes", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 7
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.CancelReplication(&api.ReplicationCancelRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
+
+		op, ok := fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.False(t, op.Status.UnCancellable, "a refused add must leave the op cancellable")
+
+		require.NoError(t, fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      opID,
+		}))
+		op, ok = fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.Equal(t, api.CANCELLED, op.Status.GetCurrentState())
+	})
+
+	t.Run("delete accepted first refuses registration", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 8
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
+	})
+
+	t.Run("completed cancellation refuses a late registration", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 9
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.CancelReplication(&api.ReplicationCancelRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+		require.NoError(t, fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      opID,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
 	})
 }
 

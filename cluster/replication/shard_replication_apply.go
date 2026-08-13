@@ -199,6 +199,10 @@ func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
+	// If the op is already cancelled or in the process of being cancelled, we cannot make it uncancellable
+	if status.ShouldCancel || status.GetCurrentState() == api.CANCELLED {
+		return fmt.Errorf("op %d: %w", id, types.ErrOpCancellationInFlight)
+	}
 	status.UnCancellable = true
 	s.statusById[id] = status
 
