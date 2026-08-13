@@ -51,7 +51,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitDestructive(req); err != nil {
+	if err := st.admitPropose(req); err != nil {
 		return 0, err
 	}
 
@@ -78,20 +78,96 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
-// admitDestructive refuses a data-destroying command whose namespace is not in
-// a state that admits one. It runs on the leader before the entry is appended,
-// which is the only place such a refusal can live: Apply must be a pure
-// function of the log, so a check there would have an older binary destroy the
-// data an upgraded one keeps, live during a rolling update and again on every
-// replay of that entry. Refusing before the append means no node ever sees a
-// committed entry it has to reject, so the set of commands checked here can grow
-// without becoming a compatibility event.
+// admitPropose refuses a command whose namespace is not in a state that admits
+// it. It runs on the leader before the entry is appended, which is the only
+// place such a refusal can live: Apply must be a pure function of the log, so a
+// check there would have an older binary carry out what an upgraded one refuses,
+// live during a rolling update and again on every replay of that entry.
+// Refusing before the append means no node ever sees a committed entry it has to
+// reject, so the set of commands checked here can grow without becoming a
+// compatibility event.
 //
 // The check reads the leader's namespace state and the entry commits shortly
-// after, so a suspend landing in between still lets an accepted delete through.
-// That is deliberate, and matches the rule that a suspend does not cancel work
-// already accepted. Every node applies the entry either way, so the outcome
-// stays the same across the cluster.
+// after, so a state flip landing in between still lets an accepted command
+// through. That is deliberate for the destructive commands, and matches the rule
+// that a suspend does not cancel work already accepted. Every node applies the
+// entry either way, so the outcome stays the same across the cluster.
+//
+// Commands that materialize shards are checked in Apply instead, not here: they
+// leave a schema entry with no shard behind it if they land while the namespace
+// keeps its shards closed, which a propose-time check cannot prevent.
+func (st *Store) admitPropose(req *api.ApplyRequest) error {
+	if err := st.admitDestructive(req); err != nil {
+		return err
+	}
+	return st.admitCreateLike(req)
+}
+
+// admitCreateLike refuses a create-like command outside the active state. It
+// covers only the commands with nothing to materialize, so a late one leaves no
+// half-built entity: the alias commands write schema and no store, and the RBAC
+// and user commands write neither.
+func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		sub := &api.CreateAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		sub := &api.ReplaceAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		// Permission-only upserts re-mint the role row too, so gate every name
+		// regardless of RoleCreation.
+		sub := &api.CreateRolesRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+		}
+		for name := range sub.Roles {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		// While deleting, a late assignment would leave a grouping row behind
+		// after the cleanup cascade has emptied the namespace.
+		sub := &api.AddRolesForUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+		}
+		ns, err := subjectNamespace(sub.User)
+		if err != nil {
+			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, ns)
+
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		// The request carries its namespace outright. The empty-namespace
+		// validation stays in the dynusers manager: it reads node-local config,
+		// not namespace state.
+		sub := &api.CreateUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
+
+	default:
+		return nil
+	}
+}
+
+// admitDestructive refuses a data-destroying command whose namespace is not in a
+// state that admits one. Unlike the create-like commands it also passes while
+// deleting, so the cleanup cascade can empty a namespace.
 func (st *Store) admitDestructive(req *api.ApplyRequest) error {
 	var name string
 	switch req.Type {
@@ -132,6 +208,11 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
+//
+// That determinism is why almost no arm below refuses a command for its
+// namespace state: [Store.admitPropose] does it before the entry is appended.
+// The four arms still calling RequireActive are the exception, and admitPropose
+// says why they are.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -276,8 +357,6 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			// No namespace check here: a committed delete must apply on every
-			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
@@ -291,34 +370,14 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
-			req := &api.CreateAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
-			req := &api.ReplaceAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
 		f = func() {
-			// No namespace check here: a committed delete must apply on every
-			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
@@ -360,8 +419,6 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		f = func() {
-			// No namespace check here: a committed delete must apply on every
-			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
 		}
 
@@ -373,20 +430,6 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
-			// A role can't be upserted into a namespace that's gone or being
-			// deleted. Permission-only upserts re-mint the role row too, so gate
-			// every name regardless of RoleCreation.
-			req := &api.CreateRolesRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
-				return
-			}
-			for name := range req.Roles {
-				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
-					ret.Error = err
-					return
-				}
-			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
@@ -399,23 +442,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
-			// A role can't be assigned to a subject in a namespace that is not
-			// active; while deleting, a late assignment would also leave a
-			// grouping row behind after the cleanup cascade has emptied it.
-			req := &api.AddRolesForUsersRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
-				return
-			}
-			subjectNS, err := subjectNamespace(req.User)
-			if err != nil {
-				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:

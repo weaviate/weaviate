@@ -52,10 +52,8 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
-		return fmt.Errorf("%w: %q", err, req.Namespace)
-	}
-
+	// No namespace-state check here: a committed create must apply on every
+	// binary. Store.admitCreateLike refuses it before the append.
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
 }
 

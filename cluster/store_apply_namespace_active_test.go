@@ -37,26 +37,35 @@ const (
 	nsFlipIndex   uint64 = 2
 )
 
-// This file tests the namespace checks on both sides of the RAFT log: the
-// create-like ones in store.Apply and the destructive ones in
-// store.admitDestructive, which runs before the append. Every ApplyRequest type
-// belongs to exactly one of the three maps below. The namespace lifecycle
-// commands stay ungated, so a suspended namespace can still be resumed or
-// deleted.
+// This file tests the namespace checks on both sides of the RAFT log. Every
+// ApplyRequest type belongs to exactly one of the four maps below. The namespace
+// lifecycle commands stay ungated, so a suspended namespace can still be resumed
+// or deleted.
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
-// this test green. The per-state cases in TestApplyGate_RejectsGatedSchemaApplyTypes
-// and TestApplyGate_DestructiveApplyTypes pin the behaviour.
+// this test green. The per-state cases in TestApplyGate_RejectsGatedSchemaApplyTypes,
+// TestExecuteGate_RejectsCreateLikeApplyTypes and
+// TestExecuteGate_DestructiveApplyTypes pin the behaviour.
 
-// Commands gated by namespaces.RequireActive.
+// Commands gated by namespaces.RequireActive in the apply switch. They stay
+// there because they materialize shards: a propose-time refusal cannot stop one
+// that lands while the namespace keeps its shards closed from leaving a schema
+// entry with nothing behind it.
 var requireActiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
-	api.ApplyRequest_TYPE_ADD_CLASS:                {},
-	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
+	api.ApplyRequest_TYPE_ADD_CLASS:     {},
+	api.ApplyRequest_TYPE_RESTORE_CLASS: {},
+	api.ApplyRequest_TYPE_ADD_TENANT:    {},
+	api.ApplyRequest_TYPE_UPDATE_TENANT: {},
+}
+
+// Commands gated by namespaces.RequireActive in store.admitCreateLike at propose
+// time. Deliberately absent from the apply switch: see Store.admitPropose. They
+// qualify because they materialize nothing, so a late one leaves no half-built
+// entity.
+var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
-	api.ApplyRequest_TYPE_ADD_TENANT:               {},
-	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
@@ -64,18 +73,19 @@ var requireActiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
 // at propose time. Deliberately absent from the apply switch: see
-// Store.admitDestructive.
+// Store.admitPropose.
 var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DELETE_CLASS:  {},
 	api.ApplyRequest_TYPE_DELETE_TENANT: {},
 	api.ApplyRequest_TYPE_DELETE_ALIAS:  {},
 }
 
-// Commands the apply switch runs with no namespace check.
+// Commands with no namespace check on either side of the log.
 //
 // The replication-record deletes remove in-memory operation records, not user
-// data. The RBAC and user deletes are operator-issued and re-creatable after a
-// resume, so they stay ungated even though their create direction is refused.
+// data. The RBAC and user commands stay ungated so access can always be cut off:
+// if a key leaks while a namespace is suspended, revoking it must not wait for a
+// resume. Their create direction is still refused, before the entry is appended.
 // DELETE_REPLICA_FROM_SHARD, TENANT_PROCESS and UPDATE_CLASS can destroy data
 // and are ungated on purpose, tracked outside this change.
 var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
@@ -138,6 +148,7 @@ var applyTypeBuckets = []struct {
 	types map[api.ApplyRequest_Type]struct{}
 }{
 	{"requireActiveApplyTypes", requireActiveApplyTypes},
+	{"requireActiveProposeTypes", requireActiveProposeTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
 }
@@ -343,6 +354,15 @@ func destructiveCommands() []destructiveCommand {
 	}
 }
 
+// admitProposeBytes runs the propose-time check on a marshalled command, so a
+// test can build commands the same way the apply-side tests do.
+func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
+	t.Helper()
+	req := &api.ApplyRequest{}
+	require.NoError(t, gproto.Unmarshal(data, req))
+	return ms.store.admitPropose(req)
+}
+
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands
 // through the propose-time check against every namespace state, plus two cases
 // that name a namespace other than the suspended one.
@@ -477,9 +497,122 @@ func TestSubjectNamespace(t *testing.T) {
 	}
 }
 
-// TestApplyGate_RejectsGatedSchemaApplyTypes drives each schema/alias/tenant
-// gate through the live apply switch and asserts deleting/missing namespaces
-// are rejected. TYPE_UPSERT_USER is covered by the dynusers manager tests.
+// inactiveNamespaceCases seeds alpha in each state that refuses a create-like
+// command, with the sentinel that state answers with.
+func inactiveNamespaceCases(t *testing.T) []struct {
+	name    string
+	seed    func(*namespaces.Controller)
+	wantErr error
+} {
+	return []struct {
+		name    string
+		seed    func(*namespaces.Controller)
+		wantErr error
+	}{
+		{
+			name: "deleting namespace rejected with ErrNamespaceDeleting",
+			seed: func(c *namespaces.Controller) {
+				seedNamespaceInState(t, c, "alpha", api.NamespaceStateDeleting)
+			},
+			wantErr: namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name: "suspended namespace rejected with ErrNamespaceSuspended",
+			seed: func(c *namespaces.Controller) {
+				seedNamespaceInState(t, c, "alpha", api.NamespaceStateSuspended)
+			},
+			wantErr: namespaces.ErrNamespaceSuspended,
+		},
+		{
+			name: "resuming namespace rejected with ErrNamespaceResuming",
+			seed: func(c *namespaces.Controller) {
+				seedNamespaceInState(t, c, "alpha", api.NamespaceStateResuming)
+			},
+			wantErr: namespaces.ErrNamespaceResuming,
+		},
+		{
+			name:    "missing namespace rejected with ErrNamespaceGone",
+			seed:    func(*namespaces.Controller) {},
+			wantErr: namespaces.ErrNamespaceGone,
+		},
+	}
+}
+
+// TestExecuteGate_RejectsCreateLikeApplyTypes drives the create-like commands
+// with nothing to materialize through the propose-time check. They are gated
+// there rather than in the apply switch, so a committed one applies on every
+// binary; see Store.admitPropose.
+func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmdType api.ApplyRequest_Type
+		jsonSub any
+		rpcSub  protoreflect.ProtoMessage
+	}{
+		{
+			name:    "TYPE_CREATE_ALIAS",
+			cmdType: api.ApplyRequest_TYPE_CREATE_ALIAS,
+			rpcSub:  &api.CreateAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
+		},
+		{
+			name:    "TYPE_REPLACE_ALIAS",
+			cmdType: api.ApplyRequest_TYPE_REPLACE_ALIAS,
+			rpcSub:  &api.ReplaceAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
+		},
+		{
+			name:    "TYPE_UPSERT_USER",
+			cmdType: api.ApplyRequest_TYPE_UPSERT_USER,
+			jsonSub: api.CreateUsersRequest{UserId: "bob", Namespace: "alpha"},
+		},
+	}
+
+	for _, tt := range tests {
+		for _, c := range inactiveNamespaceCases(t) {
+			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
+				ms, _ := setupApplyTest(t)
+				c.seed(ms.cfg.NamespacesController)
+
+				err := admitProposeBytes(t, &ms, cmdAsBytes("", tt.cmdType, tt.jsonSub, tt.rpcSub))
+				require.ErrorIs(t, err, c.wantErr)
+			})
+		}
+	}
+}
+
+// TestApplyGate_CreateLikeTypesIgnoreNamespaceState is the guard that keeps the
+// create-like checks with nothing to materialize out of the FSM, matching
+// TestApplyGate_DestructiveTypesIgnoreNamespaceState. UPSERT_USER's manager is
+// not wired in the mock store, so it is covered by the dynusers tests.
+func TestApplyGate_CreateLikeTypesIgnoreNamespaceState(t *testing.T) {
+	for _, state := range []api.NamespaceState{
+		api.NamespaceStateActive,
+		api.NamespaceStateSuspended,
+		api.NamespaceStateResuming,
+		api.NamespaceStateDeleting,
+	} {
+		t.Run("TYPE_CREATE_ALIAS/"+string(state), func(t *testing.T) {
+			ms, log := setupApplyTest(t)
+			seedClass(t, &ms, "alpha:Foo")
+			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", state)
+			ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+			log.Data = cmdAsBytes("", api.ApplyRequest_TYPE_CREATE_ALIAS, nil,
+				&api.CreateAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"})
+
+			resp, ok := ms.store.Apply(log).(Response)
+			require.True(t, ok)
+			require.NoError(t, resp.Error)
+			require.Equal(t, "alpha:Foo", ms.store.SchemaReader().ResolveAlias("alpha:Bar"),
+				"a committed create must apply regardless of namespace state")
+		})
+	}
+}
+
+// TestApplyGate_RejectsGatedSchemaApplyTypes drives each gate still in the apply
+// switch and asserts deleting/missing namespaces are rejected. These four stay
+// there because they materialize shards: a propose-time refusal cannot stop one
+// that lands while the namespace keeps its shards closed from leaving a schema
+// entry with nothing behind it.
 func TestApplyGate_RejectsGatedSchemaApplyTypes(t *testing.T) {
 	cls := func(name string) *models.Class {
 		return &models.Class{
@@ -506,16 +639,6 @@ func TestApplyGate_RejectsGatedSchemaApplyTypes(t *testing.T) {
 			name:    "TYPE_RESTORE_CLASS",
 			cmdType: api.ApplyRequest_TYPE_RESTORE_CLASS,
 			jsonSub: api.AddClassRequest{Class: cls("alpha:Foo"), State: ss},
-		},
-		{
-			name:    "TYPE_CREATE_ALIAS",
-			cmdType: api.ApplyRequest_TYPE_CREATE_ALIAS,
-			rpcSub:  &api.CreateAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
-		},
-		{
-			name:    "TYPE_REPLACE_ALIAS",
-			cmdType: api.ApplyRequest_TYPE_REPLACE_ALIAS,
-			rpcSub:  &api.ReplaceAliasRequest{Collection: "alpha:Foo", Alias: "alpha:Bar"},
 		},
 		{
 			// The schema commits before the DB refuses the shard, so an ungated
@@ -656,12 +779,12 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	}
 }
 
-// TestApplyGate_RejectsRoleCreationIntoInactiveNamespace drives the role-
-// upsert gate through the live apply switch: a namespaced role can't be minted
+// TestExecuteGate_RejectsRoleCreationIntoInactiveNamespace drives the role-
+// upsert gate through the propose-time check: a namespaced role can't be minted
 // into a deleting or missing namespace. Permission-only upserts
 // (RoleCreation=false) re-mint the role row too, so they're gated as well;
 // global (unqualified) roles always pass.
-func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
+func TestExecuteGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 	roleCmd := func(name string, creation bool) []byte {
 		return cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
 			api.CreateRolesRequest{
@@ -743,52 +866,45 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ms, log := setupApplyTest(t)
+			ms, _ := setupApplyTest(t)
 			tc.seed(ms.cfg.NamespacesController)
-			log.Data = roleCmd(tc.role, tc.creation)
 
-			result := ms.store.Apply(log)
-			resp, ok := result.(Response)
-			require.True(t, ok)
+			err := admitProposeBytes(t, &ms, roleCmd(tc.role, tc.creation))
 			if tc.wantErr != nil {
-				require.ErrorIs(t, resp.Error, tc.wantErr)
+				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
-			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
-			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+			require.NoError(t, err)
 		})
 	}
 }
 
-// TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace verifies the gate
+// TestExecuteGate_RejectsMixedRoleBatchWithInactiveNamespace verifies the check
 // loops over every name in a multi-role upsert: a single namespaced-inactive
 // name rejects the whole batch even when other names are global or active.
-func TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
-	ms, log := setupApplyTest(t)
+func TestExecuteGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
+	ms, _ := setupApplyTest(t)
 	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
 	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 
-	log.Data = cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+	err := admitProposeBytes(t, &ms, cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
 		api.CreateRolesRequest{
 			Roles: map[string][]authorization.Policy{
 				"editor":       nil,
 				"alpha:editor": nil,
 			},
 			RoleCreation: false,
-		}, nil)
-
-	resp, ok := ms.store.Apply(log).(Response)
-	require.True(t, ok)
-	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+		}, nil))
+	require.ErrorIs(t, err, namespaces.ErrNamespaceDeleting)
 }
 
-// TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace drives the role-
-// assignment gate through the live apply switch: a role can't be assigned to a
+// TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace drives the role-
+// assignment gate through the propose-time check: a role can't be assigned to a
 // subject in a deleting or missing namespace, otherwise a late assignment would
 // leave a grouping row behind after the cleanup cascade emptied the namespace.
 // OIDC subjects are gated too (their handler-side existence check is a no-op),
 // and global (unqualified) subjects are not gated.
-func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
+func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	assignCmd := func(user string) []byte {
 		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER,
 			api.AddRolesForUsersRequest{User: user, Roles: []string{"editor"}}, nil)
@@ -840,19 +956,15 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ms, log := setupApplyTest(t)
+			ms, _ := setupApplyTest(t)
 			tc.seed(ms.cfg.NamespacesController)
-			log.Data = assignCmd(tc.user)
 
-			result := ms.store.Apply(log)
-			resp, ok := result.(Response)
-			require.True(t, ok)
+			err := admitProposeBytes(t, &ms, assignCmd(tc.user))
 			if tc.wantErr != nil {
-				require.ErrorIs(t, resp.Error, tc.wantErr)
+				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
-			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
-			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+			require.NoError(t, err)
 		})
 	}
 }
