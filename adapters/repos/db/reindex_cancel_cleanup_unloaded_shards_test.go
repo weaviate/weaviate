@@ -271,6 +271,77 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			sidecars:  []string{"property_category__roaringset_ingest_3"},
 			wantStale: true,
 		},
+		// The three per-property searchable strategies, whose state a cancelled
+		// reindex leaves on every tenant of the collection.
+		{
+			name:      "searchable: a sidecar a cancelled enable left behind",
+			propName:  "descr",
+			indexType: "searchable",
+			sidecars:  []string{"property_descr_searchable__enable_searchable_ingest_1"},
+			wantStale: true,
+		},
+		{
+			name:      "searchable: a tracker a cancelled enable left behind",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"enable_searchable_descr_1": {"started.mig"}},
+			wantStale: true,
+		},
+		{
+			name:      "searchable: a per-property enable awaiting finalize",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"enable_searchable_descr_1": completed},
+			sidecars:  []string{"property_descr_searchable__enable_searchable_ingest_1"},
+		},
+		// Every searchable strategy writes sidecars of one main bucket, so the
+		// preserve set is keyed by (suffix, generation), not generation alone.
+		{
+			name:      "searchable: deferred-finalize enable state plus another strategy's sidecar",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"enable_searchable_descr_1": completed},
+			sidecars: []string{
+				"property_descr_searchable__enable_searchable_ingest_1",
+				"property_descr_searchable__rebuild_searchable_ingest_1",
+			},
+			wantStale: true,
+		},
+		{
+			name:      "searchable: a rebuild left mid-run",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"rebuild_searchable_descr_2": {"started.mig"}},
+			wantStale: true,
+		},
+		{
+			name:      "searchable: a per-property rebuild awaiting finalize",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"rebuild_searchable_descr_1": completed},
+			sidecars:  []string{"property_descr_searchable__rebuild_searchable_ingest_1"},
+		},
+		{
+			name:      "searchable: a retokenize left mid-run",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"searchable_retokenize_descr_1": {"started.mig"}},
+			wantStale: true,
+		},
+		{
+			name:      "searchable: a per-property retokenize awaiting finalize",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"searchable_retokenize_descr_1": completed},
+			sidecars:  []string{"property_descr_searchable__retokenize_ingest_1"},
+		},
+		{
+			name:      "searchable: another property's stale enable is not this property's",
+			propName:  "descr",
+			indexType: "searchable",
+			trackers:  map[string][]string{"enable_searchable_other_1": {"started.mig"}},
+			sidecars:  []string{"property_other_searchable__enable_searchable_ingest_1"},
+		},
 		// rangeable has no class-level strategy, so the preserve set is the
 		// per-property one on its own.
 		{
