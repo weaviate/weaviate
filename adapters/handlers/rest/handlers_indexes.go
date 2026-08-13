@@ -774,9 +774,10 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 	}).Info("cancel: task stopped being cancellable between the list read and the apply; refusing")
 	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s changed status between the read and the cancel, and is no "+
-			"longer cancellable: it has either entered a cluster-wide coordination phase, where nodes may "+
-			"already have written merged state or renamed bucket directories, or it has already reached a "+
-			"terminal state — re-read the index status to see where it landed",
+			"longer cancellable. It has either entered a cluster-wide coordination phase, where nodes may "+
+			"already have written merged state or renamed bucket directories, reached a status this node's "+
+			"build does not recognize, or already reached a terminal state. Re-read the index status to see "+
+			"where it landed",
 			target.ID, collection, propertyName)))
 }
 
