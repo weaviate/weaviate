@@ -1057,9 +1057,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"this build does not know that status",
 		"read the task on a node that knows the status",
 	}
-	// The data-dropping gate (DeleteClass) gets told to retry its own
-	// request, not a follow-up call that would 404 once the collection is
-	// gone.
+	// Neither the data-dropping gate (DeleteClass) nor the index-dropping one
+	// (the property index DELETE) may name a follow-up call: the first would
+	// 404 once the collection is gone, the second is refused once that DELETE
+	// clears the index flag every repair verb validates against.
 	noFollowUp := []string{
 		"re-submit it via",
 		"re-running the migration",
@@ -1084,6 +1085,36 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"its shards commit one by one",
 		"nothing to finish afterwards",
 	}
+	// The index-dropping gate names no repair call, so it has to leave the
+	// operator something else: why none is named, and what to decide before
+	// repairing. The GET is the pointer that replaces the rendered call.
+	noRepairNamed := []string{
+		"No repair call is named here",
+		"the index you are deleting is the one a repair would have to run against",
+		"Decide whether you still want the index before repairing",
+		"GET /v1/schema/C/indexes reports this collection's migrations",
+	}
+	pastUnitsIndexDrop := concat(waitItOut, []string{
+		"may already be merged on disk",
+		"the next restart promotes it",
+	}, noRepairNamed)
+	// The cancel survives: it is the one verb that does not read the index
+	// flag the DELETE clears.
+	formatOnlyIndexDrop := concat([]string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		"its shards commit one by one",
+	}, noRepairNamed)
+	formatOnlyRangeableIndexDrop := concat([]string{
+		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		"its shards commit one by one",
+	}, noRepairNamed)
+	// The prose carries a URL too, so it has to keep the namespace prefix the
+	// rendered repair call used to be checked for.
+	qualifiedIndexDrop := []string{
+		"No repair call is named here",
+		"Decide whether you still want the index before repairing",
+		"GET /v1/schema/customer1:C/indexes reports this collection's migrations",
+	}
 
 	statuses := []struct {
 		name      string
@@ -1096,30 +1127,40 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		// gates; nil means the remedy doesn't depend on that.
 		wantDropping    []string
 		notWantDropping []string
+		// wantIndexDrop replaces want on the index-dropping gate, which names
+		// no repair call. nil means this row names none on any gate, so its
+		// want already holds. There is no notWant twin: every row on that gate
+		// gains noFollowUp, whether or not it overrides want.
+		wantIndexDrop []string
 	}{
 		{
 			"STARTED", distributedtask.TaskStatusStarted, "C", payload,
-			cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly), nil, nil,
+			cancelWhileRunning, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
+			nil, nil, nil,
 		},
 		{
 			"PREPARING", distributedtask.TaskStatusPreparing, "C", payload,
 			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
 			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+			pastUnitsIndexDrop,
 		},
 		{
 			"SWAPPING", distributedtask.TaskStatusSwapping, "C", payload,
 			pastUnits, concat(cancelUnnameable, cancelUnknown, notFormatOnly),
 			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notFormatOnly, noFollowUp),
+			pastUnitsIndexDrop,
 		},
 		{
 			"SWAPPING without a target tokenization", distributedtask.TaskStatusSwapping, "C", noTargetPayload,
 			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
 			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+			pastUnitsIndexDrop,
 		},
 		{
 			"STARTED format-only", distributedtask.TaskStatusStarted, "C", formatOnlyPayload,
 			formatOnly, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
 			formatOnlyDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			formatOnlyIndexDrop,
 		},
 		// Format-only tasks skip PREPARING but do reach SWAPPING, where the
 		// gates still see them — and where their units are already done.
@@ -1127,20 +1168,24 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			"SWAPPING format-only", distributedtask.TaskStatusSwapping, "C", formatOnlyPayload,
 			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
 			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			nil,
 		},
 		{
 			"STARTED format-only enable-rangeable", distributedtask.TaskStatusStarted, "C", rangeablePayload,
 			formatOnlyRangeable, concat(cancelUnnameable, cancelUnknown, notInverted),
 			formatOnlyRangeableDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			formatOnlyRangeableIndexDrop,
 		},
 		{
 			"SWAPPING format-only enable-rangeable", distributedtask.TaskStatusSwapping, "C", rangeablePayload,
 			formatOnlyPastUnits, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip),
 			formatOnlyPastUnitsDropping, concat(cancelUnnameable, cancelUnknown, notInverted, notPerShardSchemaFlip, noFollowUp),
+			nil,
 		},
 		{
 			"STARTED whole-collection", distributedtask.TaskStatusStarted, "C", wholeCollectionPayload,
-			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown),
+			nil, nil, nil,
 		},
 		// Past STARTED the cancel is refused whether or not this build could
 		// have named one, so the unnameable-cancel wording drops out and the
@@ -1149,20 +1194,24 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			"SWAPPING whole-collection", distributedtask.TaskStatusSwapping, "C", wholeCollectionPayload,
 			repairUnnameable, concat(cancelUnnameable, cancelUnknown),
 			pastUnitsDropping, concat(cancelUnnameable, cancelUnknown, noFollowUp),
+			pastUnitsIndexDrop,
 		},
 		// A type this build does not know abstains at both ends: it can name
 		// no cancel at STARTED and no consequence past it.
 		{
 			"STARTED unknown migration type", distributedtask.TaskStatusStarted, "C", unknownTypePayload,
-			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown), nil, nil,
+			cancelUnnameable, concat([]string{cancelCall}, cancelUnknown),
+			nil, nil, nil,
 		},
 		{
 			"SWAPPING unknown migration type", distributedtask.TaskStatusSwapping, "C", unknownTypePayload,
-			unknownTypePastUnits, concat(cancelUnnameable, cancelUnknown, notInverted), nil, nil,
+			unknownTypePastUnits, concat(cancelUnnameable, cancelUnknown, notInverted),
+			nil, nil, nil,
 		},
 		{
 			string(unknownFutureStatus), unknownFutureStatus, "C", payload,
-			cancelUnknown, concat([]string{cancelCall}, cancelUnnameable), nil, nil,
+			cancelUnknown, concat([]string{cancelCall}, cancelUnnameable),
+			nil, nil, nil,
 		},
 		// Namespace-qualified: the URL keeps the prefix. A global operator has
 		// to type it, and the REST error path removes it again for the
@@ -1171,7 +1220,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			"STARTED namespace-qualified", distributedtask.TaskStatusStarted, "customer1:C", qualifiedPayload,
 			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
 			[]string{"/v1/schema/C/"},
-			nil, nil,
+			nil, nil, nil,
 		},
 		{
 			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
@@ -1181,6 +1230,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 			[]string{"/v1/schema/C/"},
 			[]string{"re-issue this request once the task is terminal"},
 			concat([]string{"/v1/schema/C/"}, noFollowUp),
+			qualifiedIndexDrop,
 		},
 	}
 
@@ -1195,14 +1245,36 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 				err := gate.call(st.className, tasks)
 				require.Error(t, err)
 				want, notWant := st.want, st.notWant
-				if gate.dropsTheData && st.wantDropping != nil {
+				switch {
+				case gate.dropsTheData && st.wantDropping != nil:
 					want, notWant = st.wantDropping, st.notWantDropping
+				case gate.dropsTheIndex:
+					if st.wantIndexDrop != nil {
+						want = st.wantIndexDrop
+					}
+					notWant = concat(notWant, noFollowUp)
 				}
 				for _, w := range want {
 					require.Contains(t, err.Error(), w)
 				}
 				for _, unwanted := range notWant {
 					require.NotContains(t, err.Error(), unwanted)
+				}
+
+				if gate.dropsTheIndex {
+					// Proves the flag reaches this gate: every call it renders
+					// has to be a cancel, the one verb that does not read the
+					// index flag the caller's own DELETE clears.
+					for _, m := range gateRemedyCallRE.FindAllStringSubmatch(err.Error(), -1) {
+						require.Contains(t, m[1], `"cancel":true`,
+							"the property index DELETE gate rendered %s, which the "+
+								"API refuses once that DELETE clears the index flag", m[1])
+					}
+				} else {
+					// Proves it reaches no other gate: these callers remove no
+					// index group, so their repair call stays valid and this
+					// prose would mean the flag was passed true here.
+					require.NotContains(t, err.Error(), "No repair call is named here")
 				}
 
 				// The rows above pin the wording; this asks the guard itself,
@@ -1230,6 +1302,11 @@ type schemaMutationGate struct {
 	// migration works on. Only DeleteClass qualifies — a tenant mutation
 	// leaves the migration's state behind.
 	dropsTheData bool
+	// dropsTheIndex marks the gate whose caller removes the very index a
+	// repair call would run against. Only the property index DELETE
+	// qualifies, and it is the sole command reaching CheckPropertyUpdate.
+	// A tenant mutation removes no index group, so its call stays valid.
+	dropsTheIndex bool
 }
 
 func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
@@ -1240,6 +1317,7 @@ func schemaMutationGates(provider *ReindexProvider) []schemaMutationGate {
 				return provider.CheckPropertyUpdate(className, "name", tasks)
 			},
 			askedProperty: "name",
+			dropsTheIndex: true,
 		},
 		{
 			name: "delete class",
