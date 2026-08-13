@@ -893,15 +893,20 @@ func renderedCancelCall(message string) string {
 
 // requireCancelAdviceMatchesTheGuard asserts the one property these
 // refusals exist to get right: a remedy names a cancel call exactly when
-// [distributedtask.TaskStatus.IsCancellable] and [ReindexCancelCall] agree
-// it should. The REST half (rendered call through cancelPreflight) is
-// pinned separately by TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
+// the task is STARTED and [ReindexCancelCall] can render one. The REST half
+// (rendered call through cancelPreflight) is pinned separately by
+// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
+//
+// The status half is spelled out as the literal STARTED rather than derived
+// from [distributedtask.TaskStatus.IsCancellable], so re-keying the guard
+// onto a different predicate shows up here as a failure instead of moving
+// the goalposts with it.
 func requireCancelAdviceMatchesTheGuard(t *testing.T, message string,
 	status distributedtask.TaskStatus, payload ReindexTaskPayload, askedProperty string,
 ) {
 	t.Helper()
 	got := renderedCancelCall(message)
-	if status.IsCancellable() && ReindexCancelCall(payload, askedProperty) != "" {
+	if status == distributedtask.TaskStatusStarted && ReindexCancelCall(payload, askedProperty) != "" {
 		require.NotEmpty(t, got,
 			"a cancel is accepted in status %s and this build can name it, "+
 				"so the remedy has to print it", status)
