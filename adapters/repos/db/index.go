@@ -1774,29 +1774,24 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 	return stderrors.Join(resumeErr, i.rebuildAsyncReplicationAfterOffloadHalt(ctx, shardName, shard))
 }
 
-// resumeOffloadHaltAfterAbortedFreeze lifts an offload halt this node placed for a
-// freeze the cluster later aborted, and repairs the async replication that halt
-// stopped. offloadHaltOwner is deterministic, so this caller can name a halt its own
-// instance never placed. No-op when the shard is not loaded or holds no offload halt.
+// healOrphanedOffloadHalt lifts an offload halt orphaned by an aborted freeze round
+// (offloadHaltOwner is deterministic, so this instance can name a halt it never
+// placed) and rebuilds the async replication that halt stopped. No-op when the shard
+// is not loaded or holds no offload halt — probed via haltedForOffload without
+// taking haltForTransferMux, because this runs on the RAFT apply goroutine and
+// HaltForTransfer holds that mux across its whole seal (up to HaltForTransferTimeout,
+// 1h by default): a locking probe would park every apply behind an in-flight seal.
 //
-// The "holds no offload halt" test is haltedForOffload, a lock-free atomic read.
-// This runs on the RAFT apply goroutine, and HaltForTransfer holds
-// haltForTransferMux across its whole seal (up to HaltForTransferTimeout, 1h by
-// default); a locking probe would stall every apply on this node behind any
-// in-flight seal of the same shard.
-//
-// A stale zero cannot skip an owed repair. A repair is owed only after a freeze
-// round aborts, and offload halts are registered only by Migrator.freeze under the
-// synchronous FREEZING apply — serialised against this HOT apply by classLocks and
-// the single FSM goroutine. So a halt from an earlier round was published before
-// this apply began, and a concurrently registered halt is a live freeze this healer
+// A stale zero cannot skip an owed repair: offload halts are placed only by
+// Migrator.freeze under the synchronous FREEZING apply, serialised against this HOT
+// apply by classLocks and the single FSM goroutine. An orphan was therefore published
+// before this apply began; a concurrently placed halt is a live freeze this healer
 // must not touch.
 //
-// One held halt gets exactly one owner drop: resumeHaltOwner drops the owner before
-// its fallible physical resume, so every later call reports wasHeld=false. The rebuild
-// therefore runs even when that resume fails, and both errors are returned joined; a
-// rebuild that fails leaves its own retry handle (asyncReplicationRebuildPending).
-func (i *Index) resumeOffloadHaltAfterAbortedFreeze(ctx context.Context, shardName string) error {
+// resumeHaltOwner drops the owner before its fallible resume, so one orphan gets one
+// heal attempt: the rebuild runs even when the resume fails (errors joined), and a
+// failed rebuild arms asyncReplicationRebuildPending as its retry handle.
+func (i *Index) healOrphanedOffloadHalt(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
 		return nil

@@ -399,7 +399,7 @@ type Shard struct {
 	haltForTransferTotal atomic.Int64
 	// offloadHaltTotal mirrors the offload owners' (offloadHaltOwnerPrefix) share of
 	// the owner map so haltedForOffload can probe without the mux; mutated only via
-	// publishHaltTotalLocked. Why lock-free: see resumeOffloadHaltAfterAbortedFreeze.
+	// publishHaltTotalLocked. Why lock-free: see healOrphanedOffloadHalt.
 	offloadHaltTotal atomic.Int64
 	// haltForTransferInactivityOwners is the set of owners that armed the inactivity
 	// watchdog (halted with inactivityTimeout>0). On a watchdog fire every owner in

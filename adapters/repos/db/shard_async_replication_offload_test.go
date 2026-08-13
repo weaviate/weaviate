@@ -403,7 +403,7 @@ func TestHotTransitionDoesNotBlockOnInFlightSeal(t *testing.T) {
 	<-ctrl.entered // the seal now holds haltForTransferMux
 
 	healed := make(chan error, 1)
-	go func() { healed <- idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name) }()
+	go func() { healed <- idx.healOrphanedOffloadHalt(ctx, s.name) }()
 
 	select {
 	case err := <-healed:
@@ -478,7 +478,7 @@ func TestOffloadHealRebuildsDespiteFailedResume(t *testing.T) {
 		{
 			name:  "heal after an aborted freeze",
 			class: "OffloadHealFailedResumeFreeze",
-			heal:  (*Index).resumeOffloadHaltAfterAbortedFreeze,
+			heal:  (*Index).healOrphanedOffloadHalt,
 		},
 		{
 			name:  "heal after an aborted offload",
@@ -594,7 +594,7 @@ func TestOffloadHealRebuildFailureLeavesRetryHandle(t *testing.T) {
 		{
 			name:    "heal after an aborted freeze, retried by a halt cycle",
 			class:   "OffloadHealRetryHandleFreeze",
-			heal:    (*Index).resumeOffloadHaltAfterAbortedFreeze,
+			heal:    (*Index).healOrphanedOffloadHalt,
 			consume: consumeByHaltCycle,
 		},
 		{
@@ -606,7 +606,7 @@ func TestOffloadHealRebuildFailureLeavesRetryHandle(t *testing.T) {
 		{
 			name:    "heal after an aborted freeze, retried by a reconcile",
 			class:   "OffloadHealRetryHandleReconcile",
-			heal:    (*Index).resumeOffloadHaltAfterAbortedFreeze,
+			heal:    (*Index).healOrphanedOffloadHalt,
 			consume: consumeByReconcile,
 		},
 	}
@@ -673,7 +673,7 @@ func TestAbortedFreezeHealIsOneShot(t *testing.T) {
 	_, idx, s := seedHealTestShard(t, ctx, class)
 
 	failOffloadResumeLeg(t, ctx, s)
-	require.ErrorIs(t, idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name), errResumeLegFailed)
+	require.ErrorIs(t, idx.healOrphanedOffloadHalt(ctx, s.name), errResumeLegFailed)
 	awaitHashtreeInitialized(t, s)
 
 	s.asyncReplicationRWMux.RLock()
@@ -681,7 +681,7 @@ func TestAbortedFreezeHealIsOneShot(t *testing.T) {
 	s.asyncReplicationRWMux.RUnlock()
 	require.NotNil(t, rebuilt, "pre-condition: the first heal rebuilt the hashtree")
 
-	require.NoError(t, idx.resumeOffloadHaltAfterAbortedFreeze(ctx, s.name),
+	require.NoError(t, idx.healOrphanedOffloadHalt(ctx, s.name),
 		"a heal that finds no offload halt is a clean no-op")
 
 	s.asyncReplicationRWMux.RLock()

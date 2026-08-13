@@ -70,7 +70,7 @@ func (s *Shard) haltedForTransfer() bool {
 }
 
 // haltedForOffload is the lock-free negative probe for the offload-halt healer.
-// See resumeOffloadHaltAfterAbortedFreeze for why a stale zero is safe.
+// See healOrphanedOffloadHalt for why a stale zero is safe.
 func (s *Shard) haltedForOffload() bool {
 	return s.offloadHaltTotal.Load() > 0
 }

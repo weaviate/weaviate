@@ -720,7 +720,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				// and classLocks serialises the two updates for this class. It runs
 				// regardless of the load error above, because a halt on an
 				// already-loaded shard must be lifted even when that load reports one.
-				if err := idx.resumeOffloadHaltAfterAbortedFreeze(ctx, name); err != nil {
+				if err := idx.healOrphanedOffloadHalt(ctx, name); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_resume_offload_halt",
