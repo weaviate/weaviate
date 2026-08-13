@@ -44,7 +44,7 @@ var sweepMemoFixtures = []memoFixture{
 	},
 	{
 		dir:       "filterable_retokenize_bird_cat_1",
-		props:     []string{"bird", "cat"},
+		props:     []string{"bird_cat"},
 		sentinels: []string{"started.mig"},
 	},
 	{

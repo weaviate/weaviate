@@ -81,6 +81,13 @@ var sidecarPropLists = [][]string{
 	{"b", "c", "cat"},
 }
 
+// singlePropertyStrategyPrefixes are the strategies whose task constructor takes
+// one property rather than a list, so no tracker dir of theirs can name two.
+var singlePropertyStrategyPrefixes = map[string]bool{
+	MigrationDirPrefixFilterableRetokenize: true,
+	MigrationDirPrefixSearchableRetokenize: true,
+}
+
 // sidecarFixturesFor spans every per-property strategy of one index type, so no
 // strategy reaches the reader untested.
 func sidecarFixturesFor(indexType string) []sidecarFixture {
@@ -88,6 +95,9 @@ func sidecarFixturesFor(indexType string) []sidecarFixture {
 	gen := 0
 	for _, prefix := range migrationDirPrefixesForIndexType(indexType) {
 		for _, props := range sidecarPropLists {
+			if singlePropertyStrategyPrefixes[prefix] && len(props) > 1 {
+				continue
+			}
 			gen++
 			out = append(out, sidecarFixture{
 				name:   migrationDirWithProps(prefix, props) + genSuffix(gen),
