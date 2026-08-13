@@ -230,14 +230,6 @@ func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
 	return s
 }
 
-// cachingDirs scopes a directory-listing memo to this scope, for the scopes
-// [classLevelMigrationDirsOf] builds without one. See [dirNamesCache] for how
-// long it may live.
-func (s migrationDirScope) cachingDirs(c *dirNamesCache) migrationDirScope {
-	s.dirs = c
-	return s
-}
-
 // migrationDirsOf returns the tracker dirs a (propName, indexType) cleanup
 // deletes on the shard at lsmPath. A nil cache reads the filesystem every time.
 func migrationDirsOf(lsmPath string, dirs *dirNamesCache, propName, indexType string) migrationDirScope {

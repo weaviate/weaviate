@@ -153,7 +153,7 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option; a status this build cannot classify has to be read on a node that recognizes it",
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes. GET /v1/schema/%s/indexes names the property and index type that are still migrating, and PUT /v1/schema/%s/indexes/{that property} with {\"{that index type}\":{\"cancel\":true}} ends the task early — but only while it is still in status STARTED, which GET /v1/tasks reports; from PREPARING or SWAPPING on that cancel is refused with 409 Conflict and waiting is the only option; a status or migration type this build cannot classify has to be handled on a node that recognizes it — an unknown type shows no pending entry under /indexes and its cancel answers 202 with NO_OP while the task keeps running",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection, collection, collection,
 	)
 }

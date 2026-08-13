@@ -42,12 +42,12 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 		hasOverlay bool
 	}{
 		{
-			name:       "cancelled at PREPARING, merged but never swapped",
+			name:       "merged but never swapped",
 			sentinels:  []string{"started.mig", "merged.mig"},
 			hasOverlay: false,
 		},
 		{
-			name:       "cancelled at SWAPPING, swap committed",
+			name:       "swap committed and tidied",
 			sentinels:  []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
 			hasOverlay: true,
 		},

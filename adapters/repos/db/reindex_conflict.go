@@ -159,11 +159,11 @@ func ReindexPropsOverlap(a, b []string) bool {
 // ReindexTargetIndexes lists the inverted-index keys a migration type writes
 // to, or nil for an unknown type.
 //
-// Single source of truth for that mapping — read by [ReindexCancelCall],
-// [firstUnknownMigrationType], the REST cancel matcher, submit-time
-// cleanup, and both disk-deleting cleanup paths. A mismatch between callers
-// risks silent data loss. [reindexRepairBody] needs its own arm per type;
-// both tables are pinned against the declared set in reindex_conflict_test.go.
+// Single source of truth for that mapping: every caller that needs a
+// migration type's index keys reads it here rather than mapping the types
+// again, because a mismatch between callers risks silent data loss.
+// [reindexRepairBody] needs its own arm per type; both tables are pinned
+// against the declared set in reindex_conflict_test.go.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,

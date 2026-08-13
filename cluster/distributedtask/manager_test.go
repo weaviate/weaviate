@@ -686,8 +686,8 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
-// Pins that a Restore-only STARTED+FAILED-unit state stays FAILED instead
-// of advancing into the schema-flip phases.
+// Pins that a restored STARTED task carrying a FAILED unit ends FAILED
+// instead of advancing into the schema-flip phases.
 func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T) {
 	for _, barrier := range []bool{false, true} {
 		name := "swapping path"
@@ -720,7 +720,7 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 			require.NoError(t, err)
 			assert.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
 			// Same shape as the per-unit failure path: the unit's name and
-			// its own error, so repair-guidance logging has something to quote.
+			// its own error, so /v1/tasks shows which unit failed and why.
 			assert.Contains(t, tasks["ns"][0].Error, "failing the task rather than running the schema flip")
 			assert.Contains(t, tasks["ns"][0].Error, "unit su-failed failed: boom")
 		})

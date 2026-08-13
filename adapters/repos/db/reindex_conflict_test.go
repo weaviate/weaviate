@@ -1461,11 +1461,13 @@ func allDeclaredReindexMigrationTypes(t *testing.T) []ReindexMigrationType {
 	// count below would still match.
 	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
-	// Also matches the grouped-const form (`ReindexTypeFoo = "foo"`, no
-	// repeated type), or a type declared that way goes uncounted.
+	// Two alternatives, or a declaration shaped like the other goes
+	// uncounted: any identifier with an explicit ReindexMigrationType (the
+	// name prefix is a convention, not a rule), and the ReindexType-prefixed
+	// grouped-const form, which carries no type to match on.
 	// Value charset kept wide: a narrower one would silently skip a new
 	// constant, and the count guard below would still pass at 9.
-	re := regexp.MustCompile(`ReindexType\w+\s+(?:ReindexMigrationType\s+)?= "([a-zA-Z0-9_-]+)"`)
+	re := regexp.MustCompile(`(?:\w+\s+ReindexMigrationType|ReindexType\w+)\s+= "([a-zA-Z0-9_-]+)"`)
 	var out []ReindexMigrationType
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {

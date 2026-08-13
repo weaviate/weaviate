@@ -2065,11 +2065,14 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	}
 }
 
-// promotableReindexStateOnThisNode reports whether this node holds reindex
-// state the next restart would promote — the evidence gate for CANCELLED
-// repair guidance, since an unconditional "buckets are inverted" claim
-// would be a false alarm at STARTED. Answers true when it cannot tell (no
-// local store): silence about possibly-inverted data is the worse error.
+// promotableReindexStateOnThisNode reports whether this node holds state
+// this task's own migration wrote that the next restart would promote —
+// the evidence gate for CANCELLED repair guidance, since an unconditional
+// "buckets are inverted" claim would be a false alarm at STARTED. The next
+// restart promotes any completed generation regardless of type or property;
+// this gate reads only this task's, because the guidance it arms names this
+// task's repair. Answers true when it cannot tell (no local store): silence
+// about possibly-inverted data is the worse error.
 //
 // Shares one directory-listing cache across the whole loop — the quiet arm
 // (the point of the gate) walks every shard for every (property, index

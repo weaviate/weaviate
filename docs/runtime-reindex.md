@@ -283,10 +283,11 @@ preceding a transition on the per-task field. Annotations
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
         │                                                                │
-        │  (Format-only path: Provider.OnGroupCompleted runs the       │
-        │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
-        │   PreparationCompleteAck barrier; SWAPPING fires directly from       │
-        │   AllUnitsTerminal.)                                          │
+        │  (Format-only path: each per-unit worker runs the inline      │
+        │   PREP+OVERLAY+SWAP body when its own unit finishes, while    │
+        │   the task is still STARTED; OnGroupCompleted short-circuits; │
+        │   no PreparationCompleteAck barrier; SWAPPING fires directly  │
+        │   from AllUnitsTerminal.)                                     │
         └──────────────────────────────────┬─────────────────────────────┘
               Every node's PostCompletionAck landed (success on all)
                                            │
@@ -968,10 +969,11 @@ The post-completion barrier is split into two phases.
    `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
-skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
-runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
-`RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
-PostCompletionAck barrier only.
+skipped; the FSM goes `STARTED → SWAPPING` directly. Each per-unit worker
+has already run the inline PREP+OVERLAY+SWAP body when its own unit
+finished, while the task was still STARTED; `OnGroupCompleted`
+short-circuits and the scheduler emits `RecordPostCompletionAck`.
+SWAPPING → FINISHED is gated on the PostCompletionAck barrier only.
 
 **Failure handling (both paths):**
 

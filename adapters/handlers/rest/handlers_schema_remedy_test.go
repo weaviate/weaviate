@@ -332,10 +332,11 @@ func TestGateRemedyNamesOnlyACancelTheCancelPathAccepts(t *testing.T) {
 	}
 }
 
-// TestEveryDeclaredTypeRendersAnAcceptedRepairCall checks that every rendered
-// repair/cancel call also passes the real per-type validator, not just
-// group exclusivity.
-func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
+// TestEveryRenderedRepairCallPassesTheRealValidator checks that every
+// rendered repair/cancel call also passes the real per-type validator, not
+// just group exclusivity. Not every declared type renders one: the table's
+// wantNoRepair rows pin the types that deliberately do not.
+func TestEveryRenderedRepairCallPassesTheRealValidator(t *testing.T) {
 	const targetTok = "word"
 	// The tokenization every retokenize row is migrating away from.
 	const oldTok = "whitespace"
@@ -507,8 +508,11 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 }
 
 // TestBothLayersNameTheSameTaskWhenSeveralConflict pins that the pre-check
-// and the apply gate name the same conflicting task regardless of the
-// task list's input order.
+// names the same conflicting task as the apply gate, and that the
+// pre-check's answer holds regardless of the task list's input order. The
+// apply gate itself takes the first overlap in slice order; its
+// order-independence is sortedTasksWithLock's job one layer up, so this
+// test hands it the already-sorted slice production hands it.
 func TestBothLayersNameTheSameTaskWhenSeveralConflict(t *testing.T) {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType:      db.ReindexTypeChangeTokenization,
