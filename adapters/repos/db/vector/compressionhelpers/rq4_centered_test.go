@@ -146,12 +146,11 @@ func TestCenteredRQ4EstimatorAccuracy(t *testing.T) {
 	}
 }
 
-// A zero mean must behave like the stock quantizer: same rotation, same
-// interval, identical integer codes. Distances agree up to the packed
-// header's bfloat16 rounding of lower (centered codes use the 12-byte
-// layout, stock codes the legacy 16-byte one), which shifts estimates by
-// ~2^-9 of their magnitude.
-func TestCenteredRQ4ZeroMeanMatchesStock(t *testing.T) {
+// Under a zero mean the two tiers see the same rotated vectors, so they are
+// directly comparable: same code length, and the centered tier — which
+// spends five of those bytes on the outlier sidecar — must estimate at least
+// as accurately as stock, not merely close to it.
+func TestCenteredRQ4ZeroMeanIsAtLeastAsAccurateAsStock(t *testing.T) {
 	const (
 		dim  = 64
 		seed = 7
@@ -169,22 +168,22 @@ func TestCenteredRQ4ZeroMeanMatchesStock(t *testing.T) {
 
 			ds := stock.NewDistancer(q)
 			dc := centered.NewDistancer(q)
-			qNorm := math.Sqrt(float64(dotFloat(q, q)))
+			var stockErr, centeredErr float64
 			for _, v := range vectors {
 				cs := stock.Encode(v)
 				cc := centered.Encode(v)
-				require.Equal(t, len(cs)-compressionhelpers.RQ4MetadataSize,
-					len(cc)-compressionhelpers.RQ4PackedMetadataSize)
-				assert.Equal(t, cs[compressionhelpers.RQ4MetadataSize:],
-					cc[compressionhelpers.RQ4PackedMetadataSize:],
-					"zero-mean centered codes must quantize identically to stock")
+				require.Equal(t, len(cs), len(cc),
+					"both layouts spend the same metadata bytes")
+				exact := float64(exactDistance(t, tc.provider, q, v))
 				a, err := ds.Distance(cs)
 				require.NoError(t, err)
 				b, err := dc.Distance(cc)
 				require.NoError(t, err)
-				vNorm := math.Sqrt(float64(dotFloat(v, v)))
-				assert.InDelta(t, a, b, 3e-3*(1+qNorm*vNorm))
+				stockErr += math.Abs(float64(a) - exact)
+				centeredErr += math.Abs(float64(b) - exact)
 			}
+			assert.LessOrEqual(t, centeredErr, stockErr,
+				"the centered tier's sidecar must not cost accuracy at a zero mean")
 		})
 	}
 }
@@ -338,6 +337,13 @@ func TestCenteredRQ4ConstructorValidation(t *testing.T) {
 	assert.Error(t, err, "mean length mismatch must be rejected")
 	_, err = compressionhelpers.RestoreFourBitRotationalQuantizer(8, 64, 3, nil, nil, make([]float32, 4), provider)
 	assert.Error(t, err, "restore with mismatched mean length must be rejected")
+
+	// The wide centered layout addresses outliers with uint16 positions, so
+	// the output dimension cannot exceed 65535.
+	tooWide := 65600
+	_, err = compressionhelpers.RestoreFourBitRotationalQuantizer(
+		tooWide, tooWide, 3, nil, nil, make([]float32, tooWide), provider)
+	assert.Error(t, err, "centering above the uint16 position cap must be rejected")
 }
 
 func TestMeanVector(t *testing.T) {

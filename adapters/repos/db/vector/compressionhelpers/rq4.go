@@ -62,27 +62,63 @@ type FourBitRotationalQuantizer struct {
 	cos float32 // Indicator for the cosine-dot distancer.
 	l2  float32 // Indicator for the l2-squared distancer.
 
-	// Centering state
+	// Centering state.
 	mean      []float32
 	meanNorm2 float32 // dot(mean, mean), for the compressed-compressed path.
 	metaSize  int
+	layout    rq4CenteredLayout
 }
 
 const (
-	// Original RQ4 metadata size: lower float32, step float32, codeSum float32, norm2/dmu float32 (all big-endian).
 	RQ4MetadataSize = 16
-	// Packed RQ4 metadata size: step float32, code sum uint16, lower bfloat16, norm2/dmu float32 (all big-endian).
-	RQ4PackedMetadataSize = 12
-	rq4MaxCode            = 15
-	rq4PackedMaxOutputDim = math.MaxUint16 / rq4MaxCode
-	rq4QueryBits          = 8
+
+	rq4CenteredWideMetadataSize = 20
+	rq4CenteredCompactMaxDim    = 4096
+	rq4CenteredMaxOutputDim     = math.MaxUint16
+
+	rq4MaxCode      = 15
+	rq4QueryBits    = 8
+	rq4LowerAnchor  = 7.5
+	rq4LowerScale   = 32
+	rq4OutlierAlpha = 0.25
 )
 
-func rq4MetadataSizeFor(centered bool, outputDim int) int {
-	if centered && outputDim <= rq4PackedMaxOutputDim {
-		return RQ4PackedMetadataSize
+type rq4CenteredLayout struct {
+	size     int
+	norm2Off int
+	sumOff   int
+	sumWide  bool // code sum as uint32 rather than uint16
+	lowerOff int
+	posOff   int
+	posWide  bool // positions as two uint16 rather than two 12-bit values
+	deltaOff int
+}
+
+// step always sits at offset 0 in both variants; the fused header decode
+// reads it first and every other field is scaled by it.
+const rq4cStepOff = 0
+
+var (
+	// [0:4] step f32 | [4:8] norm2/dmu f32 | [8:10] nibble sum u16 |
+	// [10:11] lower i8 | [11:14] two 12-bit positions | [14:16] two i8 deltas
+	rq4CompactLayout = rq4CenteredLayout{
+		size: RQ4MetadataSize, norm2Off: 4, sumOff: 8, lowerOff: 10,
+		posOff: 11, deltaOff: 14,
 	}
-	return RQ4MetadataSize
+	// [0:4] step f32 | [4:8] norm2/dmu f32 | [8:12] nibble sum u32 |
+	// [12:16] two u16 positions | [16:18] two i8 deltas | [18:19] lower i8 |
+	// [19:20] reserved, written as zero
+	rq4WideLayout = rq4CenteredLayout{
+		size: rq4CenteredWideMetadataSize, norm2Off: 4, sumOff: 8, sumWide: true,
+		posOff: 12, posWide: true, deltaOff: 16, lowerOff: 18,
+	}
+)
+
+func rq4LayoutFor(outputDim int) rq4CenteredLayout {
+	if outputDim > rq4CenteredCompactMaxDim {
+		return rq4WideLayout
+	}
+	return rq4CompactLayout
 }
 
 func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *FourBitRotationalQuantizer {
@@ -97,7 +133,7 @@ func NewFourBitRotationalQuantizer(inputDim int, seed uint64, distancer distance
 		err:       err,
 		cos:       cos,
 		l2:        l2,
-		metaSize:  rq4MetadataSizeFor(false, int(rotation.OutputDim)),
+		metaSize:  RQ4MetadataSize,
 	}
 	rq.scratch.New = func() any { return newRQ4Scratch(int(rotation.OutputDim), 0) }
 	return rq
@@ -111,11 +147,31 @@ func NewCenteredFourBitRotationalQuantizer(inputDim int, seed uint64, distancer 
 		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
 	}
 	rq := NewFourBitRotationalQuantizer(inputDim, seed, distancer)
+	if err := rq4CheckCenteredDim(rq.OutputDimension()); err != nil {
+		return nil, err
+	}
 	rq.mean = mean
 	rq.meanNorm2 = dotProduct(mean, mean)
-	rq.metaSize = rq4MetadataSizeFor(true, rq.OutputDimension())
+	rq.layout = rq4LayoutFor(rq.OutputDimension())
+	rq.metaSize = rq.layout.size
 	rq.scratch.New = func() any { return newRQ4Scratch(rq.OutputDimension(), len(mean)) }
 	return rq, nil
+}
+
+func rq4CheckCenteredDim(outputDim int) error {
+	if outputDim > rq4CenteredMaxOutputDim {
+		return errors.Errorf("centered 4-bit codes cap the output dimension at %d, got %d",
+			rq4CenteredMaxOutputDim, outputDim)
+	}
+	return nil
+}
+
+func putUint32(b []byte, pos int, x uint32) {
+	binary.BigEndian.PutUint32(b[pos:], x)
+}
+
+func getUint32(b []byte, pos int) uint32 {
+	return binary.BigEndian.Uint32(b[pos:])
 }
 
 func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, mean []float32, distancer distancer.Provider) (*FourBitRotationalQuantizer, error) {
@@ -127,6 +183,11 @@ func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, 
 	if mean != nil && len(mean) != inputDim {
 		return nil, errors.Errorf("centering mean length %d does not match input dimension %d", len(mean), inputDim)
 	}
+	if mean != nil {
+		if err := rq4CheckCenteredDim(outputDim); err != nil {
+			return nil, err
+		}
+	}
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &FourBitRotationalQuantizer{
 		inputDim:  uint32(inputDim),
@@ -136,9 +197,11 @@ func RestoreFourBitRotationalQuantizer(inputDim int, outputDim int, rounds int, 
 		cos:       cos,
 		l2:        l2,
 		mean:      mean,
-		metaSize:  rq4MetadataSizeFor(mean != nil, outputDim),
+		metaSize:  RQ4MetadataSize,
 	}
 	if mean != nil {
+		rq.layout = rq4LayoutFor(outputDim)
+		rq.metaSize = rq.layout.size
 		rq.meanNorm2 = dotProduct(mean, mean)
 	}
 	rq.scratch.New = func() any { return newRQ4Scratch(outputDim, len(mean)) }
@@ -149,11 +212,6 @@ func (rq *FourBitRotationalQuantizer) OutputDimension() int {
 	return int(rq.rotation.OutputDim)
 }
 
-// RQ4Code is the packed 4-bit code of a data vector: metadata followed by
-// OutputDim/2 bytes holding two 4-bit codes each. The accessor methods read
-// the legacy 16-byte metadata layout; packed-layout (centered) codes must go
-// through the quantizer's header/putHeader instead, which dispatch on the
-// layout the quantizer was constructed with.
 type RQ4Code []byte
 
 func (c RQ4Code) Lower() float32 {
@@ -233,18 +291,6 @@ func getUint16(b []byte, pos int) uint16 {
 	return binary.BigEndian.Uint16(b[pos:])
 }
 
-func float32ToBFloat16(x float32) uint16 {
-	if x != x {
-		return 0x7FC0
-	}
-	bits := math.Float32bits(x)
-	return uint16((bits + 0x7FFF + ((bits >> 16) & 1)) >> 16)
-}
-
-func bfloat16ToFloat32(b uint16) float32 {
-	return math.Float32frombits(uint32(b) << 16)
-}
-
 // rq4Header is the decoded per-code metadata, independent of the stored
 // layout.
 type rq4Header struct {
@@ -255,13 +301,18 @@ type rq4Header struct {
 }
 
 func (rq *FourBitRotationalQuantizer) header(c []byte) rq4Header {
-	if rq.metaSize == RQ4PackedMetadataSize {
-		step := getFloat32(c, 0)
+	if rq.centered() {
+		l := rq.layout
+		step := getFloat32(c, rq4cStepOff)
+		sum := uint32(getUint16(c, l.sumOff))
+		if l.sumWide {
+			sum = getUint32(c, l.sumOff)
+		}
 		return rq4Header{
-			lower:   bfloat16ToFloat32(getUint16(c, 6)),
+			lower:   rq4LowerFromCode(int8(c[l.lowerOff]), step),
 			step:    step,
-			codeSum: step * float32(getUint16(c, 4)),
-			norm2:   getFloat32(c, 8),
+			codeSum: step * float32(sum),
+			norm2:   getFloat32(c, l.norm2Off),
 		}
 	}
 	cx := RQ4Code(c)
@@ -269,11 +320,16 @@ func (rq *FourBitRotationalQuantizer) header(c []byte) rq4Header {
 }
 
 func (rq *FourBitRotationalQuantizer) putHeader(c []byte, lower, step, sumC, norm2 float32) {
-	if rq.metaSize == RQ4PackedMetadataSize {
-		putFloat32(c, 0, step)
-		putUint16(c, 4, uint16(sumC))
-		putUint16(c, 6, float32ToBFloat16(lower))
-		putFloat32(c, 8, norm2)
+	if rq.centered() {
+		l := rq.layout
+		putFloat32(c, rq4cStepOff, step)
+		putFloat32(c, l.norm2Off, norm2)
+		if l.sumWide {
+			putUint32(c, l.sumOff, uint32(sumC))
+		} else {
+			putUint16(c, l.sumOff, uint16(sumC))
+		}
+		c[l.lowerOff] = byte(rq4LowerCode(lower, step))
 		return
 	}
 	cx := RQ4Code(c)
@@ -285,6 +341,162 @@ func (rq *FourBitRotationalQuantizer) putHeader(c []byte, lower, step, sumC, nor
 
 func (rq *FourBitRotationalQuantizer) newCode(d int) []byte {
 	return make([]byte, rq.metaSize+d/2)
+}
+
+func (rq *FourBitRotationalQuantizer) centered() bool {
+	return rq.mean != nil
+}
+
+func rq4LowerCode(lower, step float32) int8 {
+	if !(step > 0) {
+		return 0
+	}
+	q := (lower/step + rq4LowerAnchor) * rq4LowerScale
+	if q != q {
+		return 0
+	}
+	if q >= 0 {
+		q += 0.5
+	} else {
+		q -= 0.5
+	}
+	if q > 127 {
+		return 127
+	}
+	if q < -127 {
+		return -127
+	}
+	return int8(q)
+}
+
+func rq4LowerFromCode(c int8, step float32) float32 {
+	return step * (float32(c)/rq4LowerScale - rq4LowerAnchor)
+}
+
+// readOutlierSidecar decodes the stored outlier positions and int8 deltas.
+func (rq *FourBitRotationalQuantizer) readOutlierSidecar(c []byte) (p0, p1 int, d0, d1 int8) {
+	l := rq.layout
+	if l.posWide {
+		p0, p1 = int(getUint16(c, l.posOff)), int(getUint16(c, l.posOff+2))
+	} else {
+		p0 = int(c[l.posOff])<<4 | int(c[l.posOff+1])>>4
+		p1 = int(c[l.posOff+1]&0x0F)<<8 | int(c[l.posOff+2])
+	}
+	return p0, p1, int8(c[l.deltaOff]), int8(c[l.deltaOff+1])
+}
+
+// writeOutlierSidecar writes the two selected outliers into the metadata
+// block. It must run after the nibbles and the header are in place: the
+// deltas are residuals against the STORED reconstruction, read back out of
+// the code so every rounding the reader will see is already inside them
+// (mandatory — computing them against the unrounded parameters degrades the
+// correction).
+func (rq *FourBitRotationalQuantizer) writeOutlierSidecar(code []byte, p0, p1 int, v0, v1 float32) {
+	l := rq.layout
+	if l.posWide {
+		putUint16(code, l.posOff, uint16(p0))
+		putUint16(code, l.posOff+2, uint16(p1))
+	} else {
+		code[l.posOff] = byte(p0 >> 4)
+		code[l.posOff+1] = byte(p0&0x0F)<<4 | byte(p1>>8)
+		code[l.posOff+2] = byte(p1)
+	}
+	h := rq.header(code)
+	code[l.deltaOff] = byte(rq4OutlierDelta(v0, rq.nibbleValue(code, h, p0), h.step))
+	code[l.deltaOff+1] = byte(rq4OutlierDelta(v1, rq.nibbleValue(code, h, p1), h.step))
+}
+
+// rq4OutlierDelta quantizes the outlier residual v - rec onto the
+// alpha*step int8 grid (round half away from zero, clamped to ±127).
+// Degenerate steps and non-finite residuals encode to zero, so the
+// correction decodes to exactly zero.
+func rq4OutlierDelta(v, rec, step float32) int8 {
+	if !(step > 0) {
+		return 0
+	}
+	q := (v - rec) / (rq4OutlierAlpha * step)
+	if q != q {
+		return 0
+	}
+	if q >= 0 {
+		q += 0.5
+	} else {
+		q -= 0.5
+	}
+	if q > 127 {
+		return 127
+	}
+	if q < -127 {
+		return -127
+	}
+	return int8(q)
+}
+
+// rq4OutlierNaNFloor is the smallest sign-cleared float32 bit pattern that
+// denotes a NaN. Magnitudes at or above it are excluded from outlier
+// selection: a NaN coordinate must never be chosen, matching the
+// quantizer's NaN-as-zero convention downstream.
+const rq4OutlierNaNFloor = 0x7F800001
+
+// rq4OutlierKey is the comparison key of a coordinate: its magnitude as a
+// bit pattern, with NaN mapped to zero so it never wins. For same-sign
+// floats the unsigned bit-pattern order is the numeric order, so integer
+// compares rank magnitudes exactly.
+func rq4OutlierKey(v float32) uint32 {
+	k := math.Float32bits(v) &^ (1 << 31)
+	if k >= rq4OutlierNaNFloor {
+		return 0
+	}
+	return k
+}
+
+// rq4SelectOutliers records the two largest-magnitude coordinates of rx
+// (ties break toward the lower index, NaN never selected) and zeroes them in
+// place so the interval search runs on the remaining coordinates only. rx
+// always has at least two entries (the rotation output dimension is a
+// multiple of 64), and the two returned positions are always distinct.
+//
+// Three choices make this pass cheap enough to sit in front of every encode.
+// Magnitudes are compared as sign-cleared bit patterns, so the hot loop
+// issues integer compares rather than floating-point ones (~2x faster
+// measured). The loop guards on the SMALLER of the two running maxima, so
+// the common case is a single compare and a branch taken O(log n) times;
+// testing against m0 first would double the compares and lengthen the
+// loop-carried dependency (~4x slower measured). The NaN test then costs
+// nothing on the hot path: raw keys are compared in the loop and NaN is
+// filtered inside the rarely-taken branch, where it is the only key that can
+// exceed the floor.
+//
+// The first two coordinates seed the maxima explicitly rather than starting
+// from a sentinel. A sentinel of zero would leave both positions pointing at
+// index 0 for a vector whose only nonzero coordinate is rx[0] (the seed
+// shifts p0 into p1 before any later element can displace it), and a code
+// with two sidecar entries on one coordinate would double-count that
+// coordinate's correction.
+func rq4SelectOutliers(rx []float32) (p0, p1 int, v0, v1 float32) {
+	k0, k1 := rq4OutlierKey(rx[0]), rq4OutlierKey(rx[1])
+	p0, p1 = 0, 1
+	m0, m1 := k0, k1
+	if k1 > k0 {
+		p0, p1, m0, m1 = 1, 0, k1, k0
+	}
+	for i := 2; i < len(rx); i++ {
+		a := math.Float32bits(rx[i]) &^ (1 << 31)
+		if a > m1 {
+			if a >= rq4OutlierNaNFloor {
+				continue
+			}
+			if a > m0 {
+				p1, m1 = p0, m0
+				p0, m0 = i, a
+			} else {
+				p1, m1 = i, a
+			}
+		}
+	}
+	v0, v1 = rx[p0], rx[p1]
+	rx[p0], rx[p1] = 0, 0
+	return p0, p1, v0, v1
 }
 
 // rq4ClipFactors are the candidate shrink factors for the per-vector
@@ -324,20 +536,33 @@ func newRQ4Scratch(d, meanDim int) *rq4Scratch {
 
 // centerInto writes x - mean into dst and returns the centered slice along
 // with dot(x-mean, mean). Inputs shorter than mean are zero-padded before
-// centering; entries beyond len(mean) are ignored.
+// centering; entries beyond len(mean) are ignored. dst must not alias x.
+//
+// Both passes are SIMD. Fusing them into one scalar loop looks cheaper — one
+// pass instead of two — but the dmu accumulator then carries a loop-carried
+// floating-point dependency, so the loop runs at FP-add latency per element
+// rather than at load throughput: measured 4.4x slower at d1536 (1.36 vs
+// 0.31 ns/elem), and centering was the whole encode gap against uncentered
+// RQ4. Splitting the dot out lets it accumulate in parallel lanes; the
+// reassociation moves dmu by ~2e-6 relative, far below the quantization
+// noise the slot feeds.
 func centerInto(dst, x, mean []float32) ([]float32, float32) {
 	dst = dst[:len(mean)]
-	n := copy(dst, x)
-	for i := n; i < len(dst); i++ {
-		dst[i] = 0
+	if len(x) == len(mean) {
+		f32.Sub(dst, x, mean)
+	} else {
+		// Short or over-long input: materialize the zero-padded copy first,
+		// then subtract in place. Sub is not documented to support aliasing,
+		// so the in-place form stays a plain loop.
+		n := copy(dst, x)
+		for i := n; i < len(dst); i++ {
+			dst[i] = 0
+		}
+		for i, m := range mean {
+			dst[i] -= m
+		}
 	}
-	var dmu float32
-	for i, m := range mean {
-		v := dst[i] - m
-		dst[i] = v
-		dmu += v * m
-	}
-	return dst, dmu
+	return dst, f32.DotProduct(dst, mean)
 }
 
 // rq4Correlation quantizes xs over [lower, lower + 15*step] with clamping and
@@ -437,6 +662,16 @@ func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, 
 }
 
 func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
+	return rq.encode(x, rq.centered())
+}
+
+// encode is Encode with the outlier selection switchable. Production always
+// passes rq.centered(): a centered code always carries its two outliers, in
+// the five metadata bytes the layout reserves for them, and an uncentered one
+// never does. The disabled arm exists so benchmarks can measure the outliers'
+// contribution against an otherwise identical encode; it writes the same code
+// length with a zero correction.
+func (rq *FourBitRotationalQuantizer) encode(x []float32, withSidecar bool) []byte {
 	outDim := rq.OutputDimension()
 	if len(x) == 0 {
 		return rq.newCode(outDim)
@@ -452,6 +687,15 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 		x, dmu = centerInto(scratch.cx, x, rq.mean)
 	}
 	rx := rq.rotation.RotateInto(x, scratch.rx)
+	// The outlier coordinates leave the nibble stream before the interval
+	// search, so the interval — and every remaining coordinate's step —
+	// tightens. The scalar metadata below still describes the ORIGINAL
+	// centered vector; zeroing affects only the nibble codes.
+	var op0, op1 int
+	var ov0, ov1 float32
+	if withSidecar {
+		op0, op1, ov0, ov1 = rq4SelectOutliers(rx)
+	}
 	lower, step, t, codeSum := rq4Interval(rx, scratch)
 	code := rq.newCode(outDim)
 	if step <= 0 {
@@ -459,10 +703,17 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 		// Still record the norm2-slot metadata: the scalar estimator terms
 		// stay exact even when the codes degenerate to zero.
 		rq.putHeader(code, 0, 0, 0, rq.norm2Slot(x, dmu))
+		if withSidecar {
+			// Positions are recorded but the deltas encode to zero: a
+			// step-relative grid cannot carry raw values. A degenerate vector
+			// with meaningful outliers requires <=2 nonzero rotated
+			// coordinates, which is pathological.
+			rq.writeOutlierSidecar(code, op0, op1, ov0, ov1)
+		}
 		return code
 	}
 
-	packed := code[rq.metaSize:]
+	packed := code[rq.metaSize : rq.metaSize+outDim/2]
 	half := len(packed)
 	// scratch.ci holds the codes of the winning interval; packing is a pure
 	// byte shuffle.
@@ -474,6 +725,9 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	// affine parameters. The distance computations are linear in (lower, step,
 	// codeSum), so no query-time work is needed.
 	rq.putHeader(code, t*lower, t*step, codeSum, rq.norm2Slot(x, dmu))
+	if withSidecar {
+		rq.writeOutlierSidecar(code, op0, op1, ov0, ov1)
+	}
 	return code
 }
 
@@ -507,6 +761,14 @@ func (rq *FourBitRotationalQuantizer) Restore(b []byte) []float32 {
 	for i, v := range packed {
 		x[i] = h.lower + h.step*float32(v&0x0F)
 		x[half+i] = h.lower + h.step*float32(v>>4)
+	}
+	if rq.centered() {
+		// The sidecar coordinates reconstruct as the nibble value plus the
+		// stored delta on the alpha*step grid.
+		p0, p1, d0, d1 := rq.readOutlierSidecar(b)
+		s := rq4OutlierAlpha * h.step
+		x[p0] += float32(d0) * s
+		x[p1] += float32(d1) * s
 	}
 	return x
 }
@@ -615,6 +877,10 @@ type FourBitRQDistancer struct {
 	// Centered dot/cosine mode
 	centeredDot bool
 	qMeanDot    float32
+
+	// rquery is the rotated centered float query, kept only in centered mode:
+	// the outlier correction reads it at the stored positions.
+	rquery []float32
 }
 
 // bytesAsInt8 reinterprets a byte slice as int8 for the SIMD int8 kernels.
@@ -634,7 +900,29 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 		// dot(mean, q) = dot(q-mean, mean) + dot(mean, mean).
 		qMeanDot += rq.meanNorm2
 	}
-	cq := rq.encodeQuery(cq4)
+	var cq rq4QueryCode
+	var rquery []float32
+	if rq.centered() {
+		// Rotate once and keep the float query: it feeds both the 8-bit
+		// query encoding and the sidecar correction.
+		qx := cq4
+		if len(qx) > rq.OutputDimension() {
+			qx = qx[:rq.OutputDimension()]
+		}
+		if len(qx) == 0 {
+			cq = rq4QueryCode{
+				codes:     make([]byte, rq.OutputDimension()),
+				codesInt8: make([]int8, rq.OutputDimension()),
+			}
+			rquery = make([]float32, rq.OutputDimension())
+		} else {
+			rquery = rq.rotation.Rotate(qx)
+			cq = encodeRotatedQuery(rquery)
+			cq.norm2 = dotProduct(qx, qx)
+		}
+	} else {
+		cq = rq.encodeQuery(cq4)
+	}
 	scratch := make([]byte, len(cq.codes))
 	return &FourBitRQDistancer{
 		distancer:   rq.distancer,
@@ -650,7 +938,19 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 		l2:          rq.l2,
 		centeredDot: rq.mean != nil && rq.l2 == 0,
 		qMeanDot:    qMeanDot,
+		rquery:      rquery,
 	}
+}
+
+// outlierCorrection is the stored outliers' contribution to the dot-product
+// estimate: the int8 deltas decoded on the alpha*step grid times the rotated
+// centered float query at the stored positions. It folds into dotEstimate,
+// so the metric coefficient (1 on the centered-dot path, 1+l2 otherwise)
+// applies exactly as it does to the nibble estimate.
+func (d *FourBitRQDistancer) outlierCorrection(x []byte, step float32) float32 {
+	p0, p1, d0, d1 := d.rq.readOutlierSidecar(x)
+	s := rq4OutlierAlpha * step
+	return s * (float32(d0)*d.rquery[p0] + float32(d1)*d.rquery[p1])
 }
 
 // Distance estimates the distance between the query and a 4-bit code. Using
@@ -659,15 +959,18 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 // The integer dot product <c',c> runs on a fused SIMD kernel that unpacks the
 // data nibbles in registers (see dotByteNibbleImpl).
 func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
-	metaSize := d.rq.metaSize
-	if len(x) != metaSize+len(d.cq.codes)/2 {
+	half := len(d.cq.codes) / 2
+	if len(x) != d.rq.metaSize+half {
 		return 0, errors.Errorf("4-bit code length doesn't match: %d vs %d",
-			len(x), metaSize+len(d.cq.codes)/2)
+			len(x), d.rq.metaSize+half)
 	}
 	h := d.rq.header(x)
-	dot := dotByteNibbleImpl(d.cq.codes, x[metaSize:])
+	dot := dotByteNibbleImpl(d.cq.codes, x[d.rq.metaSize:d.rq.metaSize+half])
 	dotEstimate := h.lower*d.a + h.codeSum*d.cq.lower +
 		h.step*d.cq.step*float32(dot)
+	if d.rq.centered() {
+		dotEstimate += d.outlierCorrection(x, h.step)
+	}
 	if d.centeredDot {
 		// dot(x, q) = dot(x-mean, q-mean) + dot(x-mean, mean) + dot(mean, q);
 		// the second term rides in the norm2 slot, the third is per-query.
@@ -679,14 +982,17 @@ func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
 // distanceScalar is the pure Go fallback using the packed byte-nibble kernel.
 // It exists so benchmarks can compare it against the SIMD-assisted Distance.
 func (d *FourBitRQDistancer) distanceScalar(x []byte) (float32, error) {
-	metaSize := d.rq.metaSize
-	if len(x) != metaSize+len(d.cq.codes)/2 {
+	half := len(d.cq.codes) / 2
+	if len(x) != d.rq.metaSize+half {
 		return 0, errors.Errorf("4-bit code length doesn't match: %d vs %d",
-			len(x), metaSize+len(d.cq.codes)/2)
+			len(x), d.rq.metaSize+half)
 	}
 	h := d.rq.header(x)
 	dotEstimate := h.lower*d.a + h.codeSum*d.cq.lower +
-		h.step*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, x[metaSize:]))
+		h.step*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, x[d.rq.metaSize:d.rq.metaSize+half]))
+	if d.rq.centered() {
+		dotEstimate += d.outlierCorrection(x, h.step)
+	}
 	if d.centeredDot {
 		return d.cos - (dotEstimate + h.norm2 + d.qMeanDot), d.err
 	}
@@ -709,17 +1015,74 @@ func (rq *FourBitRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []by
 			len(x), len(y), expected)
 	}
 	hx, hy := rq.header(x), rq.header(y)
-	a := float32(dim) * hx.lower * hy.lower
-	b := hx.lower * hy.codeSum
-	c := hy.lower * hx.codeSum
-	d := hx.step * hy.step * float32(dotNibbleNibbleImpl(x[rq.metaSize:], y[rq.metaSize:]))
-	dotEstimate := a + b + c + d
+	dotEstimate := rq.dotEstimateBetween(x, y, hx, hy)
 	if rq.mean != nil && rq.l2 == 0 {
 		// dot(x, y) = dot(x', y') + dot(x', mean) + dot(y', mean) + |mean|^2
 		// with x' = x-mean; both cross terms ride in the norm2 slots.
 		return rq.cos - (dotEstimate + hx.norm2 + hy.norm2 + rq.meanNorm2), rq.err
 	}
 	return rq.l2*(hx.norm2+hy.norm2) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
+}
+
+// dotEstimateBetween estimates the dot product of two stored codes in the
+// rotated (centered) space. For centered codes the result is exactly the dot
+// product of the two reconstructions Restore returns, outliers included.
+func (rq *FourBitRotationalQuantizer) dotEstimateBetween(x, y []byte, hx, hy rq4Header) float32 {
+	dim := rq.OutputDimension()
+	a := float32(dim) * hx.lower * hy.lower
+	b := hx.lower * hy.codeSum
+	c := hy.lower * hx.codeSum
+	d := hx.step * hy.step * float32(dotNibbleNibbleImpl(x[rq.metaSize:rq.metaSize+dim/2], y[rq.metaSize:rq.metaSize+dim/2]))
+	dotEstimate := a + b + c + d
+	if rq.centered() {
+		dotEstimate += rq.outlierCrossCorrection(x, y, hx, hy)
+	}
+	return dotEstimate
+}
+
+// outlierCrossCorrection is the two-sided outlier correction of the
+// compressed-compressed dot estimate:
+//
+//	dot(x,y) ≈ dotEst + Σ_k δx_k·ŷ[px_k] + Σ_j δy_j·x̂[py_j] + Σ_{px_k=py_j} δx_k·δy_j
+//
+// with ŷ[p] the nibble reconstruction of coordinate p. The collision term
+// makes the estimate exact when both codes store an outlier at the same
+// coordinate: the reconstruction there is (nibble + δ) on both sides.
+func (rq *FourBitRotationalQuantizer) outlierCrossCorrection(x, y []byte, hx, hy rq4Header) float32 {
+	xp0, xp1, xq0, xq1 := rq.readOutlierSidecar(x)
+	yp0, yp1, yq0, yq1 := rq.readOutlierSidecar(y)
+	dx0 := float32(xq0) * rq4OutlierAlpha * hx.step
+	dx1 := float32(xq1) * rq4OutlierAlpha * hx.step
+	dy0 := float32(yq0) * rq4OutlierAlpha * hy.step
+	dy1 := float32(yq1) * rq4OutlierAlpha * hy.step
+	corr := dx0*rq.nibbleValue(y, hy, xp0) + dx1*rq.nibbleValue(y, hy, xp1) +
+		dy0*rq.nibbleValue(x, hx, yp0) + dy1*rq.nibbleValue(x, hx, yp1)
+	if xp0 == yp0 {
+		corr += dx0 * dy0
+	}
+	if xp0 == yp1 {
+		corr += dx0 * dy1
+	}
+	if xp1 == yp0 {
+		corr += dx1 * dy0
+	}
+	if xp1 == yp1 {
+		corr += dx1 * dy1
+	}
+	return corr
+}
+
+// nibbleValue reconstructs coordinate i of a code under its header (plane
+// layout: dimensions [0, D/2) in the low nibbles, [D/2, D) in the high).
+func (rq *FourBitRotationalQuantizer) nibbleValue(c []byte, h rq4Header, i int) float32 {
+	half := rq.OutputDimension() / 2
+	var v byte
+	if i < half {
+		v = c[rq.metaSize+i] & 0x0F
+	} else {
+		v = c[rq.metaSize+i-half] >> 4
+	}
+	return h.lower + h.step*float32(v)
 }
 
 // fourBitRQCompressedDistancer computes distances from a stored 4-bit code,
@@ -795,8 +1158,9 @@ func (s RQ4Stats) CompressionType() string {
 }
 
 func (s RQ4Stats) CompressionRatio(dimensionality int) float64 {
-	// Original size = dim * 4 bytes (float32). Compressed size = metadata
-	// (16 bytes legacy, 12 packed) + half a byte per dimension.
+	// Original size = dim * 4 bytes (float32). Compressed size = the code's
+	// metadata prefix (16 bytes, or 20 for centered codes above the compact
+	// layout's dimension) + half a byte per dimension.
 	metaSize := s.MetadataSize
 	if metaSize == 0 {
 		metaSize = RQ4MetadataSize
@@ -807,5 +1171,5 @@ func (s RQ4Stats) CompressionRatio(dimensionality int) float64 {
 }
 
 func (rq *FourBitRotationalQuantizer) Stats() CompressionStats {
-	return RQ4Stats{Bits: 4, Centering: rq.mean != nil, MetadataSize: rq.metaSize}
+	return RQ4Stats{Bits: 4, Centering: rq.centered(), MetadataSize: rq.metaSize}
 }

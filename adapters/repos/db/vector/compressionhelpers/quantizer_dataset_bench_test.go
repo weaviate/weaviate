@@ -16,6 +16,7 @@ package compressionhelpers_test
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -48,9 +49,59 @@ type datasetConfig struct {
 }
 
 var datasetConfigs = []datasetConfig{
-	{subset: "fiqa-st-minilm-384-dot-12k", metric: "dot", numQueries: 100},
-	{subset: "beir-cohere-v3-1024-euclidean-20k", metric: "l2-squared", numQueries: 100},
-	{subset: "dbpedia-openai-ada002-1536-angular-20k", metric: "cosine-dot", numQueries: 100},
+	{subset: "fiqa-st-minilm-384-dot-12k", metric: "dot", numQueries: 1000},
+	{subset: "beir-cohere-v3-1024-euclidean-20k", metric: "l2-squared", numQueries: 1000},
+	{subset: "dbpedia-openai-ada002-1536-angular-20k", metric: "cosine-dot", numQueries: 1000},
+}
+
+// benchDatasetConfigs is the default set plus, if QUANTIZER_BENCH_DATASET is
+// set, one locally cached subset given as subset:metric[:numQueries] — for a
+// large dataset that should not be part of the default set. numQueries
+// defaults to 100.
+func benchDatasetConfigs(b *testing.B) []datasetConfig {
+	extra := os.Getenv("QUANTIZER_BENCH_DATASET")
+	if extra == "" {
+		return datasetConfigs
+	}
+	parts := strings.SplitN(extra, ":", 3)
+	if len(parts) < 2 {
+		b.Fatalf("QUANTIZER_BENCH_DATASET must be subset:metric[:numQueries], got %q", extra)
+	}
+	nq := 100
+	if len(parts) == 3 {
+		var err error
+		if nq, err = strconv.Atoi(parts[2]); err != nil || nq < 1 {
+			b.Fatalf("bad numQueries in QUANTIZER_BENCH_DATASET %q: %v", extra, err)
+		}
+	}
+	return append(datasetConfigs, datasetConfig{subset: parts[0], metric: parts[1], numQueries: nq})
+}
+
+// loadBenchDataset loads a subset from the local HuggingFace cache, normalizes
+// it when the metric is cosine, and truncates the query set to cfg.numQueries.
+// It skips rather than fails when the dataset is not cached, so the benchmarks
+// stay runnable on a machine that has only some of them.
+func loadBenchDataset(b *testing.B, cfg datasetConfig) (
+	trainIds []uint64, vectors [][]float32, neighbors [][]uint64, queries [][]float32,
+) {
+	hf := datasets.NewHubDataset("weaviate/ann-datasets", cfg.subset)
+	trainIds, vectors, err := hf.LoadTrainData()
+	if err != nil {
+		b.Skipf("failed to load dataset %s: %v", cfg.subset, err)
+	}
+	neighbors, queries, err = hf.LoadTestData()
+	if err != nil {
+		b.Skipf("failed to load dataset %s: %v", cfg.subset, err)
+	}
+	if cfg.metric == "cosine-dot" {
+		normalizeVectors(vectors)
+		normalizeVectors(queries)
+	}
+	if len(queries) > cfg.numQueries {
+		queries = queries[:cfg.numQueries]
+		neighbors = neighbors[:cfg.numQueries]
+	}
+	return trainIds, vectors, neighbors, queries
 }
 
 func datasetDistancer(metric string) distancer.Provider {
@@ -129,6 +180,53 @@ func newRQ4CAdapter(dim int, seed uint64, m distancer.Provider) *datasetQuantize
 		encodeAll: func(vectors [][]float32) {
 			mean := compressionhelpers.MeanVector(vectors, dim)
 			rq, _ = compressionhelpers.NewCenteredFourBitRotationalQuantizer(dim, seed, m, mean)
+			codes = make([][]byte, len(vectors))
+			for i, v := range vectors {
+				codes[i] = rq.Encode(v)
+			}
+		},
+		queryDist: func(q []float32) func(i int) float32 {
+			d := rq.NewDistancer(q)
+			return func(i int) float32 {
+				dist, _ := d.Distance(codes[i])
+				return dist
+			}
+		},
+		compressedSize: func() int { return len(codes[0]) },
+	}
+}
+
+// rq4cTrainSample caps how many vectors the centering mean trains on,
+// mirroring the production trainingLimit: a stable seeded random sample.
+const rq4cTrainSample = 10000
+
+func trainSample(vectors [][]float32, seed uint64) [][]float32 {
+	if len(vectors) <= rq4cTrainSample {
+		return vectors
+	}
+	rng := rand.New(rand.NewSource(int64(seed)))
+	idx := rng.Perm(len(vectors))[:rq4cTrainSample]
+	sample := make([][]float32, rq4cTrainSample)
+	for i, j := range idx {
+		sample[i] = vectors[j]
+	}
+	return sample
+}
+
+// newRQ4CT10kAdapter is the centered tier fit on the production-sized 10k
+// random sample (the honest training protocol) rather than the full corpus
+func newRQ4CT10kAdapter(dim int, seed uint64, m distancer.Provider) *datasetQuantizer {
+	var rq *compressionhelpers.FourBitRotationalQuantizer
+	var codes [][]byte
+	return &datasetQuantizer{
+		name: "rq4c-t10k",
+		encodeAll: func(vectors [][]float32) {
+			mean := compressionhelpers.MeanVector(trainSample(vectors, seed), dim)
+			var err error
+			rq, err = compressionhelpers.NewCenteredFourBitRotationalQuantizer(dim, seed, m, mean)
+			if err != nil {
+				panic(err)
+			}
 			codes = make([][]byte, len(vectors))
 			for i, v := range vectors {
 				codes[i] = rq.Encode(v)
@@ -304,55 +402,31 @@ func BenchmarkQuantizerDataset(b *testing.B) {
 	const (
 		k       = 10
 		rescore = 50
-		seed    = 42
 	)
-	configs := datasetConfigs
-	// QUANTIZER_BENCH_DATASET=subset:metric[:numQueries] appends a locally
-	// cached subset, e.g. a large dataset that should not be part of the
-	// default CI set. numQueries defaults to 100.
-	if extra := os.Getenv("QUANTIZER_BENCH_DATASET"); extra != "" {
-		parts := strings.SplitN(extra, ":", 3)
-		if len(parts) < 2 {
-			b.Fatalf("QUANTIZER_BENCH_DATASET must be subset:metric[:numQueries], got %q", extra)
+
+	seed := uint64(42)
+	if s := os.Getenv("QUANTIZER_BENCH_SEED"); s != "" {
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			b.Fatalf("bad QUANTIZER_BENCH_SEED %q: %v", s, err)
 		}
-		nq := 100
-		if len(parts) == 3 {
-			var err error
-			if nq, err = strconv.Atoi(parts[2]); err != nil || nq < 1 {
-				b.Fatalf("bad numQueries in QUANTIZER_BENCH_DATASET %q: %v", extra, err)
-			}
-		}
-		configs = append(configs, datasetConfig{subset: parts[0], metric: parts[1], numQueries: nq})
+		seed = v
 	}
-	for _, cfg := range configs {
-		hf := datasets.NewHubDataset("weaviate/ann-datasets", cfg.subset)
-		trainIds, vectors, err := hf.LoadTrainData()
-		if err != nil {
-			b.Skipf("failed to load dataset %s: %v", cfg.subset, err)
-		}
-		neighbors, queries, err := hf.LoadTestData()
-		if err != nil {
-			b.Skipf("failed to load dataset %s: %v", cfg.subset, err)
-		}
-		if len(queries) > cfg.numQueries {
-			queries = queries[:cfg.numQueries]
-			neighbors = neighbors[:cfg.numQueries]
-		}
+	for _, cfg := range benchDatasetConfigs(b) {
+		trainIds, vectors, neighbors, queries := loadBenchDataset(b, cfg)
 		m := datasetDistancer(cfg.metric)
-		if cfg.metric == "cosine-dot" {
-			normalizeVectors(vectors)
-			normalizeVectors(queries)
-		}
 		dim := len(vectors[0])
 
 		quantizers := []*datasetQuantizer{
 			newRQ4Adapter(dim, seed, m),
 			newRQ4CAdapter(dim, seed, m),
-			newPureRaBitQ4Adapter(dim, seed, m),
-			newRQ4RAdapter(dim, seed, m),
+			newRQ4CT10kAdapter(dim, seed, m),
 			newRQ8Adapter(dim, seed, m),
 			newBRQAdapter(dim, seed, m),
 			newBQAdapter(m),
+			// Below are quantizers not used in production, but are included for comparison.
+			newPureRaBitQ4Adapter(dim, seed, m),
+			newRQ4RAdapter(dim, seed, m),
 		}
 		for _, quant := range quantizers {
 			encoded := false

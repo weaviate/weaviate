@@ -902,8 +902,15 @@ func (w *WALCommitReader) readAddRQ() (Commit, error) {
 }
 
 func (w *WALCommitReader) readAddRQCentered() (Commit, error) {
+	flags, err := readByte(w.r)
+	if err != nil {
+		return nil, err
+	}
 	data, err := readRQData(w.r)
 	if err != nil {
+		return nil, err
+	}
+	if err := applyRQCenteredFlags(data, flags); err != nil {
 		return nil, err
 	}
 	meanLen, err := readUint32(w.r)

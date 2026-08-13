@@ -264,7 +264,7 @@ const (
 	AddMuvera
 	AddRQ
 	AddBRQ
-	AddRQCentered // AddRQ plus the centering mean vector
+	AddRQCentered // AddRQ plus the centering mean vector and layout flags
 )
 
 func (t HnswCommitType) String() string {

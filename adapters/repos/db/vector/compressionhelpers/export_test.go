@@ -127,3 +127,30 @@ func (rq *FourBitRotationalQuantizer) EncodePureRaBitQ4(x []float32) []byte {
 	code.setNorm2(dotProduct(x, x))
 	return code
 }
+
+func (rq *FourBitRotationalQuantizer) RQ4OutlierSidecar(code []byte) (p0, p1 int, d0, d1 int8) {
+	return rq.readOutlierSidecar(code)
+}
+
+func (rq *FourBitRotationalQuantizer) EncodeWithoutSidecar(x []float32) []byte {
+	return rq.encode(x, false)
+}
+
+const RQ4OutlierAlpha = rq4OutlierAlpha
+
+func (rq *FourBitRotationalQuantizer) RQ4HeaderLower(code []byte) float32 {
+	return rq.header(code).lower
+}
+
+func (rq *FourBitRotationalQuantizer) RQ4HeaderStep(code []byte) float32 {
+	return rq.header(code).step
+}
+
+const (
+	RQ4LowerScale  = rq4LowerScale
+	RQ4LowerAnchor = rq4LowerAnchor
+)
+
+func (rq *FourBitRotationalQuantizer) RQ4SymmetricDotEstimate(x, y []byte) float32 {
+	return rq.dotEstimateBetween(x, y, rq.header(x), rq.header(y))
+}

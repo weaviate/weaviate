@@ -184,7 +184,7 @@ func (w *WALWriter) WriteAddSQ(data *compression.SQData) error {
 // WriteAddRQ writes an AddRQ commit, or an AddRQCentered commit when the
 // data carries a centering mean. Keeping the dispatch here means every
 // caller (compaction, condensing, snapshot conversion) round-trips the mean
-// without knowing about it.
+// and the centered layout flags without knowing about them.
 func (w *WALWriter) WriteAddRQ(data *compression.RQData) error {
 	// Calculate sizes: header (1 + 4 + 4 + 4 + 4 = 17 bytes)
 	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
@@ -194,8 +194,8 @@ func (w *WALWriter) WriteAddRQ(data *compression.RQData) error {
 	totalSize := 17 + swapSize + signSize
 	centered := len(data.Mean) > 0
 	if centered {
-		// Mean: 4-byte length + 4 bytes per float32.
-		totalSize += 4 + 4*len(data.Mean)
+		// Flags: 1 byte. Mean: 4-byte length + 4 bytes per float32.
+		totalSize += 1 + 4 + 4*len(data.Mean)
 	}
 
 	buf := make([]byte, totalSize)
@@ -203,6 +203,7 @@ func (w *WALWriter) WriteAddRQ(data *compression.RQData) error {
 
 	if centered {
 		rw.WriteByte(byte(AddRQCentered))
+		rw.WriteByte(encodeRQCenteredFlags(data))
 	} else {
 		rw.WriteByte(byte(AddRQ))
 	}

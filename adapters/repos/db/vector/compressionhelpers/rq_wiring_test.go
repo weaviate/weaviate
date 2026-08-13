@@ -201,8 +201,8 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 			defer restoreStore.Shutdown(context.Background())
 			restoredCompressor, err := compressionhelpers.RestoreRQCompressor(dist, 1e6, logger,
 				int(data.InputDim), int(data.Bits), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
-				data.Rotation.Swaps, data.Rotation.Signs, nil, data.Mean, restoreStore, memwatch.NewDummyMonitor(),
-				lsmkv.MakeNoopBucketOptions, "", nil)
+				data.Rotation.Swaps, data.Rotation.Signs, nil, data.Mean, restoreStore,
+				memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, "", nil)
 			require.NoError(t, err)
 			defer restoredCompressor.Drop()
 			assert.Equal(t, uint32(bits), statsBits(t, restoredCompressor, bits))

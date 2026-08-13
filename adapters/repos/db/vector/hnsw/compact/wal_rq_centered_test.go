@@ -175,3 +175,138 @@ func TestSnapshotRoundTrip_RQCentered(t *testing.T) {
 		})
 	}
 }
+
+// The centering mean decides how every stored code is decoded, so it must
+// round-trip through both persistence formats. Centered records carry a
+// layout flags byte after the record type — currently always zero, reserved
+// for the next lever that changes the code layout.
+func TestRQCenteringRoundTrip(t *testing.T) {
+	cases := []struct {
+		name         string
+		mean         []float32
+		wantWALType  HnswCommitType
+		wantSnapType byte
+		wantFlags    []byte // empty for uncentered, which carries no flags byte
+	}{
+		{
+			name:         "uncentered",
+			wantWALType:  AddRQ,
+			wantSnapType: byte(SnapshotCompressionTypeRQ),
+		},
+		{
+			name:         "centered",
+			mean:         []float32{0.5, -1.25, 3.75, 0},
+			wantWALType:  AddRQCentered,
+			wantSnapType: byte(SnapshotCompressionTypeRQCentered),
+			wantFlags:    []byte{0},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rqData := makeTestRQData(uint32(max(len(tc.mean), 1)), 4, 64, 2, tc.mean)
+
+			t.Run("wal", func(t *testing.T) {
+				var buf bytes.Buffer
+				require.NoError(t, NewWALWriter(&buf).WriteAddRQ(rqData))
+				require.Equal(t, byte(tc.wantWALType), buf.Bytes()[0])
+				if len(tc.wantFlags) > 0 {
+					require.Equal(t, tc.wantFlags[0], buf.Bytes()[1])
+				}
+
+				commit, err := NewWALCommitReader(&buf, testLogger()).ReadNextCommit()
+				require.NoError(t, err)
+				addRQ, ok := commit.(*AddRQCommit)
+				require.True(t, ok, "expected AddRQCommit, got %T", commit)
+				require.NotNil(t, addRQ.Data)
+				assert.Equal(t, rqData.Rotation.Signs, addRQ.Data.Rotation.Signs)
+				if len(tc.mean) > 0 {
+					assert.Equal(t, tc.mean, addRQ.Data.Mean)
+				} else {
+					assert.Nil(t, addRQ.Data.Mean)
+				}
+			})
+
+			t.Run("snapshot", func(t *testing.T) {
+				var buf bytes.Buffer
+				w := &SnapshotWriter{rqData: rqData}
+				require.NoError(t, w.writeRQData(&buf))
+				require.Equal(t, tc.wantSnapType, buf.Bytes()[0])
+				if len(tc.wantFlags) > 0 {
+					require.Equal(t, tc.wantFlags[0], buf.Bytes()[1])
+				}
+
+				res := &ent.DeserializationResult{}
+				require.NoError(t, (&SnapshotReader{}).readCompressionData(bytes.NewReader(buf.Bytes()), res))
+				restored := res.CompressionRQData()
+				require.NotNil(t, restored)
+				assert.Equal(t, rqData.Rotation.Signs, restored.Rotation.Signs)
+				if len(tc.mean) > 0 {
+					assert.Equal(t, tc.mean, restored.Mean)
+				} else {
+					assert.Nil(t, restored.Mean)
+				}
+			})
+		})
+	}
+}
+
+// The centering mean must survive a WAL -> snapshot conversion, the path a
+// compaction takes: a snapshot that silently dropped it would restore a
+// quantizer decoding every code against the uncentered layout, at the same
+// length and without an error.
+func TestRQCenteringSurvivesWALToSnapshot(t *testing.T) {
+	mean := []float32{1, 2, 3, 4}
+	rqData := makeTestRQData(uint32(len(mean)), 4, 64, 2, mean)
+
+	var wal bytes.Buffer
+	require.NoError(t, NewWALWriter(&wal).WriteAddRQ(rqData))
+	commit, err := NewWALCommitReader(&wal, testLogger()).ReadNextCommit()
+	require.NoError(t, err)
+	fromWAL := commit.(*AddRQCommit).Data
+	require.Equal(t, mean, fromWAL.Mean)
+
+	var snap bytes.Buffer
+	require.NoError(t, (&SnapshotWriter{rqData: fromWAL}).writeRQData(&snap))
+	res := &ent.DeserializationResult{}
+	require.NoError(t, (&SnapshotReader{}).readCompressionData(bytes.NewReader(snap.Bytes()), res))
+	assert.Equal(t, mean, res.CompressionRQData().Mean)
+
+	// And back out to a WAL, the shape compaction rewrites take.
+	var rewritten bytes.Buffer
+	require.NoError(t, NewWALWriter(&rewritten).WriteAddRQ(res.CompressionRQData()))
+	assert.Equal(t, byte(AddRQCentered), rewritten.Bytes()[0])
+	assert.Equal(t, byte(0), rewritten.Bytes()[1])
+}
+
+// A flag this binary does not implement changes the code length in a way it
+// cannot reproduce, so both readers must refuse the record rather than
+// restore a quantizer that misparses every vector. This is the loudness the
+// centered record type used to provide by existing at all: released binaries
+// stop at the unknown type, newer flags stop here.
+func TestRQCenteredUnknownFlagsRejected(t *testing.T) {
+	mean := []float32{1, 2, 3, 4}
+	rqData := makeTestRQData(uint32(len(mean)), 4, 64, 2, mean)
+
+	t.Run("wal", func(t *testing.T) {
+		var buf bytes.Buffer
+		require.NoError(t, NewWALWriter(&buf).WriteAddRQ(rqData))
+		record := buf.Bytes()
+		record[1] = 0x80 // a flag from a future version
+
+		_, err := NewWALCommitReader(bytes.NewReader(record), testLogger()).ReadNextCommit()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown bits")
+	})
+
+	t.Run("snapshot", func(t *testing.T) {
+		var buf bytes.Buffer
+		require.NoError(t, (&SnapshotWriter{rqData: rqData}).writeRQData(&buf))
+		record := buf.Bytes()
+		record[1] = 0x80
+
+		err := (&SnapshotReader{}).readCompressionData(bytes.NewReader(record), &ent.DeserializationResult{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown bits")
+	})
+}

@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"math/rand/v2"
 	"sync"
 	"testing"
 
@@ -227,4 +228,132 @@ func Test_CompressRQ4CenteredDeferredActivation(t *testing.T) {
 	}
 	recall := float32(relevant) / float32(retrieved)
 	assert.Greater(t, recall, float32(0.8), "recall %f too low for centered 4-bit RQ with rescoring", recall)
+}
+
+// outlierProneVectors are mean-dominated ("cone") vectors with a handful of
+// blown-up coordinates each: heavy per-vector tails after rotation, the
+// regime the centered tier is designed for. They are normalized like real
+// embeddings — leaving the norms spread would make the graph itself the
+// recall bottleneck and mask what the quantizer is doing.
+func outlierProneVectors(n, dim int, seed uint64) [][]float32 {
+	rng := rand.New(rand.NewPCG(seed, seed))
+	out := make([][]float32, n)
+	base := make([]float32, dim)
+	for i := range base {
+		base[i] = float32(rng.NormFloat64() * 3)
+	}
+	for i := range out {
+		v := make([]float32, dim)
+		for j := range v {
+			v[j] = base[j] + float32(rng.NormFloat64())
+		}
+		for k := 0; k < 3; k++ {
+			v[rng.IntN(dim)] *= float32(6 + rng.Float64()*10)
+		}
+		out[i] = v
+	}
+	testinghelpers.Normalize(out)
+	return out
+}
+
+// The full centered-RQ4 journey: search recall stays high, and — the part
+// that matters for a database — the codes survive a restart. A centered code
+// is the same length as an uncentered one, so a restart that lost the
+// centering mean would decode every stored code against the wrong layout
+// while the length still matched, rather than erroring.
+func Test_CompressRQ4CenteredSurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	const (
+		dimensions    = 128
+		vectorsSize   = 2000
+		queriesSize   = 20
+		trainingLimit = 2000
+		k             = 10
+	)
+
+	vectors := outlierProneVectors(vectorsSize, dimensions, 17)
+	queries := outlierProneVectors(queriesSize, dimensions, 19)
+	provider := distancer.NewDotProductProvider()
+	logger, _ := test.NewNullLogger()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	truths := make([][]uint64, queriesSize)
+	for i := range queries {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, func(x, y []float32) float32 {
+			dist, _ := provider.SingleDist(x, y)
+			return dist
+		})
+	}
+
+	uc := ent.UserConfig{}
+	uc.SetDefaults()
+	uc.MaxConnections = 32
+	uc.EFConstruction = 64
+	uc.EF = 100
+	uc.VectorCacheMaxObjects = 10e12
+	uc.RQ = ent.RQConfig{
+		Enabled:       true,
+		Bits:          4,
+		RescoreLimit:  ent.DefaultRQRescoreLimit,
+		Centering:     true,
+		TrainingLimit: trainingLimit,
+	}
+
+	index, err := New(indexConfig("rq4-outlier", tempDir, logger, vectors, provider),
+		uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	index.PostStartup(ctx)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, id, vectors[id])
+	}))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	require.NoError(t, index.Upgrade(wg.Done))
+	wg.Wait()
+	require.True(t, index.Compressed())
+
+	stats, ok := index.CompressionStats().(compressionhelpers.RQ4Stats)
+	require.True(t, ok, "expected RQ4Stats, got %T", index.CompressionStats())
+	require.True(t, stats.Centering)
+	require.Equal(t, compressionhelpers.RQ4MetadataSize, stats.MetadataSize,
+		"centering must stay byte-neutral against the uncentered format")
+
+	control := make([][]uint64, queriesSize)
+	var relevant int
+	for i := range queries {
+		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err)
+		relevant += int(testinghelpers.MatchesInLists(truths[i], control[i]))
+	}
+	recall := float32(relevant) / float32(queriesSize*k)
+	assert.Greater(t, recall, float32(0.8),
+		"recall %f too low for the centered tier with rescoring", recall)
+
+	require.NoError(t, index.Flush())
+	require.NoError(t, index.Shutdown(ctx))
+	dummyStore.FlushMemtables(ctx)
+
+	// Restart: the centering mean comes back out of the commit log, so the
+	// restored quantizer must decode the layout it wrote.
+	restarted, err := New(indexConfig("rq4-outlier", tempDir, logger, vectors, provider),
+		uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restarted.Shutdown(context.Background()) })
+	restarted.PostStartup(ctx)
+
+	require.True(t, restarted.compressed.Load(), "index must still be compressed after restart")
+	restartedStats, ok := restarted.CompressionStats().(compressionhelpers.RQ4Stats)
+	require.True(t, ok)
+	assert.True(t, restartedStats.Centering, "centering must survive a restart")
+	assert.Equal(t, stats.MetadataSize, restartedStats.MetadataSize)
+
+	for i := range queries {
+		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err, "search must work against the restored quantizer")
+		assert.ElementsMatch(t, control[i], results,
+			"restored index must return the same results as before the restart")
+	}
 }

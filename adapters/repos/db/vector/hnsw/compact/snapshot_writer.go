@@ -45,7 +45,7 @@ const (
 	SnapshotEncoderTypeMuvera         = 3 // Note: Muvera is an encoder, not compression
 	SnapshotCompressionTypeRQ         = 4
 	SnapshotCompressionTypeBRQ        = 5
-	SnapshotCompressionTypeRQCentered = 6 // RQ plus the centering mean vector
+	SnapshotCompressionTypeRQCentered = 6
 )
 
 // SnapshotWriter writes HNSW state to the V3 snapshot format.
@@ -408,6 +408,7 @@ func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
 	centered := len(data.Mean) > 0
 	if centered {
 		_ = writeByte(buf, byte(SnapshotCompressionTypeRQCentered))
+		_ = writeByte(buf, encodeRQCenteredFlags(data))
 	} else {
 		_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
 	}

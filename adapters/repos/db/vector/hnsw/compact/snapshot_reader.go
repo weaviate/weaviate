@@ -271,9 +271,17 @@ func (r *SnapshotReader) readCompressionData(reader io.Reader, res *ent.Deserial
 	}
 }
 
-// readRQCenteredData reads an RQ payload followed by the centering mean.
+// readRQCenteredData reads the centered layout flags, then an RQ payload
+// followed by the centering mean.
 func (r *SnapshotReader) readRQCenteredData(reader io.Reader, res *ent.DeserializationResult) error {
+	var flags uint8
+	if err := binary.Read(reader, binary.LittleEndian, &flags); err != nil {
+		return errors.Wrap(err, "read centered RQ flags")
+	}
 	if err := r.readRQData(reader, res); err != nil {
+		return err
+	}
+	if err := applyRQCenteredFlags(res.CompressionRQData(), flags); err != nil {
 		return err
 	}
 	var meanLen uint32
