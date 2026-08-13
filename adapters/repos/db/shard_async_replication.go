@@ -595,6 +595,20 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 var removeHashtreeFile = os.Remove
 
 // removeSnapshotFile removes one hashtree file: an unremovable .ht errors (a later load would trust it), an unremovable .tmp only warns.
+// removeOrDemoteHashtreeFile deletes filename, demoting an undeletable one to a stray .tmp (outside trust scope, re-swept later); only a failed demotion errors, so a persistent condition cannot fail shard init forever.
+func (s *Shard) removeOrDemoteHashtreeFile(logger logrus.FieldLogger, filename, reason string) error {
+	err := removeHashtreeFile(filename)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	demoted := filename + ".tmp"
+	if renameErr := os.Rename(filename, demoted); renameErr != nil {
+		return fmt.Errorf("deleting %s hashtree file %q: %w (demoting rename failed: %w)", reason, filename, err, renameErr)
+	}
+	logger.Warnf("demoted undeletable %s hashtree file to %q: %v", reason, demoted, err)
+	return nil
+}
+
 func (s *Shard) removeSnapshotFile(filename, ext string) (removed bool, err error) {
 	if err := removeHashtreeFile(filename); err != nil && !os.IsNotExist(err) {
 		if ext == ".ht" {
@@ -707,8 +721,8 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		f, err := os.OpenFile(filename, os.O_RDONLY, os.ModePerm)
 		if err != nil {
 			logger.Warnf("opening hashtree file %q: %v", filename, err)
-			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("deleting unreadable hashtree file %q: %w", filename, err)
+			if err := s.removeOrDemoteHashtreeFile(logger, filename, "unreadable"); err != nil {
+				return nil, err
 			}
 			removedAny = true
 			continue
@@ -723,16 +737,16 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 			// Corrupt newest: discard, do not fall back to older.
 			loaded = nil
 			logger.Warnf("deserializing hashtree file %q: %v", filename, err)
-			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("deleting corrupt hashtree file %q: %w", filename, err)
+			if err := s.removeOrDemoteHashtreeFile(logger, filename, "corrupt"); err != nil {
+				return nil, err
 			}
 			removedAny = true
 			continue
 		}
 
 		// The consumed file must not survive to be reloaded as "cached".
-		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("deleting consumed hashtree file %q: %w", filename, err)
+		if err := s.removeOrDemoteHashtreeFile(logger, filename, "consumed"); err != nil {
+			return nil, err
 		}
 		removedAny = true
 	}

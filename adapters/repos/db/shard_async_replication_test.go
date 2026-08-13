@@ -2207,6 +2207,48 @@ func TestLoadHashtreeDemotesUndeletableStaleSnapshot(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "the demoted file must be reclaimed once removable")
 }
 
+// TestLoadHashtreeDemotesUndeletableCorruptNewest: a corrupt newest .ht that cannot be removed demotes to .tmp instead of failing shard init forever.
+func TestLoadHashtreeDemotesUndeletableCorruptNewest(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeCorruptDemoteTest")
+
+	_, height, dir := plantableSnapshot(t, ctx, s)
+	corrupt := filepath.Join(dir, "hashtree-00000000000000ff.ht")
+	require.NoError(t, os.WriteFile(corrupt, []byte("junk"), 0o600))
+
+	prev := removeHashtreeFile
+	removeHashtreeFile = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { removeHashtreeFile = prev })
+
+	loaded, err := s.tryLoadHashtreeFromDisk(height)
+	require.NoError(t, err, "an un-removable corrupt newest .ht must demote, not fail the load")
+	require.Nil(t, loaded)
+	require.Empty(t, htFilesInDir(t, dir))
+	_, statErr := os.Stat(corrupt + ".tmp")
+	require.NoError(t, statErr, "the corrupt newest must be demoted to a stray .tmp")
+}
+
+// TestLoadHashtreeDemotesUndeletableConsumedSnapshot: an undeletable consumed newest .ht demotes to .tmp and the loaded tree stays trusted.
+func TestLoadHashtreeDemotesUndeletableConsumedSnapshot(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "LoadHashtreeConsumedDemoteTest")
+
+	validPayload, height, dir := plantableSnapshot(t, ctx, s)
+	newest := filepath.Join(dir, "hashtree-00000000000000ff.ht")
+	require.NoError(t, os.WriteFile(newest, validPayload, 0o600))
+
+	prev := removeHashtreeFile
+	removeHashtreeFile = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { removeHashtreeFile = prev })
+
+	loaded, err := s.tryLoadHashtreeFromDisk(height)
+	require.NoError(t, err, "an undeletable consumed snapshot must demote, not fail the load")
+	require.NotNil(t, loaded, "the consumed tree is still trustworthy")
+	require.Empty(t, htFilesInDir(t, dir))
+	_, statErr := os.Stat(newest + ".tmp")
+	require.NoError(t, statErr, "the consumed file must be demoted so it cannot be re-trusted")
+}
+
 // TestLoadHashtreeDemoteRenameFailureIsFatal: when neither delete nor demote can neutralize a stale .ht, the load must keep failing.
 func TestLoadHashtreeDemoteRenameFailureIsFatal(t *testing.T) {
 	ctx := context.Background()
