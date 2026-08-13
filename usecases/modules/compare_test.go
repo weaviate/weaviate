@@ -279,7 +279,9 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 		{name: "non-source number changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "price": 9.99}, newProps: map[string]any{"title": "a", "price": 19.99}, different: false},
 		// representation drift: same logical value, different Go types -> must not re-vectorize.
 		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]any{"released": "2024-01-01T00:00:00Z"}, different: false},
-		// sub-second precision is dropped by the corpus, so the same instant must not re-vectorize.
+		// The comparator - not the corpus - normalizes an RFC3339 string down to second
+		// precision, so the disk string and the request-side time.Time for the same instant
+		// compare equal and must not re-vectorize.
 		{name: "date sub-second drift string(micros) vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC)}, different: false},
 		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
 		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},

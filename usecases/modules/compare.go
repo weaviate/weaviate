@@ -108,22 +108,24 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
-// renderSourceValue renders a value the way the corpus builder does, so equal
-// logical values in different Go representations compare equal.
+// renderSourceValue renders a value into a canonical string so equal logical values in
+// different Go representations compare equal.
 func renderSourceValue(v any) string {
 	switch val := v.(type) {
 	case time.Time:
 		return val.Format(time.RFC3339)
 	case string:
-		// Normalize a date to RFC3339 (the corpus form) so the same instant compares
-		// equal whether stored as a string or supplied as time.Time, ignoring sub-seconds.
+		// A stored date reads back as an RFC3339Nano string while the request side is a
+		// time.Time; normalize to RFC3339 so the same instant compares equal.
 		if t, err := time.Parse(time.RFC3339, val); err == nil {
 			return t.Format(time.RFC3339)
 		}
 		return val
 	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time:
-		// Composites: JSON is deterministic and matches the corpus builder.
-		// []time.Time marshals as RFC3339Nano strings, matching the []string disk form.
+		// Composites get a deterministic JSON key. []time.Time marshals as RFC3339Nano,
+		// matching the []string disk form, so a date[] round-trip compares equal.
+		// NOTE: scalar dates key at RFC3339, arrays at RFC3339Nano on purpose - do not
+		// align the precisions without fixing the corpus first.
 		if b, err := json.Marshal(val); err == nil {
 			return string(b)
 		}
