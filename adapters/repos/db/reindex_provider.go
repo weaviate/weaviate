@@ -2208,6 +2208,11 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // "done" on unreadable state would deregister the local callbacks while an
 // untidied tracker remains. Like the unloaded-shard gate
 // ([hasStalePartialReindexState]), this fails toward recovery.
+//
+// The unreadable payload only counts while no properties.mig rebuilds the
+// dir's name. Where one does, [readTaskProps] answers from it, and a tracker
+// naming other properties stops counting — so this can report "done" and
+// deregister.
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)

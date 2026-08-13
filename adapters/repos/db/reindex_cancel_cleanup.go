@@ -231,6 +231,10 @@ func (i *Index) cleanStalePartialReindexState(
 // read or parsed — since a false "clean" would leave a stale started.mig for
 // the next task to resume against.
 //
+// The unreadable payload only fails open while no properties.mig rebuilds the
+// dir's name. Where one does, [readTaskProps] answers from it, and a tracker
+// naming other properties leaves this reporting clean and skipping the shard.
+//
 // Failing open costs only a hydration, except on an unlistable .migrations:
 // the hydrated sweep reads that same directory, finds no completed migration
 // to preserve, and removes sidecars a deferred finalize still needs.

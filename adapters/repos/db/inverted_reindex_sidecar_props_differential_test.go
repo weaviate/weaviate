@@ -452,12 +452,12 @@ func TestSidecarIsRefusedWhereItCannotRebuildTheDirName(t *testing.T) {
 	}
 }
 
-// TestSidecarZeroByteWouldDeleteAnotherPropertysTrackerWithoutTheCorroboration
-// is the reason the corroboration is not optional. A zero-byte properties.mig
-// is one kill away on any node — createFile creates the file, then writes it,
-// and discards the close error — and a reader that trusted its emptiness would
-// read a multi-property tracker as belonging to no property at all.
-func TestSidecarZeroByteWouldDeleteAnotherPropertysTrackerWithoutTheCorroboration(t *testing.T) {
+// TestZeroByteSidecarDoesNotNarrowTheTrackersProperties pins the read alone: a
+// zero-byte properties.mig — one kill away, since createFile creates the file
+// before writing it — still costs a payload read and still answers with every
+// property the task recorded. What a narrowed answer would cost the sweep is
+// not asserted here.
+func TestZeroByteSidecarDoesNotNarrowTheTrackersProperties(t *testing.T) {
 	const indexType = "filterable"
 	lsm, fixtures := writeSidecarTree(t, indexType, payloadValid, sidecarZeroByte, false)
 

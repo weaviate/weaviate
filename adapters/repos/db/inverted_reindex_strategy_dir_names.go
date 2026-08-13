@@ -399,6 +399,10 @@ func migrationDirBase(name string) string {
 // fallback could report as clean (or recovered) state that the payload, once
 // readable again, says they own.
 //
+// That fail-open only covers a dir no properties.mig corroborates. Where one
+// rebuilds the dir's name, [readTaskProps] answers from it, unreadablePayload
+// stays false, and both probes decide from that list instead.
+//
 // An intact payload naming this property still requires the exact sorted-name
 // reconstruction, so a dir whose name lists its properties unsorted would be
 // preserved with a missing or corrupt payload (name-token fallback) but not
@@ -567,13 +571,12 @@ func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayl
 // independent on-disk witness of the same sorted list, so corroborating against
 // it costs nothing and rejects every sidecar that does not agree with it.
 //
-// The corroboration is load-bearing, not a sanity check.
-// [fileReindexTracker.createFile] creates this file and then writes it, with
-// the close error discarded and no fsync, so a kill between the two syscalls
-// leaves a zero-byte file — and trusting that would read as "no properties"
-// and delete a tracker belonging to other properties. A list that was
-// truncated, that lost a duplicate to the set it is derived from, or that
-// disagrees with the name for any other reason fails the same equality.
+// The corroboration is load-bearing, not a sanity check. A list that omits a
+// property this tracker owns makes [migrationDirScope.match] answer
+// not-in-scope, which drops a completed migration from the preserve pass
+// ([forEachCompletedMigration]) and lets the sweep delete the live sidecar dirs
+// its in-memory bucket pointers still use. Truncated, deduped and contradicting
+// lists fail the name equality; an empty one is rejected above.
 //
 // A tracker with no payload.mig at all is left to the caller untouched, so
 // "the task recorded nothing" stays a conclusion only the payload can license.
