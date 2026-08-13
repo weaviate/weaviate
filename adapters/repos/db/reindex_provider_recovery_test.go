@@ -393,7 +393,10 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 		// changeAlgorithm runs the migration whose tracker is class-level, so
 		// the probe has to look somewhere the per-property scope never does.
 		changeAlgorithm bool
-		want            bool
+		// absentFromShardMap leaves the shard out of this node's map while
+		// the payload still assigns its unit here.
+		absentFromShardMap bool
+		want               bool
 	}{
 		{
 			name:      "a cold tenant whose swap started and never committed",
@@ -427,6 +430,15 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			changeAlgorithm: true,
 			want:            true,
 		},
+		// The unit is assigned here, so the payload's node filter passes and
+		// the empty-set early return does not fire. Membership in this node's
+		// shard map is what has to reject it.
+		{
+			name:               "a unit assigned to this node whose shard the map does not hold",
+			sentinels:          []string{"started.mig"},
+			absentFromShardMap: true,
+			want:               true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
@@ -448,7 +460,9 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
-			idx.shards.Store(tenant, cold)
+			if !tc.absentFromShardMap {
+				idx.shards.Store(tenant, cold)
+			}
 			defer func() {
 				if cold.isLoaded() {
 					require.NoError(t, cold.Shutdown(context.Background()))

@@ -440,7 +440,10 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 		name          string
 		migrationType ReindexMigrationType
 		postMerge     bool
-		want          bool
+		// absentFromShardMap leaves the shard out of this node's map while
+		// the payload still names it.
+		absentFromShardMap bool
+		want               bool
 	}{
 		{
 			name:          "a cold tenant carrying merged state",
@@ -461,6 +464,15 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			migrationType: ReindexTypeRebuildSearchable,
 			postMerge:     true,
 		},
+		// This walk applies no node filter, so it reaches every shard the
+		// payload names, including another node's. Membership in this node's
+		// shard map is the only thing keeping it out of that node's path.
+		{
+			name:               "a shard the payload names that this node's map does not hold",
+			migrationType:      ReindexTypeChangeTokenization,
+			postMerge:          true,
+			absentFromShardMap: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
@@ -477,7 +489,9 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
-			idx.shards.Store(tenant, cold)
+			if !tc.absentFromShardMap {
+				idx.shards.Store(tenant, cold)
+			}
 			defer func() {
 				if cold.isLoaded() {
 					require.NoError(t, cold.Shutdown(context.Background()))
