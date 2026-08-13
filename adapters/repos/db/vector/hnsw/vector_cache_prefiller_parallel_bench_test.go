@@ -145,7 +145,7 @@ func runSerialPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig)
 // b.Run closure, never inside the b.N loop: Setenv registers a cleanup per call.
 func pinCursorScan(tb testing.TB) {
 	tb.Helper()
-	tb.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+	tb.Setenv(prefillTargetedReadsEnv, "")
 }
 
 func runParallelPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) {

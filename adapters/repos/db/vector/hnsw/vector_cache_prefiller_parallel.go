@@ -28,7 +28,14 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-const prefillAllocCheckEvery = 4096
+const (
+	prefillAllocCheckEvery = 4096
+	// prefillReservedCacheSlots is what every prefill leaves free. replaceIfFull treats
+	// count == maxSize as a full cache and wipes it, so a prefill that fills the last
+	// slot is thrown away by the next deletion tick. Both the serial prefiller's limit
+	// and the scan's budget are set from this.
+	prefillReservedCacheSlots = 1
+)
 
 var (
 	errPrefillMemoryPressure = errors.New("vector cache prefill aborted under memory pressure")
@@ -76,14 +83,14 @@ func (h *hnsw) useParallelPrefill() (bool, string) {
 }
 
 func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
-	_, ifAbsent := h.cache.(cache.IfAbsentPreloader[float32])
+	_, canPreloadIfAbsent := h.cache.(cache.IfAbsentPreloader[float32])
 
 	return parallelPrefillInputs{
-		multivector:  h.multivector.Load(),
-		muvera:       h.muvera.Load(),
-		ifAbsent:     ifAbsent,
-		cacheMaxSize: h.cache.CopyMaxSize(),
-		nodeCount:    h.nodeCount(),
+		multivector:        h.multivector.Load(),
+		muvera:             h.muvera.Load(),
+		canPreloadIfAbsent: canPreloadIfAbsent,
+		cacheMaxSize:       h.cache.CopyMaxSize(),
+		nodeCount:          h.nodeCount(),
 	}
 }
 
@@ -95,11 +102,11 @@ func (h *hnsw) nodeCount() int64 {
 }
 
 type parallelPrefillInputs struct {
-	multivector  bool
-	muvera       bool
-	ifAbsent     bool
-	cacheMaxSize int64
-	nodeCount    int64
+	multivector        bool
+	muvera             bool
+	canPreloadIfAbsent bool
+	cacheMaxSize       int64
+	nodeCount          int64
 }
 
 // parallelPrefillEligible is useParallelPrefill's decision core, split out so the
@@ -112,7 +119,7 @@ func parallelPrefillEligible(in parallelPrefillInputs) (bool, string) {
 	}
 	// running alongside live writes is only safe if the scan can fill empty slots
 	// without overwriting: its cursor holds a snapshot that may already be stale
-	if !in.ifAbsent {
+	if !in.canPreloadIfAbsent {
 		return false, "cache cannot preload if-absent"
 	}
 	// prefillCache screens this first, but nodes can grow between that check and the
@@ -123,15 +130,14 @@ func parallelPrefillEligible(in parallelPrefillInputs) (bool, string) {
 	return true, ""
 }
 
-// cacheHoldsEveryNode reports whether a prefill's product can survive first use.
-// replaceIfFull wipes the whole cache at count == maxSize, so below this bound an
-// uncached node is guaranteed and the first query touching one discards everything
-// the prefill loaded.
+// cacheHoldsEveryNode reports whether a prefill's product can survive first use. Below
+// this bound an uncached node is guaranteed, so the first query touching one takes the
+// count to the level prefillReservedCacheSlots exists to stay under, and everything the
+// prefill loaded is discarded.
 //
-// Exact fit is admitted deliberately. The reserved slot leaves one node uncached, so
-// a query on that node can still trigger the wipe, but every other node stays
-// resident and that wipe is one the workload reaches on its own once it has touched
-// them all.
+// Exact fit is admitted deliberately. The reserved slot leaves one node uncached, so a
+// query on that node can still trigger the wipe, but every other node stays resident
+// and that wipe is one the workload reaches on its own once it has touched them all.
 func cacheHoldsEveryNode(maxSize, nodeCount int64) bool {
 	return maxSize >= nodeCount
 }
@@ -162,99 +168,120 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	})
 }
 
+// prefillSink is the cache end of a scan: it decides which vectors are admitted, holds
+// the reservation against the cache limit, and latches the first abort so every worker
+// stops together.
+type prefillSink struct {
+	h         *hnsw
+	preloader cache.IfAbsentPreloader[float32]
+	// budget is how many vectors this scan may add. Claimed atomically rather than
+	// compared against CountVectors per row, so racing workers cannot collectively
+	// overshoot the way an advisory check allows.
+	budget  int64
+	loaded  atomic.Int64
+	claimed atomic.Int64
+	// abortCause stops every worker at its next row. Returning an error only ends the
+	// worker that raised it, and the group's cancellation reaches a sibling no earlier
+	// than its next row either, so without this the alloc probe's verdict would arrive
+	// after thousands more vectors were cached.
+	abortCause atomic.Pointer[error]
+}
+
+func newPrefillSink(h *hnsw) (*prefillSink, error) {
+	// not on Cache[T]: only the single-vector caches can fill a slot by id alone
+	preloader, ok := h.cache.(cache.IfAbsentPreloader[float32])
+	if !ok {
+		return nil, fmt.Errorf("prefill cache: %T cannot preload if-absent", h.cache)
+	}
+	return &prefillSink{
+		h:         h,
+		preloader: preloader,
+		budget:    h.cache.CopyMaxSize() - prefillReservedCacheSlots - h.cache.CountVectors(),
+	}, nil
+}
+
+func (s *prefillSink) stop(err error) error {
+	if s.abortCause.CompareAndSwap(nil, &err) {
+		return err
+	}
+	return *s.abortCause.Load()
+}
+
+// accept is the per-row admission policy, called concurrently from every worker.
+func (s *prefillSink) accept(id uint64, vec []float32) error {
+	if cause := s.abortCause.Load(); cause != nil {
+		return *cause
+	}
+	if s.h.compressed.Load() {
+		return s.stop(errPrefillCompressionActive)
+	}
+	if !s.h.prefillEligible(id) {
+		return nil
+	}
+	if s.claimed.Add(1) > s.budget {
+		s.claimed.Add(-1)
+		return s.stop(errPrefillCacheFull)
+	}
+	// cosine-dot keeps normalized vectors in the cache; the serial path gets this
+	// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
+	// a fresh per-vector allocation, so normalizing in place is safe.
+	s.h.normalizeVecInPlace(vec)
+	if !s.preloader.PreloadIfAbsent(id, vec) {
+		s.claimed.Add(-1) // slot already populated; hand the reservation back
+		return nil
+	}
+	if n := s.loaded.Add(1); n%prefillAllocCheckEvery == 0 && s.h.allocChecker != nil {
+		if err := s.h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
+			return s.stop(fmt.Errorf("%w: %w", errPrefillMemoryPressure, err))
+		}
+	}
+	return nil
+}
+
 // prefillFromScan drives a parallel bucket scan into the cache. A delete racing the
-// snapshot cursor can repopulate its slot with the pre-delete value — bounded waste,
+// snapshot cursor can repopulate its slot with the pre-delete value: bounded waste, and
 // the node itself stays tombstoned. Memory pressure and a full cache abort with a nil
-// error; the vectors left behind load on demand through cache.Get.
+// error, since the vectors left behind load on demand through cache.Get.
 func (h *hnsw) prefillFromScan(ctx context.Context,
 	scan func(context.Context, prefillOnVector) error,
 ) error {
 	before := time.Now()
 
-	// not on Cache[T]: only the single-vector caches can fill a slot by id alone
-	preloader, ok := h.cache.(cache.IfAbsentPreloader[float32])
-	if !ok {
-		return fmt.Errorf("prefill cache: %T cannot preload if-absent", h.cache)
-	}
-
-	// How many vectors this scan may add, leaving the last slot free: replaceIfFull
-	// reads count == maxSize as a full cache and wipes it, discarding the scan.
-	// Claimed atomically rather than compared against CountVectors per row, so racing
-	// workers cannot collectively overshoot the way an advisory check allows.
-	budget := h.cache.CopyMaxSize() - 1 - h.cache.CountVectors()
-
-	var (
-		loaded  atomic.Int64
-		claimed atomic.Int64
-		// abortCause stops every worker at its next row. Returning an error only ends
-		// the worker that raised it, and the group's cancellation reaches a sibling
-		// no earlier than its next row either, so without this the alloc probe's
-		// verdict would arrive after thousands more vectors were cached.
-		abortCause atomic.Pointer[error]
-	)
-	stop := func(err error) error {
-		if abortCause.CompareAndSwap(nil, &err) {
-			return err
-		}
-		return *abortCause.Load()
-	}
-
-	onVector := func(id uint64, vec []float32) error {
-		if cause := abortCause.Load(); cause != nil {
-			return *cause
-		}
-		if h.compressed.Load() {
-			return stop(errPrefillCompressionActive)
-		}
-		if !h.prefillEligible(id) {
-			return nil
-		}
-		if claimed.Add(1) > budget {
-			claimed.Add(-1)
-			return stop(errPrefillCacheFull)
-		}
-		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
-		// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
-		// a fresh per-vector allocation, so normalizing in place is safe.
-		h.normalizeVecInPlace(vec)
-		if !preloader.PreloadIfAbsent(id, vec) {
-			claimed.Add(-1) // slot already populated; hand the reservation back
-			return nil
-		}
-		if n := loaded.Add(1); n%prefillAllocCheckEvery == 0 && h.allocChecker != nil {
-			if err := h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
-				return stop(fmt.Errorf("%w: %w", errPrefillMemoryPressure, err))
-			}
-		}
-		return nil
-	}
-
-	entry := h.logger.WithFields(logrus.Fields{
-		"action":   "hnsw_vector_cache_prefill",
-		"index_id": h.id,
-	})
-
-	if err := scan(ctx, onVector); err != nil {
-		switch {
-		case errors.Is(err, errPrefillMemoryPressure), errors.Is(err, errPrefillCacheFull):
-			entry.WithField("count", loaded.Load()).
-				Warnf("%v; remaining vectors load on demand", err)
-			return nil
-		case errors.Is(err, errPrefillCompressionActive):
-			entry.WithField("count", loaded.Load()).
-				Info("stopping vector cache prefill: compression activated mid-scan")
-			return nil
-		}
+	sink, err := newPrefillSink(h)
+	if err != nil {
 		return err
 	}
 
-	entry.WithFields(logrus.Fields{
-		"count":    loaded.Load(),
-		"nodes":    h.nodeCount(),
-		"took":     time.Since(before),
-		"parallel": true,
-	}).Info("prefilled vector cache")
-	return nil
+	scanErr := scan(ctx, sink.accept)
+	return h.logPrefillOutcome(sink.loaded.Load(), time.Since(before), scanErr)
+}
+
+// logPrefillOutcome turns the scan's error into the three outcomes a prefill has: an
+// abort that leaves the remaining vectors to load on demand, a genuine failure, and
+// success. Only the middle one is the caller's problem.
+func (h *hnsw) logPrefillOutcome(count int64, took time.Duration, err error) error {
+	entry := h.logger.WithFields(logrus.Fields{
+		"action":   "hnsw_vector_cache_prefill",
+		"index_id": h.id,
+		"count":    count,
+	})
+
+	switch {
+	case err == nil:
+		entry.WithFields(logrus.Fields{
+			"nodes":    h.nodeCount(),
+			"took":     took,
+			"parallel": true,
+		}).Info("prefilled vector cache")
+		return nil
+	case errors.Is(err, errPrefillMemoryPressure), errors.Is(err, errPrefillCacheFull):
+		entry.Warnf("%v; remaining vectors load on demand", err)
+		return nil
+	case errors.Is(err, errPrefillCompressionActive):
+		entry.Info("stopping vector cache prefill: compression activated mid-scan")
+		return nil
+	}
+	return err
 }
 
 // prefillEligible is shared by both scan paths, so the read strategy cannot change
@@ -262,13 +289,17 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 // live node; tombstoned nodes keep their entry until cleanup while their row stays
 // live; an id past the node range is corrupt and must not size an allocation.
 func (h *hnsw) prefillEligible(id uint64) bool {
-	return h.nodeAlive(id) && !h.hasTombstone(id)
+	return h.nodeIndexed(id) && !h.hasTombstone(id)
 }
 
-func (h *hnsw) nodeAlive(id uint64) bool {
+// nodeIndexed is nodeByID's question without the vertex. It takes only the striped
+// lock, where nodeByID also takes h's: a scan asks this once per row, and the shared
+// lock would serialize every worker against every insert. Reading the bound under the
+// stripe is what makes that safe, since h.nodes can shrink under LockAll on a reset.
+func (h *hnsw) nodeIndexed(id uint64) bool {
 	h.shardedNodeLocks.RLock(id)
 	defer h.shardedNodeLocks.RUnlock(id)
-	// h.nodes can shrink under LockAll (index reset); read the bound under the lock
+
 	if id >= uint64(len(h.nodes)) {
 		return false
 	}
@@ -296,12 +327,10 @@ func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRo
 		// VectorFromBinary across iterations and corrupt previously cached vectors.
 		vec, err := storobj.VectorFromBinary(v, nil, targetVector)
 		if err != nil {
-			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
-				return 0, nil, false
+			if !vectorTargetMissing(err) {
+				logger.WithField("action", "hnsw_vector_cache_prefill").
+					Debugf("skipping doc id %d with undecodable vector: %v", id, err)
 			}
-			logger.WithField("action", "hnsw_vector_cache_prefill").
-				Debugf("skipping doc id %d with undecodable vector: %v", id, err)
 			return 0, nil, false
 		}
 		return id, vec, true
@@ -319,8 +348,8 @@ func prefillScanParallelism() int {
 	return parallel
 }
 
-// scanBucketVectorsParallel scans a replace-strategy bucket across GOMAXPROCS cursors
-// over disjoint key ranges.
+// scanBucketVectorsParallel scans a replace-strategy bucket over disjoint key ranges,
+// one cursor per worker acquired from the node-wide pool.
 func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
 	decode prefillRowDecoder, onVector prefillOnVector, logger logrus.FieldLogger,
 ) error {

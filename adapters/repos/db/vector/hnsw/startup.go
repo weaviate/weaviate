@@ -560,9 +560,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			return
 		}
 
-		// one short of maxSize: replaceIfFull wipes the whole cache at that count, so
-		// a prefill that fills the last slot is discarded on the next deletion tick
-		limit = int(maxSize) - 1
+		limit = int(maxSize) - prefillReservedCacheSlots
 	}
 
 	// Registered before the goroutine starts, so Shutdown and Drop cannot miss it.
@@ -580,36 +578,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	prefillCacheFunc := func() {
 		defer h.prefillWG.Done()
 		defer cancel()
-		// deferred, not trailing: GoWrapper recovers panics, and a false cachePrefilled
-		// permanently disables tombstone cleanup and every compression path. LIFO runs
-		// it before Done, so stopPostStartup still guarantees it is set on return.
+		// A false cachePrefilled permanently disables tombstone cleanup and every
+		// compression path, so it is deferred rather than trailing: on the async branch
+		// GoWrapper recovers a panic and a trailing store would never run. LIFO puts it
+		// before Done, so disablePostStartup still sees it set.
 		defer h.cachePrefilled.Store(true)
 
-		var err error
-		if h.compressed.Load() {
-			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache(prefillCtx)
-			} else {
-				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
-			}
-		} else if scan, reason := h.useParallelPrefill(); scan {
-			// Unbounded uncompressed cache: scan the objects bucket with a parallel
-			// cursor instead of looking up every vector by id (disk-seek bound).
-			// prefillCacheParallel logs which of the two scans it picked.
-			err = h.prefillCacheParallel(prefillCtx)
-		} else {
-			h.logPrefillPath(prefillPathSerial, reason)
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
-		}
-
-		if err != nil {
-			if prefillStoppedByShutdown(err, prefillCtx) {
-				h.logger.WithField("action", "hnsw_vector_cache_prefill").
-					Debug("vector cache prefill stopped: context canceled")
-			} else {
-				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
-			}
-		}
+		h.logPrefillStopped(h.runPrefill(prefillCtx, limit), prefillCtx)
 	}
 
 	// index_id and nodes on both: without them two of a thousand shards are told apart
@@ -632,4 +607,50 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}).Info("not waiting for vector cache prefill, running in background")
 		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
+}
+
+// runPrefill picks the filler for this index's cache. limit applies only to the serial
+// by-id prefiller; the scan carries its own budget and the compressor its own cache.
+func (h *hnsw) runPrefill(ctx context.Context, limit int) error {
+	if h.compressed.Load() {
+		if !h.multivector.Load() || h.muvera.Load() {
+			h.compressor.PrefillCache(ctx)
+		} else {
+			h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
+		}
+		return nil
+	}
+
+	if scan, reason := h.useParallelPrefill(); scan {
+		// scanning the objects bucket beats looking every vector up by id, which is
+		// disk-seek bound; prefillCacheParallel logs which of the two scans it picked
+		return h.prefillCacheParallel(ctx)
+	} else {
+		h.logPrefillPath(prefillPathSerial, reason)
+		return newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+	}
+}
+
+// prefillStoppedByShutdown tells a prefill that was stopped from one that failed. Both
+// scans report context.Canceled for a teardown and for a read failing against an
+// already-cancelled parent, so only the prefill's own context separates them, since
+// nothing but teardown cancels that. Both latch the first error before cancelling, so a
+// genuine failure never arrives here as context.Canceled.
+func prefillStoppedByShutdown(err error, prefillCtx context.Context) bool {
+	return errors.Is(err, context.Canceled) && prefillCtx.Err() != nil
+}
+
+func (h *hnsw) logPrefillStopped(err error, prefillCtx context.Context) {
+	if err == nil {
+		return
+	}
+	entry := h.logger.WithFields(logrus.Fields{
+		"action":   "hnsw_vector_cache_prefill",
+		"index_id": h.id,
+	})
+	if prefillStoppedByShutdown(err, prefillCtx) {
+		entry.Debug("vector cache prefill stopped: context canceled")
+		return
+	}
+	entry.Error(err)
 }

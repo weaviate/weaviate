@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -94,21 +95,31 @@ func newTestObjectsBucket(t *testing.T) *lsmkv.Bucket {
 	return newTestObjectsStore(t).Bucket(helpers.ObjectsBucketLSM)
 }
 
-// putTestObject stores an object marshalled exactly as the write path does, so the
-// scan reads real on-disk data rather than a hand-rolled encoding.
-func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
+// marshalTestObject builds the row every put* helper stores, marshalled exactly as the
+// write path does so the scan reads real on-disk data rather than a hand-rolled
+// encoding. uuidID is the uuid the row carries; it is the bucket key's id everywhere
+// except putMismatchedRow, which exists to separate them.
+func marshalTestObject(t *testing.T, uuidID, docID uint64, payloadBytes int,
+	legacyVec []float32, named map[string][]float32,
+) []byte {
 	t.Helper()
-	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
 	obj := storobj.New(docID)
-	obj.Object = models.Object{ID: id, Class: "Test"}
-	obj.Vector = legacyVec
-	if named != nil {
-		obj.Vectors = named
+	obj.Object = models.Object{ID: strfmt.UUID(testObjectUUID(uuidID)), Class: "Test"}
+	if payloadBytes > 0 {
+		obj.Object.Properties = map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)}
 	}
+	obj.Vector = legacyVec
+	obj.Vectors = named
+
 	data, err := obj.MarshalBinary()
 	require.NoError(t, err)
+	return data
+}
 
-	require.NoError(t, bucket.Put(keyForDocID(docID), data))
+func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
+	t.Helper()
+	require.NoError(t, bucket.Put(keyForDocID(docID),
+		marshalTestObject(t, docID, docID, 0, legacyVec, named)))
 }
 
 // keyForDocID builds the bucket key the shard would write: the object's uuid in
@@ -245,11 +256,11 @@ func usesParallelPrefill(h *hnsw) bool {
 
 func TestParallelPrefillEligible(t *testing.T) {
 	base := parallelPrefillInputs{
-		multivector:  false,
-		muvera:       false,
-		ifAbsent:     true,
-		cacheMaxSize: 1e12,
-		nodeCount:    1000,
+		multivector:        false,
+		muvera:             false,
+		canPreloadIfAbsent: true,
+		cacheMaxSize:       1e12,
+		nodeCount:          1000,
 	}
 
 	tests := []struct {
@@ -264,14 +275,13 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
 		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
-		// the scan claims at most maxSize-1 slots, so an exact fit cannot reach the
-		// count replaceIfFull wipes on
+		// the scan leaves prefillReservedCacheSlots free, so an exact fit still fits
 		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
 		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
 		// the scan runs alongside live writes, so an overwriting Preload is not enough:
 		// without if-absent semantics it could clobber a newer inserted vector
-		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.ifAbsent = false }, false},
+		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.canPreloadIfAbsent = false }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -597,10 +607,9 @@ func TestPrefillCacheParallelStopsWhenCompressionActivatesMidScan(t *testing.T) 
 	require.Equal(t, int64(flipAfter), inner.CountVectors())
 }
 
-// TestPrefillCacheParallelStopsBelowCacheFull: the scan must stop short of maxSize,
-// not on it — replaceIfFull wipes at count == maxSize, discarding the whole scan
-// within one deletion interval. Memtable-only data forces a single scan range, so the
-// stop point is deterministic.
+// TestPrefillCacheParallelStopsBelowCacheFull pins the scan's budget against
+// prefillReservedCacheSlots. Memtable-only data forces a single scan range, so the stop
+// point is deterministic.
 func TestPrefillCacheParallelStopsBelowCacheFull(t *testing.T) {
 	const n = 50
 	const maxSize = 10
@@ -702,8 +711,7 @@ func TestPrefillCacheParallelAbortPropagatesAcrossRanges(t *testing.T) {
 }
 
 // TestParallelPrefillExactFitTakesTheScan: an exact fit must not be pushed onto the
-// serial prefiller. The scan claims at most maxSize-1 slots, so it cannot reach the
-// count replaceIfFull wipes on.
+// serial prefiller; see cacheHoldsEveryNode for why it is admitted.
 func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
 	const n = 200
 	store := newTestObjectsStore(t)
@@ -729,12 +737,9 @@ func TestParallelPrefillExactFitTakesTheScan(t *testing.T) {
 	require.Less(t, c.CountVectors(), c.CopyMaxSize())
 }
 
-// TestSerialPrefillerFillsUpToButBelowTheLimit pins both halves of the serial
-// prefill's stop condition. It must measure occupancy, not the allocated span — the
-// cache is grown to cover the node range at restore and rounds up past it, so
-// measuring Len() prefills nothing at all. And it must stop one short of maxSize,
-// because replaceIfFull wipes the whole cache at that count and the next deletion
-// tick would throw the prefill away.
+// TestSerialPrefillerFillsUpToButBelowTheLimit pins both halves of the serial prefill's
+// stop condition: it must measure occupancy rather than the allocated span, which
+// restore grows past the node range, and it must leave prefillReservedCacheSlots free.
 func TestSerialPrefillerFillsUpToButBelowTheLimit(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -775,9 +780,8 @@ func TestSerialPrefillerFillsUpToButBelowTheLimit(t *testing.T) {
 // pins the prefiller's stop condition and never prefillCache's choice of argument;
 // reverting that -1 leaves it green. This one holds the two together.
 //
-// It also covers the cache too small to hold every node, which is not prefilled at all:
-// there an uncached node is guaranteed, so the first query touching one takes the count
-// to maxSize and replaceIfFull discards the whole prefill.
+// It also covers the cache too small to hold every node, which cacheHoldsEveryNode
+// keeps off both paths entirely.
 func TestPrefillCacheStopsBelowMaxSize(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -815,16 +819,12 @@ func TestPrefillCacheStopsBelowMaxSize(t *testing.T) {
 }
 
 // TestPrefillFromScanSurfacesWorkerPanic: a scan worker that panics must fail the
-// prefill, not finish it. GoWrapper recovers, so a bare wait returns nil while the
-// key range that worker owned is silently missing — a prefill that logs success with
-// a fraction of the cache filled. The cursor panics for real on a Seek error that is
-// neither NotFound nor Deleted, so this is a reachable state, not a hypothetical.
+// prefill rather than finish it, since a recovered panic would otherwise drop that
+// worker's key range from a prefill reporting success. The cursor panics for real on a
+// Seek error that is neither NotFound nor Deleted.
 func TestPrefillFromScanSurfacesWorkerPanic(t *testing.T) {
-	// The guarantee under test only exists while recovery is installed. With
-	// DISABLE_RECOVERY_ON_PANIC the wrapper's deferFunc is a no-op by design — the
-	// process is meant to die on a panic — so there is no recovered panic to convert
-	// into an error, and raising one here would just kill the test binary. The
-	// integration runner exports it, which is how this surfaced.
+	// With recovery disabled the wrapper's deferFunc is a no-op by design, so there is
+	// no recovered panic to convert and raising one would kill the test binary.
 	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 		t.Skip("panic recovery is disabled; a scan worker panic is meant to end the process")
 	}

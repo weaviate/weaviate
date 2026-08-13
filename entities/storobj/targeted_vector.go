@@ -18,55 +18,57 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// VectorTailOffsetFromPeek locates the vector-bearing tail (the meta length
-// prefix after the properties schema) from a value prefix. ok=false: the prefix
-// is too short to tell; fall back to the whole value.
-func VectorTailOffsetFromPeek(peek []byte) (tailStart uint64, schemaLen uint32, ok bool, err error) {
-	pos, ok, err := legacyVectorEnd(peek)
+// VectorTailOffsetFromPrefix locates the vector-bearing tail, the meta length prefix
+// that follows the properties schema. ok=false reports that the prefix is too short to
+// tell, so the caller must fall back to the whole value.
+func VectorTailOffsetFromPrefix(prefix []byte) (tailStart uint64, schemaLen uint32, ok bool, err error) {
+	pos, ok, err := legacyVectorEnd(prefix)
 	if err != nil || !ok {
 		return 0, 0, ok, err
 	}
-	if pos+2 > len(peek) {
+	if pos+2 > len(prefix) {
 		return 0, 0, false, nil
 	}
 
-	classNameLen := binary.LittleEndian.Uint16(peek[pos : pos+2])
+	classNameLen := binary.LittleEndian.Uint16(prefix[pos : pos+2])
 	pos += 2 + int(classNameLen)
-	if pos+4 > len(peek) {
+	if pos+4 > len(prefix) {
 		return 0, 0, false, nil
 	}
 
-	schemaLen = binary.LittleEndian.Uint32(peek[pos : pos+4])
+	schemaLen = binary.LittleEndian.Uint32(prefix[pos : pos+4])
 	return uint64(pos) + 4 + uint64(schemaLen), schemaLen, true, nil
 }
 
-// legacyVectorEnd is legacyVectorBounds' end offset computed from a prefix, so a
-// section reaching past the peek is expected rather than an error. ok=false when the
-// peek cannot even reach the length field. dims is widened before scaling: the field
-// is a uint16 and 65535 dimensions overflow a uint16 multiplication.
-func legacyVectorEnd(peek []byte) (pos int, ok bool, err error) {
-	if len(peek) == 0 {
+// legacyVectorEnd computes legacyVectorBounds' end offset from a prefix rather than a
+// whole value, so a section reaching past the input is an expected outcome rather than
+// an error. The two are not collapsed because that difference runs through both: this
+// one tolerates a short input, reports ok instead of erroring, and returns a single
+// offset. dims is widened before scaling, since the field is a uint16 and 65535
+// dimensions overflow a uint16 multiplication.
+func legacyVectorEnd(prefix []byte) (pos int, ok bool, err error) {
+	if len(prefix) == 0 {
 		return 0, false, fmt.Errorf("empty value")
 	}
-	if version := peek[0]; version != 1 {
+	if version := prefix[0]; version != 1 {
 		return 0, false, fmt.Errorf("unsupported marshaller version %d", version)
 	}
-	if len(peek) < marshallerV1HeaderLen+2 {
+	if len(prefix) < marshallerV1HeaderLen+2 {
 		return 0, false, nil
 	}
-	dims := int(binary.LittleEndian.Uint16(peek[marshallerV1HeaderLen : marshallerV1HeaderLen+2]))
+	dims := int(binary.LittleEndian.Uint16(prefix[marshallerV1HeaderLen : marshallerV1HeaderLen+2]))
 	return marshallerV1HeaderLen + 2 + dims*byteops.Uint32Len, true, nil
 }
 
-// LegacyVectorPrefixLen: how many leading value bytes hold the legacy vector; a
-// reader with that prefix can decode it via VectorFromBinary.
-func LegacyVectorPrefixLen(peek []byte) (need uint64, ok bool, err error) {
-	pos, ok, err := legacyVectorEnd(peek)
+// LegacyVectorPrefixLen reports how many leading value bytes hold the legacy vector. A
+// reader holding that prefix can decode it via VectorFromBinary.
+func LegacyVectorPrefixLen(prefix []byte) (need uint64, ok bool, err error) {
+	pos, ok, err := legacyVectorEnd(prefix)
 	return uint64(pos), ok, err
 }
 
 // VectorFromTail extracts one named target vector from value[tailStart:] bytes
-// (tailStart from VectorTailOffsetFromPeek). (nil, nil) when the object predates
+// (tailStart from VectorTailOffsetFromPrefix). (nil, nil) when the object predates
 // target vectors; ErrTargetVectorNotFound when it lacks the requested one.
 func VectorFromTail(tail []byte, targetVector string) ([]float32, error) {
 	if targetVector == "" {
@@ -92,15 +94,14 @@ func VectorFromTail(tail []byte, targetVector string) ([]float32, error) {
 	return unmarshalSingleTargetVector(&rw, targetVector, nil)
 }
 
-// UUIDFromPeek returns the object's own uuid, which the marshaller writes after the
-// version, doc id and kind bytes. ok=false: the prefix is too short, or the version is
-// one this layout does not describe. Without the version check a format bump that moved
-// the uuid would report every row as mismatching its key, raising a corruption alarm
-// for a routine change.
-func UUIDFromPeek(peek []byte) (id []byte, ok bool) {
-	const uuidStart, uuidLen = 1 + 8 + 1, 16
-	if len(peek) < uuidStart+uuidLen || peek[0] != 1 {
+// UUIDFromPrefix returns the object's own uuid. ok=false reports a prefix too short to
+// hold it, or a version this layout does not describe: without that check a format bump
+// moving the uuid would report every row as mismatching its key, raising a corruption
+// alarm for a routine change.
+func UUIDFromPrefix(prefix []byte) (id []byte, ok bool) {
+	const end = marshallerV1UUIDOffset + marshallerV1UUIDLen
+	if len(prefix) < end || prefix[0] != 1 {
 		return nil, false
 	}
-	return peek[uuidStart : uuidStart+uuidLen], true
+	return prefix[marshallerV1UUIDOffset:end], true
 }

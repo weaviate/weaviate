@@ -14,17 +14,13 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
-	"strings"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -35,16 +31,7 @@ func putTruncatedObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, keepBy
 	payloadBytes int, legacyVec []float32, named map[string][]float32,
 ) {
 	t.Helper()
-	obj := storobj.New(docID)
-	obj.Object = models.Object{
-		ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID)),
-		Class:      "Test",
-		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
-	}
-	obj.Vector = legacyVec
-	obj.Vectors = named
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
+	data := marshalTestObject(t, docID, docID, payloadBytes, legacyVec, named)
 	require.Less(t, keepBytes, len(data), "truncation must actually remove bytes")
 
 	require.NoError(t, bucket.Put(keyForDocID(docID), data[:keepBytes]))
@@ -165,17 +152,9 @@ func putWrongTailOffsetObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64,
 	payloadBytes int, named map[string][]float32,
 ) {
 	t.Helper()
-	obj := storobj.New(docID)
-	obj.Object = models.Object{
-		ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID)),
-		Class:      "Test",
-		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
-	}
-	obj.Vectors = named
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
+	data := marshalTestObject(t, docID, docID, payloadBytes, nil, named)
 
-	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(data[:min(prefillPeekBytes, len(data))])
+	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPrefix(data[:min(prefillPeekBytes, len(data))])
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Greater(t, schemaLen/2, uint32(prefillTargetedMinSchemaLen),

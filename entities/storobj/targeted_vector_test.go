@@ -69,7 +69,7 @@ func TestVectorTailOffsetAgainstFullDecode(t *testing.T) {
 			data := marshalledTestObject(t, tc.className, tc.legacyVec, named, tc.payload)
 			peek := data[:min(tc.peekSize, len(data))]
 
-			tailStart, schemaLen, ok, err := VectorTailOffsetFromPeek(peek)
+			tailStart, schemaLen, ok, err := VectorTailOffsetFromPrefix(peek)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantOK, ok)
 			if !ok {
@@ -96,14 +96,14 @@ func TestVectorTailOffsetAgainstFullDecode(t *testing.T) {
 }
 
 func TestVectorTailOffsetFromPeekErrors(t *testing.T) {
-	_, _, _, err := VectorTailOffsetFromPeek(nil)
+	_, _, _, err := VectorTailOffsetFromPrefix(nil)
 	assert.Error(t, err)
 
-	_, _, _, err = VectorTailOffsetFromPeek([]byte{9, 0, 0})
+	_, _, _, err = VectorTailOffsetFromPrefix([]byte{9, 0, 0})
 	assert.Error(t, err, "unsupported version must error")
 
 	// version byte alone is valid input but cannot resolve the offset
-	_, _, ok, err := VectorTailOffsetFromPeek([]byte{1})
+	_, _, ok, err := VectorTailOffsetFromPrefix([]byte{1})
 	assert.NoError(t, err)
 	assert.False(t, ok)
 }
@@ -121,7 +121,7 @@ func TestVectorFromTailErrors(t *testing.T) {
 // no vector rather than fail.
 func TestVectorFromTailPreTargetVectorObject(t *testing.T) {
 	data := marshalledTestObject(t, "Test", []float32{1, 2}, nil, 100)
-	tailStart, _, ok, err := VectorTailOffsetFromPeek(data[:min(512, len(data))])
+	tailStart, _, ok, err := VectorTailOffsetFromPrefix(data[:min(512, len(data))])
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -140,7 +140,7 @@ func TestVectorFromTailPreTargetVectorObject(t *testing.T) {
 func TestVectorFromTailIgnoresBytesPastItsLength(t *testing.T) {
 	want := []float32{1, 2, 3}
 	full := marshalledTestObject(t, "Test", nil, map[string][]float32{"custom": want}, 4096)
-	tailStart, _, ok, err := VectorTailOffsetFromPeek(full[:min(512, len(full))])
+	tailStart, _, ok, err := VectorTailOffsetFromPrefix(full[:min(512, len(full))])
 	require.NoError(t, err)
 	require.True(t, ok)
 	tail := full[tailStart:]
@@ -218,7 +218,7 @@ func TestVectorDecodersOnTruncatedValues(t *testing.T) {
 	multi := map[string][][]float32{"multi": {{1, 2}, {3, 4}}}
 
 	tailOf := func(full []byte) []byte {
-		tailStart, _, ok, err := VectorTailOffsetFromPeek(full[:min(512, len(full))])
+		tailStart, _, ok, err := VectorTailOffsetFromPrefix(full[:min(512, len(full))])
 		require.NoError(t, err)
 		require.True(t, ok)
 		return full[tailStart:]

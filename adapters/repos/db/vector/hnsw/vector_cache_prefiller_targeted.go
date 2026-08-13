@@ -49,8 +49,12 @@ const (
 	prefillTailProbeRows = 16
 )
 
+// prefillTargetedReadsEnv selects a read strategy for the scan. It cannot turn the scan
+// off; HNSW_PREFILL_SCAN_WORKERS is the revert path.
+const prefillTargetedReadsEnv = "HNSW_PREFILL_TARGETED_READS"
+
 func prefillTargetedReadsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("HNSW_PREFILL_TARGETED_READS"))
+	return entcfg.Enabled(os.Getenv(prefillTargetedReadsEnv))
 }
 
 func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
@@ -67,11 +71,11 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 }
 
 // tailReadsFire reports whether this bucket's rows will actually take the tail read.
-// VectorTailOffsetFromPeek resolves only when the peek reaches the schema-length
-// field, which a legacy vector alongside the named ones pushes out of range from
-// about 116 dimensions up. Every row then falls back to a whole-value read, so the
-// peek is paid for and nothing is skipped — slower than the cursor scan it replaced,
-// at any row size, which is why this is a gate rather than a per-row concern.
+// VectorTailOffsetFromPrefix resolves only when the peek reaches the schema-length
+// field, which a legacy vector alongside the named ones pushes out of range from about
+// 116 dimensions up. That is a property of the collection rather than of a row, which
+// is why it is a gate: see prefillTargetedMinAvgEntrySize for the cost of admitting a
+// bucket whose rows all fall back.
 func (h *hnsw) tailReadsFire(bucket *lsmkv.Bucket) bool {
 	c := bucket.CursorReplaceReusable()
 	defer c.Close()
@@ -86,7 +90,7 @@ func (h *hnsw) tailReadsFire(bucket *lsmkv.Bucket) bool {
 		if len(peek) > prefillPeekBytes {
 			peek = peek[:prefillPeekBytes]
 		}
-		_, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(peek)
+		_, schemaLen, ok, err := storobj.VectorTailOffsetFromPrefix(peek)
 		if err == nil && ok && schemaLen >= prefillTargetedMinSchemaLen {
 			firing++
 		}
@@ -158,14 +162,14 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 	stats *targetedScanStats,
 ) func(*lsmkv.TargetedScanEntry) error {
 	return func(e *lsmkv.TargetedScanEntry) error {
-		if err := objectRowMatchesKey(e.Key, e.Peek); err != nil {
+		if err := checkObjectRowKey(e.Key, e.Peek); err != nil {
 			stats.foreign.Add(1)
-			h.prefillSkipDebug("row does not match its key", err)
+			h.logSkippedRow("row does not match its key", err)
 			return nil
 		}
 		id, err := storobj.DocIDFromBinary(e.Peek)
 		if err != nil {
-			h.prefillSkipDebug("undecodable doc id", err)
+			h.logSkippedRow("undecodable doc id", err)
 			return nil
 		}
 		// onVector enforces this too; here it saves the tail read
@@ -180,7 +184,7 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 	}
 }
 
-func (h *hnsw) prefillSkipDebug(reason string, err error) {
+func (h *hnsw) logSkippedRow(reason string, err error) {
 	h.logger.WithField("action", "hnsw_vector_cache_prefill").
 		Debugf("skipping object with %s: %v", reason, err)
 }
@@ -192,69 +196,76 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 		return h.legacyVectorFromEntry(e, stats)
 	}
 
-	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(e.Peek)
+	tailStart, schemaLen, ok, err := storobj.VectorTailOffsetFromPrefix(e.Peek)
 	if err != nil {
-		h.prefillSkipDebug("undecodable header", err)
+		h.logSkippedRow("undecodable header", err)
 		return nil, false
 	}
 	if ok && tailStart >= e.ValueSize {
 		// corrupt: the front sections decoded but place the tail past the value end.
 		// Skipped here rather than surfaced as a downstream ReadRange bounds error.
-		h.prefillSkipDebug("vector tail beyond value end",
+		h.logSkippedRow("vector tail beyond value end",
 			fmt.Errorf("tail offset %d, value size %d", tailStart, e.ValueSize))
 		return nil, false
 	}
 	if !ok || schemaLen < prefillTargetedMinSchemaLen {
-		return h.wholeVectorFromEntry(e, targetVector, stats)
+		return h.vectorFromWholeValue(e, targetVector, stats)
 	}
 
 	stats.tail.Add(1)
 	tail, err := e.ReadRange(tailStart, 0)
 	if err != nil {
-		h.prefillSkipDebug("unreadable vector tail", err)
+		h.logSkippedRow("unreadable vector tail", err)
 		return nil, false
 	}
 	vec, err := storobj.VectorFromTail(tail, targetVector)
 	if err != nil {
-		var notFound storobj.ErrTargetVectorNotFound
-		if !errors.As(err, &notFound) {
-			h.prefillSkipDebug("undecodable vector tail", err)
+		if !vectorTargetMissing(err) {
+			h.logSkippedRow("undecodable vector tail", err)
 		}
 		return nil, false
 	}
 	return vec, true
 }
 
-// legacyVectorFromEntry: the legacy vector sits at a fixed front offset — served
+// vectorTargetMissing separates a row that simply has no vector for this target from a
+// row that failed to decode. The first is ordinary — an index exists per target vector
+// and rows need not carry every one — so it is skipped without a log line.
+func vectorTargetMissing(err error) bool {
+	var notFound storobj.ErrTargetVectorNotFound
+	return errors.As(err, &notFound)
+}
+
+// legacyVectorFromEntry serves the legacy vector, which sits at a fixed front offset:
 // from the peek, or via a bounded prefix read, never the whole value.
 func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry, stats *targetedScanStats) ([]float32, bool) {
 	need, ok, err := storobj.LegacyVectorPrefixLen(e.Peek)
 	if err != nil {
-		h.prefillSkipDebug("undecodable header", err)
+		h.logSkippedRow("undecodable header", err)
 		return nil, false
 	}
 	if ok && need > e.ValueSize {
 		// corrupt, and as above: skipped here rather than downstream
-		h.prefillSkipDebug("legacy vector beyond value end",
+		h.logSkippedRow("legacy vector beyond value end",
 			fmt.Errorf("needs %d bytes, value size %d", need, e.ValueSize))
 		return nil, false
 	}
 	if !ok {
-		return h.wholeVectorFromEntry(e, "", stats)
+		return h.vectorFromWholeValue(e, "", stats)
 	}
 
 	buf := e.Peek
 	if uint64(len(buf)) < need {
 		buf, err = e.ReadRange(0, need)
 		if err != nil {
-			h.prefillSkipDebug("unreadable vector prefix", err)
+			h.logSkippedRow("unreadable vector prefix", err)
 			return nil, false
 		}
 	}
 	return h.decodeVectorRow(buf, "")
 }
 
-func (h *hnsw) wholeVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector string,
+func (h *hnsw) vectorFromWholeValue(e *lsmkv.TargetedScanEntry, targetVector string,
 	stats *targetedScanStats,
 ) ([]float32, bool) {
 	stats.whole.Add(1)
@@ -266,7 +277,7 @@ func (h *hnsw) wholeVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector str
 	if uint64(len(whole)) < e.ValueSize {
 		var err error
 		if whole, err = e.ReadRange(0, 0); err != nil {
-			h.prefillSkipDebug("unreadable value", err)
+			h.logSkippedRow("unreadable value", err)
 			return nil, false
 		}
 	}
@@ -277,26 +288,25 @@ func (h *hnsw) decodeVectorRow(value []byte, targetVector string) ([]float32, bo
 	// nil buffer forces a fresh allocation, so the vector never aliases scan buffers
 	vec, err := storobj.VectorFromBinary(value, nil, targetVector)
 	if err != nil {
-		var notFound storobj.ErrTargetVectorNotFound
-		if !errors.As(err, &notFound) {
-			h.prefillSkipDebug("undecodable vector", err)
+		if !vectorTargetMissing(err) {
+			h.logSkippedRow("undecodable vector", err)
 		}
 		return nil, false
 	}
 	return vec, true
 }
 
-// objectRowMatchesKey catches a segment index whose offsets land on a different live
+// checkObjectRowKey catches a segment index whose offsets land on a different live
 // row, which passes every bounds check. The doc id comes from the same bytes as the
 // vector, so the pair preloaded would be self-consistent; what it would not be is this
 // key's, and the duplicate consumes the slot reserved for a key that then never gets
 // cached. The objects bucket is keyed by uuid and the row repeats it, so the two agree
 // unless the segment index is wrong.
-func objectRowMatchesKey(key, peek []byte) error {
+func checkObjectRowKey(key, peek []byte) error {
 	if len(key) == 0 {
 		return nil // not the objects bucket layout; nothing to check against
 	}
-	rowID, ok := storobj.UUIDFromPeek(peek)
+	rowID, ok := storobj.UUIDFromPrefix(peek)
 	if !ok {
 		return nil // peek too short to tell; other decoders report the truncation
 	}
@@ -304,13 +314,4 @@ func objectRowMatchesKey(key, peek []byte) error {
 		return fmt.Errorf("key %x holds a row for %x", key, rowID)
 	}
 	return nil
-}
-
-// prefillStoppedByShutdown tells a prefill that was stopped from one that failed. A
-// scan reports context.Canceled both for a teardown and for a read that fails against
-// an already-cancelled parent, so only the prefill's own context — which nothing but
-// teardown cancels — separates the two. Both drivers latch the first error before
-// cancelling, so a genuine failure never arrives here as context.Canceled.
-func prefillStoppedByShutdown(err error, prefillCtx context.Context) bool {
-	return errors.Is(err, context.Canceled) && prefillCtx.Err() != nil
 }

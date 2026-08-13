@@ -121,7 +121,7 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
-	// lifecycleMu serializes registration against teardown; see stopPostStartup
+	// lifecycleMu serializes registration against teardown; see disablePostStartup
 	lifecycleMu   sync.Mutex
 	tornDown      bool
 	prefillCancel context.CancelFunc
@@ -768,14 +768,14 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-// stopPostStartup ends any cache prefill and closes the index to further PostStartup
-// work. Must run before the cache is dropped or the store shut down: a scan reading a
-// closed lsmkv segment reads unmapped memory.
+// disablePostStartup ends any cache prefill and closes the index to further PostStartup
+// work, permanently. Must run before the cache is dropped or the store shut down: a
+// scan reading a closed lsmkv segment reads unmapped memory.
 //
-// Cancelling is not enough on its own — a scan polls its context only between rows,
-// so it can be blocked inside a read — hence the wait. Holding lifecycleMu across that
-// wait is what stops a concurrent PostStartup from slipping in behind it.
-func (h *hnsw) stopPostStartup() {
+// Cancelling alone would not be enough, since a scan polls its context only between
+// rows and can be blocked inside a read. Holding lifecycleMu across the wait is what
+// stops a concurrent PostStartup slipping in behind it.
+func (h *hnsw) disablePostStartup() {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
 
@@ -829,7 +829,7 @@ func (h *hnsw) initMaintenanceUnlessTornDown() bool {
 	return true
 }
 
-// registerPrefill reports false once stopPostStartup has run: the index is torn down.
+// registerPrefill reports false once disablePostStartup has run: the index is torn down.
 // It also refuses a second live prefill. No current PostStartup caller produces one,
 // but overwriting prefillCancel would strand the first prefill with no way to cancel
 // it, so teardown would wait on it forever rather than log a skip.
@@ -846,7 +846,7 @@ func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
 }
 
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	h.stopPostStartup()
+	h.disablePostStartup()
 
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
@@ -869,7 +869,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
-	h.stopPostStartup()
+	h.disablePostStartup()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

@@ -15,10 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -37,17 +34,8 @@ func putTargetedObject(t *testing.T, bucket *lsmkv.Bucket, keyID, docID uint64,
 	payloadBytes int, legacyVec []float32, named map[string][]float32,
 ) {
 	t.Helper()
-	obj := storobj.New(docID)
-	obj.Object = models.Object{
-		ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", keyID)),
-		Class:      "Test",
-		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
-	}
-	obj.Vector = legacyVec
-	obj.Vectors = named
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-	require.NoError(t, bucket.Put(keyForDocID(keyID), data))
+	require.NoError(t, bucket.Put(keyForDocID(keyID),
+		marshalTestObject(t, keyID, docID, payloadBytes, legacyVec, named)))
 }
 
 // targetedGatePayload clears prefillTargetedMinAvgEntrySize, so a test that means to
@@ -169,7 +157,7 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 			// The baseline runs through prefillCacheParallel, which consults the
 			// ambient flag: with it exported the large-schema cases would route the
 			// baseline to the targeted scan too and compare it against itself.
-			t.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+			t.Setenv(prefillTargetedReadsEnv, "")
 
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -260,7 +248,7 @@ func TestPrefillHNSWExclusions(t *testing.T) {
 			return prefillTargeted(t, h, "custom")
 		}},
 		{"cursor scan", func(t *testing.T, h *hnsw) error {
-			t.Setenv("HNSW_PREFILL_TARGETED_READS", "")
+			t.Setenv(prefillTargetedReadsEnv, "")
 			return h.prefillCacheParallel(context.Background())
 		}},
 	}
@@ -303,23 +291,15 @@ func putMismatchedRow(t *testing.T, bucket *lsmkv.Bucket, keyID, uuidID, docID u
 	payloadBytes int, named map[string][]float32,
 ) {
 	t.Helper()
-	obj := storobj.New(docID)
-	obj.Object = models.Object{
-		ID:         strfmt.UUID(testObjectUUID(uuidID)),
-		Class:      "Test",
-		Properties: map[string]interface{}{"filler": strings.Repeat("x", payloadBytes)},
-	}
-	obj.Vectors = named
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-	require.NoError(t, bucket.Put(keyForDocID(keyID), data))
+	require.NoError(t, bucket.Put(keyForDocID(keyID),
+		marshalTestObject(t, uuidID, docID, payloadBytes, nil, named)))
 }
 
-// TestPrefillCacheParallelRoutesToTargetedScan covers the routing glue: every other
-// targeted test calls the scan directly, leaving the branch, the gate's polarity and
-// the forwarded target vector untested. The discriminator is the key/uuid check, the
-// one divergence a read strategy owns — the liveness filter is shared, as the
-// excluded ids below assert.
+// TestPrefillCacheParallelRoutesToTargetedScan drives the branch in prefillCacheParallel.
+// Every other targeted test calls the scan directly, so nothing else covers that branch,
+// that the flag being off keeps the cursor scan, or that the target vector is forwarded.
+// The discriminator is the key/uuid check, the one divergence a read strategy owns; the
+// liveness filter is shared, as the excluded ids below assert.
 func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 	const (
 		indexedCount = 10 // docs 0..9
@@ -341,7 +321,7 @@ func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HNSW_PREFILL_TARGETED_READS", tc.flag)
+			t.Setenv(prefillTargetedReadsEnv, tc.flag)
 
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -405,11 +385,11 @@ func TestUseTargetedPrefillScanGate(t *testing.T) {
 
 	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
 
-	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+	t.Setenv(prefillTargetedReadsEnv, "true")
 	require.False(t, h.useTargetedPrefillScan(small))
 	require.True(t, h.useTargetedPrefillScan(large))
 
-	t.Setenv("HNSW_PREFILL_TARGETED_READS", "false")
+	t.Setenv(prefillTargetedReadsEnv, "false")
 	require.False(t, h.useTargetedPrefillScan(large))
 }
 
@@ -437,18 +417,13 @@ func TestPrefillStoppedByShutdown(t *testing.T) {
 	}
 }
 
-// TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads couples the two thresholds that
-// were picked independently. prefillTargetedMinAvgEntrySize admits a bucket to the
-// targeted scan; prefillTargetedMinSchemaLen is what makes a row take the cheap tail
-// read. A schema cannot exceed the row holding it, so an admission gate below the
-// schema gate admits buckets that then take the whole-value fallback for every row —
-// the peek read on top of the read the cursor scan was already doing.
-//
-// Sweeps schema sizes across both thresholds and requires the implication to hold:
-// if the gate admits the bucket, its rows resolve a tail. Reading the decision from
-// storobj is what the scan itself does one line later.
+// TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads sweeps schema sizes across
+// prefillTargetedMinAvgEntrySize and prefillTargetedMinSchemaLen and requires the
+// implication to hold: a bucket the gate admits must have rows that resolve a tail.
+// See prefillTargetedMinAvgEntrySize for why admitting a bucket that cannot is the
+// expensive direction.
 func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
-	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+	t.Setenv(prefillTargetedReadsEnv, "true")
 
 	// otherwise a gate that admits nothing would satisfy the implication vacuously
 	admitted := 0
@@ -478,7 +453,7 @@ func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
 			defer c.Close()
 			for k, v := c.First(); k != nil; k, v = c.Next() {
 				peek := v[:min(prefillPeekBytes, len(v))]
-				_, schemaLen, ok, err := storobj.VectorTailOffsetFromPeek(peek)
+				_, schemaLen, ok, err := storobj.VectorTailOffsetFromPrefix(peek)
 				require.NoError(t, err)
 				if ok && schemaLen >= prefillTargetedMinSchemaLen {
 					tailReads++
@@ -498,7 +473,7 @@ func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
 // scan would then read a peek and the whole value for every row — strictly more work
 // than the cursor scan, at any row size — so the gate has to refuse it.
 func TestTargetedGateRejectsUnreachableTail(t *testing.T) {
-	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+	t.Setenv(prefillTargetedReadsEnv, "true")
 
 	build := func(legacyDims int) *lsmkv.Bucket {
 		store := newTestObjectsStore(t)
