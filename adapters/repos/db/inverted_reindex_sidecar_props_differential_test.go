@@ -503,8 +503,8 @@ func TestAbsentPayloadStaysAbsentHoweverGoodTheSidecarIs(t *testing.T) {
 					indexType, propsMode, f.name)
 				require.False(t, got.ok)
 				require.False(t, got.unreadable)
-				require.True(t, readPayload,
-					"the sidecar must not stand in for a payload that was never written")
+				require.False(t, readPayload,
+					"a payload that is not on disk is never opened, so it must not count as a read")
 				require.Equal(t, headTaskProps(migDir), got)
 			}
 		}

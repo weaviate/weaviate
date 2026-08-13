@@ -558,7 +558,10 @@ func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayl
 	}
 	props, err := readRecoveryPropertyNames(migDir)
 	if err != nil {
-		return taskProps{unreadable: !os.IsNotExist(err)}, true
+		if os.IsNotExist(err) {
+			return taskProps{}, false
+		}
+		return taskProps{unreadable: true}, true
 	}
 	if len(props) == 0 {
 		return taskProps{}, true
