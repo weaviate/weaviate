@@ -121,8 +121,9 @@ func renderSourceValue(v any) string {
 			return t.Format(time.RFC3339)
 		}
 		return val
-	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string:
+	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time:
 		// Composites: JSON is deterministic and matches the corpus builder.
+		// []time.Time marshals as RFC3339Nano strings, matching the []string disk form.
 		if b, err := json.Marshal(val); err == nil {
 			return string(b)
 		}
@@ -205,11 +206,14 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			continue
 		}
 
-		// A blob is a base64 string, which the corpus vectorizes like any indexed
-		// string, so a changed blob must re-vectorize. Compare as a string.
-		// TODO: also handle schema.DataTypeBlobHash when syncing forward to versions with it.
-		if schema.DataType(prop.DataType[0]) == schema.DataTypeBlob {
-			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name})
+		// A blob/blobHash vectorizes like any indexed string, so a change must
+		// re-vectorize; IsBlobHash routes through the same hash normalization as
+		// media properties.
+		if schema.IsBlobLikeDataType(prop.DataType) {
+			propsToCompare = append(propsToCompare, compareProps{
+				Name:       prop.Name,
+				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
+			})
 			continue
 		}
 

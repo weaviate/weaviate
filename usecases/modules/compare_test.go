@@ -204,39 +204,69 @@ func TestCompareRevectorizeDisabled(t *testing.T) {
 	require.Equal(t, different, true)
 }
 
-// TestCompareRevectorize_NonTextSourceProperties: a non-text source property is
-// vectorized when source properties are set, so changing it must re-vectorize.
-func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
-	class := &models.Class{
-		Class: "MyClass",
-		Properties: []*models.Property{
-			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
-			{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
-			{Name: "qty", DataType: []string{schema.DataTypeInt.String()}},
-			{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
-			{Name: "active", DataType: []string{schema.DataTypeBoolean.String()}},
-			{Name: "sizes", DataType: []string{schema.DataTypeNumberArray.String()}},
-			{Name: "meta", DataType: []string{schema.DataTypeObject.String()}},
-		},
+// sourcePropCase is one comparator scenario: with the given source properties
+// configured, does replacing oldProps by newProps require re-vectorization?
+type sourcePropCase struct {
+	name        string
+	sourceProps []string
+	oldProps    map[string]any
+	newProps    map[string]any
+	different   bool
+}
+
+// newSourcePropClass builds the class shape shared by the source-property comparator
+// tests: a single named vector "v" backed by "my-module".
+func newSourcePropClass(props ...*models.Property) *models.Class {
+	return &models.Class{
+		Class:      "MyClass",
+		Vectorizer: "my-module",
+		Properties: props,
 		VectorConfig: map[string]models.VectorConfig{
 			"v": {
-				Vectorizer: map[string]any{
-					"my-module": map[string]any{"vectorizeClassName": false},
-				},
+				Vectorizer:      map[string]any{"my-module": map[string]any{"vectorizeClassName": false}},
 				VectorIndexType: "hnsw",
 			},
 		},
 	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
-	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+}
 
-	cases := []struct {
-		name        string
-		sourceProps []string
-		oldProps    map[string]any
-		newProps    map[string]any
-		different   bool
-	}{
+// runSourcePropCases runs each case through reVectorize against a text2vec module
+// declaring mediaProps as its media properties. Passing nil models a plain text2vec
+// module (VectorizableProperties returns no media props), which is the path on which
+// blob-like source properties are otherwise never compared.
+func runSourcePropCases(t *testing.T, class *models.Class, mediaProps []string, cases []sourcePropCase) {
+	t.Helper()
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
+	module := newDummyText2VecModule("my-module", mediaProps)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			uid, _ := uuid.NewUUID()
+			uidfmt := strfmt.UUID(uid.String())
+			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
+			objsToReturn[uid.String()] = tt.oldProps
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew,
+				class, tt.sourceProps, "", findObject, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.different, different)
+		})
+	}
+}
+
+// TestCompareRevectorize_NonTextSourceProperties: a non-text source property is
+// vectorized when source properties are set, so changing it must re-vectorize.
+func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+		&models.Property{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
+		&models.Property{Name: "qty", DataType: []string{schema.DataTypeInt.String()}},
+		&models.Property{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
+		&models.Property{Name: "timestamps", DataType: []string{schema.DataTypeDateArray.String()}},
+		&models.Property{Name: "active", DataType: []string{schema.DataTypeBoolean.String()}},
+		&models.Property{Name: "sizes", DataType: []string{schema.DataTypeNumberArray.String()}},
+		&models.Property{Name: "meta", DataType: []string{schema.DataTypeObject.String()}},
+	)
+
+	cases := []sourcePropCase{
 		{name: "number unchanged", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{"price": 9.99}, different: false},
 		{name: "number changed", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{"price": 19.99}, different: true},
 		{name: "int unchanged", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": 1}, newProps: map[string]any{"qty": 1}, different: false},
@@ -254,103 +284,103 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
 		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},
 		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": int64(5)}, newProps: map[string]any{"qty": float64(5)}, different: false},
+		// date array drift: disk returns RFC3339Nano strings, the request side carries []time.Time.
+		{name: "date array drift []string vs []time.Time, unchanged", sourceProps: []string{"timestamps"}, oldProps: map[string]any{"timestamps": []string{"2024-01-01T00:00:00.5Z", "2024-02-02T00:00:00Z"}}, newProps: map[string]any{"timestamps": []time.Time{time.Date(2024, 1, 1, 0, 0, 0, 500000000, time.UTC), time.Date(2024, 2, 2, 0, 0, 0, 0, time.UTC)}}, different: false},
+		{name: "date array changed", sourceProps: []string{"timestamps"}, oldProps: map[string]any{"timestamps": []string{"2024-01-01T00:00:00.5Z", "2024-02-02T00:00:00Z"}}, newProps: map[string]any{"timestamps": []time.Time{time.Date(2024, 1, 1, 0, 0, 0, 500000000, time.UTC), time.Date(2024, 3, 3, 0, 0, 0, 0, time.UTC)}}, different: true},
 		{name: "empty array drift []any vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []any{}}, newProps: map[string]any{"sizes": []float64{}}, different: false},
 		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{}, different: true},
 		{name: "object source prop unchanged", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "b"}}, different: false},
 		{name: "object source prop changed", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "c"}}, different: true},
 	}
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			uid, _ := uuid.NewUUID()
-			uidfmt := strfmt.UUID(uid.String())
-			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
-			objsToReturn[uid.String()] = tt.oldProps
-			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.sourceProps, "", findObject, false)
-			require.NoError(t, err)
-			require.Equal(t, tt.different, different)
-		})
-	}
+	runSourcePropCases(t, class, []string{"image", "video"}, cases)
 }
 
 // TestCompareRevectorize_SkipIgnoredWithSourceProperties: with source_properties set,
 // a listed skip:true property is still vectorized, so the comparator must compare it.
 func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
-	class := &models.Class{
-		Class:      "MyClass",
-		Vectorizer: "my-module",
-		Properties: []*models.Property{
-			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
-			{
-				Name:         "price",
-				DataType:     []string{schema.DataTypeNumber.String()},
-				ModuleConfig: map[string]any{"my-module": map[string]any{"skip": true}},
-			},
+	class := newSourcePropClass(
+		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+		&models.Property{
+			Name:         "price",
+			DataType:     []string{schema.DataTypeNumber.String()},
+			ModuleConfig: map[string]any{"my-module": map[string]any{"skip": true}},
 		},
-		VectorConfig: map[string]models.VectorConfig{
-			"v": {
-				Vectorizer:      map[string]any{"my-module": map[string]any{"vectorizeClassName": false}},
-				VectorIndexType: "hnsw",
-			},
-		},
-	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
-	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+	)
 
-	uid, _ := uuid.NewUUID()
-	uidfmt := strfmt.UUID(uid.String())
-	objsToReturn[uid.String()] = map[string]any{"title": "a", "price": 9.99}
-	objNew := &models.Object{
-		Class:      class.Class,
-		Properties: map[string]any{"title": "a", "price": 19.99},
-		ID:         uidfmt,
-	}
-	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"price"}, "", findObject, false)
-	require.NoError(t, err)
-	require.True(t, different)
+	runSourcePropCases(t, class, []string{"image", "video"}, []sourcePropCase{
+		{
+			name:        "skip:true source prop changed -> re-vectorize",
+			sourceProps: []string{"price"},
+			oldProps:    map[string]any{"title": "a", "price": 9.99},
+			newProps:    map[string]any{"title": "a", "price": 19.99},
+			different:   true,
+		},
+	})
 }
 
 // TestCompareRevectorize_BlobSourceProperty: a blob is a base64 string the corpus
 // vectorizes like text, so a changed blob must re-vectorize.
 func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
-	class := &models.Class{
-		Class: "MyClass",
-		Properties: []*models.Property{
-			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
-			{Name: "thumbnail", DataType: []string{schema.DataTypeBlob.String()}},
-		},
-		VectorConfig: map[string]models.VectorConfig{
-			"v": {
-				Vectorizer:      map[string]any{"my-module": map[string]any{"vectorizeClassName": false}},
-				VectorIndexType: "hnsw",
-			},
-		},
-	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
-	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+	class := newSourcePropClass(
+		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+		&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlob.String()}},
+	)
 
-	cases := []struct {
-		name        string
-		sourceProps []string
-		oldProps    map[string]any
-		newProps    map[string]any
-		different   bool
-	}{
+	cases := []sourcePropCase{
 		{name: "blob source prop changed", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "Qg=="}, different: true},
 		{name: "blob source prop unchanged", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "QQ=="}, different: false},
 		{name: "blob changed, no source props", sourceProps: nil, oldProps: map[string]any{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]any{"title": "a", "thumbnail": "Qg=="}, different: true},
 		{name: "non-source blob changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]any{"title": "a", "thumbnail": "Qg=="}, different: false},
 	}
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			uid, _ := uuid.NewUUID()
-			uidfmt := strfmt.UUID(uid.String())
-			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
-			objsToReturn[uid.String()] = tt.oldProps
-			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.sourceProps, "", findObject, false)
-			require.NoError(t, err)
-			require.Equal(t, tt.different, different)
-		})
+	runSourcePropCases(t, class, []string{"image", "video"}, cases)
+}
+
+// TestCompareRevectorize_BlobHashSourceProperty: a blobHash source property on a
+// plain text2vec module (no media properties at all, so the media-property path
+// never fires) is still vectorized as base64 by the corpus. The stored value is
+// already a SHA-256 hash because hashing happens after vectorization, so the
+// comparator must hash the incoming base64 before comparing - otherwise every
+// update re-vectorizes.
+func TestCompareRevectorize_BlobHashSourceProperty(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+		&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlobHash.String()}},
+	)
+
+	const (
+		base64A = "QQ=="
+		base64B = "Qg=="
+	)
+	hashA := schema.HashBlob(base64A)
+
+	cases := []sourcePropCase{
+		{name: "blobHash source prop unchanged -> skip", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": hashA}, newProps: map[string]any{"thumbnail": base64A}, different: false},
+		{name: "blobHash source prop changed -> re-vectorize", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": hashA}, newProps: map[string]any{"thumbnail": base64B}, different: true},
+		// A re-submitted, already hashed value must not be hashed twice.
+		{name: "blobHash source prop already hashed -> skip", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": hashA}, newProps: map[string]any{"thumbnail": hashA}, different: false},
+		{name: "blobHash changed, no source props", sourceProps: nil, oldProps: map[string]any{"title": "a", "thumbnail": hashA}, newProps: map[string]any{"title": "a", "thumbnail": base64B}, different: true},
+		{name: "blobHash unchanged, no source props", sourceProps: nil, oldProps: map[string]any{"title": "a", "thumbnail": hashA}, newProps: map[string]any{"title": "a", "thumbnail": base64A}, different: false},
+		{name: "non-source blobHash changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "thumbnail": hashA}, newProps: map[string]any{"title": "a", "thumbnail": base64B}, different: false},
+		{name: "mixed text+blobHash source, only blobHash changed", sourceProps: []string{"title", "thumbnail"}, oldProps: map[string]any{"title": "a", "thumbnail": hashA}, newProps: map[string]any{"title": "a", "thumbnail": base64B}, different: true},
 	}
+
+	// nil media properties: a text2vec module reports none, which is exactly the
+	// configuration in which the pre-existing IsBlobHash handling never fired.
+	runSourcePropCases(t, class, nil, cases)
+}
+
+// TestCompareRevectorize_BlobHashMediaProperty: the multi2vec path, where blobHash is
+// a declared media property, keeps working through the same hash normalization.
+func TestCompareRevectorize_BlobHashMediaProperty(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{Name: "image", DataType: []string{schema.DataTypeBlobHash.String()}},
+	)
+
+	hashA := schema.HashBlob("QQ==")
+	runSourcePropCases(t, class, []string{"image"}, []sourcePropCase{
+		{name: "media blobHash unchanged -> skip", oldProps: map[string]any{"image": hashA}, newProps: map[string]any{"image": "QQ=="}, different: false},
+		{name: "media blobHash changed -> re-vectorize", oldProps: map[string]any{"image": hashA}, newProps: map[string]any{"image": "Qg=="}, different: true},
+	})
 }

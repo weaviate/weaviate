@@ -395,14 +395,15 @@ func newCountingProvider(moduleName string, multiVector, revectorizeCheckDisable
 	return p, &calls
 }
 
-func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties any) *models.Class {
+// newNamedVectorClass builds a "Products" class whose only vector is the named
+// vector targetVector, vectorized by moduleName with the given source properties.
+func newNamedVectorClass(moduleName, targetVector string, sourceProperties any,
+	props ...*models.Property,
+) *models.Class {
 	return &models.Class{
 		Class:      "Products",
 		Vectorizer: config.VectorizerModuleNone, // no legacy vector; only the named vector
-		Properties: []*models.Property{
-			{Name: "vector_input", DataType: []string{schema.DataTypeText.String()}},
-			{Name: "delivery_label", DataType: []string{schema.DataTypeText.String()}},
-		},
+		Properties: props,
 		VectorConfig: map[string]models.VectorConfig{
 			targetVector: {
 				Vectorizer: map[string]any{
@@ -416,6 +417,13 @@ func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties a
 			},
 		},
 	}
+}
+
+func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties any) *models.Class {
+	return newNamedVectorClass(moduleName, targetVector, sourceProperties,
+		&models.Property{Name: "vector_input", DataType: []string{schema.DataTypeText.String()}},
+		&models.Property{Name: "delivery_label", DataType: []string{schema.DataTypeText.String()}},
+	)
 }
 
 func staticFindObject(targetVector string, oldProps map[string]any, oldVector models.Vector) modulecapabilities.FindObjectFn {
@@ -633,26 +641,10 @@ func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 	const moduleName = "my-module"
 
 	newClass := func() *models.Class {
-		return &models.Class{
-			Class:      "Products",
-			Vectorizer: config.VectorizerModuleNone,
-			Properties: []*models.Property{
-				{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
-				{Name: "label", DataType: []string{schema.DataTypeText.String()}},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				targetVector: {
-					Vectorizer: map[string]any{
-						moduleName: map[string]any{
-							"vectorizeClassName": false,
-							"properties":         []any{"price"},
-						},
-					},
-					VectorIndexConfig: hnsw.UserConfig{},
-					VectorIndexType:   "hnsw",
-				},
-			},
-		}
+		return newNamedVectorClass(moduleName, targetVector, []any{"price"},
+			&models.Property{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
+			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+		)
 	}
 
 	cases := []struct {
@@ -686,26 +678,10 @@ func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 	const moduleName = "my-module"
 
 	newClass := func() *models.Class {
-		return &models.Class{
-			Class:      "Products",
-			Vectorizer: config.VectorizerModuleNone,
-			Properties: []*models.Property{
-				{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
-				{Name: "label", DataType: []string{schema.DataTypeText.String()}},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				targetVector: {
-					Vectorizer: map[string]any{
-						moduleName: map[string]any{
-							"vectorizeClassName": false,
-							"properties":         []any{"released"},
-						},
-					},
-					VectorIndexConfig: hnsw.UserConfig{},
-					VectorIndexType:   "hnsw",
-				},
-			},
-		}
+		return newNamedVectorClass(moduleName, targetVector, []any{"released"},
+			&models.Property{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
+			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+		)
 	}
 
 	cases := []struct {
@@ -733,5 +709,57 @@ func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 			require.Empty(t, vecErrors)
 			require.Equal(t, tc.wantCalls, *calls)
 		})
+	}
+}
+
+// TestUpdateVector_BlobHashSourceProperty: a blobHash listed as a source property of
+// a text2vec named vector is vectorized as base64 but persisted as a SHA-256 hash
+// (hashing runs after vectorization), so an unchanged payload must not re-vectorize
+// even though the raw values differ. Covers both the single-object and batch paths.
+func TestUpdateVector_BlobHashSourceProperty(t *testing.T) {
+	const targetVector = "vec"
+	const moduleName = "my-module"
+
+	const (
+		base64A = "QQ=="
+		base64B = "Qg=="
+	)
+	storedHash := schema.HashBlob(base64A)
+
+	newClass := func() *models.Class {
+		return newNamedVectorClass(moduleName, targetVector, []any{"thumbnail"},
+			&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlobHash.String()}},
+			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+		)
+	}
+
+	cases := []struct {
+		name      string
+		newBlob   string
+		wantCalls int
+	}{
+		{name: "unchanged base64 -> skip", newBlob: base64A, wantCalls: 0},
+		{name: "changed base64 -> re-vectorize", newBlob: base64B, wantCalls: 1},
+		{name: "re-submitted hash -> skip", newBlob: storedHash, wantCalls: 0},
+	}
+	for _, tc := range cases {
+		for _, batch := range []bool{false, true} {
+			mode := "single-object"
+			if batch {
+				mode = "batch"
+			}
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				p, calls := newCountingProvider(moduleName, false, false)
+				class := newClass()
+				findObject := staticFindObject(targetVector,
+					map[string]any{"thumbnail": storedHash, "label": "x"}, []float32{1, 2, 3})
+				obj := &models.Object{
+					Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
+					Properties: map[string]any{"thumbnail": tc.newBlob, "label": "x"},
+				}
+				runUpdateVector(t, p, class, obj, findObject, batch)
+				require.Equal(t, tc.wantCalls, *calls)
+			})
+		}
 	}
 }
