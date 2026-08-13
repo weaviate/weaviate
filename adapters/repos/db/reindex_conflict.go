@@ -243,10 +243,11 @@ const reindexTenantsPlaceholder = "<tenant-names>"
 // reindexTenantScope keeps a re-submit tenant-scoped without naming the
 // tenants. The only gate that reaches this refuses a tenant mutation, which
 // is authorized per tenant, so the task's full subset is not the caller's to
-// read; and the tenants they are mutating stop being valid submit targets the
-// moment that mutation goes through. Dropping the parameter is not the
-// alternative: an unscoped re-submit runs the migration on every tenant of
-// the collection. [reindexTenantScopeNote] explains the placeholder.
+// read; and the tenants they are removing, offloading, or freezing stop
+// being valid submit targets the moment that mutation goes through.
+// Dropping the parameter is not the alternative: an unscoped re-submit runs
+// the migration on every tenant of the collection. [reindexTenantScopeNote]
+// explains the placeholder.
 //
 // A semantic migration never carries one: the submit endpoint rejects
 // ?tenants= for those, so rendering it would print a request the API 400s.
@@ -265,8 +266,8 @@ func reindexTenantScopeNote(p ReindexTaskPayload) string {
 	}
 	return " Fill in " + reindexTenantsPlaceholder + " yourself: this message " +
 		"does not name the task's tenant subset (GET /v1/tasks does, but needs " +
-		"cluster read access), and the tenants this request removes or " +
-		"deactivates are refused by the submit endpoint once it goes through. " +
+		"cluster read access), and the tenants this request removes, offloads, " +
+		"or freezes are refused by the submit endpoint once it goes through. " +
 		"Leaving the parameter off is not the alternative: that re-runs the " +
 		"migration on every tenant of the collection."
 }
