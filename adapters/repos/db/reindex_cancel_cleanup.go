@@ -134,9 +134,11 @@ func classifyIncompleteWalk(err error) error {
 // collection is [ErrCleanupCollectionDropped] instead, since what it leaves
 // behind is harmless.
 //
-// An unloaded shard is only hydrated if it actually has on-disk state to
-// remove. A walk that starts leaves exactly one summary line naming its
-// outcome, at the level that outcome warrants (see [sweepSummary]).
+// An unloaded shard is only hydrated if its disk asks for it — state to
+// remove, or a completed migration's leftovers only a load reclaims (see
+// [LazyLoadShard.canSkipUnloadedSweep]). A walk that starts leaves exactly one
+// summary line naming its outcome, at the level that outcome warrants (see
+// [sweepSummary]).
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -172,7 +174,8 @@ func (i *Index) cleanStalePartialReindexState(
 			// where a node full of cold tenants pays the most.
 			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs)
 			payloadReads += gateReads
-			// Unloaded and nothing on disk to sweep: skip rather than hydrate.
+			// Unloaded and nothing on disk to sweep or reclaim: skip rather
+			// than hydrate.
 			if skip {
 				skippedShards++
 				return nil
@@ -270,21 +273,28 @@ func sweepSummary(outcome CleanupSweepOutcome) (msg string, level logrus.Level) 
 // reactivating it changes nothing: the stale-sentinel check runs from the
 // task path, not from a shard load.
 //
-// The second return is the tracker-payload read count for the caller's log
+// The second return says the shard holds a completed migration's leftovers:
+// its data still under the ingest sidecar name, plus the backup copy of the
+// bucket it replaced. Only a shard load reclaims those, since
+// [FinalizeCompletedMigrations] runs before buckets open. It is only
+// meaningful where the first return is false — a shard already being
+// hydrated finalizes them on the way in either way.
+//
+// The third return is the tracker-payload read count for the caller's log
 // line; payloads are memoized per call, not shared across shards, since no
 // two shards name the same path.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache,
-) (bool, int) {
+) (stale, finalizable bool, payloadReads int) {
 	props := &taskPropsCache{}
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return true, props.count()
+		return true, false, props.count()
 	}
 
 	names, err := dirs.listSidecarCandidates(lsmPath)
 	if err != nil {
-		return !os.IsNotExist(err), props.count()
+		return !os.IsNotExist(err), false, props.count()
 	}
 	var sidecarSuffixes []string
 	for _, name := range names {
@@ -299,15 +309,18 @@ func hasStalePartialReindexState(
 		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
-				return true, props.count()
+				return true, false, props.count()
 			}
 		}
+		// Every sidecar here backs a completed migration, so nothing but a
+		// load reclaims them.
+		finalizable = true
 	}
 
 	// Migration tracker dirs, minus the deferred-finalize generations.
 	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
-		return !os.IsNotExist(err), props.count()
+		return !os.IsNotExist(err), false, props.count()
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
@@ -315,7 +328,7 @@ func hasStalePartialReindexState(
 		if unreadablePayload {
 			// A payload this gate can't read could name this property; only
 			// hydrating and re-reading can tell, so this is not "clean".
-			return true, props.count()
+			return true, false, props.count()
 		}
 		if !matched {
 			continue
@@ -324,11 +337,12 @@ func hasStalePartialReindexState(
 			preservedGens = completedMigrationGens(scope)
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
+			finalizable = true
 			continue
 		}
-		return true, props.count()
+		return true, false, props.count()
 	}
-	return false, props.count()
+	return false, finalizable, props.count()
 }
 
 // maxCachedDirNames bounds what one [dirNamesCache] holds, so a node with tens

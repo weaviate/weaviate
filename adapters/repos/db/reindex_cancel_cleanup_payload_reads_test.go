@@ -170,7 +170,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 
 			if tc.gateFailsOpenOn != "" {
-				gateStale, _ := hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil)
+				gateStale, _, _ := hasStalePartialReindexState(lsm, tc.propName, tc.indexTypes[0], nil)
 				require.True(t, gateStale,
 					"unloaded-shard gate must hydrate rather than report a shard with an "+
 						"unreadable payload as clean")
@@ -501,7 +501,7 @@ func TestGatePayloadReadCount(t *testing.T) {
 				mkSidecarDir(t, lsm, s)
 			}
 
-			stale, reads := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			stale, _, reads := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
 			require.Equal(t, tc.wantStale, stale)
 			require.Equal(t, tc.wantReads, reads, "payload.mig reads in one gate call")
 		})

@@ -1086,6 +1086,15 @@ func (l *LazyLoadShard) blockLoading() func() {
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
+// A completed migration's leftovers are the second reason not to skip: a
+// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
+// data under the ingest sidecar name plus a full backup copy of the bucket it
+// replaced reclaims neither until something hydrates it. One load per tenant
+// per completed migration settles that — finalize removes the tracker dir it
+// answers from, so the next sweep skips the tenant again. A tenant with no
+// migration leftovers at all, which is the population this gate is for, is
+// never loaded.
+//
 // Skipping holds only while reindex state arrives through a load. Shutdown does
 // not remove the shard from the index map — [Index.Shutdown] shuts its shards
 // down in place — so what keeps the gate off a shard being shut down is the
@@ -1104,6 +1113,7 @@ func (l *LazyLoadShard) canSkipUnloadedSweep(
 	if l.loaded {
 		return false, 0
 	}
-	stale, payloadReads := hasStalePartialReindexState(l.pathLSM(), propName, indexType, dirs)
-	return !stale, payloadReads
+	stale, finalizable, payloadReads := hasStalePartialReindexState(
+		l.pathLSM(), propName, indexType, dirs)
+	return !stale && !finalizable, payloadReads
 }
