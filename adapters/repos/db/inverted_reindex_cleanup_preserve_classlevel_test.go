@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -50,6 +51,15 @@ func mkSidecarDir(t *testing.T, lsmPath, name string) {
 	dir := filepath.Join(lsmPath, name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "segment-0.db"), []byte("x"), 0o644))
+}
+
+// cleanSweep runs one shard's partial-reindex sweep, requires it to succeed,
+// and hands back the tracker payloads it read.
+func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, indexType string) int {
+	t.Helper()
+	reads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+	require.NoError(t, err)
+	return reads
 }
 
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
@@ -129,8 +139,7 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 
-			require.NoError(t,
-				shard.CleanStalePartialReindexState(ctx, tc.propName, tc.indexType))
+			cleanSweep(t, ctx, shard, tc.propName, tc.indexType)
 
 			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
 				"live class-level deferred-finalize ingest dir %s must survive cleanup; "+
@@ -205,8 +214,7 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 
-			require.NoError(t,
-				shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+			cleanSweep(t, ctx, shard, "category", "filterable")
 
 			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
 				"live completed-migration sidecar must survive")
@@ -240,8 +248,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, staleName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 
-	require.NoError(t,
-		shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+	cleanSweep(t, ctx, shard, "category", "filterable")
 
 	require.NotNil(t, shard.store.Bucket(liveName),
 		"live deferred-finalize sidecar bucket must not be shut down")
@@ -310,8 +317,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 			}
 
-			require.NoError(t,
-				shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+			cleanSweep(t, ctx, shard, "category", "filterable")
 
 			if tc.wantShutDown {
 				require.Nil(t, shard.store.Bucket(tc.bucket), tc.reason)

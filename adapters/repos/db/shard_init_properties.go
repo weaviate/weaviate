@@ -324,14 +324,17 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 // directory survives. Step 1 errors ARE propagated because they indicate
 // a bucket can't be cleanly disconnected from the LSM layer — proceeding
 // to remove its files would corrupt the store.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+//
+// The first return is how many tracker payloads this sweep read, for the
+// caller's summary line. A refused input reads none.
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) (int, error) {
 	// Step 1: shut down the per-prop sidecar buckets for this index type.
 	// Only the buckets that share the relevant main bucket's prefix are
 	// touched, so other in-flight reindex tasks on the same shard are not
 	// disturbed.
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
+		return 0, fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
 	}
 
 	logger := s.index.logger.WithFields(map[string]any{
@@ -368,7 +371,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 				// — bucket gone — is satisfied; keep going.
 				continue
 			}
-			return fmt.Errorf(
+			return props.count(), fmt.Errorf(
 				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
 				bucketName, err)
 		}
@@ -385,7 +388,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	logger.WithField("payload_reads", props.count()).
 		Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
 
-	return nil
+	return props.count(), nil
 }
 
 // preserveSidecarsSlice flattens a preserved-sidecar-suffix set into a

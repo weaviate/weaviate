@@ -185,7 +185,11 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+		// Charged whether or not the sweep then failed, for the same reason the
+		// gate's reads are: the reads are paid before the outcome is known.
+		shardReads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+		payloadReads += shardReads
+		if err != nil {
 			shardErrs.Add(fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil

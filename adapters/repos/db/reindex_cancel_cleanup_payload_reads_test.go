@@ -181,12 +181,14 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 
 			hook.Reset() // drop whatever shard startup logged
+			returned := 0
 			for _, indexType := range tc.indexTypes {
-				require.NoError(t,
-					shard.CleanStalePartialReindexState(ctx, tc.propName, indexType))
+				returned += cleanSweep(t, ctx, shard, tc.propName, indexType)
 			}
 			require.Equal(t, tc.wantReads, loggedPayloadReads(t, hook, len(tc.indexTypes)),
 				"payload.mig reads across the sweep")
+			require.Equal(t, tc.wantReads, returned,
+				"the count the sweep hands its caller is the one it logs")
 
 			for _, tr := range tc.trackers {
 				require.True(t, dirExistsAt(t, lsm, filepath.Join(".migrations", tr.dir)),
@@ -194,6 +196,35 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The unloaded gate is not the only arm that pays for payloads: a loaded shard
+// pays inside the per-shard sweep. On a collection with no cold tenants every
+// shard is loaded, so a summary fed by the gate alone reports zero reads for
+// every sweep the node ever runs.
+func TestIndexSweepReportsLoadedShardPayloadReads(t *testing.T) {
+	ctx := testCtx()
+	className := "LoadedSweepReads_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"cat", "dog"})
+	hookLogger, hook := test.NewNullLogger()
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = hookLogger })
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	// ["cat","dog"] sorts to exactly this name, so only the payload can say
+	// whether the tracker belongs to the swept property.
+	writeDeferredFinalizeTracker(t, shard.pathLSM(),
+		tracker{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}})
+
+	hook.Reset()
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, "cat", "filterable", nil))
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 0, summary.Data["skipped_shards"],
+		"the shard is loaded, so the gate never answered for it")
+	require.Equal(t, 1, summary.Data["payload_reads"],
+		"the summary carries what the loaded shard's own sweep paid")
 }
 
 // loggedPayloadReads sums the payload counts the sweeps reported on their

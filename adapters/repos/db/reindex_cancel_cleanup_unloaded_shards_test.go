@@ -475,7 +475,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			}
 
 			before := lsmDirNames(t, lsm)
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+			cleanSweep(t, ctx, shard, propName, tc.indexType)
 			require.Equal(t, before, lsmDirNames(t, lsm),
 				"the predicate said this shard has nothing to clean, so the sweep it gates "+
 					"must not find anything either — a shard it skips is never looked at again")
@@ -505,7 +505,7 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 	mkTrackerDir(t, lsm, theirs, "started.mig", "merged.mig", "swapped.mig", "tidied.mig")
 	mkSidecarDir(t, lsm, theirSidecar)
 
-	require.NoError(t, shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+	cleanSweep(t, ctx, shard, "category", "filterable")
 
 	assert.False(t, dirExistsAt(t, lsm, ".migrations/"+mine),
 		"this property's cancelled run is what the sweep is for")
@@ -566,7 +566,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable"))
+			cleanSweep(t, ctx, shard, tc.propName, "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tracker))
 			// "a"'s sidecar is only in reach of "a"'s own sweep.
@@ -643,7 +643,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, "a", "filterable"))
+			cleanSweep(t, ctx, shard, "a", "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tc.tracker))
 			require.Equal(t, tc.wantSidecar, dirExistsAt(t, lsm, sidecar),
@@ -702,7 +702,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			require.True(t, stale,
 				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
 
-			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+			cleanSweep(t, ctx, shard, propName, tc.indexType)
 
 			require.False(t, dirExistsAt(t, lsm, leftover),
 				"the crash leftover of a bucket replacement has no other remover")
