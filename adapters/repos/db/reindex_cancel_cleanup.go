@@ -116,6 +116,13 @@ func IsCleanupCollectionDropped(err error) bool {
 // Keyed on the error chain, not on ctx.Err(): a shard that broke for a reason
 // of its own while the context happened to be gone is a failure the operator
 // has to see, and the clock cannot tell that apart from a cancellation.
+//
+// Matching on the chain works because both steps this guards report the
+// cancellation rather than an error of their own: the shard load waits for its
+// permit on this context, and the sidecar shutdown hands it to the bucket's
+// shutdown, whose compaction and flush waits both wrap it. Both are pinned,
+// since a step that started swallowing the cause would silently turn every
+// cancelled run back into a broken shard.
 func truncatedByCancellation(reported error) error {
 	if !errors.Is(reported, context.Canceled) && !errors.Is(reported, context.DeadlineExceeded) {
 		return nil
