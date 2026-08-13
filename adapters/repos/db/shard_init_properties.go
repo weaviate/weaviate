@@ -168,40 +168,23 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	payloadReads *atomic.Int64,
 ) {
 	eg.Go(func() error {
-		if !inverted.HasFilterableIndex(prop) {
-			mainBucket := helpers.BucketFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
+		for _, indexType := range disabledIndexTypes(prop) {
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			if !ok {
+				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "filterable", payloadReads)
-			s.cleanStaleSidecarDirs(mainBucket)
-		}
-		if !inverted.HasSearchableIndex(prop) {
-			mainBucket := helpers.BucketSearchableFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
+			if err := s.removeBucket(ctx, mainBucket); err != nil {
+				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "searchable", payloadReads)
-			s.cleanStaleSidecarDirs(mainBucket)
-		}
-		if !inverted.HasRangeableIndex(prop) {
-			mainBucket := helpers.BucketRangeableFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
-			}
-			s.cleanStaleMigrationDirs(prop.Name, "rangeable", payloadReads)
+			s.cleanStaleMigrationDirs(prop.Name, indexType, payloadReads)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
 }
 
-// disabledIndexTypes names the index types a property update switches off, in
-// the order [Shard.updatePropertyBuckets] sweeps them. Empty when the update
-// only switches index types on, where no sweep runs and nothing is reported.
+// disabledIndexTypes drives the sweep in updatePropertyBuckets and names it in
+// Index.updateProperty's summary log, so the two can never disagree.
 func disabledIndexTypes(prop *models.Property) []string {
 	var types []string
 	if !inverted.HasFilterableIndex(prop) {
@@ -229,9 +212,8 @@ func disabledIndexTypes(prop *models.Property) []string {
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 //
-// The read count is accumulated into payloadReads rather than logged, because
-// this runs once per shard per index type: on a 10k-tenant class a line here
-// would be 30k lines held inside one RAFT FSM apply.
+// The read count accrues into payloadReads instead of being logged per call,
+// since a 10k-tenant class would otherwise emit 30k lines inside one RAFT FSM apply.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads *atomic.Int64) {
 	reads := cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
 	payloadReads.Add(int64(reads))
