@@ -263,11 +263,11 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 // own activity status agree should be open. A class whose shards none of the
 // loading paths will open must not be counted, or progress never completes.
 func (db *DB) localShardsToLoad(className string) int64 {
-	desired, err := db.DesiredOpenLocalShards(className)
+	count, err := db.DesiredOpenLocalShardCount(className)
 	if err != nil {
 		return 0
 	}
-	return int64(len(desired))
+	return int64(count)
 }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter

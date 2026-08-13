@@ -392,13 +392,14 @@ func (s *State) SetLocalName(name string) {
 }
 
 func (s *State) IsLocalShard(name string) bool {
-	for _, node := range s.Physical[name].BelongsToNodes {
-		if node == s.localNodeName {
-			return true
-		}
-	}
+	return s.IsLocalPhysical(s.Physical[name])
+}
 
-	return false
+// IsLocalPhysical reports whether this node is a replica of p. A caller ranging
+// over Physical can use it to skip the map lookup IsLocalShard does for an entry
+// the range already yielded.
+func (s *State) IsLocalPhysical(p Physical) bool {
+	return p.IsLocalShard(s.localNodeName)
 }
 
 // initPhysical assigns shards to nodes according to the following rules:

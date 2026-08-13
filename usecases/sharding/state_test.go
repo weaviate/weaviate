@@ -787,3 +787,39 @@ func TestState_NumberOfReplicas(t *testing.T) {
 		})
 	}
 }
+
+func TestState_IsLocalPhysical(t *testing.T) {
+	tests := []struct {
+		name     string
+		replicas []string
+		want     bool
+	}{
+		{name: "no replica list", want: false},
+		{name: "an empty replica list", replicas: []string{}, want: false},
+		{name: "the only replica", replicas: []string{"N1"}, want: true},
+		{name: "the first of several replicas", replicas: []string{"N1", "N2", "N3"}, want: true},
+		{name: "the last of several replicas", replicas: []string{"N2", "N3", "N1"}, want: true},
+		{name: "not among the replicas", replicas: []string{"N2", "N3"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			physical := Physical{Name: "s1", BelongsToNodes: tt.replicas}
+			state := &State{Physical: map[string]Physical{"s1": physical}}
+			state.SetLocalName("N1")
+
+			assert.Equal(t, tt.want, state.IsLocalPhysical(physical))
+			assert.Equal(t, tt.want, state.IsLocalShard("s1"),
+				"IsLocalShard must agree with the entry it looks up")
+		})
+	}
+
+	// An unknown name yields the zero Physical, which belongs to no node. Reading
+	// it as local would hand the caller a shard the state never listed.
+	t.Run("a name absent from the state is not local", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{}}
+		state.SetLocalName("N1")
+
+		assert.False(t, state.IsLocalShard("nonexistent-shard"))
+	})
+}

@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/sirupsen/logrus"
 
@@ -99,57 +98,67 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 	return ns.State, nil
 }
 
-// desiredOpen reports whether a shard should be open. The status filter is the
-// one initAndStoreShards applies at startup, so a shard reported open is one
-// startup also registers. An empty status counts as HOT.
-func desiredOpen(state api.NamespaceState, status string) bool {
-	if !namespaces.ShardsShouldBeOpen(state) {
-		return false
-	}
+// shardStatusOpen reports whether an activity status should keep its shard open.
+// It is the filter initAndStoreShards applies at startup, so a shard reported
+// open is one startup also registers. An empty status counts as HOT.
+//
+// The namespace state is not consulted here. forEachDesiredOpenLocalShard gates
+// on it once before it enumerates, so a large tenant set pays that check once
+// rather than per shard.
+func shardStatusOpen(status string) bool {
 	return schema.ActivityStatus(status) == models.TenantActivityStatusHOT
 }
 
-// DesiredOpenLocalShards returns the HOT shards this node should hold open,
-// among those the sharding state lists it as a replica of. A single-tenant shard
-// carries no status, which counts as HOT. A class in no namespace is decided as
-// active.
+// forEachDesiredOpenLocalShard calls fn for each HOT shard this node should hold
+// open, among those the sharding state lists it as a replica of. A single-tenant
+// shard carries no status, which counts as HOT. A class in no namespace is
+// decided as active.
 //
-// Being left out is not permission to unload. A replica movement holds its target
-// shard on this node before it adds that shard to the sharding state, so the shard
-// is missing here while still being wanted. A caller comparing this against the
-// shards it holds must intersect with the listed replicas rather than unload
-// everything this set omits.
-func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
+// fn is called in map order, so a caller whose output has to be reproducible
+// must sort what it collects. It runs under the class's schema read lock, which
+// every schema apply for that class waits behind, so it must not block, do I/O,
+// or take another lock.
+//
+// A shard left out is not one that may be unloaded. A replica movement holds its
+// target shard on this node before it adds that shard to the sharding state, so
+// the shard is missing here while still being wanted. A caller comparing this
+// against the shards it holds must intersect with the listed replicas rather
+// than unload everything this omits.
+func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string)) error {
 	namespace := namespacing.NamespaceFromQualified(className)
 	state, err := stateForShardDecision(db.namespacesExister, namespace, className, db.logger)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
 		// Nothing is desired open, so the shards need not be enumerated.
-		return nil, nil
+		return nil
 	}
 
-	var desired []string
-	readErr := db.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
+	return db.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
 		if shardingState == nil {
-			// Returning no shards would read as "keep none open", which a sweep
-			// would act on by unloading the class.
+			// Walking nothing would read as "keep none open", which a sweep would
+			// act on by unloading the class.
 			return fmt.Errorf("no sharding state for class %q", className)
 		}
 		for name, physical := range shardingState.Physical {
-			if shardingState.IsLocalShard(name) && desiredOpen(state, physical.Status) {
-				desired = append(desired, name)
+			if shardingState.IsLocalPhysical(physical) && shardStatusOpen(physical.Status) {
+				fn(name)
 			}
 		}
 		return nil
 	})
-	if readErr != nil {
-		return nil, readErr
+}
+
+// DesiredOpenLocalShardCount returns how many HOT shards this node should hold
+// open for the class. Startup progress polls it per class on a ticker, so it
+// counts in place rather than materializing the names.
+func (db *DB) DesiredOpenLocalShardCount(className string) (int, error) {
+	var count int
+	if err := db.forEachDesiredOpenLocalShard(className, func(string) { count++ }); err != nil {
+		return 0, err
 	}
-	// Map iteration order otherwise makes a sweep's logs and diffs unreproducible.
-	sort.Strings(desired)
-	return desired, nil
+	return count, nil
 }
 
 // ReopenShard loads a shard on behalf of a resuming namespace, which the request

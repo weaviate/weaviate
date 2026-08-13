@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"sync/atomic"
@@ -244,19 +245,9 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 }
 
 // A shard with no status counts as HOT, so a single-tenant shard, which never
-// carries one, is decided by its namespace alone.
-func TestDesiredOpen(t *testing.T) {
-	states := []struct {
-		name  string
-		state api.NamespaceState
-		open  bool
-	}{
-		{name: "active", state: api.NamespaceStateActive, open: true},
-		{name: "resuming", state: api.NamespaceStateResuming, open: true},
-		{name: "suspended", state: api.NamespaceStateSuspended},
-		{name: "deleting", state: api.NamespaceStateDeleting},
-		{name: "unknown", state: api.NamespaceState("")},
-	}
+// carries one, is decided by its namespace alone. The namespace axis is covered
+// by TestDesiredOpenLocalShardCount.
+func TestShardStatusOpen(t *testing.T) {
 	statuses := []struct {
 		name   string
 		status string
@@ -270,12 +261,10 @@ func TestDesiredOpen(t *testing.T) {
 		{name: "UNFREEZING", status: models.TenantActivityStatusUNFREEZING},
 	}
 
-	for _, s := range states {
-		for _, st := range statuses {
-			t.Run(s.name+"/"+st.name, func(t *testing.T) {
-				assert.Equal(t, s.open && st.hot, desiredOpen(s.state, st.status))
-			})
-		}
+	for _, st := range statuses {
+		t.Run(st.name, func(t *testing.T) {
+			assert.Equal(t, st.hot, shardStatusOpen(st.status))
+		})
 	}
 }
 
@@ -293,8 +282,8 @@ func readerForShards(t *testing.T, className string, shards map[string]sharding.
 	return reader
 }
 
-// dbForDesiredOpen builds the minimum DB DesiredOpenLocalShards reads: a schema
-// reader over one class's sharding state, plus the namespace lookup.
+// dbForDesiredOpen builds the minimum DB the desired-open decision reads: a
+// schema reader over one class's sharding state, plus the namespace lookup.
 func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, shards map[string]sharding.Physical) *DB {
 	t.Helper()
 
@@ -324,7 +313,7 @@ func coldPhysical(name string) sharding.Physical {
 	return p
 }
 
-func TestDesiredOpenLocalShards(t *testing.T) {
+func TestDesiredOpenLocalShardCount(t *testing.T) {
 	const class = "alpha:Product"
 
 	tests := []struct {
@@ -333,13 +322,27 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 		state      api.NamespaceState
 		namespaced bool
 		shards     map[string]sharding.Physical
-		want       []string
-		wantErr    error
+		// want names the shards, not just how many, so a swapped inclusion
+		// cannot pass on an unchanged total.
+		want    []string
+		wantErr error
 	}{
+		{
+			name: "a class with no shards at all yields nothing", className: class,
+			state: api.NamespaceStateActive, namespaced: true,
+			shards: map[string]sharding.Physical{},
+		},
 		{
 			name: "no local shards yields an empty set", className: class,
 			state: api.NamespaceStateActive, namespaced: true,
 			shards: map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"other"}}},
+		},
+		{
+			// A replica list that never got populated must not read as local, or
+			// every node would count the shard toward its own startup progress.
+			name: "a shard with no replicas is left out", className: class,
+			state: api.NamespaceStateActive, namespaced: true,
+			shards: map[string]sharding.Physical{"s1": {Name: "s1"}},
 		},
 		{
 			name: "one HOT shard yields that shard", className: class,
@@ -393,6 +396,13 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 			shards: map[string]sharding.Physical{"hot1": localPhysical("hot1")},
 		},
 		{
+			// A state this binary has no case for, which a newer node can write.
+			// It must close the shards rather than fall through as active.
+			name: "a class in an unrecognized state yields nothing", className: class,
+			state: api.NamespaceState("bogus"), namespaced: true,
+			shards: map[string]sharding.Physical{"hot1": localPhysical("hot1")},
+		},
+		{
 			name: "an unqualified class yields its HOT shards", className: "Product",
 			shards: map[string]sharding.Physical{
 				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
@@ -419,19 +429,25 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 			}
 			db := dbForDesiredOpen(t, tc.className, e, tc.shards)
 
-			got, err := db.DesiredOpenLocalShards(tc.className)
+			got, err := db.DesiredOpenLocalShardCount(tc.className)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.Nil(t, got)
+				assert.Zero(t, got)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, got, "result must be sorted, not in map order")
+			assert.Equal(t, len(tc.want), got)
+
+			var walked []string
+			require.NoError(t, db.forEachDesiredOpenLocalShard(tc.className,
+				func(name string) { walked = append(walked, name) }))
+			sort.Strings(walked)
+			assert.Equal(t, tc.want, walked)
 		})
 	}
 
 	// Registering no Read expectation asserts the shards are never enumerated:
-	// when nothing may be open the answer is empty whatever the shards are, and a
+	// when nothing may be open the answer is zero whatever the shards are, and a
 	// sweep pass must not walk every tenant to learn that.
 	t.Run("a suspended class is answered without reading the sharding state", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
@@ -440,54 +456,94 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		db := &DB{logger: logger, schemaReader: schemaUC.NewMockSchemaReader(t), namespacesExister: e}
 
-		got, err := db.DesiredOpenLocalShards(class)
+		got, err := db.DesiredOpenLocalShardCount(class)
 		require.NoError(t, err)
-		assert.Empty(t, got)
+		assert.Zero(t, got)
 	})
 }
 
-// An absent sharding state must not read as "no shards are desired open" — a
-// sweep would take that as licence to unload the class entirely.
-func TestDesiredOpenLocalShardsAbsentShardingState(t *testing.T) {
+// Startup progress polls the count per class every few seconds while the node
+// loads, so an allocation per shard lands on a node with many tenants exactly
+// when it is busiest. Comparing two shard counts pins that rather than a
+// literal, which would only pin today's fixture.
+func TestDesiredOpenLocalShardCountDoesNotAllocatePerShard(t *testing.T) {
 	const class = "alpha:Product"
 
-	logger, _ := logrustest.NewNullLogger()
-	e := namespaces.NewMockExister(t)
-	e.EXPECT().GetNamespace("alpha").
-		Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
+	allocsFor := func(shards int) float64 {
+		physical := make(map[string]sharding.Physical, shards)
+		for i := range shards {
+			name := fmt.Sprintf("tenant-%d", i)
+			physical[name] = hotPhysical(name)
+		}
+		db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateActive), physical)
 
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.EXPECT().Read(class, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-			return readFunc(&models.Class{Class: class}, nil)
+		return testing.AllocsPerRun(20, func() {
+			got, err := db.DesiredOpenLocalShardCount(class)
+			if err != nil || got != shards {
+				t.Fatalf("count = %d, err = %v", got, err)
+			}
 		})
+	}
 
-	db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
-
-	got, err := db.DesiredOpenLocalShards(class)
-	require.Error(t, err)
-	assert.Nil(t, got)
+	// testing.AllocsPerRun counts process-wide mallocs, so whatever background
+	// goroutines the package's other tests leave running land in the measurement
+	// too — a few allocations either way. Comparing within a tolerance absorbs
+	// that; an allocation per shard would show up as thousands, not units.
+	const foreignAllocations = 10
+	assert.InDelta(t, allocsFor(100), allocsFor(10_000), foreignAllocations,
+		"the walk must not allocate per shard")
 }
 
 var errReadFailed = errors.New("read failed")
 
-// A failure to read the sharding state must surface, not answer emptily.
-func TestDesiredOpenLocalShardsReadError(t *testing.T) {
+// A sharding state that cannot be read must surface as an error, not as a count
+// of zero — a sweep would take zero as licence to unload the class entirely.
+func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 	const class = "alpha:Product"
 
-	logger, _ := logrustest.NewNullLogger()
-	e := namespaces.NewMockExister(t)
-	e.EXPECT().GetNamespace("alpha").
-		Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
+	tests := []struct {
+		name    string
+		read    func(*schemaUC.MockSchemaReader)
+		wantErr error
+	}{
+		{
+			name: "an absent sharding state",
+			read: func(r *schemaUC.MockSchemaReader) {
+				r.EXPECT().Read(class, mock.Anything, mock.Anything).
+					RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+						return readFunc(&models.Class{Class: class}, nil)
+					})
+			},
+		},
+		{
+			name: "a failing read",
+			read: func(r *schemaUC.MockSchemaReader) {
+				r.EXPECT().Read(class, mock.Anything, mock.Anything).Return(errReadFailed)
+			},
+			wantErr: errReadFailed,
+		},
+	}
 
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.EXPECT().Read(class, mock.Anything, mock.Anything).Return(errReadFailed)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			e := namespaces.NewMockExister(t)
+			e.EXPECT().GetNamespace("alpha").
+				Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
 
-	db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+			reader := schemaUC.NewMockSchemaReader(t)
+			tc.read(reader)
 
-	got, err := db.DesiredOpenLocalShards(class)
-	require.ErrorIs(t, err, errReadFailed)
-	assert.Nil(t, got)
+			db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+
+			got, err := db.DesiredOpenLocalShardCount(class)
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			assert.Zero(t, got)
+		})
+	}
 }
 
 // indexForGuardTest builds the minimum Index initLocalShardWithForcedLoading
