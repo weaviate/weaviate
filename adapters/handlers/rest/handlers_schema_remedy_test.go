@@ -241,10 +241,12 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	}
 }
 
-// declaredReindexMigrationTypes is every migration type this build declares.
-// db.TestReindexTargetIndexes scans the package source and fails if the
-// declared set ever grows past this count, so a new type cannot slip past
-// the rows below unnoticed.
+// declaredReindexMigrationTypes is every migration type this build declares,
+// mirrored here by hand. db.TestReindexTargetIndexes scans the package source
+// and fails if the declared set grows past its own count, so a new type does
+// turn some test in db red — but nothing in that failure points at this file,
+// and this mirror itself going stale is not detected at all. Keeping it
+// current is manual.
 var declaredReindexMigrationTypes = []db.ReindexMigrationType{
 	db.ReindexTypeChangeTokenization,
 	db.ReindexTypeChangeTokenizationFilterable,
@@ -495,6 +497,22 @@ func TestEveryDeclaredTypeRendersAnAcceptedRepairCall(t *testing.T) {
 				"the rendered cancel call is refused by the pre-flight that receives it")
 		})
 	}
+
+	// Ceiling, stated plainly: this fires only once someone has already added
+	// the new type to the declaredReindexMigrationTypes mirror above. A type
+	// declared in db and never mirrored here goes unnoticed, and closing that
+	// would take an exported registry in db or a source scan of it from here.
+	t.Run("the table covers every declared type", func(t *testing.T) {
+		covered := map[db.ReindexMigrationType]bool{}
+		for _, tc := range cases {
+			covered[tc.migrationType] = true
+		}
+		for _, mt := range declaredReindexMigrationTypes {
+			require.True(t, covered[mt],
+				"migration type %q is declared but not pinned here", mt)
+		}
+		require.Len(t, cases, len(declaredReindexMigrationTypes), "no obsolete rows")
+	})
 }
 
 // TestBothLayersNameTheSameTaskWhenSeveralConflict pins that the pre-check
