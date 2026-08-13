@@ -165,6 +165,11 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 
 // TestReindexInFlightError_DTMHit pins the wording variant used when
 // DTM reports a live task.
+//
+// The gate cannot see the task's status, so the cancel it names has to
+// carry the condition under which the API accepts one. Without it the
+// message points an operator whose task carries a status this build
+// cannot classify at a cancel that answers 409 on every node.
 func TestReindexInFlightError_DTMHit(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1", false)
 	require.Error(t, err)
@@ -172,7 +177,15 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
-	require.Contains(t, err.Error(), "retry after the migration finishes")
+	require.Contains(t, err.Error(), "reaches a terminal state")
+	// A STARTED task with no working unit and no progress reads as
+	// "pending" on the GET while the gate is already refusing, so naming
+	// only "indexing" leaves an operator watching a pill that never
+	// showed up.
+	require.Contains(t, err.Error(), `status="pending"`)
+	require.Contains(t, err.Error(), `status="indexing"`)
+	require.Contains(t, err.Error(), "accepted only while the task is STARTED")
+	require.Contains(t, err.Error(), "409")
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that

@@ -14,8 +14,11 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -47,6 +50,22 @@ func haltForOffload(t *testing.T, ctx context.Context, s *Shard) {
 	requireTotal(t, s, 1, "offloading halt must pause maintenance")
 }
 
+// haltForOffloadWithStaleSnapshot halts s for offload and plants a stale .ht (as a pre-fix binary could); recovery must discard it, not trust it.
+func haltForOffloadWithStaleSnapshot(t *testing.T, ctx context.Context, s *Shard) {
+	t.Helper()
+	s.asyncReplicationRWMux.RLock()
+	var payload bytes.Buffer
+	_, serErr := s.hashtree.Serialize(&payload)
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, serErr)
+
+	haltForOffload(t, ctx, s)
+
+	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
+	stale := filepath.Join(s.pathHashTree(), "hashtree-0000000000000001.ht")
+	require.NoError(t, os.WriteFile(stale, payload.Bytes(), 0o600))
+}
+
 // TestResumeAfterAbortedOffload_RebuildsFromScratch: a post-dump write must appear in the rebuilt tree.
 func TestResumeAfterAbortedOffload_RebuildsFromScratch(t *testing.T) {
 	ctx := context.Background()
@@ -71,7 +90,7 @@ func TestResumeAfterAbortedOffload_RebuildsFromScratch(t *testing.T) {
 	s.asyncReplicationRWMux.RUnlock()
 	require.NotEqual(t, hashtree.Digest{}, rootAtDump, "sanity: seeded hashtree must have a non-zero root")
 
-	haltForOffload(t, ctx, s)
+	haltForOffloadWithStaleSnapshot(t, ctx, s)
 
 	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidPostDump, tsFarPast)))
 	require.NoError(t, s.store.FlushMemtables(ctx))
@@ -106,7 +125,7 @@ func TestResumeAfterAbortedOffload_AsyncDisabledRemovesStaleHashtree(t *testing.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
 
-	haltForOffload(t, ctx, s)
+	haltForOffloadWithStaleSnapshot(t, ctx, s)
 
 	require.NoError(t, idx.resumeAfterAbortedOffload(ctx, s.name))
 
@@ -135,7 +154,7 @@ func TestResumeAfterAbortedOffload_NotHalted(t *testing.T) {
 	awaitHashtreeInitialized(t, s)
 
 	// snapshot + disable without halting
-	s.mayStopAsyncReplication()
+	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "pre-condition: a snapshot exists")
 	requireTotal(t, s, 0, "pre-condition: maintenance not halted")
 
@@ -173,7 +192,7 @@ func TestResumeAfterAbortedOffload_ConcurrentReconcileNoStaleTree(t *testing.T) 
 	rootAtDump := s.hashtree.Root()
 	s.asyncReplicationRWMux.RUnlock()
 
-	haltForOffload(t, ctx, s)
+	haltForOffloadWithStaleSnapshot(t, ctx, s)
 
 	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidPostDump, tsFarPast)))
 	require.NoError(t, s.store.FlushMemtables(ctx))

@@ -113,7 +113,7 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 	}
 
 	bm25 := inverted.NewBM25Searcher(bm25Config, shard.store,
-		idx.getSchema.ReadOnlyClass, shard.propertyIndices, idx.classSearcher,
+		idx.getSchema.ReadOnlyClass, idx.classSearcher,
 		idx.getStopwordProvider(), shard.GetPropertyLengthTracker(), logger,
 		shard.versioner.Version())
 

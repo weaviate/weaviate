@@ -570,7 +570,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// is unavailable". Returning 503 here misled callers and
 			// monitoring into thinking the cluster was unhealthy rather than
 			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
+			if inflight := countInFlightTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
 				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
 			}
 		}
@@ -688,13 +688,150 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
-// cancelReindexTask finds the STARTED reindex task targeting
+// findCancelTarget returns the in-flight reindex task for (collection,
+// propertyName, indexType), or nil when none matches. A cancellable match
+// wins, so several matches cannot cost the operator a cancel.
+func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string, logger logrus.FieldLogger) (*distributedtask.Task, db.ReindexTaskPayload) {
+	var (
+		refusable        *distributedtask.Task
+		refusablePayload db.ReindexTaskPayload
+	)
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			// Undecodable in-flight task: it may be the very one the
+			// operator is trying to cancel, and they get a NO_OP instead.
+			logger.WithField("task_id", task.ID).
+				Warnf("cancel: skipping in-flight reindex task with an undecodable payload: %v", err)
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		// Empty Properties means "all properties" for every blocking guard;
+		// disagreeing here would leave the operator with no cancel target.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+			continue
+		}
+		if task.Status.IsCancellable() {
+			return task, payload
+		}
+		if refusable == nil {
+			refusable, refusablePayload = task, payload
+		}
+	}
+	return refusable, refusablePayload
+}
+
+// cancelPreflight answers a cancel that owes no RAFT apply: there is
+// nothing to cancel, or DTM would refuse it. It reads the predicate the
+// FSM guard applies, so the two answers cannot drift.
+func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case target == nil:
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	case !target.Status.IsCancellable():
+		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	}
+	return nil
+}
+
+// cancelApplyFailureResponder maps an FSM rejection onto the answer the
+// pre-flight would have given. The status can flip between the read and
+// the apply, which is an ordinary race, and a 500 would also leak the
+// sentinel's internal marker into the body.
+func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case errors.Is(err, distributedtask.ErrTaskNotRunning):
+		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
+	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	}
+	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
+		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelNoOpResponder answers a cancel that has nothing to cancel.
+func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_noop",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"principal":   principalUsername(principal),
+	}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+		Status: reindexCancelStatusNoOp,
+	})
+}
+
+// cancelRefusedResponder answers a cancel DTM will not accept. "Wait for
+// a terminal state" is honest advice in a coordination phase and a dead
+// end for a status only other nodes can terminate, hence two bodies.
+func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"status":      target.Status.String(),
+		"principal":   principalUsername(principal),
+	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
+			target.ID, collection, propertyName, target.Status,
+			cancelRefusalReason(target.Status))))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped accepting
+// one between the list read and the apply. The status held here is stale
+// by construction, so rendering it would name a phase the task has left.
+// This body names no status and sends the operator back to the read.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_refused",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
+	return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
+			"the cancel, and DTM no longer accepts one for it. Nothing was cancelled — re-read "+
+			"GET /v1/schema/%s/indexes and retry only if the task is still in flight",
+			target.ID, collection, propertyName, collection)))
+}
+
+// cancelRefusalReason explains a 409 from the cancel verb. Its
+// coordination-phase wording has to hold for PREPARING too, where no node
+// has swapped yet, so it cannot name the swap as under way.
+func cancelRefusalReason(status distributedtask.TaskStatus) string {
+	if !status.IsRecognized() {
+		return "this build cannot classify that status, so it cannot tell whether stopping the " +
+			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+			"state on the nodes that do recognize it"
+	}
+	return "nodes may already have written merged state or renamed bucket directories, so " +
+		"stopping it now would leave the cluster serving migrated buckets under the " +
+		"pre-migration schema — wait for it to reach a terminal state"
+}
+
+// cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
 // Idempotent cancel: by the time this runs the caller's (collection,
 // property) tuple has already been verified to exist by [updateIndex] —
 // a missing class or property would have produced a 404 there. So when
-// no STARTED task matches the cancel target we return 202 + Status:
+// no task matches the cancel target we return 202 + Status:
 // NO_OP rather than 404. That mirrors how callers think about cancel:
 // "make sure no reindex is running on this property" is the same
 // idempotent intent whether or not a task happened to be in flight at
@@ -721,54 +858,17 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("listing tasks: %v", err)))
 	}
 
-	// Find the STARTED task that targets this (collection, prop, indexType).
-	var target *distributedtask.Task
-	var targetPayload db.ReindexTaskPayload
-	for _, task := range tasks[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		target = task
-		targetPayload = payload
-		break
-	}
+	target, targetPayload := findCancelTarget(
+		tasks[db.ReindexNamespace], collection, propertyName, indexType, h.appState.Logger)
 
-	if target == nil {
-		// Idempotent cancel: caller's (collection, property) is known to
-		// exist (updateIndex verified before dispatch). No task to cancel
-		// means the request is a no-op — surface that explicitly via
-		// Status: NO_OP at 202 rather than overloading 404 with two
-		// distinct semantics (caller-error vs already-done).
-		h.appState.Logger.WithFields(logrus.Fields{
-			"audit_event": "reindex_task_cancel_noop",
-			"collection":  collection,
-			"property":    propertyName,
-			"index_type":  indexType,
-			"principal":   principalUsername(principal),
-		}).Info("cancel: no in-flight task to cancel; returning NO_OP")
-		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-			Status: reindexCancelStatusNoOp,
-		})
+	if resp := h.cancelPreflight(target, collection, propertyName, indexType, principal); resp != nil {
+		return resp
 	}
 
 	if err := h.appState.ClusterService.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
-			fmt.Sprintf("cancelling task: %v", err)))
+		return h.cancelApplyFailureResponder(err, target, collection, propertyName, indexType, principal)
 	}
 
 	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
@@ -1050,6 +1150,17 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // to the repair-* migration types if they accepted an empty list as
 // "match all").
 //
+// db.ReindexPropsOverlap reads that same empty list as "all properties";
+// the disagreement is deliberate, not drift. A guard picks the answer
+// that refuses, a status report picks the answer it can substantiate.
+// Reconciling this side onto the guard's rule would publish a synthetic
+// "indexing" entry across every property of the collection on behalf of
+// a task createReindexTasks refuses to run at all. Skipping is the
+// cheaper wrong answer: the entry stays "ready" when the flag is on and
+// is dropped from the response when it is off — the same two outcomes
+// this endpoint already produces when it cannot read the task list, so
+// "ready" here means "no evidence of a reindex", never "idle".
+//
 // The logger is used to flag unknown migration types: a future ReindexType
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
@@ -1085,7 +1196,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// populates this with one entry; an empty list only happens via
 		// direct cluster payload authoring and is treated as "match
 		// nothing" so we never silently fan out a synthetic entry to
-		// every property in the collection.
+		// every property in the collection — which is why this line
+		// disagrees with db.ReindexPropsOverlap on purpose.
 		if !slices.Contains(payload.Properties, propName) {
 			continue
 		}
@@ -1198,6 +1310,14 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 	}
 
+	if !best.Status.IsRecognized() {
+		// "indexing" rather than "pending" or "ready": per-unit progress
+		// does not prove that no shard has started.
+		idx.Status = "indexing"
+		idx.Progress = aggregateProgress(best)
+		surfaceSyntheticFields = true
+	}
+
 	// Only paint the per-migration-type "in-flight" side-effect fields when
 	// the status switch actually surfaced an in-flight or finalizing signal.
 	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
@@ -1241,23 +1361,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // the synthetic "indexing@100%" entry visible until the schema flip
 // propagates — see the FINISHED case there).
 func taskStatusPriority(task *distributedtask.Task) int {
-	switch task.Status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		// PREPARING and SWAPPING rank alongside STARTED: from the user's
-		// perspective the task is still running (PREP barrier or swap
-		// pending; schema flip has not yet committed). Surface their
-		// synthetic "indexing@100%" entry instead of an older FAILED
-		// attempt's terminal entry.
+	if task.Status.IsActive() {
 		return 2
-	case distributedtask.TaskStatusFailed,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFinished:
-		return 1
-	default:
-		return 0
 	}
+	return 1
 }
 
 // aggregateProgress averages Unit.Progress across all units in the task.
@@ -1402,11 +1509,9 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 	})
 }
 
-// countStartedTasksForCollection counts in-flight reindex tasks for a
-// collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING
-// via IsActive) because PREPARING/SWAPPING still hold tracker dirs and
-// reindex buckets.
-func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
+// countInFlightTasksForCollection counts in-flight reindex tasks for a
+// collection. PREPARING and SWAPPING count: they still hold tracker dirs.
+func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
 		if !task.Status.IsActive() {

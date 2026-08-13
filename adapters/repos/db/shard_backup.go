@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -42,6 +43,20 @@ func (s *Shard) haltTotalLocked() int {
 	return total
 }
 
+// publishHaltTotalLocked mirrors the owner map's total into haltForTransferTotal,
+// which haltedForTransfer reads without the mux. Every mutation of
+// haltForTransferOwners must call it. Caller must hold haltForTransferMux.
+func (s *Shard) publishHaltTotalLocked() int {
+	total := s.haltTotalLocked()
+	s.haltForTransferTotal.Store(int64(total))
+	return total
+}
+
+// haltedForTransfer is a lock-free probe: never parks behind backup prep, never misreads a concurrent reader as halted.
+func (s *Shard) haltedForTransfer() bool {
+	return s.haltForTransferTotal.Load() > 0
+}
+
 // haltAddOwnerLocked records one more halt held by owner and returns the new
 // total. Caller must hold haltForTransferMux.
 func (s *Shard) haltAddOwnerLocked(owner string) int {
@@ -49,7 +64,7 @@ func (s *Shard) haltAddOwnerLocked(owner string) int {
 		s.haltForTransferOwners = map[string]int{}
 	}
 	s.haltForTransferOwners[owner]++
-	return s.haltTotalLocked()
+	return s.publishHaltTotalLocked()
 }
 
 // haltRemoveOwnerLocked drops one halt held by owner, deleting the entry at
@@ -61,9 +76,11 @@ func (s *Shard) haltRemoveOwnerLocked(owner string) (gone bool) {
 	}
 	if n <= 1 {
 		delete(s.haltForTransferOwners, owner)
+		s.publishHaltTotalLocked()
 		return true
 	}
 	s.haltForTransferOwners[owner] = n - 1
+	s.publishHaltTotalLocked()
 	return false
 }
 
@@ -74,6 +91,7 @@ func (s *Shard) haltDropOwnerLocked(owner string) (held bool) {
 		return false
 	}
 	delete(s.haltForTransferOwners, owner)
+	s.publishHaltTotalLocked()
 	return true
 }
 
@@ -87,6 +105,7 @@ func (s *Shard) clearHaltForTransferStateLocked() {
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()
 	s.haltForTransferOwners = nil
+	s.publishHaltTotalLocked()
 	s.haltForTransferInactivityOwners = nil
 	s.haltForTransferInactivityTimeout = 0
 	s.haltForTransferInactivityDeadline = time.Time{}
@@ -150,14 +169,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 
 	if offloading {
 		// TODO: tenant offloading is calling HaltForTransfer but
-		// if Shutdown is called this step is not needed
+		// if Shutdown is called this step is not needed.
 		//
-		// Do NOT persist the hashtree: a persisted tree is accepted as authoritative
-		// on the next load after a height-only check, which is sound only when the
-		// shard serves no further writes. This shard still takes internal replica
-		// writes during the halt, and an aborted freeze returns it to HOT. With no
-		// .ht on disk the next activation rebuilds by full scan.
-		s.stopAsyncReplication(false)
+		// capture=false: do NOT persist the hashtree. A persisted tree is accepted as
+		// authoritative on the next load after a height-only check, which is sound only
+		// when the shard serves no further writes. This shard still takes internal
+		// replica writes during the halt, and an aborted freeze returns it to HOT. With
+		// no .ht on disk the next activation rebuilds by full scan.
+		s.mayStopAsyncReplication(false)
 	}
 
 	// Placed before the pause branch so it also covers total>1 callers: on error
@@ -226,6 +245,15 @@ func (s *Shard) HaltForTransfer(ctx context.Context, owner string, offloading bo
 		return nil
 	})
 	if err != nil {
+		return err
+	}
+
+	if err := s.ForEachGeoIndex(func(propName string, index *geo.Index) error {
+		if err := index.PrepareForBackup(innerCtx); err != nil {
+			return fmt.Errorf("prepare for backup of geo index %q: %w", propName, err)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -329,6 +357,13 @@ func (s *Shard) mayInitInactivityMonitoring() {
 // handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
 // (activity re-armed the timer) or false to stop (ctx cancelled, or the shard was resumed).
 func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (keepWatching bool) {
+	forceResumed := false
+	// Registered before the unlock defer so it runs after the mux is released.
+	defer func() {
+		if forceResumed {
+			s.reapplyAsyncReplicationAfterResume(context.Background())
+		}
+	}()
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
@@ -344,6 +379,7 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 	if err := s.forceResumeArmedLocked(context.Background()); err != nil {
 		s.index.logger.Error(err)
 	}
+	forceResumed = true
 	return false
 }
 
@@ -469,14 +505,31 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err != nil {
 		return nil, err
 	}
+
+	if err := s.ForEachGeoIndex(func(propName string, index *geo.Index) error {
+		filesGi, err := index.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo index %q: %w", propName, err)
+		}
+		files = append(files, filesGi...)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context, owner string) error {
 	s.haltForTransferMux.Lock()
-	defer s.haltForTransferMux.Unlock()
+	err := s.resumeOwnerLocked(ctx, owner)
+	fullyResumed := s.haltTotalLocked() == 0
+	s.haltForTransferMux.Unlock()
 
-	return s.resumeOwnerLocked(ctx, owner)
+	// Enables skipped while halted have no other re-derive path for plain halts.
+	if fullyResumed {
+		s.reapplyAsyncReplicationAfterResume(ctx)
+	}
+	return err
 }
 
 // resumeHaltOwner drops all of owner's halts and resumes maintenance when no other
@@ -486,6 +539,10 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context, owner string) error
 // It drops the owner outright rather than decrementing once, because it recovers a
 // halt whose placer is gone: two aborted freeze rounds leave two halts under the same
 // owner and no actor is left to match them one for one.
+//
+// Unlike resumeMaintenanceCycles it does not re-derive async replication: its only
+// caller follows a held halt with rebuildAsyncReplicationAfterOffloadHalt, which
+// restores the tree by full scan.
 func (s *Shard) resumeHaltOwner(ctx context.Context, owner string) (wasHeld bool, err error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
@@ -544,6 +601,32 @@ func (s *Shard) resumeOwnerLocked(ctx context.Context, owner string) error {
 	return s.completeResumeLocked(ctx)
 }
 
+// reapplyAsyncReplicationAfterResume re-derives a skipped enable once a transfer halt fully lifts; disables are never skipped, so this only ever enables.
+func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
+	if s.shutOrDropped() || s.shutdownRequested.Load() {
+		return
+	}
+	if err := s.index.withAsyncReplicationApply(func() error {
+		if s.shutOrDropped() || s.haltedForTransfer() {
+			return nil // re-halted or tearing down; the next resume re-derives
+		}
+		enabled, config := s.index.asyncReplicationStateForShard(s.name)
+		if !enabled {
+			if !s.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
+			config = s.index.AsyncReplicationConfig()
+		}
+		return s.enableAsyncReplication(ctx, config)
+	}); err != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Errorf("re-applying async replication after transfer resume: %v", err)
+	}
+}
+
 func (s *Shard) forceResumeArmedLocked(ctx context.Context) error {
 	if s.haltTotalLocked() == 0 {
 		// noop, maintenance cycles not halted
@@ -555,6 +638,7 @@ func (s *Shard) forceResumeArmedLocked(ctx context.Context) error {
 		delete(s.haltForTransferOwners, a)
 		forced = append(forced, a)
 	}
+	s.publishHaltTotalLocked()
 	s.haltForTransferInactivityOwners = nil
 	s.index.logger.WithField("shard", s.name).
 		Warnf("halt-for-transfer inactivity watchdog fired; force-resuming armed owners %v", forced)
@@ -618,6 +702,14 @@ func (s *Shard) completeResumeLocked(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoIndex(func(_ string, index *geo.Index) error {
 			if err := index.ResumeAfterBackup(ctx); err != nil {
 				return fmt.Errorf("resuming after backup: %w", err)
 			}

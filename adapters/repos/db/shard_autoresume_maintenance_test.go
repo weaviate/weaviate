@@ -894,7 +894,7 @@ func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
 	s.haltForTransferMux.Unlock()
 
 	require.False(t, keepWatching)
-	require.Equal(t, 1, countAfterStaleFire)
+	require.EqualValues(t, 1, countAfterStaleFire)
 
 	require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 	require.Nil(t, idx.drop())
@@ -931,7 +931,7 @@ func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
 	s.haltForTransferMux.Unlock()
 
 	require.True(t, keepWatching)
-	require.Equal(t, 1, countAfterFire)
+	require.EqualValues(t, 1, countAfterFire)
 
 	require.NoError(t, s.resumeMaintenanceCycles(ctx, "test:transfer"))
 	require.Nil(t, idx.drop())

@@ -134,7 +134,7 @@ func newJoinTestUploader(t *testing.T, s Sourcer) *uploader {
 	fb.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	return newUploader(config.Backup{}, s, nil, nil, nil, nil,
 		nodeStore{objectStore{fb, "join-test", "", "", "node1"}},
-		"join-test", func(backup.Status) {}, logrus.New())
+		"join-test", &backupStat{}, logrus.New())
 }
 
 // interimReleaseGrace bounds how long the A-release handshake waits for a

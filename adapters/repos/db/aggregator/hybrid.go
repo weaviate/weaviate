@@ -17,8 +17,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -45,7 +45,17 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 	return kw, nil
 }
 
-func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
+// setDefaultObjectLimit fills in the limit a hybrid request may omit. Both legs
+// read it, and either can run alone depending on alpha, so it has to be set
+// before the search rather than inside one leg.
+func (a *Aggregator) setDefaultObjectLimit() {
+	if a.params.ObjectLimit == nil {
+		limit := int(a.defaultLimit)
+		a.params.ObjectLimit = &limit
+	}
+}
+
+func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking, allowList helpers.AllowList) ([]*storobj.Object, []float32, error) {
 	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", a.params.ClassName)
@@ -55,11 +65,11 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	kw.ChooseSearchableProperties(class)
 
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
-		propertyspecific.Indices{}, a.classSearcher, a.stopwordProvider,
+		a.classSearcher, a.stopwordProvider,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
 	).WithTokenizationResolver(a.tokResolver).
 		WithSearchableBucketPinningResolver(a.bucketPinResolver).
-		BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
+		BM25F(ctx, allowList, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}

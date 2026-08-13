@@ -43,7 +43,7 @@ import (
 func TestNewUploaderMintsDistinctOp(t *testing.T) {
 	mk := func() *uploader {
 		return newUploader(config.Backup{}, nil, nil, nil, nil, nil, nodeStore{}, "same-id",
-			func(backup.Status) {}, logrus.New())
+			&backupStat{}, logrus.New())
 	}
 
 	u1, u2 := mk(), mk()

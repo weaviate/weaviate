@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,4 +81,62 @@ func TestDistToNode_ReturnsErrorOnErrNotFound(t *testing.T) {
 	var notFoundErr storobj.ErrNotFound
 	assert.ErrorAs(t, err, &notFoundErr, "error should be storobj.ErrNotFound")
 	assert.Equal(t, deletedNodeID, notFoundErr.DocID)
+}
+
+// Only storobj.ErrNotFound may tombstone a node, so a store that reports a read
+// failure as not-found silently deletes a document that is still there.
+func TestDistBetweenNodes_TombstonesOnlyOnErrNotFound(t *testing.T) {
+	const brokenID, liveID = uint64(1), uint64(2)
+
+	tests := []struct {
+		name          string
+		vectorErr     error
+		wantErr       bool
+		wantTombstone bool
+	}{
+		{
+			name:          "doc gone from the store",
+			vectorErr:     storobj.NewErrNotFoundf(brokenID, "doc deleted from store"),
+			wantTombstone: true,
+		},
+		{
+			name:      "doc still there but unreadable",
+			vectorErr: fmt.Errorf("read objects bucket: input/output error"),
+			wantErr:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			index, err := New(Config{
+				RootPath:              t.TempDir(),
+				ID:                    "tombstone-on-vector-error",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewL2SquaredProvider(),
+				AllocChecker:          memwatch.NewDummyMonitor(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					if id == brokenID {
+						return nil, test.vectorErr
+					}
+					return []float32{1, 2, 3}, nil
+				},
+				GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+			}, ent.UserConfig{
+				MaxConnections:        16,
+				EFConstruction:        64,
+				VectorCacheMaxObjects: 1000,
+			}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			t.Cleanup(func() { index.Shutdown(context.Background()) })
+
+			_, err = index.distBetweenNodes(brokenID, liveID)
+
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantTombstone, index.hasTombstone(brokenID))
+		})
+	}
 }

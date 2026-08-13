@@ -51,6 +51,19 @@ func requireHalted(t *testing.T, ctx context.Context, shard *Shard, msg string) 
 	require.NoError(t, err, msg)
 }
 
+// setHaltedForTest records (or drops) one test-owned halt without running the
+// physical halt steps, for fixtures whose shard has no store to pause.
+func setHaltedForTest(shard *Shard, halted bool) {
+	shard.haltForTransferMux.Lock()
+	defer shard.haltForTransferMux.Unlock()
+
+	if halted {
+		shard.haltAddOwnerLocked("test:transfer")
+		return
+	}
+	shard.haltDropOwnerLocked("test:transfer")
+}
+
 func requireTotal(t *testing.T, shard *Shard, want int, msg string) {
 	t.Helper()
 	shard.haltForTransferMux.Lock()
