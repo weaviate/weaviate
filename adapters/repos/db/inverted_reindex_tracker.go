@@ -467,8 +467,9 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 // a reader keys off the file's content rather than its mere existence.
 func (t *fileReindexTracker) createFileAtomic(filename string, content []byte) (err error) {
 	// Same directory as the target, or the rename would cross filesystems.
-	// The .tmp extension is what the file listings that skip scratch files
-	// match on, so a temp file a crash leaves behind stays out of them.
+	// Nothing sweeps a temp file a crash leaves behind, so it stays out of
+	// backups by its .tmp extension alone — every walk that reaches this
+	// directory has to skip that extension.
 	tmp, err := os.CreateTemp(t.config.migrationPath, filename+".*.tmp")
 	if err != nil {
 		return err
