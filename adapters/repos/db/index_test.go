@@ -278,6 +278,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		"two_not_ready":     clusterNodes,
 		"all_shutdown":      clusterNodes,
 		"one_not_reachable": clusterNodes,
+		"shard_not_local":   clusterNodes[1:],
 	}
 	shardStatus := map[string]map[string]string{
 		"all_ready": {
@@ -305,12 +306,25 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			"node-1": storagestate.StatusReady.String(),
 			"node-2": NodeUnresponsive, // Remote replica failed to report status.
 		},
+		"shard_not_local": {
+			"node-1": storagestate.StatusShutdown.String(),
+			"node-2": storagestate.StatusShutdown.String(),
+		},
 	}
 
 	// NodeUnresponsive should not be in the final response.
 	want := maps.Clone(shardStatus)
 	want["one_not_reachable"] = maps.Clone(want["one_not_reachable"])
 	delete(want["one_not_reachable"], "node-2")
+
+	wantLegacy := map[string]string{
+		"all_ready":         storagestate.StatusReady.String(),
+		"one_not_ready":     storagestate.StatusReady.String(),
+		"two_not_ready":     storagestate.StatusReady.String(),
+		"all_shutdown":      storagestate.StatusShutdown.String(),
+		"one_not_reachable": storagestate.StatusReady.String(),
+		"shard_not_local":   storagestate.StatusShutdown.String(),
+	}
 
 	var replicas []types.Replica
 	for shard, nodes := range shardReplicas {
@@ -391,11 +405,12 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	}
 
 	// Act
-	got, err := index.getShardsStatus(t.Context(), "")
+	got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
 
 	// Assert
 	assert.NoError(t, err)
-	require.Equal(t, want, got)
+	require.Equal(t, want, got, "shard statuses")
+	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the

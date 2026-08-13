@@ -3753,16 +3753,21 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 //		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
 //		"shard-1": { "node-1": "READY", "node-1": "READONLY" },
 //	}
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, error) {
+//
+// The second return value are shard statuses mirroring the legacy implementation,
+// where the status is returned based on the first replica to contain the shard,
+// preferably local.
+func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	var mu sync.Mutex // guards shardsStatus
+	var mu sync.Mutex // guards shardsStatus and legacyStatus
 	shardsStatus := make(map[string]map[string]string, len(shardNames))
+	legacyStatus := make(map[string]string, len(shardNames))
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
@@ -3778,7 +3783,10 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				return err
 			}
 
-			perNodeStatus := make(map[string]string, len(replicas))
+			var (
+				oneNodeStatus atomic.Value
+				perNodeStatus = make(map[string]string, len(replicas))
+			)
 			for _, nodeName := range replicas {
 				if nodeName == thisNode {
 					shard, release, err := i.getShardForDirectLocalOperation(
@@ -3789,11 +3797,14 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						0,
 					)
 					if err == nil && shard != nil {
+						ss := shard.GetStatus().String()
+						oneNodeStatus.Store(ss)
 						perNodeStatus[nodeName] = shard.GetStatus().String()
 					}
 					release()
 				} else {
 					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+						oneNodeStatus.CompareAndSwap(nil, ss)
 						perNodeStatus[nodeName] = ss
 					}
 				}
@@ -3801,15 +3812,18 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 			mu.Lock()
 			shardsStatus[shardName] = perNodeStatus
+			if s, ok := oneNodeStatus.Load().(string); ok {
+				legacyStatus[shardName] = s
+			}
 			mu.Unlock()
 			return nil
 		}, shardName)
 	}
 
 	if err := eg.Wait(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return shardsStatus, nil
+	return shardsStatus, legacyStatus, nil
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
