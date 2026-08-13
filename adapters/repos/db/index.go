@@ -3163,15 +3163,17 @@ func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName stri
 }
 
 // LoadLocalShardForReplicaAdd loads a shard for the apply that records this node
-// as a replica of it, with no replica movement to keep going.
+// as a replica of it, with no replica movement to keep going. Only a namespace
+// being deleted skips it, and that skip returns nil: the apply lands once and is
+// never re-sent, so erroring reports a failure nothing acts on.
 func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName string) error {
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerReplicaAdd, "replica added")
 }
 
 // LoadLocalShardForTenantProcess loads a shard for the apply that records a
-// finished offload or onload. That report arrives once and is never re-sent, so
-// erroring here reports a failure nothing acts on while the shard is meant to stay
-// closed.
+// finished offload or onload. Only a namespace being deleted skips it, and that
+// skip returns nil: the report arrives once and is never re-sent, so erroring
+// reports a failure nothing acts on.
 func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName string) error {
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerTenantProcess, "tenant status applied")
 }

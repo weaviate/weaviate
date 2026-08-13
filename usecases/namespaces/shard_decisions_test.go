@@ -20,33 +20,37 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// Asserting all three decisions per state in one table is what pins their
+// Asserting all four decisions per state in one table is what pins their
 // disagreements: resuming keeps its shards open while refusing a request load,
 // and suspended refuses a request load while still admitting a replication
-// target.
+// target and opening the shard an already-committed apply recorded.
 func TestShardDecisionsByState(t *testing.T) {
 	tests := []struct {
-		name               string
-		state              cmd.NamespaceState
-		shardsShouldBeOpen bool
-		loadableErr        error
-		replicationErr     error
+		name                 string
+		state                cmd.NamespaceState
+		shardsShouldBeOpen   bool
+		appliedChangeMayOpen bool
+		loadableErr          error
+		replicationErr       error
 	}{
 		{
-			name:               "active holds shards open and allows every load",
-			state:              cmd.NamespaceStateActive,
-			shardsShouldBeOpen: true,
+			name:                 "active holds shards open and allows every load",
+			state:                cmd.NamespaceStateActive,
+			shardsShouldBeOpen:   true,
+			appliedChangeMayOpen: true,
 		},
 		{
-			name:        "suspended holds no shards open and refuses a request load, but admits a replication target",
-			state:       cmd.NamespaceStateSuspended,
-			loadableErr: ErrNamespaceSuspended,
+			name:                 "suspended holds no shards open and refuses a request load, but admits a replication target and a committed apply",
+			state:                cmd.NamespaceStateSuspended,
+			appliedChangeMayOpen: true,
+			loadableErr:          ErrNamespaceSuspended,
 		},
 		{
-			name:               "resuming holds shards open but refuses a request load, and admits a replication target",
-			state:              cmd.NamespaceStateResuming,
-			shardsShouldBeOpen: true,
-			loadableErr:        ErrNamespaceResuming,
+			name:                 "resuming holds shards open but refuses a request load, and admits a replication target and a committed apply",
+			state:                cmd.NamespaceStateResuming,
+			shardsShouldBeOpen:   true,
+			appliedChangeMayOpen: true,
+			loadableErr:          ErrNamespaceResuming,
 		},
 		{
 			name:           "deleting refuses every load and holds no shards open",
@@ -73,6 +77,7 @@ func TestShardDecisionsByState(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.shardsShouldBeOpen, ShardsShouldBeOpen(tc.state))
+			assert.Equal(t, tc.appliedChangeMayOpen, AppliedChangeMayOpenShard(tc.state))
 
 			err := RequireShardLoadable(tc.state)
 			if tc.loadableErr != nil {

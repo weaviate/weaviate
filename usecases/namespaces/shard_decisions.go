@@ -15,7 +15,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// The three functions below decide what may happen to a namespace's shards in a
+// The functions below decide what may happen to a namespace's shards in a
 // given state. No switch has a default: arm, so a new state fails the exhaustive
 // linter; the return after each switch answers a state this binary doesn't know.
 
@@ -28,6 +28,26 @@ func ShardsShouldBeOpen(state cmd.NamespaceState) bool {
 		return true
 	case cmd.NamespaceStateSuspended:
 		return false
+	case cmd.NamespaceStateResuming:
+		return true
+	case cmd.NamespaceStateDeleting:
+		return false
+	}
+	return false
+}
+
+// AppliedChangeMayOpenShard reports whether an apply whose schema half has
+// already committed may open the shard it just recorded. A suspended namespace
+// allows it even though it holds no shards open: the schema now names a shard
+// this node owns, and these applies land once and are never re-sent, so one left
+// closed is one nothing opens again. Deleting refuses, since that namespace's
+// data is being removed.
+func AppliedChangeMayOpenShard(state cmd.NamespaceState) bool {
+	switch state {
+	case cmd.NamespaceStateActive:
+		return true
+	case cmd.NamespaceStateSuspended:
+		return true
 	case cmd.NamespaceStateResuming:
 		return true
 	case cmd.NamespaceStateDeleting:

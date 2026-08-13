@@ -361,7 +361,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
 			"class":      class,
-		}).WithError(err).Error("error updating tenants")
+		}).Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil

@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -100,7 +101,8 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil,
 		resolver.NewShardResolver(className, false, sg),
-		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+		memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	if err != nil {
 		return nil, err
@@ -822,19 +824,19 @@ func dbForSkipTest(t *testing.T, className string, e namespaces.Exister) (*DB, *
 // call itself so a case can point it at an index that is not there.
 type skipLoad func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error)
 
-// shardsShouldBeOpenStates is the state space of the check that decides whether
-// a load is entered at all: two states open shards, three open none. Every
-// entry point deciding on that check owes the same five answers.
-func shardsShouldBeOpenStates() []struct {
+// namespaceLoadState is one namespace state and whether an entry point deciding
+// on it enters the shard load.
+type namespaceLoadState struct {
 	name     string
 	state    api.NamespaceState
 	wantLoad bool
-} {
-	return []struct {
-		name     string
-		state    api.NamespaceState
-		wantLoad bool
-	}{
+}
+
+// shardsShouldBeOpenStates is the state space of the check that decides whether
+// a load is entered at all: two states open shards, three open none. Every
+// entry point deciding on that check owes the same five answers.
+func shardsShouldBeOpenStates() []namespaceLoadState {
+	return []namespaceLoadState{
 		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
 		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
 		{name: "a suspended namespace loads nothing", state: api.NamespaceStateSuspended},
@@ -843,18 +845,46 @@ func shardsShouldBeOpenStates() []struct {
 	}
 }
 
+// appliedChangeStates is the same state space for an apply whose schema half has
+// already committed, which differs from the check above on suspended: such an
+// apply opens the shard it recorded rather than leaving the schema naming one
+// this node does not hold.
+func appliedChangeStates() []namespaceLoadState {
+	return []namespaceLoadState{
+		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
+		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
+		{name: "a suspended namespace loads", state: api.NamespaceStateSuspended, wantLoad: true},
+		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
+		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
+	}
+}
+
+// firstSkippedState returns the state the given table expects to skip the load,
+// so the log assertion below drives a skip whichever table it is handed.
+func firstSkippedState(t *testing.T, states []namespaceLoadState) api.NamespaceState {
+	t.Helper()
+
+	for _, tc := range states {
+		if !tc.wantLoad {
+			return tc.state
+		}
+	}
+	t.Fatal("no state in the table skips the load")
+	return ""
+}
+
 // assertSkipsWhenNamespaceClosed drives the checks every entry point owes whose
-// closed-namespace refusal yields nil: it loads while the namespace allows one,
-// yields nil while it does not and says so in the log, and still errors on a state
-// it cannot read or an index it cannot find.
+// closed-namespace refusal yields nil: it loads in the states the given table
+// admits, yields nil in the rest and says so in the log, and still errors on a
+// state it cannot read or an index it cannot find.
 //
 // The seeded shard's alloc checker fails every reservation, so
 // errInjectedMemoryPressure is what says the load was entered and nil is what says
 // it was skipped.
-func assertSkipsWhenNamespaceClosed(t *testing.T, class string, load skipLoad) {
+func assertSkipsWhenNamespaceClosed(t *testing.T, class string, states []namespaceLoadState, load skipLoad) {
 	t.Helper()
 
-	for _, tc := range shardsShouldBeOpenStates() {
+	for _, tc := range states {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, class, class, existerWithState(t, tc.state))
 			if tc.wantLoad {
@@ -872,7 +902,7 @@ func assertSkipsWhenNamespaceClosed(t *testing.T, class string, load skipLoad) {
 
 	// Nothing else records that the schema change landed without a shard.
 	t.Run("a skipped load is logged", func(t *testing.T) {
-		hook, err := load(t, class, class, existerWithState(t, api.NamespaceStateSuspended))
+		hook, err := load(t, class, class, existerWithState(t, firstSkippedState(t, states)))
 		require.NoError(t, err)
 
 		entry := hook.LastEntry()
@@ -898,36 +928,40 @@ func assertSkipsWhenNamespaceClosed(t *testing.T, class string, load skipLoad) {
 
 // The apply that adds a replica to a shard also runs without a movement behind
 // it — node removal replacing a lost replica, and the scale plan's empty-source
-// arm. Those get the shards-should-be-open check instead of the movement
-// exemption, and a namespace keeping its shards closed yields nil rather than an
-// error: the apply's schema half has already committed, so the replica is
-// recorded whichever this returns.
+// arm. Its schema half has already committed, so a suspended namespace opens the
+// shard rather than leaving the sharding state naming a replica this node does
+// not hold.
 func TestReplicaAddWithoutMovement(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	assertSkipsWhenNamespaceClosed(t, class,
+	assertSkipsWhenNamespaceClosed(t, class, appliedChangeStates(),
 		func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error) {
 			t.Helper()
 			db, idx, hook := dbForSkipTest(t, dbClass, e)
 			return hook, NewMigrator(db, idx.logger, "node1").LoadShardForReplicaAdd(ctx, callClass, "t1")
 		})
 
-	// The split that goes red if the plain add is ever routed back through the
-	// movement exemption.
-	t.Run("a movement still loads the same suspended shard", func(t *testing.T) {
-		db, idx, _ := dbForSkipTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+	// The two admissions agree everywhere but here, so deleting is the only state
+	// that goes red if the plain add is ever routed through the movement exemption.
+	t.Run("a deleting namespace parts the plain add from a movement", func(t *testing.T) {
+		db, idx, _ := dbForSkipTest(t, class, existerWithState(t, api.NamespaceStateDeleting))
 		migrator := NewMigrator(db, idx.logger, "node1")
 
 		require.NoError(t, migrator.LoadShardForReplicaAdd(ctx, class, "t1"))
-		require.ErrorIs(t, migrator.LoadShardForReplication(ctx, class, "t1"), errInjectedMemoryPressure)
+		require.ErrorIs(t, migrator.LoadShardForReplication(ctx, class, "t1"), namespaces.ErrNamespaceDeleting)
 	})
 }
 
 // The apply that records a finished offload or onload reaches the same shard load
-// a tenant activation does. A namespace keeping its shards closed must yield nil
-// there rather than an error: the shard is meant to stay closed, and the report
-// arrives once and is never re-sent.
+// a tenant activation does, and a suspended namespace has to let it through. An
+// unfreeze dropped the tenant's shard when it froze and has just downloaded its
+// files back, so a skip there leaves the schema recording the tenant HOT with no
+// shard behind it. The next request materializes one, so what this closes is the
+// window in between rather than a permanently unreadable tenant.
+//
+// A namespace being deleted still skips, and that skip stays nil rather than
+// failing the apply.
 //
 // HOT is the status both an unfreeze to HOT and an aborted freeze of a HOT tenant
 // carry, which is why one status covers the two.
@@ -947,7 +981,7 @@ func TestTenantProcessShardLoad(t *testing.T) {
 			UpdateTenantsForProcess(ctx, &models.Class{Class: className}, updates)
 	}
 
-	assertSkipsWhenNamespaceClosed(t, class,
+	assertSkipsWhenNamespaceClosed(t, class, appliedChangeStates(),
 		func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error) {
 			t.Helper()
 			db, idx, hook := dbForSkipTest(t, dbClass, e)
@@ -960,14 +994,33 @@ func TestTenantProcessShardLoad(t *testing.T) {
 		require.NoError(t, reportHot(t, class, existerWithState(t, api.NamespaceStateSuspended)))
 	})
 
-	t.Run("every tenant of a batch is skipped", func(t *testing.T) {
-		require.NoError(t, reportHot(t, class, existerWithState(t, api.NamespaceStateSuspended), "t1", "t2", "t3"))
-	})
+	batches := []struct {
+		name    string
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{
+			name: "every tenant of a batch is loaded while suspended", state: api.NamespaceStateSuspended,
+			wantErr: errInjectedMemoryPressure,
+		},
+		{name: "every tenant of a batch is skipped while deleting", state: api.NamespaceStateDeleting},
+	}
+
+	for _, tc := range batches {
+		t.Run(tc.name, func(t *testing.T) {
+			err := reportHot(t, class, existerWithState(t, tc.state), "t1", "t2", "t3")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 
 	// A skipped load must not stop the rest of the batch: the COLD arm takes no
 	// namespace check, so its shutdown has to run alongside the skip.
 	t.Run("a skipped load does not abandon the other tenants", func(t *testing.T) {
-		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateDeleting))
 		idx.shards.Store("hot", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 		cold := NewMockShardLike(t)
 		cold.EXPECT().Shutdown(mock.Anything).Return(nil)
@@ -981,15 +1034,27 @@ func TestTenantProcessShardLoad(t *testing.T) {
 	})
 
 	// The split that goes red if the report is ever routed back through the
-	// request path.
+	// request path: the report opens the shard the same suspended namespace
+	// refuses to a tenant activation.
 	t.Run("a tenant activation is still refused on the same suspended shard", func(t *testing.T) {
 		db, idx, _ := dbForSkipTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 		updates := []*schemaUC.UpdateTenantPayload{{Name: "t1", Status: models.TenantActivityStatusHOT}}
 		migrator := NewMigrator(db, idx.logger, "node1")
 
-		require.NoError(t, migrator.UpdateTenantsForProcess(ctx, &models.Class{Class: class}, updates))
+		require.ErrorIs(t, migrator.UpdateTenantsForProcess(ctx, &models.Class{Class: class}, updates),
+			errInjectedMemoryPressure)
 		require.ErrorIs(t, migrator.UpdateTenants(ctx, &models.Class{Class: class}, updates, true),
 			namespaces.ErrNamespaceSuspended)
+	})
+
+	// The shard an unfreeze reports on is absent, not resident: freezing the
+	// tenant dropped it, and nothing but this load registers it again.
+	t.Run("an unfreeze report registers the shard it downloaded", func(t *testing.T) {
+		idx, err := newIndexForNamespaceTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		require.NoError(t, err)
+
+		require.NoError(t, idx.LoadLocalShardForTenantProcess(ctx, "t1"))
+		require.NotNil(t, idx.shards.Load("t1"), "the reported tenant must end up with a shard")
 	})
 }
 

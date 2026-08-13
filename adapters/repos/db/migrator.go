@@ -660,8 +660,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 }
 
 // UpdateTenantsForProcess applies the statuses a finished offload or onload
-// reported. A namespace that keeps no shards open leaves the tenant's shard closed
-// instead of failing the apply.
+// reported. A namespace being deleted leaves the tenant's shard closed instead of
+// failing the apply.
 func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
 	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
 		return idx.LoadLocalShardForTenantProcess(ctx, name)
@@ -732,7 +732,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
 						"shard":  name,
-					}).WithError(err).Errorf("loading shard %q failed", name)
+					}).Errorf("loading shard %q failed: %v", name, err)
 				}
 				return nil
 			})

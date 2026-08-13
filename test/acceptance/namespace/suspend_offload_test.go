@@ -107,10 +107,10 @@ func TestNamespaces_SuspendDuringOffloadAbort(t *testing.T) {
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns1, adminKey) })
 
 	// Reverting to HOT is the abort report being applied. Gating that report rather
-	// than skipping its shard load would strand the tenant in FREEZING instead.
+	// than admitting its shard load would strand the tenant in FREEZING instead.
 	waitForTenantStatus(t, qualified, tenant, models.TenantActivityStatusHOT, adminKey)
 
-	// The status alone cannot tell a skipped shard load from a failed one, because
+	// The status alone cannot tell an admitted shard load from a failed one, because
 	// the schema half commits either way. The apply error is where they differ.
 	requireNoApplyFailure(t, "TYPE_TENANT_PROCESS", qualified)
 
@@ -119,8 +119,8 @@ func TestNamespaces_SuspendDuringOffloadAbort(t *testing.T) {
 	// freeze's own contract, so the value is not asserted here.
 	<-freezeReturned
 
-	// The shard stayed closed while the namespace was suspended, so nothing has
-	// reopened it yet. A write is what loads it back off the files the abort left.
+	// A tenant the report put back to HOT has to be usable again once the namespace
+	// is back, off the files the abort left behind.
 	t.Run("the tenant takes writes again after the resume", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns1, adminKey)
 
