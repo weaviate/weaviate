@@ -2092,11 +2092,12 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 // same as being done. An unreadable *task* payload goes the other way and
 // returns true: nothing here can be recovered from it.
 //
-// Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
-// the rehydrate path completes the swap; without it, a half-applied local
-// swap could leave this node at OLD tokenization after a cluster-wide schema
-// flip already committed (#10675 family). Tracker dirs are read at a path
-// this node joins itself, so an unloaded tenant stays unloaded.
+// False only suppresses the scheduler's bootstrap pre-mark. The task's
+// callbacks are then re-dispatched once on the next tick, where a terminal
+// status makes every one of them a no-op, so nothing is recovered — the one
+// lasting effect is a re-issued post-completion ack, once per process start,
+// until the completed-task TTL drops the task. Tracker dirs are read at a
+// path this node joins itself, so an unloaded tenant stays unloaded.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
@@ -2211,10 +2212,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // tracker remains. Like the unloaded-shard gate
 // ([hasStalePartialReindexState]), this fails toward recovery.
 //
-// The unreadable payload only counts while no properties.mig rebuilds the
-// dir's name. Where one does, [readTaskProps] answers from it, and a
-// tracker naming other properties stops counting — so this can report
-// "done" and deregister.
+// Same unreadable-payload rule as [hasStalePartialReindexState].
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)

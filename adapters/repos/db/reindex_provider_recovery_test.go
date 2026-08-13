@@ -498,3 +498,43 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 		})
 	}
 }
+
+// A tracker named "enable_filterable_other" cannot have come from any
+// property list holding "category", so the payload next to it has nothing to
+// add and its being corrupt decides nothing. Counting it anyway re-issues
+// this task's post-completion ack on every process start until the
+// completed-task TTL drops the task.
+func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *testing.T) {
+	ctx := testCtx()
+	className := "OtherPropTracker_" + uuid.NewString()[:8]
+	shard, idx := testShard(t, ctx, className)
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	const tracker = MigrationDirPrefixEnableFilterable + "_other_1"
+	mkTrackerDir(t, concrete.pathLSM(), tracker)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(concrete.pathLSM(), ".migrations", tracker, reindexRecoveryPayloadFile),
+		[]byte("not a recovery record"), 0o644))
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    className,
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"category"},
+		UnitToShard:   map[string]string{"u1": shard.Name()},
+		UnitToNode:    map[string]string{"u1": "n1"},
+	})
+	require.NoError(t, err)
+
+	logger, _ := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, logger, "n1", nil, ctx)
+
+	require.True(t, p.LocalCallbacksDone(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_other_prop", Version: 1},
+		Status:         distributedtask.TaskStatusFinished,
+		Payload:        payload,
+	}, "n1"))
+}

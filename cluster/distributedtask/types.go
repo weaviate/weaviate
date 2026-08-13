@@ -269,9 +269,15 @@ type RecoveryAwareProvider interface {
 
 	// LocalCallbacksDone returns false when durable local state shows
 	// OnGroupCompleted (and any follow-up recovery) did not complete for
-	// every unit assigned to localNode, or when that state can't be read —
-	// telling the bootstrap pre-mark not to suppress callback replay, so
-	// OnGroupCompleted re-fires and the provider can finish recovery.
+	// every unit assigned to localNode. State it cannot read answers false
+	// too: not knowing is not the same as being done.
+	//
+	// All false does today is suppress the bootstrap pre-mark. The terminal
+	// task's callbacks are then re-dispatched once on the next tick — each a
+	// no-op at terminal status — and one
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck] RAFT
+	// write is re-issued, once per process start, until the completed-task
+	// TTL drops the task from the FSM.
 	//
 	// Otherwise it returns true, which is weaker than "verified done": a
 	// task the provider has nothing to recover for (unparseable, wrong
