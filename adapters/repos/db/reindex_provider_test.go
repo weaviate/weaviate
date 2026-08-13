@@ -277,105 +277,68 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 // A dropped collection is not a failed sweep, and a sweep that did not reach
 // every shard is neither. What each one can leave on disk differs, and the
 // wording is the only place that difference reaches the operator.
-func TestTerminalCleanupLogLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		outcome  CleanupSweepOutcome
-		wantWarn bool
-		wantMsg  string
-	}{
-		{
-			name:    "every shard swept",
-			outcome: CleanupSweepClean,
-			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards",
-		},
-		{
-			// Not a warning, but not a promise the disk is clean either: a
-			// backup in flight makes the delete keep the files.
-			name:    "the collection is not on this node",
-			outcome: CleanupSweepDropped,
-			wantMsg: "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files",
-		},
-		{
-			name:     "a shard could not be swept",
-			outcome:  CleanupSweepFailed,
-			wantWarn: true,
-			wantMsg:  "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there",
-		},
-		{
-			name:     "shards were never reached",
-			outcome:  CleanupSweepUnknown,
-			wantWarn: true,
-			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
-		},
-		{
-			// A new outcome nobody wired in here arrives through the max
-			// fold, and reads as a clean sweep unless the unknown line is
-			// what falls out by default.
-			name:     "an outcome this build does not name",
-			outcome:  CleanupSweepFailed + 1,
-			wantWarn: true,
-			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			msg, warn := terminalCleanupLogLine(tc.outcome)
-			require.Equal(t, tc.wantMsg, msg)
-			require.Equal(t, tc.wantWarn, warn)
-		})
-	}
-}
-
-// The same rule for the per-sweep line: an outcome this build does not name
-// must not be summarized as the clean sweep it might not be.
-func TestSweepSummary(t *testing.T) {
-	const unknownMsg = "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there"
+//
+// The two sweep paths look at the same disk, so the phase is the only thing
+// that may differ between their lines. A shard that could not be swept is the
+// one outcome that confirms state remains, so it alone is an Error.
+func TestCleanupSweepSummary(t *testing.T) {
+	const (
+		unchecked = ": the sweep did not reach every shard, so any partial state on the ones it missed is still there"
+		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files"
+	)
 
 	tests := []struct {
 		name      string
 		outcome   CleanupSweepOutcome
 		wantLevel logrus.Level
-		wantMsg   string
+		// wantTail is the message with the phase stripped off the front.
+		wantTail string
 	}{
 		{
 			name:      "every shard swept",
 			outcome:   CleanupSweepClean,
 			wantLevel: logrus.InfoLevel,
-			wantMsg:   "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
+			wantTail:  ": sweep finished, unloaded shards with nothing to sweep left unloaded",
 		},
 		{
+			// Not a warning, but not a promise the disk is clean either: a
+			// backup in flight makes the delete keep the files.
 			name:      "the collection is not on this node",
 			outcome:   CleanupSweepDropped,
 			wantLevel: logrus.InfoLevel,
-			wantMsg:   "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
+			wantTail:  dropped,
 		},
 		{
 			name:      "shards were never reached",
 			outcome:   CleanupSweepUnknown,
 			wantLevel: logrus.WarnLevel,
-			wantMsg:   unknownMsg,
+			wantTail:  unchecked,
 		},
 		{
 			name:      "a shard could not be swept",
 			outcome:   CleanupSweepFailed,
 			wantLevel: logrus.ErrorLevel,
-			wantMsg:   "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
+			wantTail:  ": a shard could not be swept, so the partial state on it is still there",
 		},
 		{
+			// A new outcome nobody wired in here arrives through the max fold,
+			// and reads as a clean sweep unless the unchecked line is what
+			// falls out by default.
 			name:      "an outcome this build does not name",
 			outcome:   CleanupSweepFailed + 1,
 			wantLevel: logrus.WarnLevel,
-			wantMsg:   unknownMsg,
+			wantTail:  unchecked,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg, level := sweepSummary(tc.outcome)
-			require.Equal(t, tc.wantMsg, msg)
-			require.Equal(t, tc.wantLevel, level)
+			for _, phase := range []string{sweepPhaseIndexCleanup, sweepPhaseTerminalCleanup} {
+				msg, level := CleanupSweepSummary(phase, tc.outcome)
+				require.Equal(t, phase+tc.wantTail, msg)
+				require.Equal(t, tc.wantLevel, level,
+					"%q must not rank this outcome differently from the other sweep path", phase)
+			}
 		})
 	}
 }

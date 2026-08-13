@@ -1719,12 +1719,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 			logger.WithField("property", propName).WithField("index_type", indexType).
 				Warnf("auto-cleanup after terminal status failed: %v", failure)
 		})
-	msg, warn := terminalCleanupLogLine(worst)
-	if warn {
-		logger.Warn(msg)
-	} else {
-		logger.Info(msg)
-	}
+	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
+	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
 }
 
 // sweepEachPropertyIndexType runs sweep once per (property, index type),
@@ -1798,25 +1794,45 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 	}
 }
 
-// terminalCleanupLogLine is what the operator is told after the post-terminal
-// sweep. A dropped collection warrants no warning: the delete removes its
-// directory (barring an in-flight backup's keepFiles). Failed and unknown
-// both warn, since neither confirms the state is gone.
-func terminalCleanupLogLine(outcome CleanupSweepOutcome) (msg string, warn bool) {
-	// Shared with the default arm: an outcome this build cannot name confirms
-	// no more than an unfinished walk does.
-	const unchecked = "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there"
+// Sweep phases: which caller a sweep line belongs to, so two sweeps of the
+// same tuple in one log are told apart. The REST handlers name their own.
+const (
+	sweepPhaseIndexCleanup    = "partial-reindex cleanup"
+	sweepPhaseTerminalCleanup = "auto-cleanup after terminal status"
+)
+
+// CleanupSweepSummary is the one line a sweep leaves its operator: phase names
+// the caller, and everything after it is shared, so the same outcome never
+// reaches an operator as two claims at two severities.
+//
+// [CleanupSweepFailed] is the only Error. It is the only outcome that confirms
+// partial state is still on a shard this node holds, with nothing scheduled to
+// remove it, so an operator has to act. Everything else is either clean or
+// merely unverified, and routine tenant churn produces unverified on a healthy
+// node.
+//
+// Exported alongside [ClassifyCleanupSweep] so the REST handlers that run the
+// same sweep word and rank their outcome by this taxonomy rather than a second
+// one of their own. A caller with something to add appends it; it must not
+// restate what the outcome already says.
+func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
 	switch outcome {
 	case CleanupSweepClean:
-		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false
-	case CleanupSweepFailed:
-		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
+		return phase + ": sweep finished, unloaded shards with nothing to sweep left unloaded",
+			logrus.InfoLevel
 	case CleanupSweepDropped:
-		return "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files", false
-	case CleanupSweepUnknown:
-		return unchecked, true
+		return phase + ": the collection is not on this node, so whatever is left here is removed " +
+				"with the collection directory, unless a backup in flight is keeping those files",
+			logrus.InfoLevel
+	case CleanupSweepFailed:
+		return phase + ": a shard could not be swept, so the partial state on it is still there",
+			logrus.ErrorLevel
 	default:
-		return unchecked, true
+		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
+		// confirms no more than an unfinished walk does.
+		return phase + ": the sweep did not reach every shard, so any partial state on the ones " +
+				"it missed is still there",
+			logrus.WarnLevel
 	}
 }
 

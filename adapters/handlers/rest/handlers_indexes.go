@@ -1043,58 +1043,58 @@ func sweepStaleReindexState(
 	return failures, dropped
 }
 
-// The two handlers that sweep, named in the line the sweep leaves so an
-// operator can tell which one ran, and used to word what an incomplete sweep
-// means for the caller (see [unreachedShardsTail]).
+// The two handlers that sweep, passed to [db.CleanupSweepSummary] so an
+// operator can tell which one ran, and used to word what the outcome means for
+// the caller (see [sweepConsequence]).
 const (
 	sweepPhaseSubmit = "submit"
 	sweepPhaseCancel = "cancel"
 )
 
-// unreachedShardsTail says what happens to shards a sweep never reached. The
-// phases differ: cancel is done once it has swept, so the state waits for a
+// sweepConsequence is what this caller does next about what the sweep left,
+// which is all the handlers add to the shared summary. The phases differ on an
+// incomplete walk: cancel is done once it has swept, so the state waits for a
 // later submit, while the submit that logs this dispatches its task anyway and
 // the task can resume against the state the sweep could not verify.
-func unreachedShardsTail(phase string) string {
-	if phase == sweepPhaseSubmit {
+func sweepConsequence(phase string, outcome db.CleanupSweepOutcome) string {
+	switch {
+	case outcome == db.CleanupSweepFailed:
+		return "a later task may short-circuit on the stale state and report a false success — " +
+			"operator inspection recommended"
+	case phase == sweepPhaseSubmit:
 		return "this submit proceeds anyway, so the task it dispatches may resume against them"
+	default:
+		return "the next submit sweeps them again"
 	}
-	return "the next submit sweeps them again"
 }
 
 // logStaleSweepFailures emits one operator-facing line per sweep that did not
-// finish, worded by what it left behind: an Error when a reached shard could
-// not be swept (state is known to still be there), a Warn when the walk never
-// reached some shards (routine tenant churn, not known-stale).
+// finish. What it left behind and how loudly to say so both come from
+// [db.CleanupSweepSummary], so the handlers cannot rank the same outcome
+// differently from the sweep itself.
 func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSweepFailure) {
 	for _, failure := range failures {
-		failureEntry := entry.WithField("index_type", failure.indexType)
-		if failure.outcome == db.CleanupSweepUnknown {
-			failureEntry.Warnf("%s: cleanup of stale partial reindex state did not reach every shard: %v; "+
-				"what those shards hold is unverified, and %s",
-				phase, failure, unreachedShardsTail(phase))
-			continue
-		}
-		failureEntry.Errorf("%s: cleanup of stale partial reindex state failed: %v; "+
-			"a later task may short-circuit on the stale state and report a false success — "+
-			"operator inspection recommended", phase, failure)
+		msg, level := db.CleanupSweepSummary(phase, failure.outcome)
+		entry.WithField("index_type", failure.indexType).
+			Logf(level, "%s: %v; %s", msg, failure, sweepConsequence(phase, failure.outcome))
 	}
 }
 
 // logCancelCleanupOutcome reports what the cancel handler's on-disk cleanup
-// did. Only a run whose sweeps all reached every shard is "complete": a run a
-// collection delete suppressed swept nothing past the delete, and reporting it
-// as complete would claim work that did not happen.
+// did. Only a run whose sweeps all reached every shard is a finished sweep: a
+// run a collection delete suppressed swept nothing past the delete, and
+// reporting it as finished would claim work that did not happen.
 func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, dropped int) {
-	switch {
-	case len(failures) > 0:
+	if len(failures) > 0 {
 		logStaleSweepFailures(entry, sweepPhaseCancel, failures)
-	case dropped > 0:
-		entry.Info("cancel: the collection is not on this node, so any partial reindex state left here " +
-			"is removed with the collection directory")
-	default:
-		entry.Info("cancel: on-disk cleanup complete")
+		return
 	}
+	outcome := db.CleanupSweepClean
+	if dropped > 0 {
+		outcome = db.CleanupSweepDropped
+	}
+	msg, level := db.CleanupSweepSummary(sweepPhaseCancel, outcome)
+	entry.Log(level, msg)
 }
 
 // indexTypesFromMigrationType returns the canonical inverted-index types

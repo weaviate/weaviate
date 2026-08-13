@@ -676,7 +676,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 			name:           "a collection already being deleted",
 			staleOnDisk:    true,
 			requestedCause: errIndexDropped,
-			wantMsg:        "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
+			wantMsg:        "partial-reindex cleanup: the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files",
 			wantLevel:      logrus.InfoLevel,
 		},
 		{

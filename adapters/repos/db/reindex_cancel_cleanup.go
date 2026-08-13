@@ -138,7 +138,7 @@ func classifyIncompleteWalk(err error) error {
 // remove, or a completed migration's leftovers only a load reclaims (see
 // [LazyLoadShard.canSkipUnloadedSweep]). A walk that starts leaves exactly one
 // summary line naming its outcome, at the level that outcome warrants (see
-// [sweepSummary]).
+// [CleanupSweepSummary]).
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
@@ -204,7 +204,7 @@ func (i *Index) cleanStalePartialReindexState(
 	sweepErr := errors.Join(failedShards, classifyIncompleteWalk(walkErr))
 
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
-	msg, level := sweepSummary(outcome)
+	msg, level := CleanupSweepSummary(sweepPhaseIndexCleanup, outcome)
 	uncachedListings := dirs.refusedListings() - refusedBefore
 	if uncachedListings > 0 {
 		// logrus orders its levels descending, so this only ever raises severity:
@@ -220,31 +220,6 @@ func (i *Index) cleanStalePartialReindexState(
 		"uncached_listings": uncachedListings,
 	}).Log(level, msg)
 	return sweepErr
-}
-
-// sweepSummary is the one line [Index.cleanStalePartialReindexState] leaves
-// per sweep, at the level its outcome warrants. Only a shard the sweep
-// reached and could not sweep is known to still hold state, which is why
-// that outcome alone is an error.
-func sweepSummary(outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
-	// Shared with the default arm: an outcome this build cannot name confirms
-	// no more than an unfinished walk does.
-	const unchecked = "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there"
-	switch outcome {
-	case CleanupSweepClean:
-		return "partial-reindex cleanup: sweep finished, unloaded shards with nothing to sweep left unloaded",
-			logrus.InfoLevel
-	case CleanupSweepFailed:
-		return "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
-			logrus.ErrorLevel
-	case CleanupSweepDropped:
-		return "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
-			logrus.InfoLevel
-	case CleanupSweepUnknown:
-		return unchecked, logrus.WarnLevel
-	default:
-		return unchecked, logrus.WarnLevel
-	}
 }
 
 // hasStalePartialReindexState reports whether the shard rooted at lsmPath

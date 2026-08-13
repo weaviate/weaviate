@@ -158,7 +158,7 @@ func TestStaleSweepFailureLogLevelFollowsTheOutcome(t *testing.T) {
 			sweepErr:  truncatedDuringSweep(),
 			wantLevel: logrus.WarnLevel,
 			wantInMsg: []string{
-				"what those shards hold is unverified",
+				"the sweep did not reach every shard",
 				// The shards left unverified are named.
 				"tenant-a, tenant-b",
 			},
@@ -245,7 +245,7 @@ func TestUnreachedShardsWordingFollowsThePhase(t *testing.T) {
 // A deleted collection has no next submit to retry cleanup, so cancel must
 // neither promise one nor claim a cleanup that never ran.
 func TestCancelCleanupOutcome(t *testing.T) {
-	const completeMsg = "cancel: on-disk cleanup complete"
+	const completeMsg = "cancel: sweep finished, unloaded shards with nothing to sweep left unloaded"
 
 	tests := []struct {
 		name       string
@@ -282,21 +282,21 @@ func TestCancelCleanupOutcome(t *testing.T) {
 				"filterable": shardFailedDuringSweep(),
 			},
 			wantLevel: logrus.ErrorLevel,
-			wantInMsg: `cancel: cleanup of stale partial reindex state failed: indexType="filterable"`,
+			wantInMsg: `cancel: a shard could not be swept, so the partial state on it is still there: indexType="filterable"`,
 		},
 		{
 			name:       "shards were never reached",
 			indexTypes: []string{"filterable"},
 			sweepErr:   map[string]error{"filterable": truncatedDuringSweep()},
 			wantLevel:  logrus.WarnLevel,
-			wantInMsg:  "cancel: cleanup of stale partial reindex state did not reach every shard",
+			wantInMsg:  "cancel: the sweep did not reach every shard",
 		},
 		{
 			name:       "the delete landed after a shard had already failed",
 			indexTypes: []string{"filterable"},
 			sweepErr:   map[string]error{"filterable": droppedAfterAShardFailed()},
 			wantLevel:  logrus.ErrorLevel,
-			wantInMsg:  "cancel: cleanup of stale partial reindex state failed",
+			wantInMsg:  "cancel: a shard could not be swept",
 		},
 	}
 
@@ -317,5 +317,65 @@ func TestCancelCleanupOutcome(t *testing.T) {
 					"only a run that swept every shard is a completed cleanup")
 			}
 		})
+	}
+}
+
+// The handlers must not rank or word an outcome differently from the sweep
+// that produced it: an operator reading one line has no way to tell which of
+// the two wrote it. Everything a handler line carries beyond the shared
+// summary is what that handler does next about it.
+func TestHandlerSweepLinesFollowTheSharedTaxonomy(t *testing.T) {
+	tests := []struct {
+		name     string
+		outcome  db.CleanupSweepOutcome
+		sweepErr error
+	}{
+		{
+			name:     "a shard was reached and could not be swept",
+			outcome:  db.CleanupSweepFailed,
+			sweepErr: shardFailedDuringSweep(),
+		},
+		{
+			name:     "shards were never reached",
+			outcome:  db.CleanupSweepUnknown,
+			sweepErr: truncatedDuringSweep(),
+		},
+		{
+			name:     "the collection is being deleted",
+			outcome:  db.CleanupSweepDropped,
+			sweepErr: droppedDuringSweep(),
+		},
+		{
+			name:    "every shard swept",
+			outcome: db.CleanupSweepClean,
+		},
+	}
+
+	for _, tc := range tests {
+		for _, phase := range []string{sweepPhaseSubmit, sweepPhaseCancel} {
+			t.Run(tc.name+"/"+phase, func(t *testing.T) {
+				logger, hook := logrustest.NewNullLogger()
+				failures, dropped := sweepStaleReindexState([]string{"searchable"},
+					func(string) error { return tc.sweepErr })
+
+				// A dropped or clean sweep leaves no failure, so only the
+				// cancel handler's summary reports it.
+				if len(failures) == 0 && phase == sweepPhaseSubmit {
+					t.Skip("submit reports only what an operator must act on")
+				}
+				if len(failures) > 0 {
+					logStaleSweepFailures(logrus.NewEntry(logger), phase, failures)
+				} else {
+					logCancelCleanupOutcome(logrus.NewEntry(logger), failures, dropped)
+				}
+
+				require.Len(t, hook.Entries, 1)
+				wantMsg, wantLevel := db.CleanupSweepSummary(phase, tc.outcome)
+				require.Equal(t, wantLevel, hook.Entries[0].Level)
+				require.True(t, strings.HasPrefix(hook.Entries[0].Message, wantMsg),
+					"the handler adds to the shared summary, it does not reword it: %q",
+					hook.Entries[0].Message)
+			})
+		}
 	}
 }
