@@ -194,15 +194,19 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //
 // The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
 // two-property tracker for "a" and "b" and a single-property tracker for
-// "a_b" — so payload.mig, written before anything else, decides. With no
+// "a_b" — so payload.mig, written before anything else, decides every name
+// [migrationDirScope.matchByName] cannot settle on its own. With no
 // readable payload, the two directions guess differently because a wrong
 // guess costs differently:
 //
 //   - Deletion (the plain scope) answers only the single-property shape;
 //     guessing wider would remove another property's tracker. The refusal
 //     leaves a payload-less multi-property tracker behind while its sidecars
-//     — whose deletion is not payload-gated — are removed, and nothing
-//     reclaims it: the orphan audit skips a tracker with no started.mig.
+//     — whose deletion is not payload-gated — are removed. Nothing reclaims
+//     that tracker only when its payload was never written: the orphan audit
+//     skips a tracker with no started.mig, and payload.mig is written first,
+//     so a tracker whose payload is merely corrupt still carries started.mig
+//     and the audit does quarantine it.
 //   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
 //     property list carries this property as a whole "_"-delimited token,
 //     because refusing to guess lets sidecar deletion — which is not
@@ -272,7 +276,8 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 }
 
 // matches reports whether the tracker dir called name is in this scope. See
-// [migrationDirScope] for why the payload decides and the name only fills in.
+// [migrationDirScope] for why the payload decides what the name leaves open,
+// and the name only fills in when there is no readable payload.
 //
 // Retokenize strategies name their dir with a bare property name; that's safe
 // only because [ReindexProvider.createReindexTasks] rejects such a payload
@@ -285,13 +290,18 @@ func (s migrationDirScope) matches(name string) bool {
 	return matched
 }
 
-// matchByName decides the dirs whose name no payload can contradict;
+// matchByName decides the dirs whose name settles the question on its own;
 // decided=false means ask the payload.
 //
 // A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so
 // equality with a propName no such join can reproduce is unforgeable (see
 // [isProvablySingleProperty]), and a name that neither equals propName nor
 // carries it as a whole token cannot come from any list holding propName.
+//
+// A decided answer never reads the payload, so a payload naming a different
+// property loses to the name. No writer produces that pair — the name and the
+// payload come from one sorted list — and
+// [TestMatchByNameOverridesAContradictingPayload] pins it.
 //
 // [migrationDirScope.match] deliberately skips this shortcut, so the
 // unloaded-shard gate still fails open on a payload it cannot parse.
@@ -450,7 +460,8 @@ func namesPropertyToken(base, prefix, propName string) bool {
 }
 
 // hasStrategyPrefix reports whether a tracker dir's base could belong to one of
-// this scope's strategies, whatever properties it names.
+// this scope's strategies, whatever properties it names. A bare prefix naming
+// no properties does not qualify, in either scope.
 func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 	for _, prefix := range s.prefixes {
 		if strings.HasPrefix(base, prefix+"_") {
@@ -471,8 +482,10 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 }
 
 // taskPropsCache memoizes parsed tracker payloads for one cleanup pass
-// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]); a nil
-// cache reads every time. Not safe for concurrent use.
+// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]) or one
+// unloaded-shard gate call ([hasStalePartialReindexState], which sweeps
+// nothing and never loads a shard); a nil cache reads every time. Not safe
+// for concurrent use.
 //
 // Anything longer-lived would let a hydrated shard's sweep act on a snapshot,
 // which [DB.NewStalePartialReindexSweep] promises it never does.
