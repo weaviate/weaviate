@@ -1084,6 +1084,10 @@ func (l *LazyLoadShard) blockLoading() func() {
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
+// Skipping holds only while reindex state arrives through a load and every
+// [LazyLoadShard.Shutdown] caller removes the shard from the index map first, so
+// the sweep never walks a shard being shut down in place.
+//
 // The second return is the tracker-payload read count for the caller's log;
 // a loaded shard reads none.
 func (l *LazyLoadShard) canSkipUnloadedSweep(
