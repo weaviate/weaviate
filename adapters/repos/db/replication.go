@@ -1118,13 +1118,13 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 		}
 		diverges := func() bool {
 			shard, release, err := i.getLoadedShard(shardName)
+			defer release() // non-nil on every path, including errors
 			if err != nil {
 				return true // teardown/closing: descend, never read as converged
 			}
 			if shard == nil {
 				return false // not loaded here: omit without loading
 			}
-			defer release()
 			root, ok := shard.HashTreeRoot()
 			return !ok || root != sourceRoot
 		}()

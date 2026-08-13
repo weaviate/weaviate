@@ -44,7 +44,7 @@ func haltForOffloadWithStaleSnapshot(t *testing.T, ctx context.Context, s *Shard
 	s.asyncReplicationRWMux.RLock()
 	require.Nil(t, s.hashtree, "offloading halt must nil the hashtree")
 	s.asyncReplicationRWMux.RUnlock()
-	require.Equal(t, 1, s.haltForTransferCount, "offloading halt must pause maintenance")
+	require.EqualValues(t, 1, s.haltForTransferCount.Load(), "offloading halt must pause maintenance")
 
 	require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 	stale := filepath.Join(s.pathHashTree(), "hashtree-0000000000000001.ht")
@@ -82,7 +82,7 @@ func TestResumeAfterAbortedOffload_RebuildsFromScratch(t *testing.T) {
 
 	require.NoError(t, idx.resumeAfterAbortedOffload(ctx, s.name))
 
-	require.Equal(t, 0, s.haltForTransferCount, "maintenance must be resumed")
+	require.EqualValues(t, 0, s.haltForTransferCount.Load(), "maintenance must be resumed")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "stale .ht must be discarded")
 	awaitHashtreeInitialized(t, s)
 
@@ -114,7 +114,7 @@ func TestResumeAfterAbortedOffload_AsyncDisabledRemovesStaleHashtree(t *testing.
 
 	require.NoError(t, idx.resumeAfterAbortedOffload(ctx, s.name))
 
-	require.Equal(t, 0, s.haltForTransferCount, "maintenance must be resumed")
+	require.EqualValues(t, 0, s.haltForTransferCount.Load(), "maintenance must be resumed")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "stale .ht must be discarded even when async is disabled")
 	s.asyncReplicationRWMux.RLock()
 	require.Nil(t, s.hashtree, "async replication must stay off when not enabled for the shard")
@@ -141,10 +141,10 @@ func TestResumeAfterAbortedOffload_NotHalted(t *testing.T) {
 	// snapshot + disable without halting
 	stopAsyncAndDump(t, s)
 	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1, "pre-condition: a snapshot exists")
-	require.Equal(t, 0, s.haltForTransferCount, "pre-condition: maintenance not halted")
+	require.EqualValues(t, 0, s.haltForTransferCount.Load(), "pre-condition: maintenance not halted")
 
 	require.NoError(t, idx.resumeAfterAbortedOffload(ctx, s.name))
-	require.Equal(t, 0, s.haltForTransferCount)
+	require.EqualValues(t, 0, s.haltForTransferCount.Load())
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "stale .ht must be discarded")
 	awaitHashtreeInitialized(t, s)
 

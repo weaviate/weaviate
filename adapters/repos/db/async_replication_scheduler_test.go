@@ -784,7 +784,7 @@ func TestTryRebuildHashtreeYieldsWhileApplyLockHeld(t *testing.T) {
 	}
 	attemptDone := make(chan attempt, 1)
 	go func() {
-		retry, delay, _ := sched.tryRebuildHashtree(s)
+		retry, delay, _, _ := sched.tryRebuildHashtree(s)
 		attemptDone <- attempt{retry, delay}
 	}()
 
@@ -811,7 +811,7 @@ func TestTryRebuildHashtreeYieldsToPendingWaiter(t *testing.T) {
 
 	idx.asyncReplicationApplyWaiters.Store(1)
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
 	require.False(t, rebuilt)
@@ -839,7 +839,7 @@ func TestTryRebuildHashtreeIgnoresShutdownLock(t *testing.T) {
 	}
 	attemptDone := make(chan attempt, 1)
 	go func() {
-		retry, delay, _ := sched.tryRebuildHashtree(s)
+		retry, delay, _, _ := sched.tryRebuildHashtree(s)
 		attemptDone <- attempt{retry, delay}
 	}()
 
@@ -868,7 +868,7 @@ func TestTryRebuildHashtreeStopsWhenGloballyDisabled(t *testing.T) {
 		shutdownLock: new(sync.RWMutex),
 	}
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.False(t, retry, "a disabled decision is terminal, not retried")
 	require.Zero(t, delay)
 	require.False(t, rebuilt)
@@ -887,7 +887,7 @@ func TestTryRebuildHashtreeYieldsWhileShutdownRequested(t *testing.T) {
 	}
 	s.shutdownRequested.Store(true)
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
 	require.False(t, rebuilt)
@@ -904,9 +904,9 @@ func TestTryRebuildHashtreeYieldsWhileHaltedForTransfer(t *testing.T) {
 		index:        idx,
 		shutdownLock: new(sync.RWMutex),
 	}
-	s.haltForTransferCount = 1
+	s.haltForTransferCount.Store(1)
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
 	require.False(t, rebuilt)
@@ -936,7 +936,7 @@ func TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable(t *testing.T) {
 	s.asyncRepWg.Add(1)
 	t.Cleanup(s.asyncRepWg.Done)
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
 	require.False(t, rebuilt)
@@ -970,7 +970,7 @@ func TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock(t *testing.T) {
 
 	retryCh := make(chan bool, 1)
 	go func() {
-		retry, _, _ := sched.tryRebuildHashtree(s)
+		retry, _, _, _ := sched.tryRebuildHashtree(s)
 		retryCh <- retry
 	}()
 
@@ -1153,11 +1153,46 @@ func TestTryRebuildHashtreePostDisableDrainTimeoutIsFailure(t *testing.T) {
 		s.asyncRepWg.Done()
 	})
 
-	retry, delay, rebuilt := sched.tryRebuildHashtree(s)
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
 	require.True(t, retry)
 	require.False(t, rebuilt)
 	require.Positive(t, delay)
 	require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "a post-disable drain timeout is a real failure, not a silent yield")
+}
+
+// TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt: a halt racing the disable→enable window must leave the attempt retrying, never silently disabled.
+func TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                      &models.Class{Class: "TestClass"},
+		index:                      idx,
+		shutdownLock:               new(sync.RWMutex),
+		hashtree:                   ht,
+		hashtreeFullyInitialized:   true,
+		asyncReplicationCancelFunc: func() {},
+	}
+
+	asyncRepRebuildAfterDisable = func(halted *Shard) { halted.haltForTransferCount.Store(1) }
+	t.Cleanup(func() {
+		asyncRepRebuildAfterDisable = nil
+		s.haltForTransferCount.Store(0)
+	})
+
+	retry, delay, rebuilt, yielded := sched.tryRebuildHashtree(s)
+	require.True(t, retry, "a skipped enable must retry, not silently leave async replication off")
+	require.True(t, yielded)
+	require.False(t, rebuilt)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "a raced halt is a yield, not a failure")
 }
 
 // TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.

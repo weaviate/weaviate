@@ -1731,6 +1731,7 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 	}
 
 	// Holding the config lock across the ctrl call is the 3-way lazy-load ABBA (the shard can be mid-reload by then); the apply lock also blocks kill-switch resurrection.
+	// Blocking on the apply lock is deliberate: a concurrent fan-out may have snapshotted before this replica change, so skipping would lose the apply; the RAFT applier's wait is bounded by that fan-out.
 	return i.withAsyncReplicationApply(func() error {
 		enabled, config := i.asyncReplicationStateForShard(shardName)
 		if enabled {

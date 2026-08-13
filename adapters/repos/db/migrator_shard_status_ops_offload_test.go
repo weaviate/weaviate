@@ -63,7 +63,7 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 		{Name: s.name, PreFreezeStatus: models.TenantActivityStatusHOT},
 	}, ec)
 
-	require.Equal(t, 0, s.haltForTransferCount, "freeze abort must resume maintenance")
+	require.EqualValues(t, 0, s.haltForTransferCount.Load(), "freeze abort must resume maintenance")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "freeze abort must discard the stale snapshot")
 	awaitHashtreeInitialized(t, s)
 	require.Error(t, ec.ToError(), "the upload error must be recorded")

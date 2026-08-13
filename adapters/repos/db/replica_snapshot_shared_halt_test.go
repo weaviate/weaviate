@@ -140,14 +140,14 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
 
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 1, shard.haltForTransferCount,
+	require.EqualValues(t, 1, shard.haltForTransferCount.Load(),
 		"failed count>1 halt must roll back 2->1, leaving op A's hold intact")
 	shard.haltForTransferMux.Unlock()
 
 	// op A's halt is intact and resumes cleanly to fully unhalted.
 	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 0, shard.haltForTransferCount)
+	require.EqualValues(t, 0, shard.haltForTransferCount.Load())
 	shard.haltForTransferMux.Unlock()
 }
 
@@ -165,10 +165,7 @@ func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
 	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
 	require.Error(t, shard.resumeMaintenanceCycles(ctx))
 
-	shard.haltForTransferMux.Lock()
-	haltCount := shard.haltForTransferCount
-	shard.haltForTransferMux.Unlock()
-	require.Zero(t, haltCount,
+	require.Zero(t, shard.haltForTransferCount.Load(),
 		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
 }
 

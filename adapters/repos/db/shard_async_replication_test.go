@@ -2551,7 +2551,41 @@ func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the late writer must publish nothing and clean up its .tmp")
 }
 
-// TestHaltedForTransferDoesNotBlockOnHeldMux: haltedForTransfer must report promptly while a halt holds the mux, or the rebuild parks un-cancellably for the whole backup prep.
+// TestResumeMaintenanceCyclesReappliesSkippedEnable: an enable skipped during a plain halt must be re-derived when the halt lifts.
+func TestResumeMaintenanceCyclesReappliesSkippedEnable(t *testing.T) {
+	ctx := context.Background()
+	const class = "ResumeReappliesEnableTest"
+	_, s := newAsyncTestShard(t, ctx, class)
+
+	s.index.replicationConfigLock.Lock()
+	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	s.index.replicationConfigLock.Unlock()
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+
+	override := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   class,
+		ShardID:        s.name,
+		SourceNode:     "nodeA",
+		TargetNode:     "nodeB",
+		UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+	}
+	require.NoError(t, s.addTargetNodeOverride(ctx, override))
+
+	s.asyncReplicationRWMux.RLock()
+	installed := s.hashtree != nil
+	s.asyncReplicationRWMux.RUnlock()
+	require.False(t, installed, "the enable must be skipped while halted")
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+
+	s.asyncReplicationRWMux.RLock()
+	installed = s.hashtree != nil
+	s.asyncReplicationRWMux.RUnlock()
+	require.True(t, installed, "the halt-skipped enable must be re-derived on resume")
+}
+
+// TestHaltedForTransferDoesNotBlockOnHeldMux: haltedForTransfer must report the true count promptly while the mux is held — neither parking on the backup prep nor misreading a concurrent holder as halted.
 func TestHaltedForTransferDoesNotBlockOnHeldMux(t *testing.T) {
 	ctx := context.Background()
 	_, s := newAsyncTestShard(t, ctx, "HaltedNonBlockingTest")
@@ -2559,14 +2593,20 @@ func TestHaltedForTransferDoesNotBlockOnHeldMux(t *testing.T) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	got := make(chan bool, 1)
-	go func() { got <- s.haltedForTransfer() }()
+	got := make(chan bool, 2)
+	go func() {
+		got <- s.haltedForTransfer()
+		s.haltForTransferCount.Store(1)
+		got <- s.haltedForTransfer()
+	}()
 	select {
 	case halted := <-got:
-		require.True(t, halted, "a mid-flight halt must read as halted")
+		require.False(t, halted, "a held mux without a halt must not read as halted")
 	case <-time.After(2 * time.Second):
 		t.Fatal("haltedForTransfer parked on the held mux")
 	}
+	require.True(t, <-got, "an actual halt must read as halted")
+	s.haltForTransferCount.Store(0)
 }
 
 // TestEnableAsyncReplicationSkipsFreshInitDuringHalt: a fresh enable during a transfer halt must not resurrect async replication mid-offload.
@@ -2575,7 +2615,7 @@ func TestEnableAsyncReplicationSkipsFreshInitDuringHalt(t *testing.T) {
 	_, s := newAsyncTestShard(t, ctx, "EnableSkipsDuringHaltTest")
 
 	s.haltForTransferMux.Lock()
-	s.haltForTransferCount = 1
+	s.haltForTransferCount.Store(1)
 	s.haltForTransferMux.Unlock()
 
 	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
@@ -2585,7 +2625,7 @@ func TestEnableAsyncReplicationSkipsFreshInitDuringHalt(t *testing.T) {
 	require.False(t, installed, "enable during a halt must not install a tree")
 
 	s.haltForTransferMux.Lock()
-	s.haltForTransferCount = 0
+	s.haltForTransferCount.Store(0)
 	s.haltForTransferMux.Unlock()
 	enableAndAwaitAsync(t, ctx, s)
 }
@@ -2597,11 +2637,11 @@ func TestEnableAsyncReplicationConfigUpdateSurvivesHalt(t *testing.T) {
 	enableAndAwaitAsync(t, ctx, s)
 
 	s.haltForTransferMux.Lock()
-	s.haltForTransferCount = 1
+	s.haltForTransferCount.Store(1)
 	s.haltForTransferMux.Unlock()
 	t.Cleanup(func() {
 		s.haltForTransferMux.Lock()
-		s.haltForTransferCount = 0
+		s.haltForTransferCount.Store(0)
 		s.haltForTransferMux.Unlock()
 	})
 

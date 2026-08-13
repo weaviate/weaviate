@@ -594,8 +594,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 // removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
 var removeHashtreeFile = os.Remove
 
-// removeSnapshotFile removes one hashtree file: an unremovable .ht errors (a later load would trust it), an unremovable .tmp only warns.
-// removeOrDemoteHashtreeFile deletes filename, demoting an undeletable one to a stray .tmp (outside trust scope, re-swept later); only a failed demotion errors, so a persistent condition cannot fail shard init forever.
+// removeOrDemoteHashtreeFile deletes filename, demoting an undeletable one to a stray .tmp (outside trust scope, re-swept later); only a failed demotion errors, so a persistent condition cannot fail shard init or scrubs forever.
 func (s *Shard) removeOrDemoteHashtreeFile(logger logrus.FieldLogger, filename, reason string) error {
 	err := removeHashtreeFile(filename)
 	if err == nil || os.IsNotExist(err) {
@@ -609,16 +608,20 @@ func (s *Shard) removeOrDemoteHashtreeFile(logger logrus.FieldLogger, filename, 
 	return nil
 }
 
+// removeSnapshotFile neutralizes one hashtree file: a .ht is removed or demoted (errors only when neither works), an unremovable .tmp only warns.
 func (s *Shard) removeSnapshotFile(filename, ext string) (removed bool, err error) {
-	if err := removeHashtreeFile(filename); err != nil && !os.IsNotExist(err) {
-		if ext == ".ht" {
+	logger := s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name)
+	if ext == ".ht" {
+		if err := s.removeOrDemoteHashtreeFile(logger, filename, "stale"); err != nil {
 			return false, err
 		}
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warnf("removing stray hashtree tmp file %q: %v", filename, err)
+		return true, nil
+	}
+	if err := removeHashtreeFile(filename); err != nil && !os.IsNotExist(err) {
+		logger.Warnf("removing stray hashtree tmp file %q: %v", filename, err)
 		return false, nil
 	}
 	return true, nil
@@ -697,21 +700,11 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		}
 		filename := filepath.Join(dir, entry.Name())
 
-		// Sweep everything but the newest .ht.
+		// Sweep everything but the newest .ht; removeSnapshotFile demotes an undeletable .ht, so only an un-neutralizable one fails the load.
 		if attemptedNewest || ext != ".ht" {
 			removed, err := s.removeSnapshotFile(filename, ext)
 			if err != nil {
-				// Demote to a stray .tmp instead of failing shard init: .tmp is
-				// outside trust scope and re-swept (warn-only) on every later load,
-				// so a transiently undeletable file self-heals. Only an
-				// un-neutralizable stale .ht still fails the load.
-				demoted := filename + ".tmp"
-				if renameErr := os.Rename(filename, demoted); renameErr != nil {
-					return nil, fmt.Errorf("deleting stale hashtree file %q: %w (demoting rename failed: %w)", filename, err, renameErr)
-				}
-				logger.Warnf("demoted undeletable stale hashtree file to %q: %v", demoted, err)
-				removedAny = true
-				continue
+				return nil, err
 			}
 			removedAny = removedAny || removed
 			continue
@@ -1415,8 +1408,19 @@ func (g *dumpPublishGate) publish(fn func() error) (cleanup bool, err error) {
 
 // cancel reports whether it won (no published .ht will remain); a rename already in flight is removed by the publisher itself, never waited on — a blocking cancel would pin performShutdown under shutdownLock on stalled storage.
 func (g *dumpPublishGate) cancel() bool {
-	return g.state.CompareAndSwap(dumpGateIdle, dumpGateCancelled) ||
-		g.state.CompareAndSwap(dumpGatePublishing, dumpGateCancelled)
+	for {
+		switch st := g.state.Load(); st {
+		case dumpGatePublished:
+			return false
+		case dumpGateCancelled:
+			return true
+		default:
+			// Loop instead of two one-shot CASes: a failed publish resetting publishing→idle mid-cancel must not read as lost.
+			if g.state.CompareAndSwap(st, dumpGateCancelled) {
+				return true
+			}
+		}
+	}
 }
 
 // dumpHashTreeWithTimeout caps the dump; on timeout the gate guarantees the late writer can never publish.
@@ -1535,7 +1539,7 @@ func (s *Shard) writeHashTreeTmp(ht hashtree.AggregatedHashTree, tmpFilename str
 	return nil
 }
 
-// removeLatePublishedHashTree removes a .ht whose rename completed after a cancel won; left behind it could resurrect a stale tree on a later boot.
+// removeLatePublishedHashTree removes a .ht whose rename completed after a cancel won; left behind it could resurrect a stale tree on a later boot. Accepted residual: a SIGKILL between the late rename and this remove leaves the file, which is only stale if the shard reactivated meanwhile (needs doubly-stalled storage).
 func (s *Shard) removeLatePublishedHashTree(filename string) {
 	err := os.Remove(filename)
 	if err == nil || os.IsNotExist(err) {

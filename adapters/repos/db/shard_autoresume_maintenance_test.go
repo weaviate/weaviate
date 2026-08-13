@@ -382,7 +382,7 @@ func (s *Shard) haltForTransferForTest(ctx context.Context, inject func() error,
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	s.haltForTransferCount++
+	s.haltForTransferCount.Add(1)
 
 	if err := s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -650,7 +650,7 @@ func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
 	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterFire := s.haltForTransferCount
+	countAfterFire := s.haltForTransferCount.Load()
 	cancelAfterFire := s.haltForTransferCtxCancel
 	s.haltForTransferMux.Unlock()
 
@@ -683,7 +683,7 @@ func TestShard_ResumeClearsInactivityMonitorSentinel(t *testing.T) {
 	cancelBeforeResume := s.haltForTransferCtxCancel
 	resumeErr := s.mayForceResumeMaintenanceCycles(ctx, true)
 	cancelAfterResume := s.haltForTransferCtxCancel
-	countAfterResume := s.haltForTransferCount
+	countAfterResume := s.haltForTransferCount.Load()
 	s.haltForTransferMux.Unlock()
 
 	require.NotNil(t, cancelBeforeResume)
@@ -778,11 +778,11 @@ func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
 	keepWatching := s.handleInactivityFire(staleCtx, timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterStaleFire := s.haltForTransferCount
+	countAfterStaleFire := s.haltForTransferCount.Load()
 	s.haltForTransferMux.Unlock()
 
 	require.False(t, keepWatching)
-	require.Equal(t, 1, countAfterStaleFire)
+	require.EqualValues(t, 1, countAfterStaleFire)
 
 	require.NoError(t, s.resumeMaintenanceCycles(ctx))
 	require.Nil(t, idx.drop())
@@ -815,11 +815,11 @@ func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
 	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
-	countAfterFire := s.haltForTransferCount
+	countAfterFire := s.haltForTransferCount.Load()
 	s.haltForTransferMux.Unlock()
 
 	require.True(t, keepWatching)
-	require.Equal(t, 1, countAfterFire)
+	require.EqualValues(t, 1, countAfterFire)
 
 	require.NoError(t, s.resumeMaintenanceCycles(ctx))
 	require.Nil(t, idx.drop())

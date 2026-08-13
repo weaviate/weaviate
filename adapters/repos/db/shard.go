@@ -369,8 +369,9 @@ type Shard struct {
 	haltForTransferMux                sync.Mutex
 	haltForTransferInactivityTimeout  time.Duration
 	haltForTransferInactivityDeadline time.Time
-	haltForTransferCount              int
-	haltForTransferCtxCancel          context.CancelFunc
+	// haltForTransferCount: mutations under haltForTransferMux; atomic so halt probes read lock-free (a mutex probe misreads a concurrent reader as halted).
+	haltForTransferCount     atomic.Int64
+	haltForTransferCtxCancel context.CancelFunc
 
 	status              ShardStatus
 	statusLock          sync.RWMutex
