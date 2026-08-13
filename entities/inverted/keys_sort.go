@@ -747,10 +747,13 @@ func sortVariableWidth(slab []byte, offs []uint32, n int, sc *sortScratch) ([]by
 // depth advances 8 bytes per level here rather than one, but key length still
 // comes from a filter value. The work stack is bounded the same way.
 //
-// What terminates it is the depth check, not the splitting. A level that
-// separates nothing still pushes the run 8 bytes deeper, and keys shorter than
-// that depth pack to zero forever, so the run ends in a comparison once the
-// depth passes its longest key.
+// What terminates it is the depth check, not the splitting: a level that
+// separates nothing still pushes the run 8 bytes deeper. The check is against
+// the run's shortest key, since packSuffix pads an ended key with zero exactly
+// as it packs a key still running through NULs — so past that depth no level
+// can separate them, while each one re-packs the whole run. A FIELD-tokenized
+// filter keeps NUL bytes verbatim, so waiting for the longest key instead lets
+// one long value hold a whole batch in the loop.
 func repairCollisions(slab []byte, offs []uint32, n, lcp int, sc *sortScratch) {
 	keys, idx := sc.keys, sc.idx
 	pending := appendTiedRuns(make([]keyRange, 0, 64), keys, 0, n, lcp+8)
@@ -760,7 +763,7 @@ func repairCollisions(slab []byte, offs []uint32, n, lcp int, sc *sortScratch) {
 		pending = pending[:len(pending)-1]
 
 		run := idx[r.off : r.off+r.n]
-		if r.n < repairRunCutoff || r.d >= longestKeyIn(offs, run) {
+		if r.n < repairRunCutoff || r.d >= shortestKeyIn(offs, run) {
 			sortRunByBytes(slab, offs, run, lcp)
 			continue
 		}
@@ -789,14 +792,16 @@ func appendTiedRuns(dst []keyRange, keys []uint64, off, n, d int) []keyRange {
 	return dst
 }
 
-func longestKeyIn(offs []uint32, run []uint32) int {
-	longest := 0
-	for _, e := range run {
-		if l := int(offs[e+1] - offs[e]); l > longest {
-			longest = l
+// shortestKeyIn is the length of the run's shortest key, which is the depth
+// past which the packing stops telling its keys apart. See repairCollisions.
+func shortestKeyIn(offs []uint32, run []uint32) int {
+	shortest := int(offs[run[0]+1] - offs[run[0]])
+	for _, e := range run[1:] {
+		if l := int(offs[e+1] - offs[e]); l < shortest {
+			shortest = l
 		}
 	}
-	return longest
+	return shortest
 }
 
 // sortRunByBytes is the terminal comparison, and it starts at the batch's
