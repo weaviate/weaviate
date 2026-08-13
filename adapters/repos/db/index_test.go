@@ -273,57 +273,36 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	clusterNodes := []string{"node-0", "node-1", "node-2"}
 	targetNode := clusterNodes[0]
 	shardReplicas := map[string][]string{
-		"all_ready":         clusterNodes,
-		"one_not_ready":     clusterNodes,
-		"two_not_ready":     clusterNodes,
-		"all_shutdown":      clusterNodes,
-		"one_not_reachable": clusterNodes,
-		"shard_not_local":   clusterNodes[1:],
+		"shard_local":          clusterNodes,
+		"shard_not_local":      clusterNodes[1:],
+		"remote_not_reachable": clusterNodes,
 	}
 	shardStatus := map[string]map[string]string{
-		"all_ready": {
-			"node-0": storagestate.StatusReady.String(),
-			"node-1": storagestate.StatusReady.String(),
-			"node-2": storagestate.StatusReady.String(),
-		},
-		"one_not_ready": {
+		"shard_local": {
 			"node-0": storagestate.StatusReady.String(),
 			"node-1": storagestate.StatusLazyLoading.String(),
-			"node-2": storagestate.StatusReady.String(),
+			"node-2": storagestate.StatusIndexing.String(),
 		},
-		"two_not_ready": {
-			"node-0": storagestate.StatusReady.String(),
-			"node-1": storagestate.StatusLazyLoading.String(),
-			"node-2": storagestate.StatusReadOnly.String(),
+		"shard_not_local": {
+			"node-1": storagestate.StatusIndexing.String(),
+			"node-2": storagestate.StatusIndexing.String(),
 		},
-		"all_shutdown": {
-			"node-0": storagestate.StatusShutdown.String(),
-			"node-1": storagestate.StatusShutdown.String(),
-			"node-2": storagestate.StatusShutdown.String(),
-		},
-		"one_not_reachable": {
+		"remote_not_reachable": {
 			"node-0": storagestate.StatusReady.String(),
 			"node-1": storagestate.StatusReady.String(),
 			"node-2": NodeUnresponsive, // Remote replica failed to report status.
-		},
-		"shard_not_local": {
-			"node-1": storagestate.StatusShutdown.String(),
-			"node-2": storagestate.StatusShutdown.String(),
 		},
 	}
 
 	// NodeUnresponsive should not be in the final response.
 	want := maps.Clone(shardStatus)
-	want["one_not_reachable"] = maps.Clone(want["one_not_reachable"])
-	delete(want["one_not_reachable"], "node-2")
+	want["remote_not_reachable"] = maps.Clone(want["remote_not_reachable"])
+	delete(want["remote_not_reachable"], "node-2")
 
 	wantLegacy := map[string]string{
-		"all_ready":         storagestate.StatusReady.String(),
-		"one_not_ready":     storagestate.StatusReady.String(),
-		"two_not_ready":     storagestate.StatusReady.String(),
-		"all_shutdown":      storagestate.StatusShutdown.String(),
-		"one_not_reachable": storagestate.StatusReady.String(),
-		"shard_not_local":   storagestate.StatusShutdown.String(),
+		"shard_local":          storagestate.StatusReady.String(),
+		"shard_not_local":      storagestate.StatusIndexing.String(),
+		"remote_not_reachable": storagestate.StatusReady.String(),
 	}
 
 	var replicas []types.Replica
