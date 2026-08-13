@@ -20,6 +20,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -164,6 +165,7 @@ func createsGeoIndex(prop *models.Property) bool {
 func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	eg *enterrors.ErrorGroupWrapper,
 	prop *models.Property,
+	payloadReads *atomic.Int64,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
@@ -172,7 +174,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "filterable")
+			s.cleanStaleMigrationDirs(prop.Name, "filterable", payloadReads)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasSearchableIndex(prop) {
@@ -181,7 +183,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "searchable")
+			s.cleanStaleMigrationDirs(prop.Name, "searchable", payloadReads)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasRangeableIndex(prop) {
@@ -190,11 +192,28 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
+			s.cleanStaleMigrationDirs(prop.Name, "rangeable", payloadReads)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
+}
+
+// disabledIndexTypes names the index types a property update switches off, in
+// the order [Shard.updatePropertyBuckets] sweeps them. Empty when the update
+// only switches index types on, where no sweep runs and nothing is reported.
+func disabledIndexTypes(prop *models.Property) []string {
+	var types []string
+	if !inverted.HasFilterableIndex(prop) {
+		types = append(types, "filterable")
+	}
+	if !inverted.HasSearchableIndex(prop) {
+		types = append(types, "searchable")
+	}
+	if !inverted.HasRangeableIndex(prop) {
+		types = append(types, "rangeable")
+	}
+	return types
 }
 
 // cleanStaleMigrationDirs removes the per-property runtime-reindex
@@ -209,14 +228,13 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // at the only level that matters for correctness. A failure here only
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
-func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
+//
+// The read count is accumulated into payloadReads rather than logged, because
+// this runs once per shard per index type: on a 10k-tenant class a line here
+// would be 30k lines held inside one RAFT FSM apply.
+func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads *atomic.Int64) {
 	reads := cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
-	s.index.logger.WithFields(map[string]any{
-		"shard":         s.Name(),
-		"property":      propName,
-		"index_type":    indexType,
-		"payload_reads": reads,
-	}).Info("partial-reindex cleanup: migration dirs swept after index DELETE")
+	payloadReads.Add(int64(reads))
 }
 
 // cleanStaleMigrationDirsAt is the pure-function form of

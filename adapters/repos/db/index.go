@@ -948,12 +948,23 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
+	// Accumulated across the walk so the sweep reports once for the whole
+	// class. Shards sweep concurrently under eg, hence the atomic.
+	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.updatePropertyBuckets(ctx, eg, property)
+		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
 		return nil
 	})
 
-	if err := eg.Wait(); err != nil {
+	err := eg.Wait()
+	if disabled := disabledIndexTypes(property); len(disabled) > 0 {
+		i.logger.WithFields(map[string]any{
+			"property":      property.Name,
+			"index_types":   disabled,
+			"payload_reads": payloadReads.Load(),
+		}).Info("partial-reindex cleanup: migration dirs swept after index DELETE")
+	}
+	if err != nil {
 		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
 	}
 
