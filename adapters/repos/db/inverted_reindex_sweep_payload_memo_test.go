@@ -107,9 +107,7 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 }
 
 // TestDeleteSweepReportsItsPayloadReads pins that the DELETE path's read count
-// reaches the operator once for the whole class, summed over shards. Per-shard
-// lines would be 30k lines for a 10k-tenant class, emitted inside the RAFT FSM
-// apply, so the count is the aggregate or it is nothing.
+// reaches the operator once per class, summed over shards, not once per shard.
 func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
 	ctx := testCtx()
 	className := "DeleteSweepReads_" + uuid.NewString()[:8]
@@ -137,8 +135,7 @@ func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
 	}))
 	require.EqualValues(t, 2, shards)
 
-	// Text properties have no rangeable index, so switching filterable off
-	// sweeps both types; each contributes to the one reported count.
+	// Text has no rangeable index, so disabling filterable also sweeps rangeable.
 	disableFilterable := &models.Property{
 		Name:            "cat",
 		DataType:        schema.DataTypeText.PropString(),

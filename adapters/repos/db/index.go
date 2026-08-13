@@ -948,8 +948,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	// Accumulated across the walk so the sweep reports once for the whole
-	// class. Shards sweep concurrently under eg, hence the atomic.
+	// Shards sweep concurrently under eg, so the count is atomic.
 	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)

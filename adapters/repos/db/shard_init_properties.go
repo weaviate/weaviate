@@ -199,9 +199,8 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	})
 }
 
-// disabledIndexTypes names the index types a property update switches off, in
-// the order [Shard.updatePropertyBuckets] sweeps them. Empty when the update
-// only switches index types on, where no sweep runs and nothing is reported.
+// disabledIndexTypes mirrors updatePropertyBuckets's checks, so the summary
+// log lists exactly what the sweep touched.
 func disabledIndexTypes(prop *models.Property) []string {
 	var types []string
 	if !inverted.HasFilterableIndex(prop) {
@@ -229,9 +228,8 @@ func disabledIndexTypes(prop *models.Property) []string {
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 //
-// The read count is accumulated into payloadReads rather than logged, because
-// this runs once per shard per index type: on a 10k-tenant class a line here
-// would be 30k lines held inside one RAFT FSM apply.
+// The read count accrues into payloadReads instead of being logged per call,
+// since a 10k-tenant class would otherwise emit 30k lines inside one RAFT FSM apply.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads *atomic.Int64) {
 	reads := cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
 	payloadReads.Add(int64(reads))
