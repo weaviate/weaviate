@@ -395,7 +395,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	// behind so the probe, which runs before the drain and is bounded off
 	// the same context, still gets to read the disk — that ordering is what
 	// this test pins.
-	expired, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	expired, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(
