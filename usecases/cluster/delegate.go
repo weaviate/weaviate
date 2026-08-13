@@ -141,6 +141,8 @@ type nodeIdentity struct {
 
 // setIdentity captures a member's identity; called from the events delegate
 // (and once for the local node at startup), where the Node fields are stable.
+// memberlist v0.5.x fires join/update for every accepted endpoint change
+// (live-member address conflicts are rejected), so the cache never goes stale.
 func (d *delegate) setIdentity(node *memberlist.Node) {
 	id := nodeIdentity{addr: node.Addr.String(), port: node.Port}
 	if len(node.Meta) > 0 {

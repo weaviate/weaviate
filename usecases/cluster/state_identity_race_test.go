@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,10 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNodeHostnameConcurrentWithAliveUpdates: the resolvers must not read live
-// memberlist Node fields, which the gossip goroutine rewrites in place on
-// every alive update; run with -race.
-func TestNodeHostnameConcurrentWithAliveUpdates(t *testing.T) {
+// TestResolversConcurrentWithAliveUpdates: run with -race; each UpdateNode makes the gossip goroutines rewrite Node fields in place.
+func TestResolversConcurrentWithAliveUpdates(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 
 	port1 := freeGossipPort(t)
@@ -44,18 +43,51 @@ func TestNodeHostnameConcurrentWithAliveUpdates(t *testing.T) {
 		return ok
 	}, 10*time.Second, 100*time.Millisecond, "node2 never resolved node1 after join")
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		// Each UpdateNode bumps the incarnation, making node2's gossip goroutine
-		// rewrite node1's Node fields in place.
-		for i := 0; i < 100; i++ {
-			_ = s1.list.UpdateNode(2 * time.Second)
-		}
-	}()
-	for i := 0; i < 2000; i++ {
-		s2.NodeHostname("identity-node1")
-		s2.AllHostnames()
+	var writers sync.WaitGroup
+	for _, s := range []*State{s1, s2} {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for i := 0; i < 100; i++ {
+				if err := s.list.UpdateNode(2 * time.Second); err != nil {
+					t.Logf("update node: %v", err)
+				}
+			}
+		}()
 	}
-	<-done
+	stop := make(chan struct{})
+	go func() {
+		writers.Wait()
+		close(stop)
+	}()
+
+	// One dedicated goroutine per resolver: interleaving them in a single loop dilutes the post-Members() race window.
+	resolvers := []func(){
+		func() { s2.NodeHostname("identity-node1") },
+		func() { s2.AllHostnames() },
+		func() { s2.Hostnames() },
+		func() { s2.AllOtherClusterMembers(8300) },
+		func() {
+			if _, err := s2.NodeGRPCPort("identity-node1"); err != nil {
+				t.Error(err)
+			}
+		},
+		func() { s2.LocalAddr() },
+	}
+	var readers sync.WaitGroup
+	for _, resolve := range resolvers {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					resolve()
+				}
+			}
+		}()
+	}
+	readers.Wait()
 }
