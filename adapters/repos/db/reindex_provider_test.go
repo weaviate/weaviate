@@ -466,7 +466,7 @@ func TestSweepEachPropertyIndexType(t *testing.T) {
 // A sweep reports one error for the whole walk, and a collection deleted
 // mid-walk can share it with a shard the sweep already failed on. What the
 // operator is told about that shard has to survive the delete.
-func TestClassifyTerminalSweep(t *testing.T) {
+func TestClassifyCleanupSweep(t *testing.T) {
 	shardFailed := func(inner error) error {
 		return fmt.Errorf("%w: %w", ErrCleanupShardFailed,
 			fmt.Errorf("shard %q: %w", "tenant-1", inner))
