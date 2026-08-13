@@ -219,3 +219,36 @@ def get_debug_usage_for_collection(
         if attempt < retries - 1:
             time.sleep(delay)
     raise last_err
+
+
+def get_settled_debug_usage_for_collection(
+    collection: str, stable_reads: int = 4, delay: float = 1.0, timeout: float = 120.0
+) -> CollectionUsage:
+    """Read usage once the shard stops writing to disk in the background.
+
+    A shard that was just loaded keeps shrinking on disk: the HNSW commit log is written
+    unconsolidated during import and the compactor rewrites it shortly after the shard loads,
+    and dirty memtables are flushed on a timer. A read taken right after activating a tenant
+    therefore captures a transient value - for a 1000 object shard the report starts at ~36 MB
+    and drops to ~5.7 MB. Comparing such a read against one taken later, as the hot vs cold
+    assertions do, compares two different disk states.
+
+    Poll until `stable_reads` consecutive reports are identical, so the comparison is over a
+    disk state that is no longer moving and can be asserted exactly. The compaction was
+    measured to complete within 1.4s of activation even with every core busy, so the three
+    seconds of observed stability the defaults require leave a wide margin.
+    """
+    deadline = time.monotonic() + timeout
+    previous = None
+    identical = 0
+    while True:
+        current = get_debug_usage_for_collection(collection)
+        identical = identical + 1 if current == previous else 1
+        previous = current
+        if identical >= stable_reads:
+            return current
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"usage of collection {collection} kept changing for {timeout}s, last report: {current}"
+            )
+        time.sleep(delay)
