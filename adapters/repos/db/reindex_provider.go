@@ -1770,8 +1770,9 @@ const (
 	// CleanupSweepDropped: the collection is not on this node — though shards
 	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
 	CleanupSweepDropped
-	// CleanupSweepUnknown: shards were left unvisited. What is on them is
-	// unknown, which is not the same as knowing state is there.
+	// CleanupSweepUnknown: the walk left shards unvisited, or ran out of time
+	// partway through one. What is on them is unknown, which is not the same as
+	// knowing state is there.
 	CleanupSweepUnknown
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
 	// fail after already removing part of its state, so what the shard holds
@@ -1814,8 +1815,8 @@ const (
 // reaches an operator as two claims at two severities.
 //
 // [CleanupSweepFailed] is the only Error. It is the only outcome that confirms
-// partial state is still on a shard this node holds, with nothing scheduled to
-// remove it, so an operator has to act. Everything else is either clean or
+// a shard this node holds was left partly swept, with nothing scheduled to
+// finish it, so an operator has to act. Everything else is either clean or
 // merely unverified, and routine tenant churn produces unverified on a healthy
 // node.
 //
@@ -1833,13 +1834,14 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 				"with the collection directory, unless a backup in flight is keeping those files",
 			logrus.InfoLevel
 	case CleanupSweepFailed:
-		return phase + ": a shard could not be swept, so the partial state on it is still there",
+		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
+				"scheduled to finish it",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
 		// confirms no more than an unfinished walk does.
-		return phase + ": the sweep did not reach every shard, so any partial state on the ones " +
-				"it missed is still there",
+		return phase + ": the sweep did not reach every shard, so what is on the ones it missed " +
+				"or did not finish is unverified",
 			logrus.WarnLevel
 	}
 }

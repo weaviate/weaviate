@@ -263,10 +263,10 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string,
 // cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
 // scope, so a sweep can share one payload memo with its preserve pass.
 //
-// A listing it cannot read is returned, not logged: nothing was removed, so a
-// caller that reports its own outcome would otherwise report a sweep that
-// never ran as one that finished. Removal failures stay logged, since those
-// leave the rest of the sweep done.
+// A listing it cannot read is returned, not logged: this helper removed
+// nothing, so a caller that reports its own outcome would otherwise call a
+// sweep finished on a directory it never read. Removal failures stay logged,
+// since those leave the rest of the sweep done.
 func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) error {
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
@@ -337,8 +337,9 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 // report success if a partial directory survives. Step 1 errors ARE propagated
 // because they indicate a bucket can't be cleanly disconnected from the LSM
 // layer — proceeding to remove its files would corrupt the store. So is a
-// .migrations that cannot be listed at all: nothing was removed, and the
-// caller's summary would otherwise report a finished sweep.
+// .migrations that cannot be listed at all: the preserve pass reads that same
+// directory, so step 2 has by then removed sidecars it could not tell were
+// live, and the caller's summary would otherwise report a finished sweep.
 //
 // The first return is how many tracker payloads this sweep read, for the
 // caller's summary line. A refused input reads none.

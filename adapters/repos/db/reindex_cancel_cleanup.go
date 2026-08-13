@@ -73,11 +73,11 @@ func (db *DB) cleanStalePartialReindexState(
 	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
 }
 
-// ErrCleanupSweepTruncated marks a sweep that didn't visit every shard —
+// ErrCleanupSweepTruncated marks a sweep that didn't get through every shard —
 // timeout, a shutting-down/closing index, an unmappable index type, or a
 // shard that left the map mid-walk. These shards are "unknown", not
 // "failed" (often benign, e.g. a HOT→COLD tenant transition), but still
-// unverified.
+// unverified: a shard the run stopped partway through may be partly swept.
 //
 // Every caller logs it at Warn: unvisited shards are unverified rather than
 // known bad, and a healthy node produces them from routine tenant churn.

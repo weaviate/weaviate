@@ -682,7 +682,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 		{
 			name:        "a shard the sweep reached and could not load",
 			staleOnDisk: true,
-			wantMsg:     "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
+			wantMsg:     "partial-reindex cleanup: a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
 			wantLevel:   logrus.ErrorLevel,
 		},
 		{
@@ -696,7 +696,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 			name:           "a node already shutting down",
 			staleOnDisk:    true,
 			requestedCause: errIndexShutdown,
-			wantMsg:        "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there",
+			wantMsg:        "partial-reindex cleanup: the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified",
 			wantLevel:      logrus.WarnLevel,
 		},
 	}

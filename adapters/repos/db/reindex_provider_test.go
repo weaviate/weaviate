@@ -283,7 +283,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 // one outcome that confirms state remains, so it alone is an Error.
 func TestCleanupSweepSummary(t *testing.T) {
 	const (
-		unchecked = ": the sweep did not reach every shard, so any partial state on the ones it missed is still there"
+		unchecked = ": the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified"
 		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files"
 	)
 
@@ -318,7 +318,7 @@ func TestCleanupSweepSummary(t *testing.T) {
 			name:      "a shard could not be swept",
 			outcome:   CleanupSweepFailed,
 			wantLevel: logrus.ErrorLevel,
-			wantTail:  ": a shard could not be swept, so the partial state on it is still there",
+			wantTail:  ": a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
 		},
 		{
 			// A new outcome nobody wired in here arrives through the max fold,
