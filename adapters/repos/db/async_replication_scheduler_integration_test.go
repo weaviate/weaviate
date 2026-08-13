@@ -185,6 +185,28 @@ func TestIndexCompareHashTreeRoots(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{shardName}, div, "loaded-but-not-ready must descend, not read as converged")
 	})
+
+	t.Run("shutdown-requested shard is diverging", func(t *testing.T) {
+		s.shutdownRequested.Store(true)
+		defer s.shutdownRequested.Store(false)
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "an erroring shard must descend, not read as converged")
+	})
+
+	t.Run("closing index is diverging", func(t *testing.T) {
+		idx.closeLock.Lock()
+		idx.closed = true
+		idx.closeLock.Unlock()
+		defer func() {
+			idx.closeLock.Lock()
+			idx.closed = false
+			idx.closeLock.Unlock()
+		}()
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "a closing index must descend, not read as converged")
+	})
 }
 
 // TestAsyncSchedulerDeregistrationIdempotent verifies that deregistering a

@@ -1107,7 +1107,7 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots returns shards whose loaded tree differs or is not ready (the source descends instead of reading not-ready as converged); unloaded shards are omitted without loading them.
+// CompareHashTreeRoots returns shards whose loaded tree differs, is not ready, or errors on access (the source descends instead of reading any of those as converged); unloaded shards are omitted without loading them.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
@@ -1116,16 +1116,19 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		localRoot, ok, loaded := func() (hashtree.Digest, bool, bool) {
+		diverges := func() bool {
 			shard, release, err := i.getLoadedShard(shardName)
-			if err != nil || shard == nil {
-				return hashtree.Digest{}, false, false
+			if err != nil {
+				return true // teardown/closing: descend, never read as converged
+			}
+			if shard == nil {
+				return false // not loaded here: omit without loading
 			}
 			defer release()
 			root, ok := shard.HashTreeRoot()
-			return root, ok, true
+			return !ok || root != sourceRoot
 		}()
-		if loaded && (!ok || localRoot != sourceRoot) {
+		if diverges {
 			diverging = append(diverging, shardName)
 		}
 	}
