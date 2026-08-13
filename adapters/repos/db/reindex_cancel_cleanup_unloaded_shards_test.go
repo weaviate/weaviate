@@ -929,8 +929,8 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
 	require.False(t, unloaded.isLoaded(),
 		"refusing the input must not cost a hydration of the whole collection")
-	outcome, _ := classifyTerminalSweep(err)
-	require.Equal(t, terminalSweepUnknown, outcome,
+	outcome, _ := ClassifyCleanupSweep(err)
+	require.Equal(t, CleanupSweepUnknown, outcome,
 		"an input the node cannot process is not a swept collection")
 }
 

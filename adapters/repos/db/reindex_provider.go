@@ -1724,11 +1724,11 @@ func sweepTerminalTuples(
 	propNames, indexTypes []string,
 	sweep func(propName, indexType string) error,
 	onFailure func(propName, indexType string, failure error),
-) terminalSweepOutcome {
-	worst := terminalSweepClean
+) CleanupSweepOutcome {
+	worst := CleanupSweepClean
 	for _, propName := range propNames {
 		for _, indexType := range indexTypes {
-			outcome, failure := classifyTerminalSweep(sweep(propName, indexType))
+			outcome, failure := ClassifyCleanupSweep(sweep(propName, indexType))
 			worst = max(worst, outcome)
 			if failure != nil {
 				onFailure(propName, indexType, failure)
@@ -1738,49 +1738,52 @@ func sweepTerminalTuples(
 	return worst
 }
 
-// terminalSweepOutcome is what one sweep left for the operator, ordered by
-// how certain it is that actionable state remains; the max across a run's
-// sweeps is reported.
+// CleanupSweepOutcome is what one stale-partial-reindex sweep left for the
+// operator, ordered by how certain it is that actionable state remains, so a
+// caller running several sweeps can report the max as the run's outcome.
 //
 // "Every shard" means every shard in the index's map when the sweep starts:
 // an already-COLD tenant isn't in it and waits for a later reindex task,
 // same as one activated mid-walk. One deactivated mid-walk was in the map
-// and reports [terminalSweepUnknown].
-type terminalSweepOutcome int
+// and reports [CleanupSweepUnknown].
+type CleanupSweepOutcome int
 
 const (
-	// terminalSweepClean: the walk reached every shard in the map. A shard
+	// CleanupSweepClean: the walk reached every shard in the map. A shard
 	// the gate skipped counts as reached — the gate found nothing to sweep,
 	// up to the staleness [dirNamesCache] names.
-	terminalSweepClean terminalSweepOutcome = iota
-	// terminalSweepDropped: the collection is not on this node — though shards
+	CleanupSweepClean CleanupSweepOutcome = iota
+	// CleanupSweepDropped: the collection is not on this node — though shards
 	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
-	terminalSweepDropped
-	// terminalSweepUnknown: shards were left unvisited. What is on them is
+	CleanupSweepDropped
+	// CleanupSweepUnknown: shards were left unvisited. What is on them is
 	// unknown, which is not the same as knowing state is there.
-	terminalSweepUnknown
-	// terminalSweepFailed: a shard was reached and could not be swept. Nothing
+	CleanupSweepUnknown
+	// CleanupSweepFailed: a shard was reached and could not be swept. Nothing
 	// was removed from it, so whatever partial state it holds is still there.
-	terminalSweepFailed
+	CleanupSweepFailed
 )
 
-// classifyTerminalSweep splits one sweep's error into what it left behind and
+// ClassifyCleanupSweep splits one sweep's error into what it left behind and
 // the failure the operator has to act on. A shard can fail before the
-// collection is deleted mid-walk; that outcome is [terminalSweepFailed], not
-// [terminalSweepDropped] — the delete doesn't erase the earlier failure.
-func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure error) {
+// collection is deleted mid-walk; that outcome is [CleanupSweepFailed], not
+// [CleanupSweepDropped] — the delete doesn't erase the earlier failure.
+//
+// Exported so the REST handlers that run the same sweep word their outcome by
+// this taxonomy rather than a second one of their own.
+func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error) {
 	switch {
 	case err == nil:
-		return terminalSweepClean, nil
+		return CleanupSweepClean, nil
 	case IsCleanupCollectionDropped(err):
-		return terminalSweepDropped, nil
+		return CleanupSweepDropped, nil
 	case errors.Is(err, ErrCleanupShardFailed):
-		return terminalSweepFailed, err
+		return CleanupSweepFailed, err
 	case errors.Is(err, ErrCleanupSweepTruncated):
-		return terminalSweepUnknown, err
+		return CleanupSweepUnknown, err
 	default:
 		// Not expected to be reached; an unmarked error is unknown, not clean.
-		return terminalSweepUnknown, err
+		return CleanupSweepUnknown, err
 	}
 }
 
@@ -1790,13 +1793,13 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 // reclaimed on release or restart). Failed and unknown both warrant one:
 // neither confirms the state is gone, and nothing removes it before the next
 // submit or the next-restart audit.
-func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
+func terminalCleanupOutcome(outcome CleanupSweepOutcome) (msg string, warn bool) {
 	switch outcome {
-	case terminalSweepFailed:
+	case CleanupSweepFailed:
 		return "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there", true
-	case terminalSweepUnknown:
+	case CleanupSweepUnknown:
 		return "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there", true
-	case terminalSweepDropped:
+	case CleanupSweepDropped:
 		return "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files", false
 	default:
 		return "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards", false

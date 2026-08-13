@@ -192,7 +192,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	sweepErr := errors.Join(failedShards, classifyIncompleteWalk(walkErr))
 
-	outcome, _ := classifyTerminalSweep(sweepErr)
+	outcome, _ := ClassifyCleanupSweep(sweepErr)
 	msg, level := sweepSummary(outcome)
 	uncachedListings := dirs.refusedListings()
 	if uncachedListings > 0 {
@@ -215,15 +215,15 @@ func (i *Index) cleanStalePartialReindexState(
 // sweep: what the sweep left behind, at the level that outcome warrants. Only a
 // shard the sweep reached and could not sweep is known to still hold state,
 // which is why it alone is an error.
-func sweepSummary(outcome terminalSweepOutcome) (msg string, level logrus.Level) {
+func sweepSummary(outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
 	switch outcome {
-	case terminalSweepFailed:
+	case CleanupSweepFailed:
 		return "partial-reindex cleanup: a shard could not be swept, so the partial state on it is still there",
 			logrus.ErrorLevel
-	case terminalSweepUnknown:
+	case CleanupSweepUnknown:
 		return "partial-reindex cleanup: the sweep did not reach every shard, so any partial state on the ones it missed is still there",
 			logrus.WarnLevel
-	case terminalSweepDropped:
+	case CleanupSweepDropped:
 		return "partial-reindex cleanup: the collection is not on this node, so whatever is left here goes with the collection directory",
 			logrus.InfoLevel
 	default:

@@ -279,31 +279,31 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 func TestTerminalCleanupOutcome(t *testing.T) {
 	tests := []struct {
 		name     string
-		outcome  terminalSweepOutcome
+		outcome  CleanupSweepOutcome
 		wantWarn bool
 		wantMsg  string
 	}{
 		{
 			name:    "every shard swept",
-			outcome: terminalSweepClean,
+			outcome: CleanupSweepClean,
 			wantMsg: "auto-cleanup after terminal status: partial sidecar state cleared on this node's active shards",
 		},
 		{
 			// Not a warning, but not a promise the disk is clean either: a
 			// backup in flight makes the delete keep the files.
 			name:    "the collection is not on this node",
-			outcome: terminalSweepDropped,
+			outcome: CleanupSweepDropped,
 			wantMsg: "auto-cleanup after terminal status: the collection is not on this node, so any partial sidecar state left here is removed with the collection directory, unless a backup in flight is keeping those files",
 		},
 		{
 			name:     "a shard could not be swept",
-			outcome:  terminalSweepFailed,
+			outcome:  CleanupSweepFailed,
 			wantWarn: true,
 			wantMsg:  "auto-cleanup after terminal status: some shards could not be swept, so any partial sidecar state on them is still there",
 		},
 		{
 			name:     "shards were never reached",
-			outcome:  terminalSweepUnknown,
+			outcome:  CleanupSweepUnknown,
 			wantWarn: true,
 			wantMsg:  "auto-cleanup after terminal status: could not check every shard on this node, so any partial sidecar state on the shards it did not reach is still there",
 		},
@@ -321,11 +321,11 @@ func TestTerminalCleanupOutcome(t *testing.T) {
 // A post-terminal cleanup runs one sweep per (property, index type) and reports
 // the worst of them, so the ordering decides which one speaks for the run.
 func TestTerminalSweepOutcomeOrdering(t *testing.T) {
-	require.Greater(t, terminalSweepFailed, terminalSweepUnknown,
+	require.Greater(t, CleanupSweepFailed, CleanupSweepUnknown,
 		"knowing state is on disk outranks not knowing")
-	require.Greater(t, terminalSweepUnknown, terminalSweepDropped,
+	require.Greater(t, CleanupSweepUnknown, CleanupSweepDropped,
 		"a shard nobody looked at outranks a collection that is going away")
-	require.Greater(t, terminalSweepDropped, terminalSweepClean)
+	require.Greater(t, CleanupSweepDropped, CleanupSweepClean)
 }
 
 // The fold must keep the worst outcome, not the last one: a clean sweep on
@@ -339,42 +339,42 @@ func TestSweepTerminalTuples(t *testing.T) {
 		name string
 		// errs is what each sweep returns, in call order.
 		errs         []error
-		wantOutcome  terminalSweepOutcome
+		wantOutcome  CleanupSweepOutcome
 		wantFailures int
 	}{
 		{
 			name:        "every sweep clean",
 			errs:        []error{nil, nil, nil, nil},
-			wantOutcome: terminalSweepClean,
+			wantOutcome: CleanupSweepClean,
 		},
 		{
 			name:         "a failure on the first tuple, clean after",
 			errs:         []error{diskFull, nil, nil, nil},
-			wantOutcome:  terminalSweepFailed,
+			wantOutcome:  CleanupSweepFailed,
 			wantFailures: 1,
 		},
 		{
 			name:         "a failure on the last tuple",
 			errs:         []error{nil, nil, nil, diskFull},
-			wantOutcome:  terminalSweepFailed,
+			wantOutcome:  CleanupSweepFailed,
 			wantFailures: 1,
 		},
 		{
 			name:         "a failure outranks a later truncation",
 			errs:         []error{diskFull, truncated, nil, nil},
-			wantOutcome:  terminalSweepFailed,
+			wantOutcome:  CleanupSweepFailed,
 			wantFailures: 2,
 		},
 		{
 			name:         "a truncation outranks a later drop",
 			errs:         []error{truncated, dropped, nil, nil},
-			wantOutcome:  terminalSweepUnknown,
+			wantOutcome:  CleanupSweepUnknown,
 			wantFailures: 1,
 		},
 		{
 			name:        "a drop outranks a clean sweep",
 			errs:        []error{nil, dropped, nil, nil},
-			wantOutcome: terminalSweepDropped,
+			wantOutcome: CleanupSweepDropped,
 		},
 	}
 
@@ -418,60 +418,60 @@ func TestClassifyTerminalSweep(t *testing.T) {
 	tests := []struct {
 		name        string
 		err         error
-		wantOutcome terminalSweepOutcome
+		wantOutcome CleanupSweepOutcome
 		wantFailure error
 	}{
 		{
 			name:        "every shard swept",
-			wantOutcome: terminalSweepClean,
+			wantOutcome: CleanupSweepClean,
 		},
 		{
 			name:        "the collection is being deleted",
 			err:         classifyIncompleteWalk(errIndexDropped),
-			wantOutcome: terminalSweepDropped,
+			wantOutcome: CleanupSweepDropped,
 		},
 		{
 			name:        "a shard could not be swept",
 			err:         shardFailed(diskFull),
-			wantOutcome: terminalSweepFailed,
+			wantOutcome: CleanupSweepFailed,
 			wantFailure: diskFull,
 		},
 		{
 			name:        "the walk stopped before it reached every shard",
 			err:         classifyIncompleteWalk(errIndexShutdown),
-			wantOutcome: terminalSweepUnknown,
+			wantOutcome: CleanupSweepUnknown,
 			wantFailure: errIndexShutdown,
 		},
 		{
 			name:        "the walk skipped a shard nothing explained",
 			err:         classifyIncompleteWalk(fmt.Errorf("%w: shard-b", errShardsSkipped)),
-			wantOutcome: terminalSweepUnknown,
+			wantOutcome: CleanupSweepUnknown,
 			wantFailure: errShardsSkipped,
 		},
 		{
 			// No known producer; defaults to unknown rather than failed.
 			name:        "an error carrying none of the markers",
 			err:         unmarked,
-			wantOutcome: terminalSweepUnknown,
+			wantOutcome: CleanupSweepUnknown,
 			wantFailure: unmarked,
 		},
 		{
 			name:        "a shard failed and then the collection was deleted",
 			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexDropped)),
-			wantOutcome: terminalSweepFailed,
+			wantOutcome: CleanupSweepFailed,
 			wantFailure: diskFull,
 		},
 		{
 			name:        "a shard failed and the walk was cut short",
 			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexShutdown)),
-			wantOutcome: terminalSweepFailed,
+			wantOutcome: CleanupSweepFailed,
 			wantFailure: diskFull,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			outcome, failure := classifyTerminalSweep(tc.err)
+			outcome, failure := ClassifyCleanupSweep(tc.err)
 			require.Equal(t, tc.wantOutcome, outcome)
 			if tc.wantFailure == nil {
 				require.NoError(t, failure)
