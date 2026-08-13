@@ -127,11 +127,14 @@ func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplication
 // the apply path keeps writing to, and the caller reads them after opsLock is
 // released.
 //
-// The Errors slices already archived in History need no copy. ChangeState puts a
-// fresh slice in Current, so nothing appends to an archived one again.
+// Cloning the History slice alone is not enough, because each entry keeps its own
+// Errors slice pointing back into the FSM.
 func (s ShardReplicationOpStatus) clone() ShardReplicationOpStatus {
 	s.PerNodeState = maps.Clone(s.PerNodeState)
 	s.History = slices.Clone(s.History)
+	for i := range s.History {
+		s.History[i].Errors = slices.Clone(s.History[i].Errors)
+	}
 	s.Current.Errors = slices.Clone(s.Current.Errors)
 	return s
 }

@@ -708,6 +708,108 @@ func TestShardReplicationFSM_HandsOutDetachedState(t *testing.T) {
 	}
 }
 
+// Cloning the History slice copies the State entries but not the Errors slice
+// inside each one, so an archived error stays shared with the FSM. Every exit
+// point that hands out a status is covered: a caller reaching one of them holds
+// the same aliased memory as a caller reaching any other.
+func TestShardReplicationFSM_HandsOutDetachedHistoryErrors(t *testing.T) {
+	const (
+		coll   = "TestClass"
+		source = "node1"
+		target = "node2"
+		shard  = "shard-0"
+		opID   = uint64(1)
+		errMsg = "hydration failed"
+	)
+
+	tests := []struct {
+		name    string
+		handOut func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus
+	}{
+		{
+			name: "GetOpById",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				op, ok := fsm.GetOpById(opID)
+				require.True(t, ok)
+				return op.Status
+			},
+		},
+		{
+			name: "GetOpState",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				op, ok := fsm.GetOpById(opID)
+				require.True(t, ok)
+				status, ok := fsm.GetOpState(op.Op)
+				require.True(t, ok)
+				return status
+			},
+		},
+		{
+			name: "GetStatusByOps",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				statuses := fsm.GetStatusByOps()
+				require.Len(t, statuses, 1)
+				for _, status := range statuses {
+					return status
+				}
+				return replication.ShardReplicationOpStatus{}
+			},
+		},
+		{
+			name: "GetOpsForCollection",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				ops, ok := fsm.GetOpsForCollection(coll)
+				require.True(t, ok)
+				require.Len(t, ops, 1)
+				return ops[0].Status
+			},
+		},
+		{
+			name: "GetOpsForCollectionAndShard",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				ops, ok := fsm.GetOpsForCollectionAndShard(coll, shard)
+				require.True(t, ok)
+				require.Len(t, ops, 1)
+				return ops[0].Status
+			},
+		},
+		{
+			name: "GetOpsForTargetNode",
+			handOut: func(t *testing.T, fsm *replication.ShardReplicationFSM) replication.ShardReplicationOpStatus {
+				ops, ok := fsm.GetOpsForTargetNode(target)
+				require.True(t, ok)
+				require.Len(t, ops, 1)
+				return ops[0].Status
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			seedOpFull(t, fsm, opID, source, target, coll, shard, api.COPY)
+			require.NoError(t, fsm.RegisterError(&api.ReplicationRegisterErrorRequest{
+				Version:    api.ReplicationCommandVersionV0,
+				Id:         opID,
+				Error:      errMsg,
+				TimeUnixMs: 1,
+			}))
+			// Moves the error out of Current and into History.
+			driveToState(t, fsm, opID, api.HYDRATING)
+
+			status := test.handOut(t, fsm)
+			history := status.GetHistory()
+			require.Len(t, history, 1)
+			require.Len(t, history[0].Errors, 1)
+			history[0].Errors[0].Message = "overwritten by the caller"
+
+			current, ok := fsm.GetOpById(opID)
+			require.True(t, ok)
+			assert.Equal(t, errMsg, current.Status.GetHistory()[0].Errors[0].Message)
+		})
+	}
+}
+
 func BenchmarkHasActiveTargetReplicationForShard(b *testing.B) {
 	const (
 		coll   = "TestClass"
