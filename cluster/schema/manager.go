@@ -214,7 +214,9 @@ func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
-	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	// Raft runs Persist concurrently with Apply, so the alias map must be
+	// copied under the schema read lock.
+	err := json.NewEncoder(&buf).Encode(s.schema.cloneAliases())
 	return buf.Bytes(), err
 }
 

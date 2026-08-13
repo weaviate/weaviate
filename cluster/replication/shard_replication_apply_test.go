@@ -555,3 +555,74 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, state string) float64 {
 	}
 	return 0
 }
+
+// Every force delete walks an index slice that removeReplicationOp compacts in
+// place, so ranging over that slice directly skips ops and then fails on an id
+// it already deleted. Three ops is the smallest set that shows it.
+func TestShardReplicationFSM_ForceDelete(t *testing.T) {
+	const (
+		coll   = "TestClass"
+		shard  = "shard-0"
+		target = "node2"
+	)
+
+	// Ops that share a target need distinct shards, and ops that share a shard
+	// need distinct targets, or admission rejects them.
+	seedPerShard := func(t *testing.T, fsm *replication.ShardReplicationFSM, n int) {
+		for i := range n {
+			seedOpFull(t, fsm, uint64(i+1), "node1", target, coll, fmt.Sprintf("shard-%d", i), api.COPY)
+		}
+	}
+
+	tests := []struct {
+		name        string
+		seed        func(t *testing.T, fsm *replication.ShardReplicationFSM, n int)
+		forceDelete func(fsm *replication.ShardReplicationFSM) error
+	}{
+		{
+			name: "by collection",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByCollection(coll)
+			},
+		},
+		{
+			name: "by collection and shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM, n int) {
+				for i := range n {
+					seedOpFull(t, fsm, uint64(i+1), "node1", fmt.Sprintf("node-%d", i), coll, shard, api.COPY)
+				}
+			},
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByCollectionAndShard(coll, shard)
+			},
+		},
+		{
+			name: "by target node",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByTargetNode(target)
+			},
+		},
+		{
+			name: "all",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteAll()
+			},
+		},
+	}
+
+	for _, test := range tests {
+		for _, ops := range []int{1, 2, 3, 4, 5} {
+			t.Run(fmt.Sprintf("%s/%d ops", test.name, ops), func(t *testing.T) {
+				fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+				test.seed(t, fsm, ops)
+				require.Len(t, fsm.GetStatusByOps(), ops)
+
+				require.NoError(t, test.forceDelete(fsm))
+				require.Empty(t, fsm.GetStatusByOps(), "force delete leaves no op behind")
+			})
+		}
+	}
+}

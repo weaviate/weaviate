@@ -31,6 +31,8 @@ type nodeWideMetricsObserver struct {
 
 	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
+	// shutdownOnce keeps a repeated DB.Shutdown from double-closing the channel.
+	shutdownOnce sync.Once
 
 	// The tenant maps that the most recent cycle filled, kept so the next cycle
 	// can refill them instead of allocating new ones. The counters a cycle
@@ -97,7 +99,7 @@ func (o *nodeWideMetricsObserver) Start() {
 }
 
 func (o *nodeWideMetricsObserver) Shutdown() {
-	close(o.shutdown)
+	o.shutdownOnce.Do(func() { close(o.shutdown) })
 }
 
 func (o *nodeWideMetricsObserver) observeShards() {

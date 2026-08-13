@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.8"
+    "version": "1.38.9"
   },
   "basePath": "/v1",
   "paths": {
@@ -146,6 +146,87 @@ func init() {
           },
           "503": {
             "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
+          }
+        }
+      }
+    },
+    "/aggregate/{collection}": {
+      "post": {
+        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat ` + "`" + `count` + "`" + ` response) or per group of a ` + "`" + `groupBy` + "`" + ` property (` + "`" + `groups` + "`" + ` response). A ` + "`" + `where` + "`" + ` filter limits the objects that are aggregated; an empty body returns the collection's total object count.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "aggregate"
+        ],
+        "summary": "Aggregate over a collection",
+        "operationId": "aggregate",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to aggregate over. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The aggregate request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AggregateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregation performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/AggregateResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an unknown groupBy property, a non-positive limit, limit without groupBy, an unknown filter property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks aggregations (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5816,7 +5897,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -5837,13 +5918,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6614,6 +6695,273 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/bm25": {
+      "post": {
+        "description": "Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `queryProperties` + "`" + ` subset) and the best-scoring objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with bm25",
+        "operationId": "search.bm25",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The bm25 search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchBm25Request"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/hybrid": {
+      "post": {
+        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `queryProperties` + "`" + ` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per ` + "`" + `fusionType` + "`" + `, weighted by ` + "`" + `alpha` + "`" + `) and the best objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with hybrid",
+        "operationId": "search.hybrid",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The hybrid search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchHybridRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-object": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at an existing object: the stored vector of the source object (referenced by ` + "`" + `id` + "`" + `) is searched against the vector index and the closest objects are returned — the source object itself included — each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-object",
+        "operationId": "search.nearObject",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-object search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearObjectRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an id that matches no object in the collection, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/search/{collection}/near-text": {
       "post": {
         "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
@@ -7280,6 +7628,115 @@ func init() {
         "type": "object"
       }
     },
+    "AggregateGroup": {
+      "description": "One group of a grouped aggregation: the group's identity under ` + "`" + `groupedBy` + "`" + ` and its aggregated metrics (phase 1: ` + "`" + `count` + "`" + `).",
+      "type": "object",
+      "required": [
+        "groupedBy",
+        "count"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of objects in the group.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "groupedBy": {
+          "$ref": "#/definitions/AggregateGroupedBy"
+        }
+      }
+    },
+    "AggregateGroupedBy": {
+      "description": "The identity of one group: the ` + "`" + `groupBy` + "`" + ` property (as a one-element path) and the property value that formed the group.",
+      "type": "object",
+      "required": [
+        "path",
+        "value"
+      ],
+      "properties": {
+        "path": {
+          "description": "The grouped property, as a one-element path.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "description": "The property value that formed the group. Typed as the property is: text values are strings, numeric values numbers, boolean values booleans; grouping by a reference property yields the reference's beacon URI as a string."
+        }
+      }
+    },
+    "AggregateRequest": {
+      "description": "Request body for the aggregate endpoint. Phase 1 supports counts: the number of matching objects, in total or per group. Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships. An empty body ` + "`" + `{}` + "`" + ` returns the collection's total object count.",
+      "type": "object",
+      "properties": {
+        "groupBy": {
+          "description": "The property to group by, as a bare property name. Each distinct value of the property forms one group (an object whose property holds several values counts toward each of them). Omitted or empty aggregates over all matching objects without grouping.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The maximum number of groups to return, largest first. Must be positive and requires ` + "`" + `groupBy` + "`" + `; omitted falls back to the server default (100 groups).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectLimit": {
+          "description": "Reserved for aggregate-over-search (the maximum number of search results to aggregate). Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregate-over-search (aggregating the results of a vector, keyword or hybrid search). Returns 422 (not yet supported).",
+          "type": "object",
+          "x-nullable": true
+        },
+        "returnMetrics": {
+          "description": "The aggregation metrics to return. Phase 1 supports only ` + "`" + `count` + "`" + ` (the number of matching objects, per group when ` + "`" + `groupBy` + "`" + ` is set); omitted or empty is equivalent to ` + "`" + `[\"count\"]` + "`" + `. The property-scoped ` + "`" + `property:statistic` + "`" + ` grammar (e.g. ` + "`" + `price:mean` + "`" + `) is reserved and returns 422 (not yet supported).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tenant": {
+          "description": "The tenant to aggregate in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are aggregated.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "AggregateResponse": {
+      "description": "The result of an aggregation. An ungrouped aggregation returns the flat form (` + "`" + `count` + "`" + ` plus ` + "`" + `tookMs` + "`" + `); a grouped aggregation returns ` + "`" + `groups` + "`" + ` plus ` + "`" + `tookMs` + "`" + `. Exactly one of ` + "`" + `count` + "`" + `/` + "`" + `groups` + "`" + ` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits ` + "`" + `groups` + "`" + ` entirely.",
+      "type": "object",
+      "required": [
+        "tookMs"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of matching objects. Present only for ungrouped aggregations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "groups": {
+          "description": "The groups, ordered by descending count. Present only for grouped aggregations.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AggregateGroup"
+          },
+          "x-omitempty": true
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
     "Alias": {
       "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
@@ -7412,6 +7869,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8731,7 +9195,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8750,7 +9214,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -8780,6 +9244,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -8798,7 +9263,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -10464,8 +10929,35 @@ func init() {
         }
       }
     },
+    "SearchBm25Request": {
+      "description": "Request body for the bm25 search endpoint. Performs a keyword (BM25F) search over the collection's searchable text properties and returns the best-scoring objects. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the bm25-specific ` + "`" + `query` + "`" + ` and ` + "`" + `queryProperties` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "query": {
+              "description": "The keyword query to score objects against, as a plain string. Must not be empty.",
+              "type": "string"
+            },
+            "queryProperties": {
+              "description": "The properties to keyword-search, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
     "SearchCommon": {
-      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "description": "Fields shared by every REST search request (near-text, bm25, hybrid, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
         "autoLimit": {
@@ -10557,6 +11049,94 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         }
       }
+    },
+    "SearchHybridRequest": {
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "alpha": {
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "fusionType": {
+              "description": "The algorithm that fuses the keyword and vector rankings: ` + "`" + `ranked` + "`" + ` (reciprocal-rank fusion) or ` + "`" + `relativeScore` + "`" + ` (normalized-score fusion). Omitted defaults to ` + "`" + `relativeScore` + "`" + `.",
+              "type": "string",
+              "enum": [
+                "ranked",
+                "relativeScore"
+              ]
+            },
+            "maxVectorDistance": {
+              "description": "The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "type": "string"
+            },
+            "queryProperties": {
+              "description": "The properties the keyword part of the search scores against, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearObjectRequest": {
+      "description": "Request body for the near-object search endpoint. The stored vector of an existing object (the source object, referenced by ` + "`" + `id` + "`" + `) anchors the search and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-object-specific ` + "`" + `id` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "id": {
+              "description": "The UUID of the source object whose stored vector anchors the search. A structurally invalid UUID is rejected at request validation; a well-formed UUID that matches no object in the collection is rejected with 400.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "targetVector": {
+              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "SearchNearTextRequest": {
       "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
@@ -11436,8 +12016,12 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; the bm25 endpoint performs keyword (BM25F) search over the searchable text properties. Each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
       "name": "search"
+    },
+    {
+      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional ` + "`" + `where` + "`" + ` filter, in total or grouped by a property's distinct values.",
+      "name": "aggregate"
     },
     {
       "name": "meta"
@@ -11499,7 +12083,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.8"
+    "version": "1.38.9"
   },
   "basePath": "/v1",
   "paths": {
@@ -11597,6 +12181,87 @@ func init() {
           },
           "503": {
             "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
+          }
+        }
+      }
+    },
+    "/aggregate/{collection}": {
+      "post": {
+        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat ` + "`" + `count` + "`" + ` response) or per group of a ` + "`" + `groupBy` + "`" + ` property (` + "`" + `groups` + "`" + ` response). A ` + "`" + `where` + "`" + ` filter limits the objects that are aggregated; an empty body returns the collection's total object count.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "aggregate"
+        ],
+        "summary": "Aggregate over a collection",
+        "operationId": "aggregate",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to aggregate over. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The aggregate request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AggregateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregation performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/AggregateResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an unknown groupBy property, a non-positive limit, limit without groupBy, an unknown filter property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks aggregations (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -17365,7 +18030,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -17386,13 +18051,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18163,6 +18828,273 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/bm25": {
+      "post": {
+        "description": "Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `queryProperties` + "`" + ` subset) and the best-scoring objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with bm25",
+        "operationId": "search.bm25",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The bm25 search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchBm25Request"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/hybrid": {
+      "post": {
+        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `queryProperties` + "`" + ` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per ` + "`" + `fusionType` + "`" + `, weighted by ` + "`" + `alpha` + "`" + `) and the best objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with hybrid",
+        "operationId": "search.hybrid",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The hybrid search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchHybridRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-object": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at an existing object: the stored vector of the source object (referenced by ` + "`" + `id` + "`" + `) is searched against the vector index and the closest objects are returned — the source object itself included — each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-object",
+        "operationId": "search.nearObject",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-object search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearObjectRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an id that matches no object in the collection, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/search/{collection}/near-text": {
       "post": {
         "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
@@ -18829,6 +19761,115 @@ func init() {
         "type": "object"
       }
     },
+    "AggregateGroup": {
+      "description": "One group of a grouped aggregation: the group's identity under ` + "`" + `groupedBy` + "`" + ` and its aggregated metrics (phase 1: ` + "`" + `count` + "`" + `).",
+      "type": "object",
+      "required": [
+        "groupedBy",
+        "count"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of objects in the group.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "groupedBy": {
+          "$ref": "#/definitions/AggregateGroupedBy"
+        }
+      }
+    },
+    "AggregateGroupedBy": {
+      "description": "The identity of one group: the ` + "`" + `groupBy` + "`" + ` property (as a one-element path) and the property value that formed the group.",
+      "type": "object",
+      "required": [
+        "path",
+        "value"
+      ],
+      "properties": {
+        "path": {
+          "description": "The grouped property, as a one-element path.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "description": "The property value that formed the group. Typed as the property is: text values are strings, numeric values numbers, boolean values booleans; grouping by a reference property yields the reference's beacon URI as a string."
+        }
+      }
+    },
+    "AggregateRequest": {
+      "description": "Request body for the aggregate endpoint. Phase 1 supports counts: the number of matching objects, in total or per group. Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships. An empty body ` + "`" + `{}` + "`" + ` returns the collection's total object count.",
+      "type": "object",
+      "properties": {
+        "groupBy": {
+          "description": "The property to group by, as a bare property name. Each distinct value of the property forms one group (an object whose property holds several values counts toward each of them). Omitted or empty aggregates over all matching objects without grouping.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The maximum number of groups to return, largest first. Must be positive and requires ` + "`" + `groupBy` + "`" + `; omitted falls back to the server default (100 groups).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectLimit": {
+          "description": "Reserved for aggregate-over-search (the maximum number of search results to aggregate). Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregate-over-search (aggregating the results of a vector, keyword or hybrid search). Returns 422 (not yet supported).",
+          "type": "object",
+          "x-nullable": true
+        },
+        "returnMetrics": {
+          "description": "The aggregation metrics to return. Phase 1 supports only ` + "`" + `count` + "`" + ` (the number of matching objects, per group when ` + "`" + `groupBy` + "`" + ` is set); omitted or empty is equivalent to ` + "`" + `[\"count\"]` + "`" + `. The property-scoped ` + "`" + `property:statistic` + "`" + ` grammar (e.g. ` + "`" + `price:mean` + "`" + `) is reserved and returns 422 (not yet supported).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tenant": {
+          "description": "The tenant to aggregate in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are aggregated.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "AggregateResponse": {
+      "description": "The result of an aggregation. An ungrouped aggregation returns the flat form (` + "`" + `count` + "`" + ` plus ` + "`" + `tookMs` + "`" + `); a grouped aggregation returns ` + "`" + `groups` + "`" + ` plus ` + "`" + `tookMs` + "`" + `. Exactly one of ` + "`" + `count` + "`" + `/` + "`" + `groups` + "`" + ` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits ` + "`" + `groups` + "`" + ` entirely.",
+      "type": "object",
+      "required": [
+        "tookMs"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of matching objects. Present only for ungrouped aggregations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "groups": {
+          "description": "The groups, ordered by descending count. Present only for grouped aggregations.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AggregateGroup"
+          },
+          "x-omitempty": true
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
     "Alias": {
       "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
@@ -18961,6 +20002,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20465,7 +21513,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20484,7 +21532,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -20514,6 +21562,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -20532,7 +21581,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -22388,8 +23437,35 @@ func init() {
         }
       }
     },
+    "SearchBm25Request": {
+      "description": "Request body for the bm25 search endpoint. Performs a keyword (BM25F) search over the collection's searchable text properties and returns the best-scoring objects. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the bm25-specific ` + "`" + `query` + "`" + ` and ` + "`" + `queryProperties` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "query": {
+              "description": "The keyword query to score objects against, as a plain string. Must not be empty.",
+              "type": "string"
+            },
+            "queryProperties": {
+              "description": "The properties to keyword-search, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
     "SearchCommon": {
-      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "description": "Fields shared by every REST search request (near-text, bm25, hybrid, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
         "autoLimit": {
@@ -22481,6 +23557,94 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         }
       }
+    },
+    "SearchHybridRequest": {
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "alpha": {
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "fusionType": {
+              "description": "The algorithm that fuses the keyword and vector rankings: ` + "`" + `ranked` + "`" + ` (reciprocal-rank fusion) or ` + "`" + `relativeScore` + "`" + ` (normalized-score fusion). Omitted defaults to ` + "`" + `relativeScore` + "`" + `.",
+              "type": "string",
+              "enum": [
+                "ranked",
+                "relativeScore"
+              ]
+            },
+            "maxVectorDistance": {
+              "description": "The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "type": "string"
+            },
+            "queryProperties": {
+              "description": "The properties the keyword part of the search scores against, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearObjectRequest": {
+      "description": "Request body for the near-object search endpoint. The stored vector of an existing object (the source object, referenced by ` + "`" + `id` + "`" + `) anchors the search and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-object-specific ` + "`" + `id` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "id": {
+              "description": "The UUID of the source object whose stored vector anchors the search. A structurally invalid UUID is rejected at request validation; a well-formed UUID that matches no object in the collection is rejected with 400.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "targetVector": {
+              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "SearchNearTextRequest": {
       "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
@@ -23372,8 +24536,12 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; the bm25 endpoint performs keyword (BM25F) search over the searchable text properties. Each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
       "name": "search"
+    },
+    {
+      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional ` + "`" + `where` + "`" + ` filter, in total or grouped by a property's distinct values.",
+      "name": "aggregate"
     },
     {
       "name": "meta"

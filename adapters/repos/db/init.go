@@ -112,7 +112,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
+			asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
 			}
@@ -183,7 +183,9 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
+				StartupShards:                                &db.startupShards,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
+				NamespacesExister:                            db.namespacesExister,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
 				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
 				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,

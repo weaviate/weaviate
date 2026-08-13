@@ -56,6 +56,7 @@ type DistributedBackupDescriptor struct {
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
+	Roles                   []string                   `json:"roles,omitempty"`
 }
 
 // Len returns how many nodes exist in d

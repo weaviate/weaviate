@@ -110,19 +110,29 @@ type snapshot struct {
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
+	ops, err := s.snapshotOps()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(&snapshot{Ops: ops})
+}
+
+// snapshotOps copies the ops under the read lock so Snapshot can encode them
+// without holding it. Raft runs Persist concurrently with Apply, so the copies
+// must not alias state the apply path still writes.
+func (s *ShardReplicationFSM) snapshotOps() (map[ShardReplicationOp]ShardReplicationOpStatus, error) {
 	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
 	ops := make(map[ShardReplicationOp]ShardReplicationOpStatus, len(s.statusById))
 	for id, status := range s.statusById {
 		op, ok := s.opsById[id]
 		if !ok {
-			s.opsLock.RUnlock()
-			return nil, fmt.Errorf("op %d not found in opsById", op.ID)
+			return nil, fmt.Errorf("op %d not found in opsById", id)
 		}
-		ops[op] = status
+		ops[op] = status.clone()
 	}
-	s.opsLock.RUnlock()
-
-	return json.Marshal(&snapshot{Ops: ops})
+	return ops, nil
 }
 
 func (s *ShardReplicationFSM) Restore(bytes []byte) error {
@@ -193,9 +203,8 @@ func (s *ShardReplicationFSM) GetOpById(id uint64) (ShardReplicationOpAndStatus,
 	return NewShardReplicationOpAndStatus(op, status), true
 }
 
-// GetOpsForTarget returns a copy. Callers iterate the result after the lock is
-// dropped, while removeReplicationOps compacts the bucket's backing array in
-// place, so returning the bucket itself would be an unsynchronized read.
+// GetOpsForTarget returns a copy: removeReplicationOp compacts the stored slice
+// in place, which would shift entries under a caller still ranging over it.
 func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
@@ -379,7 +388,7 @@ func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardRepli
 		if !ok {
 			continue
 		}
-		opsStatus[op] = status
+		opsStatus[op] = status.clone()
 	}
 	return opsStatus
 }
@@ -404,7 +413,10 @@ func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicatio
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	v, ok := s.statusById[op.ID]
-	return v, ok
+	if !ok {
+		return ShardReplicationOpStatus{}, false
+	}
+	return v.clone(), true
 }
 
 func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string {

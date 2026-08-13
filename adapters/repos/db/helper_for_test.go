@@ -292,6 +292,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -306,7 +307,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
@@ -355,6 +356,11 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
+	// With async indexing on, NewShard reads the checkpoint store from a
+	// goroutine, so a missing one surfaces on an unrelated test.
+	require.False(t, withAsyncIndexingEnabled && !withCheckpoints,
+		"async indexing needs withCheckpoints")
+
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
@@ -401,7 +407,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 		HaltForTransferTimeout:    config.DefaultHaltForTransferTimeout,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	// Install a default empty backup-gate activity lookup so
 	// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not
@@ -447,8 +453,24 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
 		}, nil,
 	).Maybe()
+	mockRouter.EXPECT().
+		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(tenant, shard string, cl types.ConsistencyLevel, direct string) types.RoutingPlanBuildOptions {
+			return types.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
+		}).
+		Maybe()
+	mockRouter.EXPECT().
+		BuildReadRoutingPlan(mock.Anything).
+		Return(types.ReadRoutingPlan{
+			LocalHostname: "127.0.0.1",
+			ReplicaSet: types.ReadReplicaSet{
+				Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+			},
+		}, nil).
+		Maybe()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.1", true).Maybe()
 
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
