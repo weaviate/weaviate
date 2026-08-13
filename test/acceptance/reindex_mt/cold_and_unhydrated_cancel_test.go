@@ -29,7 +29,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -99,11 +98,23 @@ func coldCancelTenants() []sweepTenant {
 	return tenants
 }
 
-// testColdAndUnhydratedTenantCancel runs the journey and returns the REST URI
-// the rest of the suite must use — it restarts the container, which remaps the
-// published port.
-func testColdAndUnhydratedTenantCancel(t *testing.T, compose *docker.DockerCompose) string {
+// testColdAndUnhydratedTenantCancel runs the journey on its own compose. The
+// unloaded-shard population it pins only exists under forced-lazy loading,
+// which the rest of the suite must not run under (it needs its own
+// eager-loaded coverage), so this test cannot share the suite's container.
+func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	ctx := context.Background()
+
+	compose, err := reindexhelpers.SingleNodeCompose().
+		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate cold-cancel test containers: %s", err.Error())
+		}
+	}()
+
 	restURI := compose.GetWeaviate().URI()
 	container := compose.GetWeaviate().Container()
 	helper.SetupClient(restURI)
@@ -207,8 +218,6 @@ func testColdAndUnhydratedTenantCancel(t *testing.T, compose *docker.DockerCompo
 		hits := bm25QueryTenant(t, coldCancelClass, "name", "corpus", name)
 		assert.NotEmpty(t, hits, "reactivated tenant %q must still serve its objects", name)
 	}
-
-	return restURI
 }
 
 // =============================================================================
