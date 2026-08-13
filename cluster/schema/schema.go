@@ -81,7 +81,7 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 
-	// mu protects the `classes`
+	// mu protects `classes` and `aliases`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
 	aliases map[string]string // key: canonical form all in TitleCase.
