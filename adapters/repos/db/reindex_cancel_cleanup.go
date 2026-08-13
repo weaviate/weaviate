@@ -212,13 +212,10 @@ func (i *Index) cleanStalePartialReindexState(
 	return sweepErr
 }
 
-// sweepSummary is the one line [Index.cleanStalePartialReindexState] leaves per
-// sweep: what the sweep left behind, at the level that outcome warrants. Only a
-// shard the sweep reached and could not sweep is known to still hold state,
-// which is why it alone is an error.
-//
-// Only a clean sweep gets the clean line: an outcome added later has nothing
-// here to say it was checked, so it falls through to the unknown one.
+// sweepSummary is the one line [Index.cleanStalePartialReindexState] leaves
+// per sweep, at the level its outcome warrants. Only a shard the sweep
+// reached and could not sweep is known to still hold state, which is why
+// that outcome alone is an error.
 func sweepSummary(outcome CleanupSweepOutcome) (msg string, level logrus.Level) {
 	// Shared with the default arm: an outcome this build cannot name confirms
 	// no more than an unfinished walk does.

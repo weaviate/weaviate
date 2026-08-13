@@ -20,13 +20,9 @@ import (
 )
 
 // TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug pins that preserving a
-// deferred-finalize tracker dir logs at Debug, not Info. cleanStaleMigrationDirsIn
-// runs once per preserved generation inside Store.Apply's wg.Wait(), under
-// Migrator.UpdateProperty's per-class lock, i.e. inside the RAFT apply loop. In
-// the steady state after a completed migration awaiting restart-finalize, every
-// tenant shard holds one preserved generation, so one property DELETE on a
-// 10k-tenant class would emit ~10k Info records serialized on logrus's writer
-// mutex if this line ran at Info.
+// deferred-finalize tracker dir logs at Debug: this runs inside the RAFT
+// apply loop, and Info would serialize ~10k lines per property DELETE on a
+// 10k-tenant class awaiting restart-finalize.
 func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	lsm := t.TempDir()
 	propName := "category"

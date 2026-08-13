@@ -1789,15 +1789,9 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 }
 
 // terminalCleanupLogLine is what the operator is told after the post-terminal
-// sweep. A dropped collection warrants no warning — the delete removes the
-// whole collection directory (barring an in-flight backup's keepFiles,
-// reclaimed on release or restart). Failed and unknown both warrant one:
-// neither confirms the state is gone, and nothing removes it before the next
-// submit or the next-restart audit.
-//
-// Only a clean sweep gets the clean line. An outcome added later arrives here
-// through [sweepEachPropertyIndexType]'s max fold, and reporting it as clean
-// would tell the operator state is gone that nobody checked.
+// sweep. A dropped collection warrants no warning: the delete removes its
+// directory (barring an in-flight backup's keepFiles). Failed and unknown
+// both warn, since neither confirms the state is gone.
 func terminalCleanupLogLine(outcome CleanupSweepOutcome) (msg string, warn bool) {
 	// Shared with the default arm: an outcome this build cannot name confirms
 	// no more than an unfinished walk does.
@@ -2179,11 +2173,9 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 }
 
 // shardHasUntidiedTracker reports whether any (index type, property) tuple
-// this task owns left an uncommitted tracker on the shard at lsmPath.
-//
-// Every tuple asks the same tracker dirs for their property list, so props
-// memoizes the answer across them; a nil memo re-reads, and one such read is
-// a full payload.mig parse — hundreds of milliseconds on a large migration.
+// this task owns left an uncommitted tracker on the shard at lsmPath. props
+// memoizes payload reads across tuples (nil re-reads); one read is a full
+// payload.mig parse — hundreds of milliseconds on a large migration.
 func shardHasUntidiedTracker(
 	lsmPath string, payload *ReindexTaskPayload, indexTypes []string, props *taskPropsCache,
 ) bool {

@@ -499,11 +499,8 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 	}
 }
 
-// A tracker named "enable_filterable_other" cannot have come from any
-// property list holding "category", so the payload next to it has nothing to
-// add and its being corrupt decides nothing. Counting it anyway re-issues
-// this task's post-completion ack on every process start until the
-// completed-task TTL drops the task.
+// A tracker dir whose name already excludes "category" can't have that
+// decided by a corrupt payload next to it — the name settles it first.
 func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *testing.T) {
 	ctx := testCtx()
 	className := "OtherPropTracker_" + uuid.NewString()[:8]

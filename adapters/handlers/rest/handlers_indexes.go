@@ -927,9 +927,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
 				return sweep(ctx, collection, propertyName, it)
 			})
-			// strategies rather than the URL's index type: the sweep covers
-			// every strategy this migration touches, and each failure line
-			// names the one it belongs to.
+			// The log fields name every strategy this migration touches, not just
+			// the URL's index type; each failure line adds its own index_type.
 			logCancelCleanupOutcome(h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
 				"collection": collection,
@@ -1023,12 +1022,10 @@ func (f staleSweepFailure) Error() string {
 	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
 }
 
-// sweepStaleReindexState runs sweep once per index type and splits the results
-// by [db.ClassifyCleanupSweep]: the failures an operator must act on, and a
-// count of the sweeps a dropped collection suppressed. A dropped collection is
-// not a failure — with the class gone, no later submit can short-circuit on
-// whatever the delete left behind — but it is not a completed cleanup either,
-// so the caller gets it as its own number instead of as a clean sweep.
+// sweepStaleReindexState runs sweep once per index type and splits the
+// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
+// failure (nothing left to short-circuit on) but also not a completed
+// cleanup, so it comes back as its own count rather than folded into either.
 func sweepStaleReindexState(
 	indexTypes []string, sweep func(indexType string) error,
 ) (failures []staleSweepFailure, dropped int) {
@@ -1047,15 +1044,9 @@ func sweepStaleReindexState(
 }
 
 // logStaleSweepFailures emits one operator-facing line per sweep that did not
-// finish, worded by what the sweep left behind. A shard that was reached and
-// could not be swept is an Error: what is on it is known to be still there,
-// and the next task can resume against it. A walk that did not reach every
-// shard is a Warn instead — routine tenant churn (a HOT→COLD transition
-// during the walk) produces it, and the shards it missed are unverified
-// rather than known-stale.
-//
-// phase names the handler for the operator ("submit", "cancel"); entry
-// carries the fields identifying the collection and property.
+// finish, worded by what it left behind: an Error when a reached shard could
+// not be swept (state is known to still be there), a Warn when the walk never
+// reached some shards (routine tenant churn, not known-stale).
 func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSweepFailure) {
 	for _, failure := range failures {
 		failureEntry := entry.WithField("index_type", failure.indexType)

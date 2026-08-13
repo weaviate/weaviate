@@ -62,18 +62,15 @@ const (
 	// wrong half is unmistakable.
 	coldCancelObjectsPerTenant = 200
 
-	// Clean HOT tenants. A restarted node hydrates its lazily-loaded tenants
-	// in the background at one per second, so this count is also the number of
-	// seconds the re-submit has to reach the sweep while unloaded tenants
-	// still exist. Fourteen leaves an order of magnitude more room than the
+	// Clean HOT tenants. Hydration runs at one tenant/sec in the background,
+	// so this count is also how many seconds the re-submit has to land while
+	// tenants are still unloaded. 14 is an order of magnitude more than a
 	// single HTTP round trip needs.
 	coldCancelCleanTenants = 14
 
-	// Tracker dir planted on the tenants that must have something to sweep.
-	// `filterable_to_rangeable_<prop>` is the enable-rangeable strategy's own
-	// dir name; generation 9 is far above anything this collection's
-	// migrations claim, so the planted tracker can never be mistaken for the
-	// cancelled run's own.
+	// Tracker dir planted on tenants that must have something to sweep.
+	// Generation 9 is far above anything this collection's own migrations
+	// claim, so it can't be mistaken for the cancelled run's own.
 	coldCancelPlantedDir = "filterable_to_rangeable_" + coldCancelProp + "_9"
 )
 
@@ -147,11 +144,10 @@ func testColdAndUnhydratedTenantCancel(t *testing.T, compose *docker.DockerCompo
 	container = compose.GetWeaviate().Container()
 	helper.SetupClient(restURI)
 
-	// Step 5: re-submit, naming the HOT tenants. A migration that names no
-	// tenants still hands a COLD one a task unit, which then fails on the
-	// shard the index map no longer has and fails the whole task with it. The
-	// sweep is collection-wide either way — it walks the shard map, not the
-	// tenant filter — so naming tenants costs the assertions below nothing.
+	// Step 5: re-submit, naming the HOT tenants — an unnamed COLD tenant would
+	// get a task unit and fail on a shard the index map no longer has. The
+	// sweep itself is collection-wide regardless: it walks the shard map, not
+	// the tenant filter.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, coldCancelClass, coldCancelProp,
@@ -240,14 +236,9 @@ func importColdCancelCorpus(t *testing.T, tenants []sweepTenant) {
 }
 
 // cancelEnableRangeableInFlight submits an enable-rangeable across every
-// tenant and cancels it. Adapted from the single-node
-// cancelInFlightOrSkip; kept local so this package does not reach into
-// another acceptance package's CI job.
-//
-// The cancel lands at an unsynchronized moment, so the task's phase decides
-// the code: 202 CANCELLED (still running), 409 (past its units, swapping),
-// 202 NO_OP (already terminal). Every arm waits for a terminal state — a
-// re-submit while the old task is live is refused with 409.
+// tenant and cancels it at an unsynchronized moment, so the response can be
+// 202 CANCELLED, 409 (already past cancellable), or 202 NO_OP (already
+// terminal). Every arm waits for a terminal state before returning.
 func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
 	t.Helper()
 
