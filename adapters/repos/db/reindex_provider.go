@@ -2089,9 +2089,11 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
 // Returns false when a tracker dir on this node is neither tidied nor merged,
 // or when unreadable tracker state could hide one — the signature of a swap
-// interrupted mid-flight; see [hasUntidiedTracker]. An unreadable *task*
-// payload goes the other way: nothing here can be recovered, so it returns
-// true.
+// interrupted mid-flight; see [hasUntidiedTracker]. It also returns false when
+// the shard walk could not reach this node's shards at all, which is what a
+// closing index looks like: not knowing is not the same as being done. An
+// unreadable *task* payload goes the other way: nothing here can be recovered,
+// so it returns true.
 // Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
 // the rehydrate path completes the swap; without it, a half-applied local
 // swap could leave this node at OLD tokenization after a cluster-wide
@@ -2122,6 +2124,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	// One walk for every unit this node owns: a per-name lookup walks the
 	// shard map again for each of them. The tracker dir sits at a path this
 	// node can join, so nothing here loads a shard.
+	//
+	// The walk has to be the strict one. The lenient walker answers nil once
+	// the index is closing, which leaves every shard unvisited and reports an
+	// untidied tracker as a finished swap. A walk that could not reach the
+	// shards answers false: the scheduler re-fires the group and asks again,
+	// which is recoverable, while a false "done" is not.
 	hosted := map[string]bool{}
 	for unitID, nodeName := range payload.UnitToNode {
 		if nodeName != localNode {
@@ -2134,13 +2142,13 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if len(hosted) == 0 {
 		return true
 	}
-	if err := idx.ForEachShard(func(name string, _ ShardLike) error {
+	if err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
 		if _, wanted := hosted[name]; wanted {
 			hosted[name] = true
 		}
 		return nil
 	}); err != nil {
-		return true
+		return false
 	}
 
 	for shardName, isHosted := range hosted {
