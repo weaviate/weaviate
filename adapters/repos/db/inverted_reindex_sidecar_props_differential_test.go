@@ -360,7 +360,7 @@ func TestSidecarPropsSweepLeavesTheSameDirsBehind(t *testing.T) {
 							logger)
 
 						lsm, _ := writeSidecarTree(t, indexType, payloadMode, propsMode, completed)
-						cleanStaleMigrationDirsAt(lsm, propName, indexType, logger)
+						cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
 
 						require.Equal(t,
 							survivingTrackerDirs(t, headLSM), survivingTrackerDirs(t, lsm),
@@ -391,12 +391,12 @@ func TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable(t *
 				for _, propName := range sweepPropNames {
 					// The sidecar carries the true list; the payload does not.
 					lsm, fixtures := writeSidecarTree(t, indexType, payloadMode, sidecarValid, completed)
-					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger)
+					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
 
 					// The same trackers, with the payload the writer meant to
 					// leave behind.
 					intactLSM, _ := writeSidecarTree(t, indexType, payloadValid, sidecarAbsent, completed)
-					cleanStaleMigrationDirsAt(intactLSM, propName, indexType, logger)
+					cleanStaleMigrationDirsAt(intactLSM, propName, indexType, logger, nil)
 
 					require.Equal(t,
 						survivingTrackerDirs(t, intactLSM), survivingTrackerDirs(t, lsm),

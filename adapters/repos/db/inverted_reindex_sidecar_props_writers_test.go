@@ -202,14 +202,16 @@ func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	lsm := writeAmbiguousSweepTree(t, true)
-	require.Zero(t, cleanStaleMigrationDirsAt(lsm, "a_b", "filterable", logger),
-		"every tracker was answerable from its sidecar")
+	withSidecars := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(lsm, "a_b", "filterable", logger, withSidecars)
+	require.Zero(t, withSidecars.count(), "every tracker was answerable from its sidecar")
 
 	// Without sidecars the same sweep has to open every payload, which is what
 	// pins the count above as a property of the sidecars and not of the names.
 	bare := writeAmbiguousSweepTree(t, false)
-	require.Equal(t, ambiguousSweepDirs,
-		cleanStaleMigrationDirsAt(bare, "a_b", "filterable", logger),
+	noSidecars := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(bare, "a_b", "filterable", logger, noSidecars)
+	require.Equal(t, ambiguousSweepDirs, noSidecars.count(),
 		"without a sidecar there is nothing to answer from")
 
 	const maxBytesPerSweep = 2 << 20

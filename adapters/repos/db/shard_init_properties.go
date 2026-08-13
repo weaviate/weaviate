@@ -168,6 +168,11 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	payloadReads *atomic.Int64,
 ) {
 	eg.Go(func() error {
+		// One memo for the whole loop: a filterable_to_rangeable tracker is in
+		// scope for two of the disabled index types, and parsing its payload
+		// twice costs megabytes inside the RAFT apply.
+		props := &taskPropsCache{}
+		defer func() { payloadReads.Add(int64(props.count())) }()
 		for _, indexType := range disabledIndexTypes(prop) {
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
@@ -176,7 +181,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, indexType, payloadReads)
+			s.cleanStaleMigrationDirs(prop.Name, indexType, props)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
@@ -212,11 +217,11 @@ func disabledIndexTypes(prop *models.Property) []string {
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 //
-// The read count accrues into payloadReads instead of being logged per call,
-// since a 10k-tenant class would otherwise emit 30k lines inside one RAFT FSM apply.
-func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads *atomic.Int64) {
-	reads := cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
-	payloadReads.Add(int64(reads))
+// The read count accrues into the caller's memo instead of being logged per
+// call, since a 10k-tenant class would otherwise emit 30k lines inside one RAFT
+// FSM apply.
+func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, props *taskPropsCache) {
+	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger, props)
 }
 
 // cleanStaleMigrationDirsAt is the pure-function form of
@@ -239,13 +244,14 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, payloadReads
 // node).
 //
 // The preserve pass and the deletion loop ask about the same tracker dirs, so
-// they share one payload memo. The return is how many payloads that came to,
-// for the caller's log line.
-func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) int {
-	props := &taskPropsCache{}
+// they share the caller's payload memo, and so does every index type of the
+// same DELETE. props holds how many payloads that came to, for the caller's log
+// line; a nil memo reads every payload again and counts nothing.
+func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string,
+	logger logrus.FieldLogger, props *taskPropsCache,
+) {
 	cleanStaleMigrationDirsIn(
 		migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props), logger)
-	return props.count()
 }
 
 // cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built

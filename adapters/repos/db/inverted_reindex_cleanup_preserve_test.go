@@ -245,7 +245,7 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 				}
 			}
 
-			cleanStaleMigrationDirsAt(tmp, tc.propName, tc.idxType, logger)
+			cleanStaleMigrationDirsAt(tmp, tc.propName, tc.idxType, logger, nil)
 
 			survivors, err := os.ReadDir(migsDir)
 			require.NoError(t, err)

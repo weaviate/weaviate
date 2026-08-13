@@ -79,11 +79,16 @@ const payloadReadingFixtures = 4
 func writeSweepMemoFixtures(t *testing.T) string {
 	t.Helper()
 	lsm := t.TempDir()
+	writeSweepMemoFixturesAt(t, lsm)
+	return lsm
+}
+
+func writeSweepMemoFixturesAt(t *testing.T, lsm string) {
+	t.Helper()
 	for _, f := range sweepMemoFixtures {
 		mkTrackerDir(t, lsm, f.dir, f.sentinels...)
 		mkRecoveryPayload(t, lsm, f.dir, f.props...)
 	}
-	return lsm
 }
 
 // TestSweepSharesOnePayloadMemoAcrossItsPasses pins that the preserve pass and
@@ -109,9 +114,73 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 	require.Equal(t, 2*payloadReadingFixtures, preservePass.count()+deletionPass.count(),
 		"unshared memos read every payload twice")
 
-	require.Equal(t, payloadReadingFixtures,
-		cleanStaleMigrationDirsAt(lsm, "cat", "filterable", logger),
+	sweep := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(lsm, "cat", "filterable", logger, sweep)
+	require.Equal(t, payloadReadingFixtures, sweep.count(),
 		"one sweep reads each payload once")
+}
+
+// disabledFilterableProp is a text property with its filterable index switched
+// off, which disables rangeable with it: the two index types share the
+// filterable_to_rangeable strategy, so one tracker is in scope for both.
+func disabledFilterableProp() *models.Property {
+	return &models.Property{
+		Name:            "cat",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWord,
+		IndexFilterable: boolPtr(false),
+		IndexSearchable: boolPtr(true),
+	}
+}
+
+// TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes pins that one property
+// DELETE parses each tracker payload once per shard, not once per disabled
+// index type. The parse costs megabytes per tracker, inside the RAFT apply.
+func TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes(t *testing.T) {
+	ctx := testCtx()
+	className := "DeleteSweepMemo_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"cat", "dog"})
+	hookLogger, hook := test.NewNullLogger()
+	shd, idx := testShardWithSettings(t, ctx, class,
+		enthnsw.UserConfig{Skip: true}, false, false, false,
+		func(i *Index) { i.logger = hookLogger })
+	defer shd.Shutdown(ctx)
+	writeSweepMemoFixturesAt(t, shd.(*Shard).pathLSM())
+
+	prop := disabledFilterableProp()
+	indexTypes := disabledIndexTypes(prop)
+	require.Equal(t, []string{"filterable", "rangeable"}, indexTypes)
+
+	// One memo per index type is what the DELETE cost before they shared one.
+	logger, _ := test.NewNullLogger()
+	unsharedLSM := writeSweepMemoFixtures(t)
+	unshared := 0
+	for _, indexType := range indexTypes {
+		props := &taskPropsCache{}
+		cleanStaleMigrationDirsAt(unsharedLSM, prop.Name, indexType, logger, props)
+		unshared += props.count()
+	}
+
+	sharedLSM := writeSweepMemoFixtures(t)
+	shared := &taskPropsCache{}
+	for _, indexType := range indexTypes {
+		cleanStaleMigrationDirsAt(sharedLSM, prop.Name, indexType, logger, shared)
+	}
+	require.Equal(t, payloadReadingFixtures, shared.count(),
+		"the rangeable pass owns no tracker the filterable pass has not already read")
+	require.Less(t, shared.count(), unshared,
+		"the fixtures must hold a tracker both index types own, or there is nothing to share")
+
+	hook.Reset()
+	require.NoError(t, idx.updateProperty(ctx, prop))
+
+	lines := sweepCompletionLines(hook)
+	require.Len(t, lines, 1)
+	require.EqualValues(t, shared.count(), lines[0].Data["payload_reads"],
+		"the DELETE reads each tracker payload once, whatever index types it disables")
+	require.Equal(t, survivingTrackerDirs(t, unsharedLSM),
+		survivingTrackerDirs(t, shd.(*Shard).pathLSM()),
+		"the memo is memoization only: sharing it across index types must not move a dir")
 }
 
 // TestDeleteSweepReportsItsPayloadReads pins that the DELETE path's read count
@@ -144,21 +213,17 @@ func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
 	require.EqualValues(t, 2, shards)
 
 	// Text has no rangeable index, so disabling filterable also sweeps rangeable.
-	disableFilterable := &models.Property{
-		Name:            "cat",
-		DataType:        schema.DataTypeText.PropString(),
-		Tokenization:    models.PropertyTokenizationWord,
-		IndexFilterable: boolPtr(false),
-		IndexSearchable: boolPtr(true),
-	}
+	disableFilterable := disabledFilterableProp()
 	require.Equal(t, []string{"filterable", "rangeable"}, disabledIndexTypes(disableFilterable))
 
+	// One memo for both index types, the same way one shard's DELETE sweeps.
 	logger, _ := test.NewNullLogger()
-	var perShard int64
+	refLSM := writeSweepMemoFixtures(t)
+	props := &taskPropsCache{}
 	for _, indexType := range disabledIndexTypes(disableFilterable) {
-		perShard += int64(cleanStaleMigrationDirsAt(
-			writeSweepMemoFixtures(t), "cat", indexType, logger))
+		cleanStaleMigrationDirsAt(refLSM, "cat", indexType, logger, props)
 	}
+	perShard := int64(props.count())
 	require.Positive(t, perShard, "fixtures must cost the sweep something to report")
 
 	hook.Reset()
@@ -278,7 +343,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
-			cleanStaleMigrationDirsAt(lsm, tc.propName, tc.idxType, logger)
+			cleanStaleMigrationDirsAt(lsm, tc.propName, tc.idxType, logger, nil)
 			require.Equal(t, want, survivingTrackerDirs(t, lsm))
 		})
 	}
