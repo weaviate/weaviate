@@ -428,9 +428,10 @@ func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, cal
 		p.Collection + "/indexes reports when it clears; GET /v1/tasks names " +
 		"the task itself but needs cluster read access). From this phase on " +
 		"the cancel endpoint answers 409 Conflict: some nodes may already " +
-		"have swapped, so stopping the rest would leave the cluster serving " +
-		"migrated buckets under the pre-migration schema, and there is no " +
-		"way to end this task early. "
+		"have written merged state or renamed bucket directories, so " +
+		"stopping the rest would leave the cluster serving migrated buckets " +
+		"under the pre-migration schema, and there is no way to end this " +
+		"task early. "
 	if firstUnknownMigrationType(p.MigrationType) != "" {
 		return wait + "What it leaves behind is something this build cannot " +
 			"name: it does not know this migration type, most likely because " +

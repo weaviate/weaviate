@@ -974,6 +974,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"wait for it to reach a terminal state",
 		"answers 409 Conflict",
 		"no way to end this task early",
+		// True in PREPARING (merged state written, nothing swapped) as well
+		// as in SWAPPING, unlike a bare "may already have swapped".
+		"written merged state or renamed bucket directories",
 	}
 	// Past STARTED the semantic remedy also names the repair (the original
 	// submit body, not a rebuild — see [ReindexRepairCall]). PREPARING is
