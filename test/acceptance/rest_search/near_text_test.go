@@ -687,8 +687,8 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Equal(t, float64(120), details["duration"])
 	})
 
-	t.Run("no vectorizer is a 422, not a 502", func(t *testing.T) {
-		// live guard for the typed-error ordering (config 422, not 502)
+	t.Run("no vectorizer is a 422, not a 500", func(t *testing.T) {
+		// live guard for the typed-error ordering (config 422, not 500)
 		status, out := postNearText(t, "Notes", map[string]any{
 			"query": []string{"anything"},
 		})

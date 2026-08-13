@@ -82,12 +82,6 @@ func (o *SearchHybridReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
-	case 502:
-		result := NewSearchHybridBadGateway()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	case 503:
 		result := NewSearchHybridServiceUnavailable()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -583,7 +577,7 @@ func NewSearchHybridInternalServerError() *SearchHybridInternalServerError {
 /*
 SearchHybridInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.
 */
 type SearchHybridInternalServerError struct {
 	Payload *models.ErrorResponse
@@ -632,74 +626,6 @@ func (o *SearchHybridInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchHybridInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSearchHybridBadGateway creates a SearchHybridBadGateway with default headers values
-func NewSearchHybridBadGateway() *SearchHybridBadGateway {
-	return &SearchHybridBadGateway{}
-}
-
-/*
-SearchHybridBadGateway describes a response with status code 502, with default header values.
-
-The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.
-*/
-type SearchHybridBadGateway struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this search hybrid bad gateway response has a 2xx status code
-func (o *SearchHybridBadGateway) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this search hybrid bad gateway response has a 3xx status code
-func (o *SearchHybridBadGateway) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this search hybrid bad gateway response has a 4xx status code
-func (o *SearchHybridBadGateway) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this search hybrid bad gateway response has a 5xx status code
-func (o *SearchHybridBadGateway) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this search hybrid bad gateway response a status code equal to that given
-func (o *SearchHybridBadGateway) IsCode(code int) bool {
-	return code == 502
-}
-
-// Code gets the status code for the search hybrid bad gateway response
-func (o *SearchHybridBadGateway) Code() int {
-	return 502
-}
-
-func (o *SearchHybridBadGateway) Error() string {
-	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchHybridBadGateway) String() string {
-	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchHybridBadGateway) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SearchHybridBadGateway) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

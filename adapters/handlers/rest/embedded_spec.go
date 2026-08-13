@@ -6855,13 +6855,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7035,13 +7029,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19087,13 +19075,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19267,13 +19249,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

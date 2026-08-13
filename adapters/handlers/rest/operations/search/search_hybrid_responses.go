@@ -343,7 +343,7 @@ func (o *SearchHybridTooManyRequests) WriteResponse(rw http.ResponseWriter, prod
 const SearchHybridInternalServerErrorCode int = 500
 
 /*
-SearchHybridInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SearchHybridInternalServerError An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response searchHybridInternalServerError
 */
@@ -376,51 +376,6 @@ func (o *SearchHybridInternalServerError) SetPayload(payload *models.ErrorRespon
 func (o *SearchHybridInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// SearchHybridBadGatewayCode is the HTTP code returned for type SearchHybridBadGateway
-const SearchHybridBadGatewayCode int = 502
-
-/*
-SearchHybridBadGateway The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.
-
-swagger:response searchHybridBadGateway
-*/
-type SearchHybridBadGateway struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewSearchHybridBadGateway creates SearchHybridBadGateway with default headers values
-func NewSearchHybridBadGateway() *SearchHybridBadGateway {
-
-	return &SearchHybridBadGateway{}
-}
-
-// WithPayload adds the payload to the search hybrid bad gateway response
-func (o *SearchHybridBadGateway) WithPayload(payload *models.ErrorResponse) *SearchHybridBadGateway {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the search hybrid bad gateway response
-func (o *SearchHybridBadGateway) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *SearchHybridBadGateway) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(502)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

@@ -695,11 +695,11 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
 				"explorer: get class: vectorize params"),
-			wantStatus: http.StatusBadGateway,
+			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			// ORDERING GUARD: the no-vectorizer error arrives wrapped inside
-			// ErrQueryVectorization; 422 must win over 502
+			// ErrQueryVectorization; 422 must win over 500
 			name: "no vectorizer configured",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
@@ -904,9 +904,9 @@ func TestNearObjectHandlerHappyPath(t *testing.T) {
 // TestNearObjectSourceObjectErrorMapping builds the source-object errors via
 // their real producer types, replicating the explorer's wrap chain (it wraps
 // every vector-resolution failure in ErrQueryVectorization): the typed
-// matches must win over the 502 mapping, or an unknown id would surface as
-// an embedding-provider failure. near-object declares no 502 at all, so an
-// untyped failure has to come out as the declared 500.
+// matches must win over the wrapper's 500 mapping, or an unknown id would
+// surface as a generic internal error. An untyped failure has to come out as
+// the declared 500.
 func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -917,7 +917,8 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 			name: "unknown source object id",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
-					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("vector not found")))),
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 not found")))),
 				"explorer: get class: vectorize search vector"),
 			wantStatus: http.StatusBadRequest,
 		},

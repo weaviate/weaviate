@@ -129,8 +129,6 @@ func searchNearTextErrResponder(apiErr *restsearch.APIError) middleware.Responde
 		return searchops.NewSearchNearTextUnprocessableEntity().WithPayload(payload)
 	case http.StatusTooManyRequests:
 		return searchops.NewSearchNearTextTooManyRequests().WithPayload(payload)
-	case http.StatusBadGateway:
-		return searchops.NewSearchNearTextBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearTextInternalServerError().WithPayload(payload)
 	default:
@@ -156,8 +154,6 @@ func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder 
 		return searchops.NewSearchHybridUnprocessableEntity().WithPayload(payload)
 	case http.StatusTooManyRequests:
 		return searchops.NewSearchHybridTooManyRequests().WithPayload(payload)
-	case http.StatusBadGateway:
-		return searchops.NewSearchHybridBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchHybridInternalServerError().WithPayload(payload)
 	default:
@@ -169,8 +165,6 @@ func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder 
 
 // searchNearObjectErrResponder translates a search APIError into the
 // generated responder for its status, keeping the standard REST error shape.
-// near-object declares no 502 — the source object's stored vector anchors
-// the search, so no embedding provider is ever called.
 func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -196,8 +190,7 @@ func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Respon
 
 // aggregateErrResponder translates an aggregate APIError into the generated
 // responder for its status, keeping the standard REST error shape. aggregate
-// declares neither 502 (nothing is ever vectorized) nor 429 (the traverser's
-// aggregate path is not rate limited).
+// declares no 429 (the traverser's aggregate path is not rate limited).
 func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -220,8 +213,7 @@ func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 }
 
 // searchBm25ErrResponder translates a search APIError into the generated
-// responder for its status, keeping the standard REST error shape. bm25
-// declares no 502 — a keyword search never calls an embedding provider.
+// responder for its status, keeping the standard REST error shape.
 func searchBm25ErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
