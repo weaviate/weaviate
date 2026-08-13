@@ -79,9 +79,8 @@ func (db *DB) cleanStalePartialReindexState(
 // "failed" (often benign, e.g. a HOT→COLD tenant transition), but still
 // unverified.
 //
-// Callers log it at Error when a submit or cancel proceeds on possibly-stale
-// state, and at Warn from background cleanup, which sweeps the tuple again
-// before its next submit.
+// Every caller logs it at Warn: unvisited shards are unverified rather than
+// known bad, and a healthy node produces them from routine tenant churn.
 var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach every shard")
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
