@@ -27,6 +27,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
+// haltedForTransfer is a lock-free probe: never parks behind backup prep, never misreads a concurrent reader as halted.
+func (s *Shard) haltedForTransfer() bool {
+	return s.haltForTransferCount.Load() > 0
+}
+
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload.
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout.
@@ -58,7 +63,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}
 
-	s.haltForTransferCount++
+	s.haltForTransferCount.Add(1)
 
 	defer func() {
 		if err != nil {
@@ -73,8 +78,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	if offloading {
 		// TODO: tenant offloading is calling HaltForTransfer but
-		// if Shutdown is called this step is not needed
-		s.mayStopAsyncReplication()
+		// if Shutdown is called this step is not needed.
+		// persistHashtree=false: shard stays live and its .ht is not offloaded.
+		s.mayStopAsyncReplication(false)
 	}
 
 	// Placed before the pause branch so it also covers count>1 callers: on error
@@ -94,7 +100,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// Pause steps run only on the first halt. Re-pausing per halt would strand the
 	// per-bucket pause-timer refcount (1 pause : 1 stop) and never observe the
 	// Prometheus pause-duration timer.
-	if s.haltForTransferCount == 1 {
+	if s.haltForTransferCount.Load() == 1 {
 		if err = s.store.PauseCompaction(innerCtx); err != nil {
 			return fmt.Errorf("pause compaction: %w", err)
 		}
@@ -106,7 +112,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	} else {
 		s.index.logger.WithField("shard", s.name).
-			Debugf("shard already halted for transfer (count=%d); re-sealing state on shared halt", s.haltForTransferCount)
+			Debugf("shard already halted for transfer (count=%d); re-sealing state on shared halt", s.haltForTransferCount.Load())
 	}
 
 	// Seal steps run on EVERY halt: a second consumer's snapshot deliberately
@@ -254,6 +260,13 @@ func (s *Shard) mayInitInactivityMonitoring() {
 // handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
 // (activity re-armed the timer) or false to stop (ctx cancelled, or the shard was resumed).
 func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (keepWatching bool) {
+	forceResumed := false
+	// Registered before the unlock defer so it runs after the mux is released.
+	defer func() {
+		if forceResumed {
+			s.reapplyAsyncReplicationAfterResume(context.Background())
+		}
+	}()
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
@@ -269,6 +282,7 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 	if err := s.mayForceResumeMaintenanceCycles(context.Background(), true); err != nil {
 		s.index.logger.Error(err)
 	}
+	forceResumed = true
 	return false
 }
 
@@ -344,7 +358,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	if s.haltForTransferCount == 0 {
+	if s.haltForTransferCount.Load() == 0 {
 		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
@@ -410,19 +424,51 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	s.haltForTransferMux.Lock()
-	defer s.haltForTransferMux.Unlock()
+	err := s.mayForceResumeMaintenanceCycles(ctx, false)
+	fullyResumed := s.haltForTransferCount.Load() == 0
+	s.haltForTransferMux.Unlock()
 
-	return s.mayForceResumeMaintenanceCycles(ctx, false)
+	// Enables skipped while halted have no other re-derive path for plain halts.
+	if fullyResumed {
+		s.reapplyAsyncReplicationAfterResume(ctx)
+	}
+	return err
+}
+
+// reapplyAsyncReplicationAfterResume re-derives a skipped enable once a transfer halt fully lifts; disables are never skipped, so this only ever enables.
+func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
+	if s.shutOrDropped() || s.shutdownRequested.Load() {
+		return
+	}
+	if err := s.index.withAsyncReplicationApply(func() error {
+		if s.shutOrDropped() || s.haltedForTransfer() {
+			return nil // re-halted or tearing down; the next resume re-derives
+		}
+		enabled, config := s.index.asyncReplicationStateForShard(s.name)
+		if !enabled {
+			if !s.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
+			config = s.index.AsyncReplicationConfig()
+		}
+		return s.enableAsyncReplication(ctx, config)
+	}); err != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Errorf("re-applying async replication after transfer resume: %v", err)
+	}
 }
 
 func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool) error {
-	if s.haltForTransferCount == 0 {
+	if s.haltForTransferCount.Load() == 0 {
 		// noop, maintenance cycles not halted
 		return nil
 	}
 
 	if forced {
-		s.haltForTransferCount = 0
+		s.haltForTransferCount.Store(0)
 		// Non-zero in steady state means a transfer was force-resumed
 		// mid-stream — i.e. the read-path timer reset isn't reaching us.
 		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
@@ -431,9 +477,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 				Inc()
 		}
 	} else {
-		s.haltForTransferCount--
+		s.haltForTransferCount.Add(-1)
 
-		if s.haltForTransferCount > 0 {
+		if s.haltForTransferCount.Load() > 0 {
 			// maintenance cycles are not resumed as there is at least one active halt request
 			return nil
 		}
@@ -536,7 +582,7 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	if s.haltForTransferCount == 0 {
+	if s.haltForTransferCount.Load() == 0 {
 		return file.FileMetadata{}, fmt.Errorf("can not open file %q for reading: illegal state: shard %q is not paused for transfer",
 			relativeFilePath, s.name)
 	}
@@ -554,7 +600,7 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	if s.haltForTransferCount == 0 {
+	if s.haltForTransferCount.Load() == 0 {
 		return nil, fmt.Errorf("can not open file %q for reading: illegal state: shard %q is not paused for transfer",
 			relativeFilePath, s.name)
 	}
