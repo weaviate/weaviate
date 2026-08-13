@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -563,22 +562,16 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	prop *models.Property,
 ) {
 	eg.Go(func() error {
-		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+		// Shares the loaded path's index types so Index.updateProperty's summary
+		// log names what this branch swept too. Not its body: an unloaded shard
+		// has no migration dirs or sidecars to sweep.
+		for _, indexType := range disabledIndexTypes(prop) {
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			if !ok {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-		}
-		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
-			}
-		}
-		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
+			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
 			}
 		}
 		return nil
