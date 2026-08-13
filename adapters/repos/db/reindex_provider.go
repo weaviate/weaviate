@@ -1633,7 +1633,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		if idx := p.db.GetIndex(className); idx != nil {
 			// Loaded shards only: the overlay is in memory, so a shard that
 			// is not loaded has none to clear, and loading one to clear
-			// nothing is what the terminal path cannot afford.
+			// nothing is what the swap path cannot afford.
 			idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
 				// Unwrap so the clear reaches the concrete shard whose
 				// overlay the set hook populated. On unwrap failure,
@@ -1739,7 +1739,7 @@ func sweepTerminalTuples(
 }
 
 // terminalSweepOutcome is what one sweep left for the operator, ordered by
-// how much of the collection is unaccounted for; the max across a run's
+// how certain it is that actionable state remains; the max across a run's
 // sweeps is what's reported.
 //
 // "Every shard" means every shard in the index's shard map — a tenant already
@@ -1820,10 +1820,9 @@ func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) 
 // they are read without being loaded — the tracker dir sits at a path this
 // node can join, so a cold tenant stays cold.
 //
-// Only a semantic migration can leave that state, and it is the only
-// migration the repair guidance fires for, so anything else skips the
-// shard walk. Gives up on a cancelled or expired ctx: the answer feeds a
-// log line, and a shutdown is not worth holding open for it.
+// The repair guidance fires only for a semantic migration, so anything
+// else skips the shard walk. Gives up on a cancelled or expired ctx: the
+// answer feeds a log line, and a shutdown is not worth holding open for it.
 func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false

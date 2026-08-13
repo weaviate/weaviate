@@ -781,8 +781,8 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 
 // closeCause reports why the index is closing, or nil if still open. It is
 // nil-safe (unlike calling Err on closingCtx directly), and lets callers tell
-// a collection delete (on-disk state gone) from a shutdown (state persists);
-// an unsignalled close reads as [errIndexClosed].
+// a collection delete from a shutdown (state persists); an unsignalled close
+// reads as [errIndexClosed].
 //
 // Trade-off: an Index whose contexts were never wired also reads as open,
 // so [Index.ForEachShard] walks it rather than panicking.
@@ -856,8 +856,8 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 // sweep falsely reported as having reached every shard.
 //
 // Paid once per walk, and a terminal cleanup walks once per (property,
-// index type) tuple, so a ten-property change-tokenization on a large
-// collection builds this map twenty times. Sharing one snapshot across the
+// index type) tuple, so a ten-property enable-filterable on a large
+// collection builds this map ten times. Sharing one snapshot across the
 // tuples would be cheaper and wrong: a tenant legitimately dropped between
 // the first tuple and the fifth would then read as a shard the walk skipped,
 // and the sweep would report itself truncated when it was not.
@@ -872,8 +872,7 @@ func (i *Index) shardNameSet() map[string]struct{} {
 
 // reportedShardNames orders and caps names at [maxReportedErrors] for an
 // operator-facing message; the cap itself is reported as an entry so the
-// count of unaccounted shards isn't lost. Spelled like [errorcompounder]'s
-// ToErrorLimited cap, since one sweep error can carry both.
+// count of unaccounted shards isn't lost.
 func reportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {
