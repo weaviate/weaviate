@@ -1354,11 +1354,14 @@ func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
 		ch := make(chan struct{})
 		s.asyncRepDrainObserver = ch
 		enterrors.GoWrapper(func() {
+			// Deferred (nil-before-close order preserved) so a panicking Wait cannot poison the observer forever.
+			defer func() {
+				s.asyncRepDrainMu.Lock()
+				s.asyncRepDrainObserver = nil
+				s.asyncRepDrainMu.Unlock()
+				close(ch)
+			}()
 			s.asyncRepWg.Wait()
-			s.asyncRepDrainMu.Lock()
-			s.asyncRepDrainObserver = nil
-			s.asyncRepDrainMu.Unlock()
-			close(ch)
 		}, logger)
 	}
 	return s.asyncRepDrainObserver

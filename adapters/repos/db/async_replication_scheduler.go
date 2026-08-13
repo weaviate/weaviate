@@ -1044,13 +1044,10 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	for len(sched.h) > 0 && !sched.h[0].nextRunAt.After(now) && !full {
 		entry := sched.h[0]
 		if entry.inFlight {
-			// Invariant violation: heap entries must have inFlight=false
-			// (onResultLocked clears inFlight before heap.Push). Liveness
-			// recovery only — without the pop+reset, dispatchDueLocked
-			// would spin on this entry forever. asyncRepWg is already
-			// balanced: the in-flight worker's defer will call Done().
+			// Invariant violation (heap entries must have inFlight=false); recover liveness and settle a still-unclaimed Done so the re-dispatch below cannot overwrite the token and leak a count.
 			heap.Pop(&sched.h)
 			entry.inFlight = false
+			entry.settleDone()
 			entry.nextRunAt = time.Now()
 			entry.seq = sched.nextSeq
 			sched.nextSeq++
@@ -1354,9 +1351,7 @@ func (sched *AsyncReplicationScheduler) spawnWorker() {
 	}, sched.logger)
 }
 
-// adjustWorkers scales the pool to n: spawns goroutines when growing, sends
-// scale-down tokens when shrinking. n <= 0 falls back to the default. Safe
-// to call concurrently; workersMu serialises adjustments.
+// adjustWorkers reconciles the pool to n on every call — including workers lost to escaped panics, which shrink liveWorkers without a target change. n <= 0 falls back to the default; workersMu serialises.
 func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	if n <= 0 {
 		n = defaultAsyncReplicationSchedulerWorkers
@@ -1375,29 +1370,28 @@ func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	sched.workersMu.Lock()
 	defer sched.workersMu.Unlock()
 
-	delta := n - sched.targetWorkers
-	if delta == 0 {
-		return
+	if n != sched.targetWorkers {
+		sched.targetWorkers = n
+		sched.metrics.setWorkerPoolSize(n)
 	}
-	sched.targetWorkers = n
-	sched.metrics.setWorkerPoolSize(n)
 
-	if delta > 0 {
-		// Reclaim up to delta stale tokens, then spawn only the shortfall (draining all leaks unretired workers).
-		reclaimed := 0
-		for reclaimed < delta && sched.tryReclaimScaleDownToken() {
-			reclaimed++
-		}
-		for range delta - reclaimed {
+	// needed = target minus the workers that will remain after pending retirements; reclaim stale tokens before spawning (a reclaim keeps a worker, a spawn adds one).
+	needed := sched.targetWorkers - int(sched.liveWorkers.Load()) + len(sched.scaleDownCh)
+	for needed > 0 && sched.tryReclaimScaleDownToken() {
+		needed--
+	}
+	switch {
+	case needed > 0:
+		for range needed {
 			sched.spawnWorker()
 		}
-		return
-	}
-	for range -delta {
-		select {
-		case sched.scaleDownCh <- struct{}{}:
-		case <-sched.ctx.Done():
-			return
+	case needed < 0:
+		for range -needed {
+			select {
+			case sched.scaleDownCh <- struct{}{}:
+			default:
+				return // channel full: enough retirements already pending
+			}
 		}
 	}
 }
@@ -1440,11 +1434,7 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 		if r == nil {
 			return
 		}
-		sched.logger.
-			WithField("action", "async_replication_scheduler").
-			WithField("panic", r).
-			Error("recovered from panic in async replication batch; settling remaining entries")
-		enterrors.PrintStack(sched.logger)
+		// Settle BEFORE logging: a panicking log hook must not leak the batch's Dones.
 		batchErr := fmt.Errorf("panic in async replication batch: %v", r)
 		for _, entry := range batch[next:] {
 			if !entry.tryOwnDone() {
@@ -1453,6 +1443,11 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 			entry.shard.asyncRepWg.Done()
 			sched.resultCh <- asyncSchedulerResult{entry: entry, err: batchErr}
 		}
+		sched.logger.
+			WithField("action", "async_replication_scheduler").
+			WithField("panic", r).
+			Error("recovered from panic in async replication batch; settled remaining entries")
+		enterrors.PrintStack(sched.logger)
 	}()
 
 	if len(batch) <= 1 {
@@ -1585,23 +1580,9 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		ctx          context.Context
 	)
 
-	// Armed first: a prologue panic without Done() pins drains and rebuilds on this shard forever.
+	// Registered FIRST so it runs LAST: Done and the result send must survive even a panic inside the recover block below (e.g. a logging hook).
 	defer func() {
-		// Recover panics so the worker stays alive and the dispatcher sees a
-		// non-nil error (proper retry delay) rather than a false success.
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in async replication cycle: %v", r)
-			sched.logger.
-				WithField("panic", r).
-				WithField("class_name", className).
-				WithField("shard_name", shardName).
-				Error("recovered from panic in async replication worker")
-			enterrors.PrintStack(sched.logger)
-		}
-
-		// Done() before the resultCh send so the WG drops before the
-		// dispatcher re-enqueues. inFlight (not asyncRepWg) enforces "at
-		// most one cycle per shard"; asyncRepWg may legitimately be >1.
+		// Done() before the resultCh send so the WG drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
 		s.asyncRepWg.Done()
 
 		if needsRebuild {
@@ -1629,6 +1610,19 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		// drain keep this non-blocking. A ctx.Done() branch would leave
 		// entry.inFlight=true permanently if the scheduler kept running.
 		sched.resultCh <- asyncSchedulerResult{entry: entry, propagated: propagated, err: err, cfg: cfg, ctx: ctx}
+	}()
+
+	// Registered SECOND so it runs FIRST: recover keeps the worker alive and turns the panic into a retryable error; if the logging itself panics, the defer above still settles.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in async replication cycle: %v", r)
+			sched.logger.
+				WithField("panic", r).
+				WithField("class_name", className).
+				WithField("shard_name", shardName).
+				Error("recovered from panic in async replication worker")
+			enterrors.PrintStack(sched.logger)
+		}
 	}()
 
 	sched.metrics.incWorkersActive()

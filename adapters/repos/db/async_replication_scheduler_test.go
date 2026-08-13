@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"testing"
@@ -678,10 +679,13 @@ func TestAdjustWorkersGrowReclaimsPendingTokensBeforeSpawning(t *testing.T) {
 			for range tc.pending {
 				sched.scaleDownCh <- struct{}{}
 			}
+			// Physical pool state: pending retirements imply that many still-live workers on top of the target.
+			seeded := int64(tc.initialTarget + tc.pending)
+			sched.liveWorkers.Store(seeded)
 
 			sched.adjustWorkers(tc.growTo)
 
-			assert.Equal(t, tc.wantSpawned, sched.liveWorkers.Load(),
+			assert.Equal(t, tc.wantSpawned, sched.liveWorkers.Load()-seeded,
 				"grow must spawn only the shortfall after reclaiming pending tokens")
 			assert.Equal(t, tc.wantRemaining, len(sched.scaleDownCh),
 				"grow must reclaim at most delta tokens, not all of them")
@@ -983,6 +987,102 @@ func TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock(t *testing.T) {
 	}
 
 	require.True(t, <-retryCh, "a wedged pre-drain must yield")
+}
+
+func waitAsyncRepDrained(t *testing.T, s *Shard, msg string) {
+	t.Helper()
+	select {
+	case <-s.asyncRepDrained(logrus.New()):
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// TestWorkerPoolSelfHealsAfterWorkerDeath: a worker lost without a target change must be respawned by the periodic reconcile, or a single escaped panic kills all dispatching forever at the default pool size of 1.
+func TestWorkerPoolSelfHealsAfterWorkerDeath(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 1 }, 5*time.Second, time.Millisecond)
+
+	sched.scaleDownCh <- struct{}{}
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 0 }, 5*time.Second, time.Millisecond)
+
+	sched.adjustWorkers(sched.maxWorkersConfig.Get())
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 1 }, 3*time.Second, time.Millisecond,
+		"the pool must heal back to target on the watcher's periodic reconcile")
+}
+
+type panicOnErrorHook struct{}
+
+func (panicOnErrorHook) Levels() []logrus.Level { return []logrus.Level{logrus.ErrorLevel} }
+
+func (panicOnErrorHook) Fire(*logrus.Entry) error { panic("hook exploded") }
+
+func newPanicHookScheduler(t *testing.T) *AsyncReplicationScheduler {
+	t.Helper()
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	logger.AddHook(panicOnErrorHook{})
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+	return sched
+}
+
+type panickingHeightTree struct{ hashtree.AggregatedHashTree }
+
+func (panickingHeightTree) Height() int { panic("height exploded") }
+
+// TestRunEntryOwnedDoneSurvivesPanickingLogger: a panic inside the recover block's logging must not leak the owned Done and pin the shard's drains forever.
+func TestRunEntryOwnedDoneSurvivesPanickingLogger(t *testing.T) {
+	sched := newPanicHookScheduler(t)
+	s := &Shard{class: &models.Class{Class: "C"}, index: &Index{}, hashtree: panickingHeightTree{}}
+	entry := &asyncSchedulerEntry{shard: s}
+
+	s.asyncRepWg.Add(1)
+	require.Panics(t, func() { sched.runEntry(entry, false) })
+	waitAsyncRepDrained(t, s, "the owned Done leaked: a panicking log hook must not skip asyncRepWg.Done")
+}
+
+// TestRunBatchSettlesEntriesBeforePanickingLogger: the batch panic path must settle unfinished entries before logging, or a panicking hook leaks every Done in the batch.
+func TestRunBatchSettlesEntriesBeforePanickingLogger(t *testing.T) {
+	sched := newPanicHookScheduler(t)
+	s1 := &Shard{name: "s1", class: &models.Class{Class: "C"}, index: &Index{}}
+	s2 := &Shard{name: "s2", class: &models.Class{Class: "C"}, index: &Index{}}
+	e1 := &asyncSchedulerEntry{shard: s1}
+	e2 := &asyncSchedulerEntry{shard: s2}
+	for _, e := range []*asyncSchedulerEntry{e1, e2} {
+		e.shard.asyncRepWg.Add(1)
+		e.pendingDone.Store(true)
+	}
+
+	prevSeam := asyncRepBatchEntrySeam
+	asyncRepBatchEntrySeam = func(*asyncSchedulerEntry) { panic("seam exploded") }
+	t.Cleanup(func() { asyncRepBatchEntrySeam = prevSeam })
+
+	batch := []*asyncSchedulerEntry{e1, e2}
+	require.Panics(t, func() { sched.runBatch(&batch, newBatchScratch()) })
+	waitAsyncRepDrained(t, s1, "s1's Done leaked in the batch panic path")
+	waitAsyncRepDrained(t, s2, "s2's Done leaked in the batch panic path")
+}
+
+// TestDispatchInvariantRecoverySettlesPendingDone: the inFlight-in-heap recovery must settle a still-pending Done before re-queuing, or the next dispatch overwrites the token and leaks one count forever.
+func TestDispatchInvariantRecoverySettlesPendingDone(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	s := &Shard{class: &models.Class{Class: "C"}, index: &Index{}}
+	entry := &asyncSchedulerEntry{shard: s, inFlight: true, nextRunAt: time.Now().Add(-time.Second)}
+	s.asyncRepWg.Add(1)
+	entry.pendingDone.Store(true)
+
+	sched.mu.Lock()
+	sched.entries[s] = entry
+	heap.Push(&sched.h, entry)
+	sched.dispatchDueLocked()
+	sched.mu.Unlock()
+
+	waitAsyncRepDrained(t, s, "the invariant recovery leaked the pending Done")
 }
 
 // TestAsyncRepDrainObserverSharedAcrossAttempts: bounded waits during one pinned episode share a single waiter goroutine and the observer resets once drained.
