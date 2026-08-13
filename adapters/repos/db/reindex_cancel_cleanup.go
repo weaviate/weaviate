@@ -106,6 +106,23 @@ func IsCleanupCollectionDropped(err error) bool {
 	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
 }
 
+// truncatedByExpiry re-reports a shard error raised after the run's budget ran
+// out as [ErrCleanupSweepTruncated], and returns nil while the budget is live.
+// A run that could not finish confirms nothing about the shard it stopped on,
+// so reporting one as a shard that failed would page an operator over a
+// timeout. It stops the walk for the same reason the check at the top of the
+// next shard's turn does — the budget is gone either way.
+//
+// Keyed on the context, not on the error: the shard load reports its own
+// cancellation as a fresh error, so the context cause is not in the chain to
+// match on.
+func truncatedByExpiry(ctx context.Context, reported error) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: the cleanup budget expired: %w", ErrCleanupSweepTruncated, reported)
+}
+
 // classifyIncompleteWalk tags a walk that did not reach every shard: a
 // collection delete as [ErrCleanupCollectionDropped], anything else (shutdown,
 // unvisited shards) as [ErrCleanupSweepTruncated]. Other errors pass through
@@ -181,8 +198,12 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			unwrapped, unwrapErr := lazy.Unwrap(ctx)
 			if unwrapErr != nil {
-				shardErrs.Add(
-					fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr))
+				reported := fmt.Errorf(
+					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
+				if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+					return truncated
+				}
+				shardErrs.Add(reported)
 				return nil
 			}
 			shard = unwrapped
@@ -192,7 +213,11 @@ func (i *Index) cleanStalePartialReindexState(
 		shardReads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
 		payloadReads += shardReads
 		if err != nil {
-			shardErrs.Add(fmt.Errorf("shard %q: %w", name, err))
+			reported := fmt.Errorf("shard %q: %w", name, err)
+			if truncated := truncatedByExpiry(ctx, reported); truncated != nil {
+				return truncated
+			}
+			shardErrs.Add(reported)
 		}
 		return nil
 	})
