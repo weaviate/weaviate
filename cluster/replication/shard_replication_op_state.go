@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -120,6 +122,20 @@ func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplication
 	}
 }
 
+// clone returns a status that shares no memory with the FSM's own. Anything the
+// FSM hands out needs one: a plain value copy still points at the map and slices
+// the apply path keeps writing to, and the caller reads them after opsLock is
+// released.
+//
+// The Errors slices already archived in History need no copy. ChangeState puts a
+// fresh slice in Current, so nothing appends to an archived one again.
+func (s ShardReplicationOpStatus) clone() ShardReplicationOpStatus {
+	s.PerNodeState = maps.Clone(s.PerNodeState)
+	s.History = slices.Clone(s.History)
+	s.Current.Errors = slices.Clone(s.Current.Errors)
+	return s
+}
+
 // AddError adds an error to the current state of the shard replication operation
 func (s *ShardReplicationOpStatus) AddError(error string, timeUnixMs int64) error {
 	if len(s.Current.Errors) >= MaxErrors {
@@ -207,10 +223,12 @@ type ShardReplicationOpAndStatus struct {
 	Status ShardReplicationOpStatus
 }
 
-// NewShardReplicationOpAndStatus creates a new ShardReplicationOpAndStatus from op and status
+// NewShardReplicationOpAndStatus creates a new ShardReplicationOpAndStatus from op and status.
+// The status is cloned, so the caller may read and mutate it without holding the
+// FSM's lock.
 func NewShardReplicationOpAndStatus(op ShardReplicationOp, status ShardReplicationOpStatus) ShardReplicationOpAndStatus {
 	return ShardReplicationOpAndStatus{
 		Op:     op,
-		Status: status,
+		Status: status.clone(),
 	}
 }
