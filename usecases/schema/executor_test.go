@@ -232,7 +232,7 @@ func TestExecutor(t *testing.T) {
 		assert.Len(t, statusList, 1, "number of shards in the status list")
 		statusList0 := statusList[0]
 		assert.Equal(t, statusList0.Name, "A", "shard name")
-		assert.Equal(t, statusList0.Status, "C", "shard legacy status")
+		assert.Equal(t, statusList0.Status, "C", "shard legacy status") // nolint:staticcheck
 		assert.Equal(t, statusList0.PerNodeStatus, map[string]string{"B": "C"})
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
