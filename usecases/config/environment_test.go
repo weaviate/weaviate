@@ -2112,7 +2112,7 @@ func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
 		},
 		{
 			// A negative duration fails startup rather than coercing to zero.
-			// Both rows go red if ValidateDurationGreaterThanEqual0 is dropped.
+			// Both rows go red if the parse-time validators are dropped.
 			name: "negative max age fails startup, naming the variable",
 			env: map[string]string{
 				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
@@ -2125,6 +2125,39 @@ func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
 				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "-1s",
 			},
 			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Below the floor a sweep hammers the leader with full-FSM scans.
+			name: "interval below the 1m floor fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1ms",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Above the ceiling the sweep silently never runs; 0 is the only
+			// sanctioned way to disable it.
+			name: "interval above the 168h ceiling fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "169h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			name: "interval bounds are inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1m",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: time.Minute,
+		},
+		{
+			name: "interval ceiling is inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "168h",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 168 * time.Hour,
 		},
 	}
 

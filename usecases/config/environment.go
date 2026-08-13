@@ -67,6 +67,12 @@ const (
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
+
+	// Interval bounds; 0 stays the explicit disable sentinel. Below the floor a
+	// sweep hammers the leader with full-FSM scans; above the ceiling it
+	// silently never runs. Both are misconfigurations, not preferences.
+	MinReplicaMovementCleanupInterval = time.Minute
+	MaxReplicaMovementCleanupInterval = 168 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -1082,7 +1088,7 @@ func FromEnv(config *Config) error {
 
 	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_INTERVAL",
 		DefaultReplicaMovementCleanupInterval,
-		parser.ValidateDurationGreaterThanEqual0,
+		parser.ValidateDurationZeroOrInRange(MinReplicaMovementCleanupInterval, MaxReplicaMovementCleanupInterval),
 		func(val *configRuntime.DynamicValue[time.Duration]) {
 			config.Replication.ReplicaMovementCleanupInterval = val
 		}); err != nil {

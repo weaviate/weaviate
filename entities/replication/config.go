@@ -70,8 +70,9 @@ type GlobalConfig struct {
 	// the previous value in place.
 	ReplicaMovementCleanupMaxAge *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	// ReplicaMovementCleanupInterval is the sweep period,
-	// REPLICA_MOVEMENT_CLEANUP_INTERVAL. 0 disables the sweep; a negative value
-	// is rejected on the same terms as MaxAge above.
+	// REPLICA_MOVEMENT_CLEANUP_INTERVAL. 0 disables the sweep; any other value
+	// must lie within [1m, 168h] and is otherwise rejected on the same terms as
+	// MaxAge above.
 	ReplicaMovementCleanupInterval *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
 	// ReplicaMovementCleanupIncludeCancelled widens the sweep predicate to old
 	// CANCELLED ops, REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED. Opt-in because
