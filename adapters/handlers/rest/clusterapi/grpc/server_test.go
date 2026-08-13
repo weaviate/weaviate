@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -124,20 +125,22 @@ func Test_ServerReplicationService(t *testing.T) {
 			t.Run("DigestObjectsInRange", func(t *testing.T) {
 				c := "C"
 				s := "S"
-				initialUUID := strfmt.UUID("id1")
-				finalUUID := strfmt.UUID("id2")
+				id1 := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+				id2 := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+				initialUUID := strfmt.UUID(id1.String())
+				finalUUID := strfmt.UUID(id2.String())
 				limit := 10
-				mockReplicator.EXPECT().DigestObjectsInRange(mock.Anything, c, s, initialUUID, finalUUID, limit).Return([]routerTypes.RepairResponse{
-					{ID: "id1", Version: 1},
-					{ID: "id2", Version: 2},
+				mockReplicator.EXPECT().DigestObjectsInRange(mock.Anything, c, s, initialUUID, finalUUID, limit).Return([]routerTypes.RepairDigest{
+					{ID: id1, UpdateTime: 1},
+					{ID: id2, UpdateTime: 2},
 				}, nil)
 				resp, err := client.DigestObjectsInRange(context.Background(), host, c, s, initialUUID, finalUUID, limit)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
-				require.Equal(t, "id1", resp[0].ID)
-				require.Equal(t, int64(1), resp[0].Version)
-				require.Equal(t, "id2", resp[1].ID)
-				require.Equal(t, int64(2), resp[1].Version)
+				require.Equal(t, id1, resp[0].ID)
+				require.Equal(t, int64(1), resp[0].UpdateTime)
+				require.Equal(t, id2, resp[1].ID)
+				require.Equal(t, int64(2), resp[1].UpdateTime)
 			})
 
 			t.Run("FindUUIDs", func(t *testing.T) {

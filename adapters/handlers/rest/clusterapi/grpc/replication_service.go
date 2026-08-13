@@ -15,9 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -198,18 +200,21 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.DigestObjectsInRangeResponse{Digests: repairResponsesToProto(results)}, nil
+	return &pb.DigestObjectsInRangeResponse{Digests: repairDigestsToProto(results)}, nil
 }
 
 func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
-	digests := repairResponsesFromProto(req.GetDigests())
+	digests, err := repairDigestsFromProto(req.GetDigests())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode digests: %v", err)
+	}
 
 	results, err := s.server.CompareDigests(ctx, req.GetIndex(), req.GetShard(), digests)
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.CompareDigestsResponse{Digests: repairResponsesToProto(results)}, nil
+	return &pb.CompareDigestsResponse{Digests: repairDigestsToProto(results)}, nil
 }
 
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
@@ -408,20 +413,6 @@ func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse 
 	return &pb.SimpleReplicaResponse{Errors: errs}
 }
 
-func repairResponsesFromProto(in []*pb.RepairResponse) []types.RepairResponse {
-	out := make([]types.RepairResponse, len(in))
-	for i, r := range in {
-		out[i] = types.RepairResponse{
-			ID:         r.GetId(),
-			Version:    r.GetVersion(),
-			UpdateTime: r.GetUpdateTime(),
-			Err:        r.GetErr(),
-			Deleted:    r.GetDeleted(),
-		}
-	}
-	return out
-}
-
 func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse {
 	out := make([]*pb.RepairResponse, len(results))
 	for i, r := range results {
@@ -430,6 +421,35 @@ func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse
 			Version:    r.Version,
 			UpdateTime: r.UpdateTime,
 			Err:        r.Err,
+			Deleted:    r.Deleted,
+		}
+	}
+	return out
+}
+
+// String IDs exist only at the proto boundary; the digest pipeline is byte-ID.
+func repairDigestsFromProto(in []*pb.RepairResponse) ([]types.RepairDigest, error) {
+	out := make([]types.RepairDigest, len(in))
+	for i, r := range in {
+		id, err := uuid.Parse(r.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("parse digest uuid %q: %w", r.GetId(), err)
+		}
+		out[i] = types.RepairDigest{
+			ID:         id,
+			UpdateTime: r.GetUpdateTime(),
+			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out, nil
+}
+
+func repairDigestsToProto(results []types.RepairDigest) []*pb.RepairResponse {
+	out := make([]*pb.RepairResponse, len(results))
+	for i, r := range results {
+		out[i] = &pb.RepairResponse{
+			Id:         r.ID.String(),
+			UpdateTime: r.UpdateTime,
 			Deleted:    r.Deleted,
 		}
 	}

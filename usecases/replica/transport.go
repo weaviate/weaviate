@@ -138,7 +138,7 @@ type RClient interface {
 		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
-		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
+		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error)
 
 	// CompareDigests sends the source's local digests to the target and returns
 	// only the subset needing source-side action: objects missing on the target
@@ -148,7 +148,7 @@ type RClient interface {
 	// objects are never returned (identical hashtree digests, hence already
 	// invisible to the hashtree diff that drives this call).
 	CompareDigests(ctx context.Context, host, index, shard string,
-		digests []types.RepairResponse) ([]types.RepairResponse, error)
+		digests []types.RepairDigest) ([]types.RepairDigest, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -209,14 +209,14 @@ func (fc FinderClient) DigestReads(ctx context.Context,
 func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
 func (fc FinderClient) CompareDigests(ctx context.Context,
 	host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 

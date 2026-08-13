@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -961,7 +962,7 @@ func TestGRPCReplicationHashTreeLevelNotReady(t *testing.T) {
 		defer cleanup()
 
 		_, err := client.CompareDigests(ctx, "passthrough:bufnet", "C1", "S1",
-			[]types.RepairResponse{{ID: UUID1.String(), UpdateTime: 1}})
+			[]types.RepairDigest{{ID: uuid.MustParse(UUID1.String()), UpdateTime: 1}})
 		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
 	})
 

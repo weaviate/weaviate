@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -362,7 +363,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 
 func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	client, err := c.getClient(host)
 	if err != nil {
 		return nil, err
@@ -385,12 +386,12 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 		return nil, fmt.Errorf("gRPC DigestObjectsInRange: %w", err)
 	}
 
-	return protoToRepairResponses(resp.GetDigests()), nil
+	return protoToRepairDigests(resp.GetDigests())
 }
 
 func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	client, err := c.getClient(host)
 	if err != nil {
 		return nil, err
@@ -401,7 +402,7 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 	req := &protocol.CompareDigestsRequest{
 		Index:   index,
 		Shard:   shard,
-		Digests: repairResponsesToProto(digests),
+		Digests: repairDigestsToProto(digests),
 	}
 	resp, err := client.CompareDigests(ctx, req)
 	if err != nil {
@@ -410,7 +411,7 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 		}
 		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
 	}
-	return protoToRepairResponses(resp.GetDigests()), nil
+	return protoToRepairDigests(resp.GetDigests())
 }
 
 func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
@@ -731,14 +732,29 @@ func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairRe
 	return out
 }
 
-func repairResponsesToProto(digests []types.RepairResponse) []*protocol.RepairResponse {
+// String IDs exist only at the proto boundary; the digest pipeline is byte-ID.
+func protoToRepairDigests(results []*protocol.RepairResponse) ([]types.RepairDigest, error) {
+	out := make([]types.RepairDigest, len(results))
+	for i, r := range results {
+		id, err := uuid.Parse(r.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("parse digest uuid %q: %w", r.GetId(), err)
+		}
+		out[i] = types.RepairDigest{
+			ID:         id,
+			UpdateTime: r.GetUpdateTime(),
+			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out, nil
+}
+
+func repairDigestsToProto(digests []types.RepairDigest) []*protocol.RepairResponse {
 	out := make([]*protocol.RepairResponse, len(digests))
 	for i, d := range digests {
 		out[i] = &protocol.RepairResponse{
-			Id:         d.ID,
-			Version:    d.Version,
+			Id:         d.ID.String(),
 			UpdateTime: d.UpdateTime,
-			Err:        d.Err,
 			Deleted:    d.Deleted,
 		}
 	}
