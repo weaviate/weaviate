@@ -62,11 +62,19 @@ var sweepMemoFixtures = []memoFixture{
 		props:     []string{"cat"},
 		sentinels: []string{"started.mig"},
 	},
+	{
+		// The only rangeable strategy, so without it a sweep that skipped
+		// rangeable would cost the same as one that didn't. Tidied at an
+		// otherwise-unused gen, so both passes owning the prefix keep it.
+		dir:       "filterable_to_rangeable_cat_dog_3",
+		props:     []string{"cat", "dog"},
+		sentinels: []string{"started.mig", "tidied.mig"},
+	},
 }
 
-// payloadReadingFixtures is how many fixtures the sweep has to open a payload
-// for, i.e. the N of the 2N→N claim.
-const payloadReadingFixtures = 3
+// payloadReadingFixtures is how many fixtures the filterable sweep has to open
+// a payload for, i.e. the N of the 2N→N claim.
+const payloadReadingFixtures = 4
 
 func writeSweepMemoFixtures(t *testing.T) string {
 	t.Helper()
