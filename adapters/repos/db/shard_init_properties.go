@@ -250,21 +250,31 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, props *taskP
 func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string,
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
-	cleanStaleMigrationDirsIn(
-		migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props), logger)
+	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
+	if err := cleanStaleMigrationDirsIn(scope, logger); err != nil {
+		// Logged and dropped here only: the DELETE this serves has already
+		// removed the bucket, and the next re-enable fails loudly on the stale
+		// sentinel. The sweep path propagates it instead.
+		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
+			Errorf("stale-state cleanup after index DELETE: %v", err)
+	}
 }
 
 // cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
 // scope, so a sweep can share one payload memo with its preserve pass.
-func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) {
+//
+// A listing it cannot read is returned, not logged: nothing was removed, so a
+// caller that reports its own outcome would otherwise report a sweep that
+// never ran as one that finished. Removal failures stay logged, since those
+// leave the rest of the sweep done.
+func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) error {
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.WithField("path", migrationsRoot).
-				Error(fmt.Errorf("read migrations dir for stale-state cleanup: %w", err))
+		if os.IsNotExist(err) {
+			return nil
 		}
-		return
+		return fmt.Errorf("read migrations dir for stale-state cleanup: %w", err)
 	}
 	preserved := completedMigrationGens(scope)
 	for _, entry := range entries {
@@ -288,9 +298,12 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 		path := filepath.Join(migrationsRoot, name)
 		if err := os.RemoveAll(path); err != nil {
 			logger.WithField("path", path).
-				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))
+				Errorf("failed to clean up stale migration directory after index DELETE: %v; "+
+					"subsequent re-enable will fail loudly via the stale-sentinel check until "+
+					"this directory is removed manually", err)
 		}
 	}
+	return nil
 }
 
 // CleanStalePartialReindexState removes the on-disk state of a previously
@@ -317,13 +330,15 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 //     all sentinel files (started.mig, progress.mig, ...) and the
 //     payload.mig recovery record vanish in one call.
 //
-// Errors at steps 2/3 are logged but not propagated: the caller (cancel
-// handler / submit handler) cannot meaningfully recover, and the defense
-// in depth in OnAfterLsmInitAsync (stale-tidied-sentinel check) will
-// still fail loudly rather than silently report success if a partial
-// directory survives. Step 1 errors ARE propagated because they indicate
-// a bucket can't be cleanly disconnected from the LSM layer — proceeding
-// to remove its files would corrupt the store.
+// Failures to remove an individual directory at steps 2/3 are logged but not
+// propagated: the caller (cancel handler / submit handler) cannot meaningfully
+// recover, and the defense in depth in OnAfterLsmInitAsync
+// (stale-tidied-sentinel check) will still fail loudly rather than silently
+// report success if a partial directory survives. Step 1 errors ARE propagated
+// because they indicate a bucket can't be cleanly disconnected from the LSM
+// layer — proceeding to remove its files would corrupt the store. So is a
+// .migrations that cannot be listed at all: nothing was removed, and the
+// caller's summary would otherwise report a finished sweep.
 //
 // The first return is how many tracker payloads this sweep read, for the
 // caller's summary line. A refused input reads none.
@@ -382,9 +397,12 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		Info("partial-reindex cleanup: sidecar buckets shut down")
 
 	// Steps 2 + 3: remove sidecar dirs and migration dir. The helpers log
-	// errors rather than fail; preserved suffixes survive.
+	// per-directory removal failures rather than fail; preserved suffixes
+	// survive.
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars)
-	cleanStaleMigrationDirsIn(scope, s.index.logger)
+	if err := cleanStaleMigrationDirsIn(scope, s.index.logger); err != nil {
+		return props.count(), err
+	}
 	logger.WithField("payload_reads", props.count()).
 		Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
 

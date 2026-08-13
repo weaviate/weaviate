@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -881,6 +882,48 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 
 	require.False(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
 		"a loaded shard is swept whatever the gate would have said about it")
+}
+
+// A sweep that cannot even list a shard's .migrations removed nothing from it.
+// Summarizing that as a finished sweep tells an operator the partial state is
+// gone while every tracker is still on disk.
+func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tracker   = "enable_filterable_category_1"
+	)
+	ctx := testCtx()
+	logger, hook := test.NewNullLogger()
+	class := newTestClassWithProps("UnlistableMigrations_"+uuid.NewString()[:8], []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = logger })
+	// Loaded, so the sweep reaches the shard and the unlistable directory is
+	// the only thing that can fail.
+	hot := shd.(*Shard)
+	defer hot.Shutdown(context.Background())
+
+	lsm := hot.pathLSM()
+	mkTrackerDir(t, lsm, tracker, "started.mig")
+	migrations := filepath.Join(lsm, ".migrations")
+	require.NoError(t, os.Chmod(migrations, 0o000))
+	t.Cleanup(func() { os.Chmod(migrations, 0o755) })
+	if _, err := os.ReadDir(migrations); err == nil {
+		t.Skip("this user can list a directory with no permissions, so the failure cannot be staged")
+	}
+
+	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil)
+
+	require.ErrorIs(t, sweepErr, ErrCleanupShardFailed)
+	outcome, _ := ClassifyCleanupSweep(sweepErr)
+	require.Equal(t, CleanupSweepFailed, outcome)
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, logrus.ErrorLevel, summary.Level)
+	require.Contains(t, summary.Message, "could not be swept")
+
+	require.NoError(t, os.Chmod(migrations, 0o755))
+	require.True(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
+		"the state the summary must not report as swept")
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must

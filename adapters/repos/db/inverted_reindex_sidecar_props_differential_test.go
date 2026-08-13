@@ -355,9 +355,9 @@ func TestSidecarPropsSweepLeavesTheSameDirsBehind(t *testing.T) {
 				for _, completed := range []bool{false, true} {
 					for _, propName := range sweepPropNames {
 						headLSM, fixtures := writeSidecarTree(t, indexType, payloadMode, propsMode, completed)
-						cleanStaleMigrationDirsIn(
+						require.NoError(t, cleanStaleMigrationDirsIn(
 							headScoped(migrationDirsOf(headLSM, nil, propName, indexType), fixtures),
-							logger)
+							logger))
 
 						lsm, _ := writeSidecarTree(t, indexType, payloadMode, propsMode, completed)
 						cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
