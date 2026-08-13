@@ -134,13 +134,9 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			}
 
 			logger, hook := logrustest.NewNullLogger()
-			p := &ReindexProvider{
-				logger:       logger,
-				serverCtx:    context.Background(),
-				db:           &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
-				payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-				reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-			}
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
+				nil, logger, "n1", nil, context.Background())
 
 			migrationType := tc.migrationType
 			if migrationType == "" {
@@ -155,6 +151,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 				MigrationType:      migrationType,
 				Properties:         properties,
 				TargetTokenization: "field",
+				UnitToShard:        map[string]string{"u1": shard.Name()},
 			})
 			require.NoError(t, err)
 
@@ -238,7 +235,7 @@ func TestPromotableReindexStateOnThisNode_AnswersYesWhenItCannotLook(t *testing.
 func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
 	const propName = "descr"
 
-	_, idx := newReindexTestShard(t, "CancelDrain", propName)
+	shard, idx := newReindexTestShard(t, "CancelDrain", propName)
 	className := string(idx.Config.ClassName)
 
 	desc := distributedtask.TaskDescriptor{ID: "T_drain", Version: 1}
@@ -249,22 +246,17 @@ func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
 	cancelServer()
 
 	logger, hook := logrustest.NewNullLogger()
-	p := &ReindexProvider{
-		logger:       logger,
-		serverCtx:    serverCtx,
-		db:           &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
-		payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-		reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-		runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{
-			desc: {cancel: func() {}, doneCh: make(chan struct{})},
-		},
-	}
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
+		nil, logger, "n1", nil, serverCtx)
+	structuralInvariantInjectHandle(p, desc)
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		Collection:         className,
 		MigrationType:      ReindexTypeChangeTokenization,
 		Properties:         []string{propName},
 		TargetTokenization: "field",
+		UnitToShard:        map[string]string{"u1": shard.Name()},
 	})
 	require.NoError(t, err)
 
