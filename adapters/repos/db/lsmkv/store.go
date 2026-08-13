@@ -510,6 +510,11 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
+// ReplacedBucketDirSuffix names the dir the displaced bucket sits at between
+// [Store.ReplaceBuckets]' two renames. A crash in that window leaves it on
+// disk, where only the per-property cleanup sweep in package db picks it up.
+const ReplacedBucketDirSuffix = "___del"
+
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
 // maintenanceLock INNER, same order as the flush path).
@@ -518,7 +523,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
 	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
+	newBucketDir := bucket.dir + ReplacedBucketDirSuffix
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 

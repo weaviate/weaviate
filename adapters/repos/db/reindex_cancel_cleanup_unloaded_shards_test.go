@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -651,6 +652,68 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 	}
 }
 
+// A crash between [lsmkv.Store.ReplaceBuckets]' two renames leaves the
+// displaced bucket at "<mainBucket>___del". Nothing at startup removes it, so
+// the sweep that owns the bucket's other leftovers has to own this one, and the
+// gate has to hydrate for it.
+func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
+	const propName = "category"
+
+	tests := []struct {
+		name      string
+		indexType string
+		// completedTracker and its live sidecar give the sweep a non-empty
+		// preserve set, which the leftover must not slip into.
+		completedTracker string
+		liveSidecar      string
+	}{
+		{name: "filterable", indexType: "filterable"},
+		{name: "searchable", indexType: "searchable"},
+		{name: "rangeable", indexType: "rangeable"},
+		{
+			name:             "next to a completed migration whose sidecars are preserved",
+			indexType:        "filterable",
+			completedTracker: "enable_filterable_category_1",
+			liveSidecar:      "property_category__enable_filterable_ingest_1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("ReplacedBucketDir_"+uuid.NewString()[:8], []string{propName})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			lsm := shard.pathLSM()
+
+			mainBucket, ok := mainBucketForPropertyIndex(propName, tc.indexType)
+			require.True(t, ok)
+			leftover := mainBucket + lsmkv.ReplacedBucketDirSuffix
+			mkSidecarDir(t, lsm, leftover)
+			if tc.completedTracker != "" {
+				mkTrackerDir(t, lsm, tc.completedTracker,
+					"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+				mkSidecarDir(t, lsm, tc.liveSidecar)
+			}
+
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			require.True(t, stale,
+				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
+
+			require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, tc.indexType))
+
+			require.False(t, dirExistsAt(t, lsm, leftover),
+				"the crash leftover of a bucket replacement has no other remover")
+			if tc.liveSidecar != "" {
+				require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
+					"the bucket the in-memory pointer is on")
+			}
+		})
+	}
+}
+
 // A loaded shard is swept unconditionally, without consulting the gate, even
 // with a stale directory listing on hand.
 func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *testing.T) {
@@ -1015,6 +1078,10 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		// "category__ingest_"'s own main bucket.
 		{name: "a property whose name ends in a role word and a separator", dir: main + "__ingest_", want: false},
 		{name: "a sidecar whose suffix carries a strategy word", dir: main + "__blockmax_ingest", want: true},
+		{
+			name: "the dir a crashed bucket replacement left behind",
+			dir:  main + lsmkv.ReplacedBucketDirSuffix, want: true,
+		},
 		// weaviate/weaviate#12621: "category__<word>_<role>" is a property's own
 		// main bucket on every index type, and sweeping "category" deletes it.
 		{name: "a property whose name ends in a role word", dir: main + "__ingest", want: true},

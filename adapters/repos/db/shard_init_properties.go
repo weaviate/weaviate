@@ -499,12 +499,20 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 // — the trailing role word decides instead. Shared with
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
-// Still too weak: a property named "a__<word>_<role>" reads as a sidecar of
-// "a" on all three index types, so sweeping "a" deletes that property's live
-// bucket. Whole-suffix matching against [migrationSuffixes]
+// The dir a crashed [lsmkv.Store.ReplaceBuckets] leaves behind is matched by
+// whole name, since "del" is no migration role word. It is swept here because
+// nothing else removes it, and it can never be preserved: the preserve set
+// holds migration suffixes only ([completedMigrationSidecarSuffixes]).
+//
+// Still too weak: a property named "a__<word>_<role>" (or "a___del") reads as
+// a sidecar of "a" on all three index types, so sweeping "a" deletes that
+// property's live bucket. Whole-suffix matching against [migrationSuffixes]
 // ([sidecarDirsForOrphan] does this) would close it without an on-disk
 // rename. weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
+	if name == mainBucketName+lsmkv.ReplacedBucketDirSuffix {
+		return true
+	}
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {
 		return false
