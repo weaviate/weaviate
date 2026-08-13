@@ -48,6 +48,8 @@ type Scheduler struct {
 
 	// closeOnce: OnClose fires exactly once, started or not (owners count it in a shutdown WaitGroup).
 	closeOnce sync.Once
+	// closeLock serialises concurrent Close calls (double close of chans panics and would skip OnClose).
+	closeLock sync.Mutex
 }
 
 type SchedulerOptions struct {
@@ -200,6 +202,8 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	s.closeLock.Lock()
+	defer s.closeLock.Unlock()
 	if s.ctx == nil {
 		// Never started: still fire OnClose or the owner's shutdown WaitGroup pins forever.
 		s.runOnClose()
