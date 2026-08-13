@@ -91,7 +91,8 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // overlaps with everything.
 //
 // Fails closed on an unrecognized migration type, since this runs on the
-// RAFT apply path where a panic would crash-loop the cluster. A future
+// RAFT apply path, where a panic is recovered rather than fatal: the apply
+// then reports success for a task that no node created. A future
 // compatible-types exception must still conflict on every overlap it
 // replaces, or nodes on different versions would split on the same entry.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
