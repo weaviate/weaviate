@@ -2827,9 +2827,8 @@ func (t *ShardReindexTaskGeneric) selectedProps(collectionName string) ([]string
 // apply that holds the FSM loop cluster-wide.
 //
 // Only a task that already knows its properties writes one. A whole-collection
-// task discovers them by scanning the shard's buckets, and an empty
-// properties.mig would make [reindexTracker.HasProps] report that the discovery
-// had already run — leaving nothing to reindex.
+// task discovers them by scanning the shard's buckets, so there is nothing to
+// record here ahead of that discovery.
 func (t *ShardReindexTaskGeneric) SaveSelectedProps(shard ShardLike) error {
 	collectionName := shard.Index().Config.ClassName.String()
 	if !t.isShardSelected(collectionName, shard.Name()) {
@@ -2847,19 +2846,27 @@ func (t *ShardReindexTaskGeneric) SaveSelectedProps(shard ShardLike) error {
 	if rt.HasProps() {
 		return nil
 	}
-	if err := rt.saveProps(props); err != nil && !os.IsExist(err) {
-		return err
+	return rt.saveProps(props)
+}
+
+// recordedProps reads the property list the tracker holds. HasProps only
+// reports a file that has content, so a list that parses to nothing means that
+// content is corrupt — answering "no properties" would silently retire the
+// shard's reindex instead of reporting the file.
+func recordedProps(rt reindexTracker) ([]string, error) {
+	props, err := rt.GetProps()
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if len(props) == 0 {
+		return nil, fmt.Errorf("properties file names no property")
+	}
+	return props, nil
 }
 
 func (t *ShardReindexTaskGeneric) getPropsToReindex(shard ShardLike, rt reindexTracker) ([]string, error) {
 	if rt.HasProps() {
-		props, err := rt.GetProps()
-		if err != nil {
-			return nil, err
-		}
-		return props, nil
+		return recordedProps(rt)
 	}
 	props, save := t.findPropsToReindex(shard)
 	if save {
@@ -2872,11 +2879,7 @@ func (t *ShardReindexTaskGeneric) getPropsToReindex(shard ShardLike, rt reindexT
 
 func (t *ShardReindexTaskGeneric) readPropsToReindex(rt reindexTracker) ([]string, error) {
 	if rt.HasProps() {
-		props, err := rt.GetProps()
-		if err != nil {
-			return nil, err
-		}
-		return props, nil
+		return recordedProps(rt)
 	}
 	return []string{}, nil
 }

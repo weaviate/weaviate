@@ -276,9 +276,8 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 }
 
 // Pins the guard the early write rests on: a task that has to discover its
-// properties per shard leaves properties.mig absent.
-// [TestAnEmptyPropsSidecarSuppressesWholeCollectionDiscovery] is why that
-// matters.
+// properties per shard records nothing, leaving properties.mig absent so the
+// discovery still runs on the shard.
 func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -328,13 +327,90 @@ func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
 	}
 }
 
-// The failure mode the empty-list guard exists for: properties.mig is also how
-// a task records that discovery already ran, so writing an empty one ahead of
-// time retires the discovery and the shard reindexes nothing.
-func TestAnEmptyPropsSidecarSuppressesWholeCollectionDiscovery(t *testing.T) {
+// A zero-byte properties.mig is what a machine crash between the sidecar
+// write's create and its content leaves behind. Nothing else on the shard
+// records that a property list was ever computed, so every writer that meets
+// one has to rebuild it — reading it as a finished discovery retires the
+// shard's reindex for good.
+func TestAZeroBytePropsSidecarIsRebuiltNotObeyed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name string
+		// newTask builds the task whose writer has to notice the torn file.
+		newTask func(className string) *ShardReindexTaskGeneric
+		// repair is that writer, returning the props it resolved (nil where
+		// the writer does not report any).
+		repair func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error)
+		want   []string
+	}{
+		{
+			name: "whole-collection discovery",
+			newTask: func(className string) *ShardReindexTaskGeneric {
+				return newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+			},
+			repair: func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error) {
+				return task.getPropsToReindex(shard, rt)
+			},
+			want: []string{"cat", "dog"},
+		},
+		{
+			name: "the early selected-props write",
+			newTask: func(className string) *ShardReindexTaskGeneric {
+				return NewRuntimeEnableFilterableTask(logger, []string{"cat", "dog"}, className, 1)
+			},
+			repair: func(task *ShardReindexTaskGeneric, shard *Shard, rt *fileReindexTracker) ([]string, error) {
+				return nil, task.SaveSelectedProps(shard)
+			},
+			want: []string{"cat", "dog"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TornSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, []string{"cat", "dog"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			task := tc.newTask(className)
+			rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+			require.NoError(t, rt.init())
+			migDir := rt.config.migrationPath
+			require.NoError(t, os.WriteFile(filepath.Join(migDir, "properties.mig"), nil, 0o644))
+
+			props, err := tc.repair(task, shard, rt)
+			require.NoError(t, err)
+			if props != nil {
+				require.ElementsMatch(t, tc.want, props)
+			}
+
+			// The repair has to reach disk: the next boot reads the file, not
+			// this call's return value.
+			onDisk, err := readMigrationProps(migDir)
+			require.NoError(t, err)
+			require.ElementsMatch(t, tc.want, onDisk)
+
+			entries, err := os.ReadDir(migDir)
+			require.NoError(t, err)
+			for _, entry := range entries {
+				require.NotContains(t, entry.Name(), ".tmp",
+					"the atomic write must not leave its temp file behind")
+			}
+		})
+	}
+}
+
+// properties.mig is the shard's only record of what it has to reindex, so
+// content that names no property is a corrupt file, not an empty list. Reading
+// it as an empty list makes the shard report "nothing to do" forever.
+func TestAPropsSidecarNamingNoPropertyIsAnError(t *testing.T) {
 	ctx := testCtx()
 	logger, _ := test.NewNullLogger()
-	className := "EmptySidecar" + uuid.NewString()[:8]
+	className := "BlankSidecar" + uuid.NewString()[:8]
 	shd, _ := testShardWithSettings(t, ctx,
 		newTestClassWithProps(className, []string{"cat", "dog"}),
 		enthnsw.UserConfig{Skip: true}, false, false, false)
@@ -344,19 +420,14 @@ func TestAnEmptyPropsSidecarSuppressesWholeCollectionDiscovery(t *testing.T) {
 	task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
 	rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
 	require.NoError(t, rt.init())
+	// Non-empty, so the file reads as a recorded list, yet it names nothing.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(rt.config.migrationPath, "properties.mig"), []byte(" \n"), 0o644))
 
-	discovered, err := task.getPropsToReindex(shard, rt)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"cat", "dog"}, discovered,
-		"a whole-collection task discovers its properties from the shard's buckets")
-
-	propsPath := filepath.Join(rt.config.migrationPath, "properties.mig")
-	require.NoError(t, os.WriteFile(propsPath, nil, 0o644))
-
-	suppressed, err := task.getPropsToReindex(shard, rt)
-	require.NoError(t, err)
-	require.Empty(t, suppressed,
-		"an empty sidecar reads as a finished discovery, so nothing is left to reindex")
+	_, err := task.getPropsToReindex(shard, rt)
+	require.Error(t, err)
+	_, err = task.readPropsToReindex(rt)
+	require.Error(t, err)
 }
 
 // ambiguousSweepDirs is how many tracker dirs the hot cell carries.
