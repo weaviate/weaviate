@@ -195,10 +195,11 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // A dir name alone can be ambiguous (e.g. "enable_filterable_a_b_1" is both
 // a two-property tracker for "a"+"b" and a one-property tracker for "a_b"),
 // so an ambiguous name falls back to the task's recorded property list
-// ([readTaskProps]). Deletion only trusts an exact match, since guessing
-// wider could remove another property's tracker; preservation also matches
-// on a name token alone, since guessing too narrow could delete a live
-// sidecar bucket. Preservation's over-matching (e.g. "cat" also keeps
+// ([readTaskProps]). Deletion trusts that list only where it rebuilds the
+// dir's own name, and with no list only an exact one-property name, since
+// guessing wider could remove another property's tracker; preservation also
+// matches on a name token alone, since guessing too narrow could delete a
+// live sidecar bucket. Preservation's over-matching (e.g. "cat" also keeps
 // "cat_x") only costs a recoverable rename collision on re-enable — cheaper
 // than deletion's under-matching, which loses data.
 type migrationDirScope struct {
@@ -282,8 +283,9 @@ func (s migrationDirScope) matches(name string) bool {
 // and payload always come from the same sorted list
 // ([TestMatchByNameOverridesAContradictingPayload] pins this).
 //
-// [migrationDirScope.match] deliberately skips this shortcut, so the
-// unloaded-shard gate still fails open on a payload it cannot parse.
+// [migrationDirScope.match] takes only the negative arms, so the
+// unloaded-shard gate still fails open on a payload it cannot parse for a dir
+// the name does leave in scope.
 func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	base := migrationDirBase(name)
 	for _, classDir := range s.classDirs {
@@ -294,11 +296,7 @@ func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	if !s.hasStrategyPrefix(base) {
 		return false, true
 	}
-	var exact, token bool
-	for _, prefix := range s.prefixes {
-		exact = exact || base == migrationDirWithProps(prefix, []string{s.propName})
-		token = token || namesPropertyToken(base, prefix, s.propName)
-	}
+	exact, token := s.nameArms(base)
 	switch {
 	case exact && isProvablySingleProperty(s.propName):
 		return true, true
@@ -307,6 +305,17 @@ func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	default:
 		return false, false
 	}
+}
+
+// nameArms reports how a tracker dir's base relates to propName under any of
+// this scope's strategy prefixes: exact means the base is the one-property
+// name, token means its property list carries propName as a whole segment.
+func (s migrationDirScope) nameArms(base string) (exact, token bool) {
+	for _, prefix := range s.prefixes {
+		exact = exact || base == migrationDirWithProps(prefix, []string{s.propName})
+		token = token || namesPropertyToken(base, prefix, s.propName)
+	}
+	return exact, token
 }
 
 // maxProvablySinglePropertyTokens bounds the split enumeration below. A longer
@@ -373,9 +382,10 @@ func migrationDirBase(name string) string {
 // tracker); the unloaded-shard gate and recovery probe fail open on it
 // instead, since the narrowed fallback could wrongly report clean/recovered.
 //
-// That fail-open only covers a dir no properties.mig corroborates. Where one
-// rebuilds the dir's name, [readTaskProps] answers from it, unreadablePayload
-// stays false, and both probes decide from that list instead.
+// That fail-open only covers a dir whose name leaves this property possible
+// and no properties.mig corroborates. Where one rebuilds the dir's name,
+// [readTaskProps] answers from it, unreadablePayload stays false, and both
+// probes decide from that list instead.
 //
 // An intact payload still requires the exact sorted-name reconstruction —
 // unreachable from real writers, which always derive the name and payload
@@ -389,6 +399,11 @@ func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) 
 	}
 	if !s.hasStrategyPrefix(base) {
 		// Not this cleanup's dir; skip reading its payload.
+		return false, false
+	}
+	if exact, token := s.nameArms(base); !exact && !token {
+		// The name is the older half of one sorted list, so no payload of this
+		// dir can name a property the name left out.
 		return false, false
 	}
 	props, ok, unreadable := s.taskProperties(name)

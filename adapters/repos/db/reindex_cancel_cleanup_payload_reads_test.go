@@ -31,6 +31,20 @@ type tracker struct {
 	props []string
 }
 
+// writeDeferredFinalizeTracker materializes one tracker dir in the state that
+// makes a sweep walk all three passes and preserve rather than delete.
+func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
+	t.Helper()
+	mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
+	if len(tr.props) == 0 {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(lsm, ".migrations", tr.dir, reindexRecoveryPayloadFile),
+			[]byte("{not json"), 0o644))
+		return
+	}
+	mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+}
+
 // TestSweepPayloadReadCount pins how many tracker payloads one loaded-shard
 // sweep reads off disk.
 func TestSweepPayloadReadCount(t *testing.T) {
@@ -145,16 +159,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			lsm := shard.pathLSM()
 
 			for _, tr := range tc.trackers {
-				// tidied.mig makes these deferred-finalize state, so the sweep
-				// walks all three passes and preserves rather than deletes.
-				mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
-				if len(tr.props) == 0 {
-					require.NoError(t, os.WriteFile(
-						filepath.Join(lsm, ".migrations", tr.dir, reindexRecoveryPayloadFile),
-						[]byte("{not json"), 0o644))
-					continue
-				}
-				mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+				writeDeferredFinalizeTracker(t, lsm, tr)
 			}
 
 			if tc.gateFailsOpenOn != "" {
@@ -267,9 +272,18 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 						if !decided {
 							continue
 						}
-						fromPayload, _ := scope.match(dir)
+						fromPayload, unreadable := scope.match(dir)
 						require.Equal(t, fromPayload, byName,
 							"dir %q prop %q index %q preserve %v payload %s",
+							dir, propName, indexType, preserve, mode)
+						if byName {
+							// A dir the name puts in scope still fails open on a
+							// payload it cannot read; see gateFailsOpenOn above.
+							continue
+						}
+						require.False(t, unreadable,
+							"a name that disowns the property leaves its payload nothing to add: "+
+								"dir %q prop %q index %q preserve %v payload %s",
 							dir, propName, indexType, preserve, mode)
 					}
 				}
@@ -386,14 +400,24 @@ func TestGatePayloadReadCount(t *testing.T) {
 			sidecars:  []string{"property_cat__enable_filterable_ingest_1"},
 			wantReads: 1,
 		},
+		{
+			// The dir name already disowns "category", and no writer can name a
+			// dir for one property while its payload lists another.
+			name:     "a corrupt payload cannot claim a dir another property is named in",
+			propName: "category",
+			trackers: []tracker{
+				{dir: "enable_filterable_other_1"},
+			},
+			wantStale: false,
+			wantReads: 0,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			lsm := t.TempDir()
 			for _, tr := range tc.trackers {
-				mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
-				mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
+				writeDeferredFinalizeTracker(t, lsm, tr)
 			}
 			for _, s := range tc.sidecars {
 				mkSidecarDir(t, lsm, s)

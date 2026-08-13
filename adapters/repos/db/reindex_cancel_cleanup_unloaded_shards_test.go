@@ -412,14 +412,15 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			corruptPayload: "enable_filterable_category_other_1",
 			wantStale:      true,
 		},
-		// The fail-open stays this broad on purpose: the corrupt payload
-		// could name this property even though the dir name does not.
+		// Name and payload are the same sorted property list, and the name is
+		// written first, so a name omitting this property is the older witness
+		// that no payload can overrule.
 		{
 			name:           "a corrupt payload on a dir whose name omits this property",
 			indexType:      "filterable",
 			trackers:       map[string][]string{"enable_filterable_other_1": {"started.mig"}},
 			corruptPayload: "enable_filterable_other_1",
-			wantStale:      true,
+			wantStale:      false,
 		},
 	}
 
