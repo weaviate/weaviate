@@ -247,6 +247,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.unlistable && os.Geteuid() == 0 {
+				t.Skip("root reads a directory whatever its mode says")
+			}
 			tmp := t.TempDir()
 			if tc.trackers != nil {
 				migsDir := filepath.Join(tmp, ".migrations")
