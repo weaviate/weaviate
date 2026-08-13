@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -71,6 +72,10 @@ const (
 	// Generation 9 is far above anything this collection's own migrations
 	// claim, so it can't be mistaken for the cancelled run's own.
 	coldCancelPlantedDir = "filterable_to_rangeable_" + coldCancelProp + "_9"
+
+	// Prometheus port. The compose does not publish it, so every scrape runs
+	// inside the container.
+	coldCancelMetricsPort = 2112
 )
 
 // sweepTenant is one row of the population matrix above.
@@ -107,6 +112,11 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 
 	compose, err := reindexhelpers.SingleNodeCompose().
 		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+		// This test checks the cleanup sweep's claim about which tenants it
+		// left unloaded against the shard-load metrics, which the sweep does
+		// not write. Without it that second reading returns nothing and the
+		// test is back to asking the sweep to report on itself.
+		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -155,29 +165,79 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	container = compose.GetWeaviate().Container()
 	helper.SetupClient(restURI)
 
+	// The cancelled run in step 1 touched every tenant and left residue on
+	// whichever subset it had reached, so a tenant this matrix calls clean is
+	// only clean by luck — and the sweep rightly hydrates one that is not.
+	// Clear it here, while the shards are unloaded and nothing holds the files
+	// open, so "nothing to sweep" means what it says.
+	clearReindexResidue(ctx, t, container,
+		tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold && !tn.stale }))
+
 	// Step 5: re-submit, naming the HOT tenants — an unnamed COLD tenant would
 	// get a task unit and fail on a shard the index map no longer has. The
 	// sweep itself is collection-wide regardless: it walks the shard map, not
 	// the tenant filter.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
+
+	// The sweep runs inside the submit request, before the task is dispatched,
+	// so the shards loaded across this call are the ones it decided to hydrate.
+	probeStart := time.Now()
+	loadedBefore := loadedShardsOfClass(ctx, t, container, coldCancelClass)
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, coldCancelClass, coldCancelProp,
 		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(hotNames))
+	loadedAfter := loadedShardsOfClass(ctx, t, container, coldCancelClass)
+	probeWindow := time.Since(probeStart)
+
 	t.Logf("post-restart enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	sweepLog := containerLogs(ctx, t, container)[logMark:]
 
 	// (b) The direct end-to-end oracle: the sweep left unloaded tenants
-	// unloaded. Without the gate every one of them is hydrated and this is 0.
+	// unloaded. Read twice, because the sweep's own counter is the subject
+	// reporting on itself: a gate that skipped one tenant out of fourteen
+	// and hydrated the rest still satisfies "more than zero".
+	//
+	// Both readings only prove something while tenants are still unloaded, so
+	// establish that first: a run whose background hydration finished before
+	// the submit cannot tell a working gate from a broken one, and must say so
+	// rather than pass.
 	skipped, found := maxSkippedShards(sweepLog)
 	require.True(t, found,
 		"the post-restart submit must report a cleanup sweep; no sweep line found in the container log")
-	require.Positive(t, skipped,
-		"the sweep hydrated every unloaded tenant: %d clean HOT tenants had nothing to sweep and "+
-			"none was skipped. Every tenant of a collection now pays a shard load per reindex submit",
-		coldCancelCleanTenants)
-	t.Logf("sweep skipped %d unloaded tenants", skipped)
+	stillUnloaded := len(hotNames) - len(loadedBefore)
+	require.GreaterOrEqual(t, stillUnloaded, coldCancelCleanTenants/2,
+		"only %d of %d HOT tenants were still unloaded when the submit landed, so this run cannot "+
+			"observe what the sweep skipped; background hydration outran the test",
+		stillUnloaded, len(hotNames))
+
+	hydrated := newlyLoadedShards(loadedBefore, loadedAfter)
+	stayedUnloaded := stillUnloaded - len(hydrated)
+	t.Logf("sweep skipped %d of %d unloaded tenants; %d still unloaded after the %s submit window (loaded: %v)",
+		skipped, stillUnloaded, stayedUnloaded, probeWindow.Round(time.Millisecond), hydrated)
+
+	// First reading: the counter, with a floor that means something. All
+	// fourteen is unattainable, since background hydration loads one tenant
+	// per second and races the submit, so half is the floor. Both readings
+	// report before the test gives up, so a failure shows whether they agree.
+	assert.GreaterOrEqual(t, skipped, coldCancelCleanTenants/2,
+		"the sweep hydrated most unloaded tenants: only %d were skipped, of %d clean HOT tenants that "+
+			"had nothing to sweep. Every tenant of a collection now pays a shard load per reindex submit",
+		skipped, coldCancelCleanTenants)
+
+	// Second reading, from a subsystem the sweep does not write: shard-scoped
+	// prometheus series appear when LazyLoadShard.Load builds the shard, so a
+	// tenant without one at the end of the submit is a tenant nothing
+	// hydrated. Same claim as the counter above and the same floor, counted
+	// from outside the sweep. Not an exact figure: a few tenants are hydrated
+	// per submit by paths other than this sweep, and background hydration
+	// keeps loading one per second throughout.
+	assert.GreaterOrEqual(t, stayedUnloaded, coldCancelCleanTenants/2,
+		"only %d of the %d tenants that were unloaded when the submit landed were still unloaded when "+
+			"it returned; the submit is hydrating tenants that could be ruled out from their directory "+
+			"listing alone. Loaded: %v",
+		stayedUnloaded, stillUnloaded, hydrated)
 
 	// (a) + (c) Whose trackers survived.
 	for _, tn := range tenants {
@@ -375,6 +435,20 @@ func plantStaleTracker(ctx context.Context, t *testing.T, c testcontainers.Conta
 		"planted tracker for tenant %q must be on disk before the restart", tenant)
 }
 
+// clearReindexResidue makes each tenant's on-disk state look like no
+// migration ever ran on it: no tracker dirs, and no sidecar buckets of the
+// property under test. Both are what the sweep's gate answers "there is
+// something here" from.
+func clearReindexResidue(ctx context.Context, t *testing.T, c testcontainers.Container, tenants []string) {
+	t.Helper()
+	var cmd strings.Builder
+	for _, tenant := range tenants {
+		lsm := tenantLSMPath(tenant)
+		fmt.Fprintf(&cmd, "rm -rf %s/.migrations %s/property_%s__*; ", lsm, lsm, coldCancelProp)
+	}
+	execInContainer(ctx, t, c, cmd.String())
+}
+
 func trackerDirs(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) []string {
 	t.Helper()
 	out := execInContainer(ctx, t, c,
@@ -431,6 +505,80 @@ func containerLogs(ctx context.Context, t *testing.T, c testcontainers.Container
 	out, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	return string(out)
+}
+
+// The metrics probe reports how many lines the metrics page had, so an
+// unreachable endpoint fails loudly instead of reading as "no shard is
+// loaded", and how many shards it found, so a truncated read cannot pass for
+// a small one. Shard names are delimited because docker's exec stream framing
+// prefixes each write with bytes that survive into the text.
+var (
+	metricsLineCountField  = regexp.MustCompile(`LINES=\s*(\d+)`)
+	metricsShardCountField = regexp.MustCompile(`COUNT=\s*(\d+)`)
+	metricsShardName       = regexp.MustCompile(`<([A-Za-z0-9_./\-]+)>`)
+)
+
+// loadedShardsOfClass reports which tenants of className have shard-scoped
+// prometheus series. Those series are registered when the shard itself is
+// built, so an unloaded lazy shard contributes none and the result is the
+// collection's loaded-shard set — published by the shard loader, not by the
+// cleanup sweep whose claim it is used to check.
+func loadedShardsOfClass(ctx context.Context, t *testing.T, c testcontainers.Container,
+	className string,
+) map[string]bool {
+	t.Helper()
+	// Filtered and de-duplicated inside the container: the whole metrics page
+	// is far too large to carry over an exec stream intact. The result leaves
+	// in a single write, so the one frame header lands ahead of the payload
+	// instead of inside a shard name.
+	out := execInContainer(ctx, t, c, fmt.Sprintf(
+		"wget -qO- http://localhost:%d/metrics > /tmp/metrics.probe 2>/dev/null; "+
+			"names=$(grep -i 'class_name=\"%s\"' /tmp/metrics.probe | "+
+			"sed -n 's/.*shard_name=\"\\([^\"]*\\)\".*/<\\1>/p' | sort -u | tr -d '\\n'); "+
+			"printf 'LINES=%%s COUNT=%%s SHARDS=%%s' "+
+			"\"$(wc -l < /tmp/metrics.probe)\" \"$(printf '%%s' \"$names\" | tr -cd '<' | wc -c)\" \"$names\"",
+		coldCancelMetricsPort, className))
+	out = cleanExecLine(out)
+
+	lines := metricsLineCountField.FindStringSubmatch(out)
+	require.NotNil(t, lines, "metrics probe returned no line count: %q", out)
+	pageLines, err := strconv.Atoi(lines[1])
+	require.NoError(t, err)
+	require.Positive(t, pageLines,
+		"the metrics endpoint on port %d served nothing; this test needs "+
+			"PROMETHEUS_MONITORING_ENABLED on the compose", coldCancelMetricsPort)
+
+	found := metricsShardCountField.FindStringSubmatch(out)
+	require.NotNil(t, found, "metrics probe returned no shard count: %q", out)
+	wantShards, err := strconv.Atoi(found[1])
+	require.NoError(t, err)
+
+	loaded := map[string]bool{}
+	names := metricsShardName.FindAllStringSubmatch(out, -1)
+	require.Len(t, names, wantShards,
+		"the metrics probe reported %d shards but only %d survived the exec stream, so this reading "+
+			"undercounts loaded shards: %q", wantShards, len(names), out)
+	for _, name := range names {
+		// The collection's own index-level series carry this placeholder in
+		// the shard label; it is not a tenant.
+		if name[1] == "n/a" {
+			continue
+		}
+		loaded[name[1]] = true
+	}
+	return loaded
+}
+
+// newlyLoadedShards is the sorted set of shards present in after but not before.
+func newlyLoadedShards(before, after map[string]bool) []string {
+	var added []string
+	for name := range after {
+		if !before[name] {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	return added
 }
 
 // skippedShardsField matches the count the cleanup sweep reports. Matched on
