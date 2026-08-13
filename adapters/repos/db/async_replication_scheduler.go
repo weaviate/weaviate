@@ -49,7 +49,18 @@ const (
 	// Retry delay after a rebuild attempt yields (apply lock busy, or a blocking
 	// acquirer started waiting). Yield probes are near-free, so keep this short.
 	asyncRepRebuildContentionBackoff = 1 * time.Second
+
+	// After this many consecutive yields the retry delay escalates through the failure backoff schedule (a stuck teardown intent must not pin a 1 Hz probe loop).
+	asyncRepRebuildYieldEscalationThreshold = 30
 )
+
+// nextRebuildRetryDelay escalates persistent contention yields past the threshold; failure backoffs pass through unchanged.
+func nextRebuildRetryDelay(delay time.Duration, consecutiveYields uint32) time.Duration {
+	if delay != asyncRepRebuildContentionBackoff || consecutiveYields < asyncRepRebuildYieldEscalationThreshold {
+		return delay
+	}
+	return asyncRepRebuildBackoffDuration(consecutiveYields - asyncRepRebuildYieldEscalationThreshold + 1)
+}
 
 // asyncRepRebuildBaseBackoff (ns) is the first-failure wait, doubled up to asyncRepRebuildMaxBackoff; atomic so tests can shrink it.
 var asyncRepRebuildBaseBackoff atomic.Int64
@@ -1689,6 +1700,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 // Failed attempts retry with backoff: after disable the shard is deregistered, so nothing else would ever retry — async would silently stay off until restart.
 func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	start := time.Now()
+	var consecutiveYields uint32
 	for {
 		retry, delay, rebuilt := sched.tryRebuildHashtree(s)
 		if !retry {
@@ -1704,6 +1716,19 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 				}
 			}
 			return
+		}
+		if delay == asyncRepRebuildContentionBackoff {
+			consecutiveYields++
+			if consecutiveYields == asyncRepRebuildYieldEscalationThreshold && sched.logger != nil {
+				sched.logger.
+					WithField("action", "async_replication_rebuild").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					Warnf("hashtree rebuild yielded %d consecutive times; escalating retry backoff", consecutiveYields)
+			}
+			delay = nextRebuildRetryDelay(delay, consecutiveYields)
+		} else {
+			consecutiveYields = 0
 		}
 		timer := time.NewTimer(delay)
 		select {

@@ -989,6 +989,28 @@ func TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock(t *testing.T) {
 	require.True(t, <-retryCh, "a wedged pre-drain must yield")
 }
 
+// TestNextRebuildRetryDelay pins the yield-escalation schedule: constant below the threshold, failure-backoff growth past it, failures untouched.
+func TestNextRebuildRetryDelay(t *testing.T) {
+	tests := []struct {
+		name   string
+		delay  time.Duration
+		yields uint32
+		want   time.Duration
+	}{
+		{"first yield stays constant", asyncRepRebuildContentionBackoff, 1, asyncRepRebuildContentionBackoff},
+		{"below threshold stays constant", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold - 1, asyncRepRebuildContentionBackoff},
+		{"threshold starts the backoff schedule", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold, asyncRepRebuildBackoffDuration(1)},
+		{"past threshold doubles", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold + 3, asyncRepRebuildBackoffDuration(4)},
+		{"escalation caps at max backoff", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold + 100, asyncRepRebuildMaxBackoff},
+		{"failure backoff passes through", 8 * time.Minute, asyncRepRebuildYieldEscalationThreshold + 5, 8 * time.Minute},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, nextRebuildRetryDelay(tc.delay, tc.yields))
+		})
+	}
+}
+
 func waitAsyncRepDrained(t *testing.T, s *Shard, msg string) {
 	t.Helper()
 	select {
