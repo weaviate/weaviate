@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -571,3 +572,100 @@ func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
 	require.Len(t, out, 1)
 	require.Equal(t, "ns1:Movies", out[0].Class)
 }
+
+// TestBatchObjectsFromProtoDoesNotMutateRequest pins the parser's contract: the
+// worker keeps the same *pb.BatchObject pointers and re-sends them on retry, so a
+// parse that rewrites the request makes the retry a different request from the
+// first attempt.
+func TestBatchObjectsFromProtoDoesNotMutateRequest(t *testing.T) {
+	const (
+		rawCollection      = "Zoo"
+		resolvedCollection = "customer1:Zoo"
+		rawTarget          = "customer1:Animal"
+	)
+	classes := map[string]*models.Class{
+		resolvedCollection: {
+			Class: resolvedCollection,
+			Properties: []*models.Property{
+				{Name: "linkedTo", DataType: []string{"customer1:Animal", "customer1:Habitat"}},
+			},
+		},
+	}
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		return resolvedCollection, classes[resolvedCollection], nil
+	}
+	req := &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{{
+		Collection: rawCollection, Uuid: UUID4,
+		Properties: &pb.BatchObject_Properties{
+			MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
+				{PropName: "linkedTo", Uuids: []string{UUID3}, TargetCollection: rawTarget},
+			},
+		},
+	}}}
+
+	out, _, errs := batch.BatchObjectsFromProto(req, getClass, &models.Principal{Username: "admin"}, true)
+
+	require.Len(t, errs, 0)
+	require.Len(t, out, 1)
+	require.Equal(t, resolvedCollection, out[0].Class, "the parsed object carries the resolved class")
+	require.Equal(t, rawCollection, req.Objects[0].Collection, "the request collection must be untouched")
+	require.Equal(t, rawTarget, req.Objects[0].Properties.MultiTargetRefProps[0].TargetCollection,
+		"the request reference target must be untouched")
+}
+
+// TestBatchObjectsFromProtoIsRepeatable parses the same request twice, as the
+// worker's retry round does. On a namespaced cluster a rewritten collection makes
+// the second pass fail the namespace-prefix check, turning a transient replication
+// error into a permanent, false schema error.
+func TestBatchObjectsFromProtoIsRepeatable(t *testing.T) {
+	principal := &models.Principal{Username: "u", Namespace: "customer1"}
+	classes := map[string]*models.Class{
+		"customer1:Zoo": {
+			Class: "customer1:Zoo",
+			Properties: []*models.Property{
+				{Name: "linkedTo", DataType: []string{"customer1:Animal", "customer1:Habitat"}},
+			},
+		},
+	}
+	// the production resolver, so the second pass sees exactly what the receiver's
+	// resolution step would see
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		resolved, _, err := namespacing.Resolve(principal, stubAliasResolver{}, true, class)
+		if err != nil {
+			return "", nil, err
+		}
+		return resolved, classes[resolved], nil
+	}
+	req := &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{{
+		Collection: "Zoo", Uuid: UUID4,
+		Properties: &pb.BatchObject_Properties{
+			MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
+				{PropName: "linkedTo", Uuids: []string{UUID3}, TargetCollection: "Animal"},
+			},
+		},
+	}}}
+
+	beaconsOf := func(t *testing.T, obj *models.Object) []interface{} {
+		t.Helper()
+		return obj.Properties.(map[string]interface{})["linkedTo"].([]interface{})
+	}
+
+	first, _, errs := batch.BatchObjectsFromProto(req, getClass, principal, true)
+	require.Len(t, errs, 0)
+	require.Len(t, first, 1)
+
+	second, _, errs := batch.BatchObjectsFromProto(req, getClass, principal, true)
+	require.Len(t, errs, 0, "the retry must not fail where the first attempt succeeded")
+	require.Len(t, second, 1)
+
+	require.Equal(t, first[0].Class, second[0].Class)
+	require.Equal(t, "customer1:Zoo", second[0].Class)
+	require.Equal(t, beaconsOf(t, first[0]), beaconsOf(t, second[0]))
+	require.Equal(t, batch.BEACON_START+"Animal/"+UUID3, beaconsOf(t, second[0])[0].(map[string]interface{})["beacon"])
+}
+
+// stubAliasResolver resolves no aliases, so namespacing.Resolve returns the
+// qualified name.
+type stubAliasResolver struct{}
+
+func (stubAliasResolver) ResolveAlias(alias string) string { return "" }

@@ -48,6 +48,25 @@ func newBatchResultsMessage(successes []*pb.BatchStreamReply_Results_Success, er
 	}
 }
 
+// newBatchResultsErrorMessage reports one error per uuid and per beacon, for a batch
+// that failed as a whole before any of it reached a worker.
+func newBatchResultsErrorMessage(uuids, beacons []string, msg string) *pb.BatchStreamReply {
+	errs := make([]*pb.BatchStreamReply_Results_Error, 0, len(uuids)+len(beacons))
+	for _, uuid := range uuids {
+		errs = append(errs, &pb.BatchStreamReply_Results_Error{
+			Error:  msg,
+			Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: uuid},
+		})
+	}
+	for _, beacon := range beacons {
+		errs = append(errs, &pb.BatchStreamReply_Results_Error{
+			Error:  msg,
+			Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: beacon},
+		})
+	}
+	return newBatchResultsMessage(nil, errs)
+}
+
 func newBatchShuttingDownMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{

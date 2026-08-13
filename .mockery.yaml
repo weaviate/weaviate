@@ -123,4 +123,11 @@ packages:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"
           inpackage: false
+  github.com/weaviate/weaviate/usecases/memwatch:
+    interfaces:
+      AllocChecker:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false
   

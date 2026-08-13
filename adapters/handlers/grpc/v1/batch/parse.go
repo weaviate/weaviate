@@ -52,9 +52,12 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		}
 		// resolved is namespace-qualified even before the class exists, so an
 		// auto-schema create and the object write agree on the qualified name.
-		obj.Collection = resolved
+		// The name stays local: the worker re-sends these same objects on retry,
+		// and a rewritten collection fails the namespace-prefix check on the
+		// second pass.
+		collectionName := resolved
 		if class != nil {
-			obj.Collection = class.Class
+			collectionName = class.Class
 		}
 
 		if obj.Properties != nil {
@@ -124,7 +127,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
-			Class:      obj.Collection,
+			Class:      collectionName,
 			Tenant:     obj.Tenant,
 			Vector:     vector,
 			Properties: props,
@@ -174,7 +177,6 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		if err != nil {
 			return err
 		}
-		refMulti.TargetCollection = shortTarget
 		beacons := make([]interface{}, len(refMulti.Uuids))
 		for j, uid := range refMulti.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + shortTarget + "/" + uid}

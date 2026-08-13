@@ -31,6 +31,9 @@ const (
 	BACKOFF_RETRY_TIME  = 100 * time.Millisecond
 )
 
+// batcher implementations must not mutate the objects or references in the request:
+// the retry round re-sends the same pointers, so any rewrite makes the retry a
+// different request from the first attempt.
 type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
 	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
@@ -107,10 +110,15 @@ func (w *worker) isTransientReplicationError(err string) bool {
 		strings.Contains(err, "Node not ready") // rest: node is not ready to accept requests (still starting up or shutting down)
 }
 
+// fanoutReply carries the sub-batch it answers, because replies arrive in completion
+// order rather than in position order. subBatch bounds the reply's error indices, and
+// offset, the index of subBatch[0] in the collection's object slice, maps those
+// indices back to the objects they are for.
 type fanoutReply struct {
-	reply       *pb.BatchObjectsReply
-	err         error
-	howManyObjs int
+	reply    *pb.BatchObjectsReply
+	err      error
+	subBatch []*pb.BatchObject
+	offset   int
 }
 
 func (w *worker) fanoutObjects(
@@ -140,7 +148,7 @@ func (w *worker) fanoutObjects(
 				Objects:          subBatch,
 				ConsistencyLevel: cl,
 			})
-			ch <- fanoutReply{reply: reply, err: err, howManyObjs: len(subBatch)}
+			ch <- fanoutReply{reply: reply, err: err, subBatch: subBatch, offset: start}
 		}, w.logger)
 	}
 
@@ -176,57 +184,29 @@ func (w *worker) sendObjects(
 	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
 	// Assumption is all successes, so preallocate success slice
 	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(objs))
-	// Handle errors
-	errored := make(map[int32]struct{})
+	// keyed by index into objs, the same indexing the success loop below uses
+	errored := make(map[int]struct{})
 	// Keep track of retriable errors to send again
 	retriable := make([]*pb.BatchObject, 0)
 
-	objsByCollection := make(map[string][]*pb.BatchObject)
-	for _, obj := range objs {
-		objsByCollection[obj.Collection] = append(objsByCollection[obj.Collection], obj)
+	idxsByCollection := make(map[string][]int)
+	for i, obj := range objs {
+		idxsByCollection[obj.Collection] = append(idxsByCollection[obj.Collection], i)
 	}
 
-	for collection, objs := range objsByCollection {
+	for collection, outerIdxs := range idxsByCollection {
 		fanoutAmount := 1
 		if usesVectorisationByCollection[collection] {
 			fanoutAmount = 10
 		}
-		lastIndex := int32(0)
-		for resp := range w.fanoutObjects(ctx, objs, cl, fanoutAmount) {
-			func() {
-				defer func() {
-					lastIndex += int32(resp.howManyObjs)
-				}()
-				if resp.err != nil {
-					w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", resp.err)
-					for _, obj := range objs {
-						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  resp.err.Error(),
-							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
-						})
-					}
-					return
-				}
-				if len(resp.reply.GetErrors()) > 0 {
-					for _, err := range resp.reply.GetErrors() {
-						index := err.Index + lastIndex
-						if err == nil {
-							continue
-						}
-						errored[index] = struct{}{}
-						if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
-							w.logger.WithField("streamId", streamId).Infof("transient replication error for object %s: %s", objs[index].Uuid, err.Error)
-							retriable = append(retriable, objs[index])
-							continue
-						}
-						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  err.Error,
-							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[index].Uuid},
-						})
-					}
-				}
-			}()
+		collectionObjs := make([]*pb.BatchObject, 0, len(outerIdxs))
+		for _, i := range outerIdxs {
+			collectionObjs = append(collectionObjs, objs[i])
 		}
+		replies := w.fanoutObjects(ctx, collectionObjs, cl, fanoutAmount)
+		errorsInner, retriableInner := w.consumeFanoutReplies(streamId, replies, objs, outerIdxs, retries, errored)
+		errors = append(errors, errorsInner...)
+		retriable = append(retriable, retriableInner...)
 	}
 	if len(retriable) > 0 {
 		// exponential backoff with 2 ** n
@@ -241,7 +221,7 @@ func (w *worker) sendObjects(
 	}
 	// Handle successes
 	for i, obj := range objs {
-		if _, ok := errored[int32(i)]; ok {
+		if _, ok := errored[i]; ok {
 			continue
 		}
 		successes = append(successes, &pb.BatchStreamReply_Results_Success{
@@ -249,6 +229,59 @@ func (w *worker) sendObjects(
 		})
 	}
 	return successes, errors
+}
+
+// consumeFanoutReplies drains one collection's fanout replies, attributing every
+// reply error to the object the reply is for. outerIdxs[j] is the index in the full
+// batch of the collection's j-th object; errored is keyed by that index and is
+// mutated in place. Reply error indices are relative to the sub-batch the reply
+// answers, which is also their bound: an index outside it names no object, so it is
+// dropped rather than applied to whichever object happens to sit there.
+func (w *worker) consumeFanoutReplies(
+	streamId string,
+	replies <-chan fanoutReply,
+	objs []*pb.BatchObject,
+	outerIdxs []int,
+	retries int,
+	errored map[int]struct{},
+) (errs []*pb.BatchStreamReply_Results_Error, retriable []*pb.BatchObject) {
+	log := w.logger.WithField("streamId", streamId)
+	for resp := range replies {
+		if resp.err != nil {
+			log.Errorf("failed to batch objects: %s", resp.err)
+			for k := range resp.subBatch {
+				outer := outerIdxs[resp.offset+k]
+				errored[outer] = struct{}{}
+				errs = append(errs, &pb.BatchStreamReply_Results_Error{
+					Error:  resp.err.Error(),
+					Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[outer].Uuid},
+				})
+			}
+			continue
+		}
+		for _, err := range resp.reply.GetErrors() {
+			if err == nil {
+				continue
+			}
+			if err.Index < 0 || int(err.Index) >= len(resp.subBatch) {
+				log.Errorf("dropping batch reply error with index %d outside the sub-batch of %d objects: %s", err.Index, len(resp.subBatch), err.Error)
+				continue
+			}
+			outer := outerIdxs[resp.offset+int(err.Index)]
+			obj := objs[outer]
+			errored[outer] = struct{}{}
+			if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
+				log.Infof("transient replication error for object %s: %s", obj.Uuid, err.Error)
+				retriable = append(retriable, obj)
+				continue
+			}
+			errs = append(errs, &pb.BatchStreamReply_Results_Error{
+				Error:  err.Error,
+				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
+			})
+		}
+	}
+	return errs, retriable
 }
 
 func toBeacon(ref *pb.BatchReference) string {
@@ -292,6 +325,12 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		retriable := make([]*pb.BatchReference, 0)
 		for _, err := range reply.GetErrors() {
 			if err == nil {
+				continue
+			}
+			// an index outside the request names no reference, so it is dropped
+			// rather than applied to whichever reference happens to sit there
+			if err.Index < 0 || int(err.Index) >= len(refs) {
+				w.logger.WithField("streamId", streamId).Errorf("dropping reference reply error with index %d outside the request of %d references: %s", err.Index, len(refs), err.Error)
 				continue
 			}
 			errored[err.Index] = struct{}{}

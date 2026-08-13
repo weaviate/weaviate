@@ -38,14 +38,13 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
-	// Only check memory if async indexing is disabled. If async indexing is
-	// enabled, the allocation (and therefore the decision on whether enough
-	// memory is available) is deferred until the dequeue step. This way, pushing
-	// onto the queue is not blocked, and dequeing does not accidentally run OOM
-	// because enqueuing was too fast.
+	// Only check memory here if async indexing is disabled. With async indexing, for
+	// single-vector HNSW indexes, hnsw.AddBatch checks the allocation when the queue
+	// worker inserts the batch, so enqueuing is not blocked by the index's memory
+	// demand. Everything else this call allocates is unchecked on that path.
 	if !db.AsyncIndexingEnabled {
 		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
-			db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
+			db.logger.Errorf("memory pressure: cannot process batch: %v", err)
 			return nil, fmt.Errorf("cannot process batch: %w", err)
 		}
 	}
@@ -219,7 +218,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}).Debugf("batch delete: identified %v objects to delete", matches)
 
 	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
-		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
+		db.logger.Errorf("memory pressure: cannot process batch delete object: %v", err)
 		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
 	}
 

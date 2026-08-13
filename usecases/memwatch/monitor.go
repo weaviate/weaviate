@@ -167,8 +167,8 @@ func clearReservedMappings(lastClear time.Time, now time.Time, reservedMappingsB
 }
 
 func (m *Monitor) Ratio() float64 {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	return float64(m.usedMemory) / float64(m.limit)
 }
@@ -334,21 +334,19 @@ func EstimateStorObjectMemory(object *storobj.Object) int64 {
 	return int64(len(object.Vector)*4 + 46)
 }
 
+// EstimateBatchObjectMemory sums every vector source the object carries: an object
+// may hold the legacy vector, the byte vector and named or multi vectors at once, and
+// the admission gate must account for all of them. The 30 B overhead is per object,
+// as in the sibling estimators.
 func EstimateBatchObjectMemory(object *protocol.BatchObject) int64 {
-	if len(object.Vector) > 0 {
-		return int64(len(object.Vector)*4 + 30)
+	size := len(object.GetVector())*4 + len(object.GetVectorBytes())
+	for _, vec := range object.GetVectors() {
+		size += len(vec.GetVectorBytes())
 	}
-	if len(object.VectorBytes) > 0 {
-		return int64(len(object.VectorBytes) + 30)
+	if size == 0 {
+		return 0
 	}
-	if len(object.Vectors) > 0 {
-		size := 0
-		for _, vec := range object.Vectors {
-			size += len(vec.VectorBytes)
-		}
-		return int64(size + 30)
-	}
-	return 0
+	return int64(size + 30)
 }
 
 func EstimateObjectDeleteMemory() int64 {

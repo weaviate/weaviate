@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,30 +51,31 @@ type schemaManager interface {
 }
 
 type StreamHandler struct {
-	authenticator          authenticator
-	authorizer             authorization.Authorizer
-	shuttingDownCtx        context.Context
-	logger                 logrus.FieldLogger
-	reportingQueues        *reportingQueues
-	processingQueue        processingQueue
-	recvWg                 *sync.WaitGroup
-	sendWg                 *sync.WaitGroup
-	enqueuedObjectsCounter *atomic.Int32
-	metrics                *BatchStreamingMetrics
-	shuttingDown           atomic.Bool
-	workerStatsPerStream   *sync.Map // map[string]*stats
-	stoppingPerStream      *sync.Map // map[string]struct{}
-	allocChecker           memwatch.AllocChecker
-	memInFlight            atomic.Int64
-	schemaManager          schemaManager
-	namespacesEnabled      bool
-	streamMux              sync.Mutex
+	authenticator        authenticator
+	authorizer           authorization.Authorizer
+	shuttingDownCtx      context.Context
+	triggerShuttingDown  context.CancelFunc
+	registerMu           sync.Mutex
+	logger               logrus.FieldLogger
+	reportingQueues      *reportingQueues
+	processingQueue      processingQueue
+	recvWg               *sync.WaitGroup
+	sendWg               *sync.WaitGroup
+	metrics              *BatchStreamingMetrics
+	shuttingDown         atomic.Bool
+	workerStatsPerStream *sync.Map // map[string]*stats
+	stoppingPerStream    *sync.Map // map[string]struct{}
+	allocChecker         memwatch.AllocChecker
+	memInFlight          atomic.Int64
+	schemaManager        schemaManager
+	namespacesEnabled    bool
 }
 
 func NewStreamHandler(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
 	shuttingDownCtx context.Context,
+	triggerShuttingDown context.CancelFunc,
 	recvWg, sendWg *sync.WaitGroup,
 	reportingQueues *reportingQueues,
 	processingQueue processingQueue,
@@ -83,27 +83,49 @@ func NewStreamHandler(
 	logger logrus.FieldLogger,
 	schemaManager schemaManager,
 	namespacesEnabled bool,
+	allocChecker memwatch.AllocChecker,
 ) *StreamHandler {
 	h := &StreamHandler{
-		authenticator:          authenticator,
-		authorizer:             authorizer,
-		shuttingDownCtx:        shuttingDownCtx,
-		logger:                 logger,
-		reportingQueues:        reportingQueues,
-		processingQueue:        processingQueue,
-		recvWg:                 recvWg,
-		sendWg:                 sendWg,
-		enqueuedObjectsCounter: &atomic.Int32{},
-		metrics:                metrics,
-		workerStatsPerStream:   &sync.Map{},
-		stoppingPerStream:      &sync.Map{},
-		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
-		// this ensures that vectors can be stored in-memory before being processed downstream
-		allocChecker:      memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
-		schemaManager:     schemaManager,
-		namespacesEnabled: namespacesEnabled,
+		authenticator:        authenticator,
+		authorizer:           authorizer,
+		shuttingDownCtx:      shuttingDownCtx,
+		triggerShuttingDown:  triggerShuttingDown,
+		logger:               logger,
+		reportingQueues:      reportingQueues,
+		processingQueue:      processingQueue,
+		recvWg:               recvWg,
+		sendWg:               sendWg,
+		metrics:              metrics,
+		workerStatsPerStream: &sync.Map{},
+		stoppingPerStream:    &sync.Map{},
+		allocChecker:         allocChecker,
+		schemaManager:        schemaManager,
+		namespacesEnabled:    namespacesEnabled,
 	}
 	return h
+}
+
+// registerStream admits one stream and registers it with the drain wait groups. It
+// reports false once drain has stopped accepting. Both Adds happen under registerMu,
+// which stopAccepting also holds while cancelling, so no Add can run after the cancel
+// and therefore none can run concurrently with drain's Waits.
+func (h *StreamHandler) registerStream() bool {
+	h.registerMu.Lock()
+	defer h.registerMu.Unlock()
+	if h.shuttingDownCtx.Err() != nil {
+		return false
+	}
+	h.recvWg.Add(1)
+	h.sendWg.Add(1)
+	return true
+}
+
+// stopAccepting closes the admission window for new streams. Every stream is then
+// either fully registered or rejected.
+func (h *StreamHandler) stopAccepting() {
+	h.registerMu.Lock()
+	defer h.registerMu.Unlock()
+	h.triggerShuttingDown()
 }
 
 // Handle is the main entrypoint for all Bidi StreamStream calls.
@@ -162,31 +184,45 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	h.setup(streamId)
 	defer h.teardown(streamId)
 
+	// The receiver and sender goroutines both send on this stream.
+	sendStream := newSyncStream(stream)
+
 	// Ensure that internal goroutines are cancelled when the stream exits for any reason
 	ctx, cancel := context.WithCancel(streamCtx)
 	defer cancel()
 	// Add class cache to context for schema retrievals during this stream's lifetime
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	// Register against the drain wait groups only now that the client has sent its
+	// start message: registering before the unbounded wait for it would let a silent
+	// client block shutdown indefinitely.
+	if !h.registerStream() {
+		return errShutdown(fmt.Errorf("not accepting new streams: %w", h.shuttingDownCtx.Err()))
+	}
+	defer h.sendWg.Done()
+
 	// Channel to communicate receive errors from recv to the send loop
 	recvErrCh := make(chan error, 1)
 	// Spawn recv process in its own goroutine
-	h.recvWg.Add(1)
 	enterrors.GoWrapper(func() {
+		// The send loop exits on recvErrCh: an error if the receiver failed, a close if
+		// the client closed the stream. These defers are registered before the receiver
+		// call so that they also run when a panic unwinds through it.
 		defer h.recvWg.Done()
-		// If recv returns, then the stream has been closed by the client or an error has occurred
-		// In either case, we need to inform the send loop so that it can exit cleanly
-		// We do this by sending the error (or nil if the client closed the stream) to the recvErrCh channel
-		// and then closing the channel to signal that no more errors will be sent
-		if err := h.receiver(ctx, streamId, principal, startReq.ConsistencyLevel, stream); err != nil {
+		defer close(recvErrCh)
+		defer func() {
+			if r := recover(); r != nil {
+				// a panicked receiver must not reach the sender as a clean close
+				recvErrCh <- fmt.Errorf("receiver panicked: %v", r)
+				panic(r)
+			}
+		}()
+		if err := h.receiver(ctx, streamId, principal, startReq.ConsistencyLevel, sendStream); err != nil {
 			recvErrCh <- err
 		}
-		close(recvErrCh)
 	}, h.logger)
-	h.sendWg.Add(1)
-	defer h.sendWg.Done()
 	// Start the send loop in this goroutine, it will exit when the stream is closed or an error occurs (including shutdowns)
-	return h.sender(ctx, streamId, stream, recvErrCh)
+	return h.sender(ctx, streamId, sendStream, recvErrCh)
 }
 
 func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *batchResults, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
@@ -271,10 +307,27 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 	batchResults.reset()
 }
 
-// send sends a message through the stream with proper locking to prevent concurrent sends which would cause the stream to error out.
+// syncStream serialises Send for the goroutines that share one stream. gRPC allows
+// one concurrent Send and one concurrent Recv per stream, so Recv is left unwrapped:
+// only the recv goroutine calls it.
+type syncStream struct {
+	pb.Weaviate_BatchStreamServer
+	mu sync.Mutex
+}
+
+func newSyncStream(stream pb.Weaviate_BatchStreamServer) *syncStream {
+	return &syncStream{Weaviate_BatchStreamServer: stream}
+}
+
+func (s *syncStream) Send(msg *pb.BatchStreamReply) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Weaviate_BatchStreamServer.Send(msg)
+}
+
+// send requires a stream that serialises Send, since concurrent sends error the
+// stream out. Handle passes a syncStream, whose lock is scoped to that one stream.
 func (h *StreamHandler) send(stream pb.Weaviate_BatchStreamServer, msg *pb.BatchStreamReply) error {
-	h.streamMux.Lock()
-	defer h.streamMux.Unlock()
 	if err := stream.Send(msg); err != nil {
 		return fmt.Errorf("send message: %w", err)
 	}
@@ -369,7 +422,13 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
+// recv decodes messages from the stream into reqCh until the stream ends or ctx is
+// cancelled. Both channels are unbuffered, so every send is guarded by ctx: the
+// receiver derives ctx itself and cancels it on every return, which releases this
+// goroutine (and the request it holds) on all of its early exits. The remaining
+// blocking point is stream.Recv(), which gRPC releases when Handle returns and the
+// RPC ends; the goroutine then hits the guarded errCh send and exits.
+func (h *StreamHandler) recv(ctx context.Context, stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
 	enterrors.GoWrapper(func() {
@@ -378,16 +437,19 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 			close(reqCh)
 		}()
 		for {
-			// stream context is cancelled once the send() method returns
-			// cleaning up this goroutine without needing any additional signalling
-			// i.e. when the stream is closed by the client or an error occurs
-			// including server shutdowns
 			req, err := stream.Recv()
 			if err != nil {
-				errCh <- err
+				select {
+				case errCh <- err:
+				case <-ctx.Done():
+				}
 				return
 			}
-			reqCh <- req
+			select {
+			case reqCh <- req:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}, h.logger)
 	return reqCh, errCh
@@ -410,7 +472,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	var gracePeriod <-chan time.Time
 
-	reqCh, errCh := h.recv(stream)
+	reqCh, errCh := h.recv(ctx, stream)
 	for {
 		// we must check for shutting down before we start blocking on h.recv in the event
 		// that the client is misbehaving by sending more messages after the shutdown signal
@@ -441,9 +503,19 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 		// after which we will force close the stream if it hasn't closed already
 		// if we receive a request or an error, we process it as normal
 		// if the context is cancelled, we exit the loop
+		var ok bool
 		select {
-		case request = <-reqCh:
-		case err = <-errCh:
+		case request, ok = <-reqCh:
+			if !ok {
+				// recv closes both channels once ctx is cancelled without delivering a
+				// value, so ctx.Err() is non-nil here and a nil request never reaches
+				// the message handling below
+				return ctx.Err()
+			}
+		case err, ok = <-errCh:
+			if !ok {
+				return ctx.Err()
+			}
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-shuttingDownDone:
@@ -501,6 +573,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				}
 				resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
 				if err != nil {
+					h.reportRejectedBatch(stream, log, principal, objs, refs, err)
 					return err
 				}
 				resolvedNames = append(resolvedNames, resolved)
@@ -510,7 +583,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 			classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, resolvedNames...)
 			if err != nil {
 				log.Errorf("failed to get classes for vectorisation check: %v", err)
-				return fmt.Errorf("get classes for vectorisation check: %w", err)
+				err = fmt.Errorf("get classes for vectorisation check: %w", err)
+				h.reportRejectedBatch(stream, log, principal, objs, refs, err)
+				return err
 			}
 			usesVectorisationByCollection := map[string]bool{}
 			for raw, resolved := range resolvedByRaw {
@@ -519,16 +594,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				}
 			}
 
-			h.push(ctx, streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection)
+			h.push(ctx, streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection, size)
 
-			uuids := make([]string, 0, len(objs))
-			beacons := make([]string, 0, len(refs))
-			for _, obj := range objs {
-				uuids = append(uuids, obj.GetUuid())
-			}
-			for _, ref := range refs {
-				beacons = append(beacons, toBeacon(ref))
-			}
+			uuids, beacons := uuidsAndBeacons(objs, refs)
 			// Acknowledge receipt of these objects and/or references from the message
 			if err := h.send(stream, newBatchAcksMessage(uuids, beacons)); err != nil {
 				log.Errorf("failed to send acks message: %s", err)
@@ -543,20 +611,33 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 	}
 }
 
-func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool) {
-	// Increment the wait group for each batch pushed to the processing queue
-	wg.Add(1)
-
+// push enqueues one message for the workers. size is the memory estimate the
+// admission gate was checked against, so the gate and the in-flight accounting cannot
+// disagree.
+func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool, size int64) {
 	// Update metrics based on how many objects are being pushed
 	howMany := len(objs) + len(refs)
 	if h.metrics != nil {
 		h.metrics.OnProcessingQueuePush(howMany)
 	}
-	h.enqueuedObjectsCounter.Add(int32(howMany))
 
 	// Track memory in-flight for all batches currently being processed
-	size := estimateBatchMemory(objs)
 	h.memInFlight.Add(size)
+	wg.Add(1)
+
+	// The queue is closed only by drain, which stops accepting new streams and waits
+	// for every registered receiver first, so the send below cannot panic. If that
+	// invariant is ever broken, this releases what the push took: a retained count
+	// parks h.close and a retained memInFlight tightens the admission gate. The guard
+	// is registered after the increments it undoes, so a panic in between cannot drive
+	// memInFlight negative.
+	pushed := false
+	defer func() {
+		if !pushed {
+			wg.Done()
+			h.memInFlight.Add(-size)
+		}
+	}()
 
 	// Push the batch to the processing queue for downstream workers to pick up
 	h.processingQueue <- &processRequest{
@@ -570,26 +651,46 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 			defer wg.Done()
 			h.memInFlight.Add(-size)
 		},
-		// decrement enqueued counter and metric when starting processing
+		// decrement the enqueued metric when starting processing
 		onStart: func() {
-			h.enqueuedObjectsCounter.Add(-int32(howMany))
 			if h.metrics != nil {
 				h.metrics.OnProcessingQueuePull(howMany)
 			}
 		},
 		usesVectorisationByCollection: usesVectorisationByCollection,
 	}
+	pushed = true
 }
 
-func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {
-	uuids := make([]string, 0, len(objs))
-	beacons := make([]string, 0, len(refs))
+// reportRejectedBatch reports every object and reference of a rejected message back
+// to the client as an error. The error text is stripped for the principal:
+// Handle strips only its return value, so text copied into a Results message would
+// otherwise leak namespace-qualified class names to a confined principal.
+func (h *StreamHandler) reportRejectedBatch(stream pb.Weaviate_BatchStreamServer, log *logrus.Entry, principal *models.Principal, objs []*pb.BatchObject, refs []*pb.BatchReference, err error) {
+	uuids, beacons := uuidsAndBeacons(objs, refs)
+	if h.metrics != nil {
+		h.metrics.OnStreamError(len(uuids) + len(beacons))
+	}
+	msg := newBatchResultsErrorMessage(uuids, beacons, namespacing.StripErrForPrincipal(principal, err).Error())
+	if sendErr := h.send(stream, msg); sendErr != nil {
+		log.Errorf("failed to send results message for rejected batch: %v", sendErr)
+	}
+}
+
+func uuidsAndBeacons(objs []*pb.BatchObject, refs []*pb.BatchReference) (uuids, beacons []string) {
+	uuids = make([]string, 0, len(objs))
+	beacons = make([]string, 0, len(refs))
 	for _, obj := range objs {
 		uuids = append(uuids, obj.GetUuid())
 	}
 	for _, ref := range refs {
 		beacons = append(beacons, toBeacon(ref))
 	}
+	return uuids, beacons
+}
+
+func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {
+	uuids, beacons := uuidsAndBeacons(objs, refs)
 	return &oom{
 		err:     fmt.Errorf("processing batch: %w", err),
 		uuids:   uuids,
