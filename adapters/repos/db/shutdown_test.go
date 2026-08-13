@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -569,20 +568,28 @@ func requireShutdownReturns(t *testing.T, db *DB, msg string) {
 	}
 }
 
-// TestShutdownSurvivesDeadBatchWorker: DB.Shutdown must return even when a batch worker died from a recovered panic before consuming its poison pill.
+// TestShutdownSurvivesDeadBatchWorker: DB.Shutdown must return even when a batch worker died from a panic before consuming its poison pill.
 func TestShutdownSurvivesDeadBatchWorker(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-	db := newShutdownTestDB(t, logger, 2)
+	logger, _ := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 0)
+	db.jobQueueCh = make(chan job, 10)
+	db.maxNumberGoroutines = 1
+
+	// Sole consumer, test-owned recover: GoWrapper re-panics under DISABLE_RECOVERY_ON_PANIC and would kill the binary.
+	db.shutDownWg.Add(1)
+	workerDead := make(chan struct{})
+	go func() {
+		defer close(workerDead)
+		defer func() { _ = recover() }()
+		db.batchWorker(false)
+	}()
 
 	db.jobQueueCh <- job{index: 0, batcher: nil}
-	require.Eventually(t, func() bool {
-		for _, e := range hook.AllEntries() {
-			if strings.Contains(e.Message, "panic") || strings.Contains(fmt.Sprint(e.Data), "panic") {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond, "the poisoned job never killed a worker — the fixture no longer exercises the leak")
+	select {
+	case <-workerDead:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the poisoned job never killed the worker — the fixture no longer exercises the leak")
+	}
 
 	requireShutdownReturns(t, db, "DB.Shutdown must not hang when a batch worker died before its poison pill")
 }
