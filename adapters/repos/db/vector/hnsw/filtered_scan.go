@@ -85,7 +85,6 @@ type FilteredScanScratch struct {
 	surv     []uint64
 	stage2   []scanCand
 	topK     []scanCand
-	prefixQ  []uint64
 	initOnce bool
 }
 
