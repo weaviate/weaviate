@@ -42,6 +42,8 @@ func TestUpgradedOnDisk(t *testing.T) {
 		storedValue   []byte
 		hnswDirExists bool
 		want          bool
+		// state we could not read is reported as an error rather than as flat
+		wantErr bool
 	}{
 		// The unnamed vector's load reads a missing key as not upgraded and then
 		// deletes the commit log, so nothing here may infer an upgrade from it.
@@ -82,6 +84,7 @@ func TestUpgradedOnDisk(t *testing.T) {
 			name:          "damaged state db",
 			db:            stateDBDamaged,
 			hnswDirExists: true,
+			wantErr:       true,
 		},
 		{
 			name:          "state db locked by a loaded shard",
@@ -89,6 +92,7 @@ func TestUpgradedOnDisk(t *testing.T) {
 			storedKey:     "upgraded",
 			storedValue:   []byte{1},
 			hnswDirExists: true,
+			wantErr:       true,
 		},
 
 		// A named vector's load migrates an upgrade recorded only as the commit
@@ -136,16 +140,18 @@ func TestUpgradedOnDisk(t *testing.T) {
 			want:          true,
 		},
 		{
-			name:          "damaged state db outranks a named vector's hnsw dir",
+			name:          "damaged state db does not fall back to a named vector's hnsw dir",
 			targetVector:  "custom",
 			db:            stateDBDamaged,
 			hnswDirExists: true,
+			wantErr:       true,
 		},
 		{
-			name:          "locked state db outranks a named vector's hnsw dir",
+			name:          "locked state db does not fall back to a named vector's hnsw dir",
 			targetVector:  "custom",
 			db:            stateDBLocked,
 			hnswDirExists: true,
+			wantErr:       true,
 		},
 	}
 
@@ -162,7 +168,13 @@ func TestUpgradedOnDisk(t *testing.T) {
 			}
 			setUpStateDB(t, rootPath, tt.db, tt.storedKey, tt.storedValue)
 
-			assert.Equal(t, tt.want, UpgradedOnDisk(rootPath, id, tt.targetVector))
+			upgraded, err := UpgradedOnDisk(rootPath, id, tt.targetVector)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, upgraded)
 		})
 	}
 }

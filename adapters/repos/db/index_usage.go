@@ -432,8 +432,16 @@ func (i *Index) unloadedVectorState(shardName, lsmPath, targetVector string,
 
 	state := unloadedVectorState{quantizedVectorsExist: quantized}
 	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
-		state.dynamicUpgraded = dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
+		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
 			vectorIndexID(targetVector), targetVector)
+		if err != nil {
+			i.logger.WithFields(logrus.Fields{
+				"class":         i.Config.ClassName.String(),
+				"shard":         shardName,
+				"target_vector": targetVector,
+			}).Warnf("cannot read dynamic upgrade state, reporting it as not upgraded: %v", err)
+		}
+		state.dynamicUpgraded = upgraded
 	}
 	return state, nil
 }

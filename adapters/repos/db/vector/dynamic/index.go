@@ -305,10 +305,11 @@ func dbKey(targetVector string) []byte {
 // switched to hnsw, reading the same state the shard's own load reads: the
 // shared state DB, falling back for a named vector to the hnsw commit log
 // directory. An unnamed vector gets no such fallback, because its load reads a
-// missing key as not upgraded and then deletes that directory. Unreadable state
-// counts as not upgraded, so the caller never claims hnsw's behaviour for a shard
-// that may still be flat.
-func UpgradedOnDisk(rootPath, id, targetVector string) bool {
+// missing key as not upgraded and then deletes that directory.
+//
+// State that could not be read returns false along with the error, so a caller
+// can tell that answer apart from a shard positively known to be flat.
+func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 	upgradedWithoutStateKey := false
 	if targetVector != "" {
 		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
@@ -321,9 +322,9 @@ func UpgradedOnDisk(rootPath, id, targetVector string) bool {
 		// only a shard that never wrote state may fall back to the directory; a
 		// locked or damaged DB is state we failed to read
 		if os.IsNotExist(err) {
-			return upgradedWithoutStateKey
+			return upgradedWithoutStateKey, nil
 		}
-		return false
+		return false, fmt.Errorf("open dynamic state db: %w", err)
 	}
 	defer db.Close()
 
@@ -338,9 +339,9 @@ func UpgradedOnDisk(rootPath, id, targetVector string) bool {
 		}
 		return nil
 	}); err != nil {
-		return false
+		return false, fmt.Errorf("read dynamic state db: %w", err)
 	}
-	return upgraded
+	return upgraded, nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
