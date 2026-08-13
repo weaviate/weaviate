@@ -194,10 +194,11 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //
 // The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
 // two-property tracker for "a" and "b" and a single-property tracker for
-// "a_b" — so payload.mig, written before anything else, decides every name
-// [migrationDirScope.matchByName] cannot settle on its own. With no
-// readable payload, the two directions guess differently because a wrong
-// guess costs differently:
+// "a_b" — so the list the task recorded decides every name
+// [migrationDirScope.matchByName] cannot settle on its own. That list comes
+// from properties.mig where it rebuilds the dir's own name and from
+// payload.mig otherwise; see [readTaskProps]. With neither readable, the two
+// directions guess differently because a wrong guess costs differently:
 //
 //   - Deletion (the plain scope) answers only the single-property shape;
 //     guessing wider would remove another property's tracker. The refusal
@@ -476,8 +477,12 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // payload file, or one naming no property); unreadable=true means a payload
 // is there but its content couldn't be obtained, so "recorded nothing" is not
 // a safe conclusion.
+//
+// An unusable payload still answers ok=true where properties.mig rebuilds the
+// dir's own name, which is the list the payload would have carried; see
+// [readTaskProps].
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
-	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name))
+	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name), s.prefixes)
 	return answer.props, answer.ok, answer.unreadable
 }
 
@@ -501,23 +506,33 @@ type taskProps struct {
 	unreadable bool
 }
 
-func (c *taskPropsCache) lookup(migDir string) taskProps {
+// lookup answers for one tracker dir. prefixes are the asking scope's strategy
+// prefixes; the memo stays keyed by dir alone because the answer cannot depend
+// on which scope asked. [migrationDirScope.match] only gets here once
+// [migrationDirScope.hasStrategyPrefix] accepted the name, no strategy prefix
+// is a prefix of another, and [propsFromSidecar] needs whole-name equality — so
+// at most one prefix, the same one for every scope, can satisfy it.
+func (c *taskPropsCache) lookup(migDir string, prefixes []string) taskProps {
 	if c == nil {
-		return readTaskProps(migDir)
+		answer, _ := readTaskProps(migDir, prefixes)
+		return answer
 	}
 	if answer, hit := c.byDir[migDir]; hit {
 		return answer
 	}
-	answer := readTaskProps(migDir)
+	answer, readPayload := readTaskProps(migDir, prefixes)
 	if c.byDir == nil {
 		c.byDir = map[string]taskProps{}
 	}
 	c.byDir[migDir] = answer
-	c.reads++
+	if readPayload {
+		c.reads++
+	}
 	return answer
 }
 
-// count is how many payloads this cache had to read.
+// count is how many payloads this cache had to read. Trackers answered from
+// their properties.mig sidecar are not counted: they never opened a payload.
 func (c *taskPropsCache) count() int {
 	if c == nil {
 		return 0
@@ -525,13 +540,56 @@ func (c *taskPropsCache) count() int {
 	return c.reads
 }
 
-func readTaskProps(migDir string) taskProps {
+// readTaskProps answers from the tracker's properties.mig sidecar where that
+// file corroborates the dir's own name, and only then falls back to payload.mig
+// — which this path used to read and fully parse for every tracker whose name
+// leaves the property undecided. That parse is megabytes per tracker on a large
+// migration and runs inside a RAFT apply, holding the FSM loop cluster-wide.
+//
+// readPayload reports whether payload.mig was opened, so the caller's counter
+// keeps meaning what it says.
+func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayload bool) {
+	if props, ok := propsFromSidecar(migDir, prefixes); ok {
+		return taskProps{props: props, ok: true}, false
+	}
 	props, err := readRecoveryPropertyNames(migDir)
 	if err != nil {
-		return taskProps{unreadable: !os.IsNotExist(err)}
+		return taskProps{unreadable: !os.IsNotExist(err)}, true
 	}
 	if len(props) == 0 {
-		return taskProps{}
+		return taskProps{}, true
 	}
-	return taskProps{props: props, ok: true}
+	return taskProps{props: props, ok: true}, true
+}
+
+// propsFromSidecar reads the tracker's properties.mig and accepts its property
+// list only if that list rebuilds the dir's own name. The name is an
+// independent on-disk witness of the same sorted list, so corroborating against
+// it costs nothing and rejects every sidecar that does not agree with it.
+//
+// The corroboration is load-bearing, not a sanity check.
+// [fileReindexTracker.createFile] creates this file and then writes it, with
+// the close error discarded and no fsync, so a kill between the two syscalls
+// leaves a zero-byte file — and trusting that would read as "no properties"
+// and delete a tracker belonging to other properties. A list that was
+// truncated, that lost a duplicate to the set it is derived from, or that
+// disagrees with the name for any other reason fails the same equality.
+//
+// A tracker with no payload.mig at all is left to the caller untouched, so
+// "the task recorded nothing" stays a conclusion only the payload can license.
+func propsFromSidecar(migDir string, prefixes []string) ([]string, bool) {
+	if _, err := os.Stat(filepath.Join(migDir, reindexRecoveryPayloadFile)); err != nil {
+		return nil, false
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil || len(props) == 0 {
+		return nil, false
+	}
+	base := migrationDirBase(filepath.Base(migDir))
+	for _, prefix := range prefixes {
+		if base == migrationDirWithProps(prefix, props) {
+			return props, true
+		}
+	}
+	return nil, false
 }
