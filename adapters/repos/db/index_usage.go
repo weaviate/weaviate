@@ -413,6 +413,63 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 	return usages, nil
 }
 
+// unloadedVectorState is what a shard's files say about one target vector that
+// its schema config cannot: whether a configured quantizer has actually run, and
+// which index a dynamic vector settled on.
+type unloadedVectorState struct {
+	quantizedVectorsExist bool
+	dynamicUpgraded       bool
+}
+
+// unloadedVectorState reads the state of one target vector of an unloaded shard.
+func (i *Index) unloadedVectorState(shardName, lsmPath, targetVector string,
+	vectorConfig models.VectorConfig,
+) (unloadedVectorState, error) {
+	quantized, err := shardusage.QuantizedVectorsExist(lsmPath, targetVector)
+	if err != nil {
+		return unloadedVectorState{}, fmt.Errorf("quantized vectors of %q: %w", targetVector, err)
+	}
+
+	state := unloadedVectorState{quantizedVectorsExist: quantized}
+	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
+		state.dynamicUpgraded = dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
+			vectorIndexID(targetVector), targetVector)
+	}
+	return state, nil
+}
+
+// unloadedVectorUsage builds the usage entry of one target vector of an unloaded
+// shard from its schema config, the dimensions read off disk, and what the shard's
+// files say about the index the config asks for.
+func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
+	dimensionality types.Dimensionality, state unloadedVectorState,
+) (*types.VectorUsage, error) {
+	vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	if !ok {
+		return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+	}
+
+	dimInfo := GetDimensionCategory(vectorIndexConfig, state.dynamicUpgraded)
+	vectorUsage := &types.VectorUsage{
+		Name:                   targetVector,
+		Compression:            dimInfo.category.String(),
+		Bits:                   dimInfo.bits,
+		VectorCompressionRatio: dimInfo.compressionRatio(dimensionality.Dimensions, state.quantizedVectorsExist),
+		VectorIndexType:        vectorIndexConfig.IndexType(),
+		IsDynamic:              vectorConfig.VectorIndexType == common.IndexTypeDynamic,
+		Dimensionalities:       []*types.Dimensionality{&dimensionality},
+		MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
+	}
+	if vectorUsage.IsDynamic {
+		// name the index that holds the vectors, as the loaded path does
+		vectorUsage.VectorIndexType = common.IndexTypeFlat
+		if state.dynamicUpgraded {
+			vectorUsage.VectorIndexType = common.IndexTypeHNSW
+		}
+	}
+	return vectorUsage, nil
+}
+
 // calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
 // contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig.
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
@@ -420,8 +477,13 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		// usage has been pre-calculated and can be read from disk
 		shardUsage, err := shardusage.LoadComputedUsageData(i.path(), shardName)
 		if err != nil {
-			// in case of error just log an information and proceed with computation
-			i.logger.Errorf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+			// the computation below overwrites the unusable file, so a stale
+			// version is routine; anything else is worth an operator's attention
+			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
+				i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
+			} else {
+				i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+			}
 		} else {
 			return shardUsage, nil
 		}
@@ -468,28 +530,17 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
-		vectorUsage := &types.VectorUsage{
-			Name:                   targetVector,
-			VectorCompressionRatio: 1.0, // Default ratio for cold shards
-		}
+		dimensionality := dimensionalitiesAll[targetVector]
+		uncompressedVectorSize += uint64(dimensionality.Count) * uint64(dimensionality.Dimensions) * 4
 
-		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-		if !ok {
-			return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+		state, err := i.unloadedVectorState(shardName, lsmPath, targetVector, vectorConfig)
+		if err != nil {
+			return nil, err
 		}
-
-		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
-		if !vectorUsage.IsDynamic {
-			// for cold tenants we cannot distinguish know if dynamic has been upgraded or not. Do not include wrong data
-			dimInfo := GetDimensionCategory(vectorIndexConfig, false)
-			vectorUsage.Compression = dimInfo.category.String()
-			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, dimensionality, state)
+		if err != nil {
+			return nil, err
 		}
-
-		dimensionalities := dimensionalitiesAll[targetVector]
-		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
-		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
-		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
 		namedVectors = append(namedVectors, vectorUsage)
 	}
 

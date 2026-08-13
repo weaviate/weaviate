@@ -302,7 +302,14 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 		// and already contains the full shard storage size.
 		if shardusage.ComputedUsageDataExists(indexPath, shardName) {
 			shardUsage, err := shardusage.LoadComputedUsageData(indexPath, shardName)
-			if err != nil {
+			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
+				// a version bump leaves this behind on every shard that stayed
+				// cold across it; the on-disk size below is exact anyway
+				db.logger.WithField("action", "lazy_shard_auto_detection").
+					WithField("class", className).
+					WithField("shard", shardName).
+					Debugf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
+			} else if err != nil {
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
 					WithField("shard", shardName).

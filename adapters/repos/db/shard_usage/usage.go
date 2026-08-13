@@ -79,6 +79,11 @@ func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardU
 	return nil
 }
 
+// ErrUsageVersionMismatch reports usage written by another version of the format.
+// Every caller recomputes, so it is the expected outcome of a version bump for
+// each shard that stayed cold across it — routine, unlike an unreadable file.
+var ErrUsageVersionMismatch = errors.New("usage data saved to disk version mismatch")
+
 // LoadComputedUsageData loads pre-calculated shard usage data, checks version of saved data before returning
 func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, error) {
 	// usage has been pre-calculated and can be read from disk
@@ -91,8 +96,8 @@ func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, erro
 		return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
 	}
 	if usageDisk.Version != types.UsageDiskVersion {
-		return nil, fmt.Errorf("usage data saved to disk version mismatch, currently supported version is %d but got %d",
-			types.UsageDiskVersion, usageDisk.Version)
+		return nil, fmt.Errorf("%w, currently supported version is %d but got %d",
+			ErrUsageVersionMismatch, types.UsageDiskVersion, usageDisk.Version)
 	}
 	return usageDisk.ShardUsage, nil
 }
@@ -201,6 +206,17 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int6
 		totalSize += int64(size)
 	}
 	return totalSize, nil
+}
+
+// QuantizedVectorsExist reports whether a shard holds quantized vectors for a
+// target vector. The bucket directory alone is no proof: it is created empty as
+// soon as the schema enables quantization, so that a downgrade finds it in place.
+func QuantizedVectorsExist(lsmPath, targetVector string) (bool, error) {
+	size, err := bucketSize(filepath.Join(lsmPath, helpers.GetCompressedBucketName(targetVector)))
+	if err != nil {
+		return false, err
+	}
+	return size > 0, nil
 }
 
 // bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted

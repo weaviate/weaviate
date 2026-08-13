@@ -538,6 +538,12 @@ func (s *Shard) pathHashTree() string {
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
+	return vectorIndexID(targetVector)
+}
+
+// vectorIndexID names the files a target vector's index owns inside the shard
+// directory. Unloaded shards need it too, so it does not hang off [Shard].
+func vectorIndexID(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}

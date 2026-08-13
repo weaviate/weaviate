@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -45,6 +46,11 @@ const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
 	StateDBFileName     = "index.db"
+
+	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
+	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
+	// is a sign the caller raced a load rather than something to sit out.
+	stateDBOpenTimeout = time.Second
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -280,17 +286,50 @@ func (dynamic *dynamic) Type() common.IndexType {
 }
 
 func (dynamic *dynamic) dbKey() []byte {
-	var key []byte
-	if dynamic.targetVector != "" {
-		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
-		key = append(key, composerUpgradedKey...)
-		key = append(key, '_')
-		key = append(key, dynamic.targetVector...)
-	} else {
-		key = []byte(composerUpgradedKey)
+	return dbKey(dynamic.targetVector)
+}
+
+func dbKey(targetVector string) []byte {
+	if targetVector == "" {
+		return []byte(composerUpgradedKey)
 	}
 
+	key := make([]byte, 0, len(composerUpgradedKey)+len(targetVector)+1)
+	key = append(key, composerUpgradedKey...)
+	key = append(key, '_')
+	key = append(key, targetVector...)
 	return key
+}
+
+// UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
+// switched to hnsw, reading the state its own startup reads: the shared state DB,
+// falling back to the hnsw commit log directory for an index written before the
+// state key existed. Unreadable state counts as not upgraded, so the caller never
+// claims hnsw's behaviour for a shard that may still be flat.
+func UpgradedOnDisk(rootPath, id, targetVector string) bool {
+	_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+	hnswDirExists := err == nil
+
+	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
+		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
+	if err != nil {
+		return hnswDirExists
+	}
+	defer db.Close()
+
+	upgraded := hnswDirExists
+	//nolint:errcheck // the fallback above stands in for an unreadable state
+	db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
+			upgraded = v[0] != 0
+		}
+		return nil
+	})
+	return upgraded
 }
 
 func (dynamic *dynamic) getBucketName() string {
@@ -863,16 +902,19 @@ func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	return h.Stats()
 }
 
+type compressionStatsReporter interface {
+	CompressionStats() compressionhelpers.CompressionStats
+}
+
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 
-	// Delegate to the underlying index (flat or hnsw)
-	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
-		return vectorIndex
+	// the stats belong to whichever index is active, flat or hnsw
+	if index, ok := dynamic.index.(compressionStatsReporter); ok {
+		return index.CompressionStats()
 	}
 
-	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
 	return compressionhelpers.UncompressedStats{}
 }
 

@@ -244,7 +244,8 @@ func TestLoadComputedUsageDataVersion(t *testing.T) {
 
 			usage, err := LoadComputedUsageData(dirName, "shard1")
 			if tt.wantError {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrUsageVersionMismatch,
+					"callers tell a stale version from an unreadable file by this error")
 				return
 			}
 			require.NoError(t, err)
@@ -325,6 +326,67 @@ func TestStorageCalculation(t *testing.T) {
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
 	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+}
+
+func TestQuantizedVectorsExist(t *testing.T) {
+	tests := []struct {
+		name         string
+		targetVector string
+		// bucket is created when named, and holds a file when fileSize > 0
+		bucket   string
+		fileSize int
+		want     bool
+	}{
+		{
+			name:   "no bucket at all",
+			bucket: "",
+		},
+		{
+			name:   "bucket created empty for a downgrade",
+			bucket: "vectors_compressed_named",
+		},
+		{
+			name:     "bucket holding quantized vectors",
+			bucket:   "vectors_compressed_named",
+			fileSize: 1,
+			want:     true,
+		},
+		{
+			name:     "another target vector's bucket does not count",
+			bucket:   "vectors_compressed_other",
+			fileSize: 100,
+		},
+		{
+			name:     "legacy unnamed vector",
+			bucket:   "vectors_compressed",
+			fileSize: 100,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targetVector := "named"
+			if tt.bucket == "vectors_compressed" {
+				targetVector = ""
+			}
+
+			lsmPath := filepath.Join(t.TempDir(), "lsm")
+			require.NoError(t, os.MkdirAll(lsmPath, 0o777))
+			if tt.bucket != "" {
+				bucketPath := filepath.Join(lsmPath, tt.bucket)
+				require.NoError(t, os.MkdirAll(bucketPath, 0o777))
+				if tt.fileSize > 0 {
+					require.NoError(t, os.WriteFile(filepath.Join(bucketPath, "segment.db"),
+						make([]byte, tt.fileSize), 0o600))
+				}
+			}
+
+			got, err := QuantizedVectorsExist(lsmPath, targetVector)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func BenchmarkStorageCalculation(b *testing.B) {
