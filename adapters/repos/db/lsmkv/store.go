@@ -384,6 +384,12 @@ func (s *Store) listMigrationFiles(basePath string) ([]string, error) {
 		if d == nil || d.IsDir() {
 			return nil
 		}
+		// A crash mid-rename leaves the tracker's scratch file behind, and
+		// nothing under .migrations ever sweeps it. Copying it would carry it
+		// into every later backup and restore.
+		if filepath.Ext(d.Name()) == ".tmp" {
+			return nil
+		}
 
 		relPath, err := filepath.Rel(basePath, path)
 		if err != nil {
