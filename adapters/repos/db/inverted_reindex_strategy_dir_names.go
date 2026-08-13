@@ -288,10 +288,10 @@ func (s migrationDirScope) matches(name string) bool {
 // matchByName decides the dirs whose name no payload can contradict;
 // decided=false means ask the payload.
 //
-// A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so a
-// segment with no "_" came from one property: equality with an underscore-free
-// propName is unforgeable, and a name that neither equals propName nor carries
-// it as a whole token cannot come from any list holding propName.
+// A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so
+// equality with a propName no such join can reproduce is unforgeable (see
+// [isProvablySingleProperty]), and a name that neither equals propName nor
+// carries it as a whole token cannot come from any list holding propName.
 //
 // [migrationDirScope.match] deliberately skips this shortcut, so the
 // unloaded-shard gate still fails open on a payload it cannot parse.
@@ -311,13 +311,64 @@ func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 		token = token || namesPropertyToken(base, prefix, s.propName)
 	}
 	switch {
-	case exact && !strings.Contains(s.propName, "_"):
+	case exact && isProvablySingleProperty(s.propName):
 		return true, true
 	case !exact && !token:
 		return false, true
 	default:
 		return false, false
 	}
+}
+
+// maxProvablySinglePropertyTokens bounds the split enumeration below. A longer
+// property name is reported ambiguous and pays for its payload, which is the
+// direction that cannot delete a dir it should have kept.
+const maxProvablySinglePropertyTokens = 8
+
+// isProvablySingleProperty reports whether propName can only have come from a
+// one-property list, i.e. whether an equal property segment is unforgeable.
+//
+// [migrationDirWithProps] joins a sorted list with "_", so the segment of a
+// multi-property dir is some split of its "_"-tokens whose parts run in
+// non-decreasing order. A name no such split reproduces names one property,
+// whatever its own underscores: "price_cents" cannot, because a list holding
+// "price" and "cents" sorts the other way round.
+//
+// Non-decreasing rather than increasing: the sort does not dedup, so "a_a" is a
+// legal two-property name.
+func isProvablySingleProperty(propName string) bool {
+	gaps := strings.Count(propName, "_")
+	if gaps == 0 {
+		return true
+	}
+	if gaps >= maxProvablySinglePropertyTokens {
+		return false
+	}
+	tokens := strings.Split(propName, "_")
+	for cuts := 1; cuts < 1<<gaps; cuts++ {
+		if isNonDecreasingSplit(tokens, cuts) {
+			return false
+		}
+	}
+	return true
+}
+
+// isNonDecreasingSplit reports whether splitting tokens at the gaps set in cuts
+// yields parts in non-decreasing order. Bit i of cuts is the gap after
+// tokens[i].
+func isNonDecreasingSplit(tokens []string, cuts int) bool {
+	prev, start := "", 0
+	for i := range tokens {
+		if i < len(tokens)-1 && cuts&(1<<i) == 0 {
+			continue
+		}
+		part := strings.Join(tokens[start:i+1], "_")
+		if start > 0 && part < prev {
+			return false
+		}
+		prev, start = part, i+1
+	}
+	return true
 }
 
 // migrationDirBase strips a tracker dir's generation suffix. A dir with none

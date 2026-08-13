@@ -57,13 +57,28 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			wantReads: 0,
 		},
 		{
-			name:       "underscore-containing property name still needs the payload",
+			// No list of two properties sorts to "price_cents", so the name is
+			// as unforgeable as an underscore-free one.
+			name:       "provably single property name is answered by the dir name",
 			classProps: []string{"price_cents"},
 			propName:   "price_cents",
 			indexTypes: []string{"searchable", "filterable"},
 			trackers: []tracker{
 				{dir: "searchable_retokenize_price_cents_1", props: []string{"price_cents"}},
 				{dir: "filterable_retokenize_price_cents_1", props: []string{"price_cents"}},
+			},
+			wantReads: 0,
+		},
+		{
+			// ["cat","dog"] sorts to exactly this name, so only the payload can
+			// say which of the two shapes the dir is.
+			name:       "ambiguous property name still needs the payload",
+			classProps: []string{"cat_dog"},
+			propName:   "cat_dog",
+			indexTypes: []string{"searchable", "filterable"},
+			trackers: []tracker{
+				{dir: "searchable_retokenize_cat_dog_1", props: []string{"cat_dog"}},
+				{dir: "filterable_retokenize_cat_dog_1", props: []string{"cat_dog"}},
 			},
 			// One per tuple, not three: the memo spans the sweep's passes.
 			wantReads: 2,
@@ -80,14 +95,14 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			wantReads: 0,
 		},
 		{
-			// The non-match half of the shortcut needs no underscore-free name.
-			name:       "underscore-containing name still skips another property's dir",
-			classProps: []string{"price_cents", "dog"},
-			propName:   "price_cents",
+			// The non-match half of the shortcut needs no unforgeable name.
+			name:       "ambiguous name still skips another property's dir",
+			classProps: []string{"cat_dog", "bird"},
+			propName:   "cat_dog",
 			indexTypes: []string{"filterable"},
 			trackers: []tracker{
-				{dir: "enable_filterable_dog_1", props: []string{"dog"}},
-				{dir: "enable_filterable_price_cents_1", props: []string{"price_cents"}},
+				{dir: "enable_filterable_bird_1", props: []string{"bird"}},
+				{dir: "enable_filterable_cat_dog_1", props: []string{"cat_dog"}},
 			},
 			wantReads: 1,
 		},
