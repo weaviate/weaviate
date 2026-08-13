@@ -72,8 +72,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TearDownSuite() {
 }
 
 func (suite *AsyncCheckpointConvergenceTestSuite) TearDownTest() {
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
-	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
+	helper.DeleteClassEventually(suite.T(), "Paragraph", suite.compose.GetWeaviate().URI())
 }
 
 func TestAsyncCheckpointConvergenceTestSuite(t *testing.T) {

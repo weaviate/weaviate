@@ -130,6 +130,11 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)
+	if args.Error(0) != nil {
+		// A write that fails leaves the previous object in place, which is the
+		// whole point of the tests that make one fail.
+		return args.Error(0)
+	}
 	switch key {
 	case BackupFile:
 		json.Unmarshal(bytes, &fb.meta)
@@ -188,13 +193,6 @@ func (fb *fakeBackend) IsExternal() bool {
 
 func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
-}
-
-func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	fb.Lock()
-	defer fb.Unlock()
-	args := fb.Called(ctx, backupID, key, destPath)
-	return args.Error(0)
 }
 
 func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {

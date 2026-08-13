@@ -576,6 +576,143 @@ func TestEnvironmentSkipAccessCheck(t *testing.T) {
 	})
 }
 
+func TestEnvironmentBackupGCS(t *testing.T) {
+	tests := []struct {
+		name     string
+		start    BackupGCS
+		env      map[string]string
+		expected BackupGCS
+		wantErr  string
+	}{
+		{
+			name:     "unset selects http",
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "empty selects http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "grpc",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "transport is case insensitive and trimmed",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "unknown transport is rejected",
+			env:     map[string]string{"GCS_MODULE_TRANSPORT": "https"},
+			wantErr: `GCS_MODULE_TRANSPORT must be "http" or "grpc". Got: https`,
+		},
+		{
+			name:     "connection pool overrides the default",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "connection pool of one is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+		},
+		{
+			name:     "connection pool at the cap is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "connection pool of zero is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "0"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64. Got: 0",
+		},
+		{
+			name:    "negative connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "-1"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "connection pool past the cap is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "65"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "absurd connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "9223372036854775807"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "non-numeric connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "many"},
+			wantErr: "parse GCS_MODULE_GRPC_CONN_POOL as int",
+		},
+		{
+			name:     "unset transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "empty transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "http overrides the config file transport",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: 32},
+		},
+		{
+			name:     "grpc overrides the config file transport",
+			start:    BackupGCS{GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "connection pool overrides the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "config file connection pool out of range is left for validation",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+		},
+		{
+			name:     "connection pool overrides an out of range config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+				t.Setenv(key, tt.env[key])
+			}
+
+			conf := Config{BackupGCS: tt.start}
+			err := FromEnv(&conf)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.BackupGCS)
+		})
+	}
+}
+
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -2048,6 +2185,37 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.AsyncIndexingEnabled)
+		})
+	}
+}
+
+// TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
+// the env var wins when set, and an absent one leaves a config-file value
+// alone. Getting the absent case wrong silently forces every
+// file-configured cluster back to off.
+func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		fromFile bool
+		expected bool
+	}{
+		{name: "absent env keeps file default off"},
+		{name: "absent env keeps file value on", fromFile: true, expected: true},
+		{name: "env true enables", envValue: []string{"true"}, expected: true},
+		{name: "env false disables", envValue: []string{"false"}},
+		{name: "env false overrides file on", envValue: []string{"false"}, fromFile: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.envValue) == 1 {
+				t.Setenv("RUNTIME_REINDEX_ENABLED", tt.envValue[0])
+			}
+			conf := Config{RuntimeReindexEnabled: tt.fromFile}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.RuntimeReindexEnabled)
 		})
 	}
 }

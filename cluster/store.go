@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/namespaces"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
@@ -284,9 +283,6 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
-	// snapshotter is the snapshotter for the store
-	snapshotter fsm.Snapshotter
-
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -348,7 +344,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
@@ -408,9 +404,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
-		snapshotter:             snapshotter,
 		authZController:         authZController,
-		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
@@ -715,15 +710,16 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 				return nil
 			}
 			if time.Since(lastLog) >= logInterval {
-				st.log.WithFields(st.dbLoadProgressFields()).Info("waiting for database to be restored")
+				st.log.Info("waiting for database to be restored")
 				lastLog = time.Now()
 			}
 		}
 	}
 }
 
-// dbLoadProgressFields returns log fields describing shard-loading progress, or
-// nil when no progress source is configured or there are no shards to load.
+// dbLoadProgressFields recomputes shard-loading progress, which also refreshes
+// the startup gauges, and returns it as log fields. It returns nil when no
+// progress source is configured or there are no shards to load.
 func (st *Store) dbLoadProgressFields() logrus.Fields {
 	if st.cfg.DBLoadProgress == nil {
 		return nil
@@ -743,6 +739,46 @@ func (st *Store) dbLoadProgressFields() logrus.Fields {
 		"shards_total":  snapshot.Total,
 		"progress":      fmt.Sprintf("%.0f%%", float64(snapshot.Loaded)/float64(snapshot.Total)*100),
 	}
+}
+
+const (
+	// dbLoadProgressInterval is how often shard-loading progress is recomputed
+	// and published to the startup gauges while the DB reloads from the schema.
+	dbLoadProgressInterval = 5 * time.Second
+	// dbLoadProgressLogInterval is how often that progress is written to the log.
+	dbLoadProgressLogInterval = time.Minute
+)
+
+// trackDBLoadProgress republishes local shard-loading progress every
+// dbLoadProgressInterval and logs it every dbLoadProgressLogInterval, until the
+// returned stop function is called.
+//
+// This is the authoritative signal: it covers every path the load takes, while
+// WaitToRestoreDB only announces that it is waiting — never on a single node,
+// where the bootstrap join is serialised behind the load.
+func (st *Store) trackDBLoadProgress() func() {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(dbLoadProgressInterval)
+		defer t.Stop()
+		var lastLog time.Time
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				fields := st.dbLoadProgressFields()
+				if fields == nil {
+					continue
+				}
+				if time.Since(lastLog) >= dbLoadProgressLogInterval {
+					st.log.WithFields(fields).Info("loading local DB from schema")
+					lastLog = time.Now()
+				}
+			}
+		}
+	}, st.log)
+	return func() { close(done) }
 }
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
@@ -959,7 +995,12 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
-		st.schemaManager.ReloadDBFromSchema()
+		func() {
+			stop := st.trackDBLoadProgress()
+			defer stop()
+			st.schemaManager.ReloadDBFromSchema()
+		}()
+		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
@@ -1063,7 +1104,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	tempFSM := NewFSM(recoveryConfig, st.authZController, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,

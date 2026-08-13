@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -1274,6 +1273,20 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	return sg.status == storagestate.StatusReadOnly
 }
 
+// traceEnabled reports whether the logger emits trace entries, so callers can
+// skip building WithField chains a normal log level would discard. A logger of
+// unknown type is treated as enabled rather than silently losing the line.
+func traceEnabled(logger logrus.FieldLogger) bool {
+	switch l := logger.(type) {
+	case *logrus.Logger:
+		return l.IsLevelEnabled(logrus.TraceLevel)
+	case *logrus.Entry:
+		return l.Logger.IsLevelEnabled(logrus.TraceLevel)
+	default:
+		return true
+	}
+}
+
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -1303,41 +1316,15 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	// bridge shouldAbort → ctx for the compactor inner loops
-	compactCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-compactCtx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, sg.logger)
-		}
-	}
-
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
-		compacted, err := sg.compactOnce(compactCtx)
+		compacted, err := sg.compactOnceAbortable(context.Background(), shouldAbort)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("compaction failed")
-		} else if !compacted {
+		} else if !compacted && traceEnabled(sg.logger) {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				Trace("no segments eligible for compaction")

@@ -561,57 +561,6 @@ func (_c *MockBackupBackend_Write_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
-// WriteToFile provides a mock function with given fields: ctx, backupID, key, destPath, overrideBucket, overridePath
-func (_m *MockBackupBackend) WriteToFile(ctx context.Context, backupID string, key string, destPath string, overrideBucket string, overridePath string) error {
-	ret := _m.Called(ctx, backupID, key, destPath, overrideBucket, overridePath)
-
-	if len(ret) == 0 {
-		panic("no return value specified for WriteToFile")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
-		r0 = rf(ctx, backupID, key, destPath, overrideBucket, overridePath)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockBackupBackend_WriteToFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WriteToFile'
-type MockBackupBackend_WriteToFile_Call struct {
-	*mock.Call
-}
-
-// WriteToFile is a helper method to define mock.On call
-//   - ctx context.Context
-//   - backupID string
-//   - key string
-//   - destPath string
-//   - overrideBucket string
-//   - overridePath string
-func (_e *MockBackupBackend_Expecter) WriteToFile(ctx interface{}, backupID interface{}, key interface{}, destPath interface{}, overrideBucket interface{}, overridePath interface{}) *MockBackupBackend_WriteToFile_Call {
-	return &MockBackupBackend_WriteToFile_Call{Call: _e.mock.On("WriteToFile", ctx, backupID, key, destPath, overrideBucket, overridePath)}
-}
-
-func (_c *MockBackupBackend_WriteToFile_Call) Run(run func(ctx context.Context, backupID string, key string, destPath string, overrideBucket string, overridePath string)) *MockBackupBackend_WriteToFile_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
-	})
-	return _c
-}
-
-func (_c *MockBackupBackend_WriteToFile_Call) Return(_a0 error) *MockBackupBackend_WriteToFile_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockBackupBackend_WriteToFile_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) error) *MockBackupBackend_WriteToFile_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockBackupBackend creates a new instance of MockBackupBackend. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockBackupBackend(t interface {

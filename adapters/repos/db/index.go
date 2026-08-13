@@ -78,9 +78,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -338,6 +340,12 @@ type Index struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
+	// namespacesExister is inherited from the owning DB at index creation; a
+	// namespaced class refuses every shard decision without it. namespace is
+	// empty for an unqualified class name.
+	namespacesExister namespaces.Exister
+	namespace         string
+
 	closed bool
 
 	// inflight counts operations admitted by enterRead. beginClose drains it
@@ -467,6 +475,8 @@ func NewIndex(
 		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
+		namespacesExister:       cfg.NamespacesExister,
+		namespace:               namespacing.NamespaceFromQualified(string(cfg.ClassName)),
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
@@ -561,6 +571,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
+	// db.indices does not receive this Index until every one of its shards has
+	// loaded, so shards are tallied onto the DB here, as each is stored.
+	startupShards := i.Config.StartupShards
+	if startupShards == nil {
+		startupShards = &startupShardCounters{}
+	}
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -578,6 +595,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
+				startupShards.lazy.Add(1)
 				return nil
 			default:
 				// avoid footprint of empty shards
@@ -585,6 +603,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
+					startupShards.lazy.Add(1)
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -602,6 +621,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				startupShards.eager.Add(1)
 				return nil
 			}
 		}, shardName)
@@ -1166,7 +1186,9 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
+	NamespacesExister                   namespaces.Exister
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -1267,13 +1289,9 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.PutObject(ctx, object)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.PutObject(ctx, object)
+	})
 }
 
 func (i *Index) replicationEnabled() bool {
@@ -1780,7 +1798,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 }
 
 // return value []error gives the error for the index with the positions
-// matching the inputs
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
@@ -1896,16 +1914,18 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res []error
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.PutObjectBatch(ctx, objects)
+		return nil
+	}); err != nil {
 		return duplicateErr(err, len(objects))
 	}
-	defer release()
-
-	return shard.PutObjectBatch(ctx, objects)
+	return res
 }
 
-// return value map[int]error gives the error for the index as it received it
+// return value []error gives the error for the index with the positions
+// matching the inputs and nil on positions where the write succeeded
 func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
@@ -1987,13 +2007,14 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res []error
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.AddReferencesBatch(ctx, refs)
+		return nil
+	}); err != nil {
 		return duplicateErr(err, len(refs))
 	}
-	defer release()
-
-	return shard.AddReferencesBatch(ctx, refs)
+	return res
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
@@ -2907,13 +2928,9 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.DeleteObject(ctx, id, deletionTime)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.DeleteObject(ctx, id, deletionTime)
+	})
 }
 
 func (i *Index) getClass() *models.Class {
@@ -3068,6 +3085,18 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 	return shard, release, nil
 }
 
+// withShardForWrite runs f against the named local shard's write surface. It
+// owns the pin lifetime, so a caller cannot leak one and leave inUseCounter
+// non-zero, blocking the shard from unloading.
+func (i *Index) withShardForWrite(ctx context.Context, shardName string, f func(shard shardWriter) error) error {
+	shard, release, err := i.getOrInitShard(ctx, shardName)
+	defer release()
+	if err != nil {
+		return fmt.Errorf("get shard %q: %w", shardName, err)
+	}
+	return f(shard)
+}
+
 // getOptInitLocalShard returns the local shard with the given name.
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
@@ -3202,13 +3231,9 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return shard.MergeObject(ctx, mergeDoc)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.MergeObject(ctx, mergeDoc)
+	})
 }
 
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
@@ -3729,26 +3754,15 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 		return nil
 	}
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	defer release()
-	if err != nil {
-		return err
-	}
-	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	})
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("shard %s does not exist locally", shardName)
-	}
-
-	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
+	})
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -3900,15 +3914,16 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
+	var res objects.BatchSimpleObjects
+	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
+		res = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+		return nil
+	}); err != nil {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: err},
 		}
 	}
-	defer release()
-
-	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+	return res
 }
 
 func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
@@ -3960,6 +3975,20 @@ func (i *Index) GetVectorIndexConfigs() map[string]schemaConfig.VectorIndexConfi
 
 	if i.vectorIndexUserConfig != nil {
 		configs[""] = i.vectorIndexUserConfig
+	}
+
+	return configs
+}
+
+// getTargetVectorIndexConfigs snapshots the named target-vector configs, without
+// the legacy one GetVectorIndexConfigs folds in under "".
+func (i *Index) getTargetVectorIndexConfigs() map[string]schemaConfig.VectorIndexConfig {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	configs := make(map[string]schemaConfig.VectorIndexConfig, len(i.vectorIndexUserConfigs))
+	for k, v := range i.vectorIndexUserConfigs {
+		configs[k] = v
 	}
 
 	return configs
