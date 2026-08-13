@@ -270,9 +270,13 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+			// Debug, not Info: this runs once per preserved generation inside the
+			// RAFT apply loop (updatePropertyBuckets → cleanStaleMigrationDirs), and
+			// the aggregate line on that call path already carries the per-dir count
+			// on its own fields, so nothing operator-facing is lost.
 			logger.WithField("path", filepath.Join(migrationsRoot, name)).
 				WithField("gen", gen).
-				Info("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
+				Debug("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
 			continue
 		}
 		path := filepath.Join(migrationsRoot, name)
