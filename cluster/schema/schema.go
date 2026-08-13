@@ -835,6 +835,14 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 	return nil
 }
 
+// cloneAliases returns a copy of the whole alias map, safe to hand to callers
+// that read it while the FSM keeps applying alias commands.
+func (s *schema) cloneAliases() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.aliases)
+}
+
 func (s *schema) ResolveAlias(alias string) string {
 	alias = s.canonicalAlias(alias)
 	s.mu.RLock()
