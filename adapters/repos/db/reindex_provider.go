@@ -1707,7 +1707,9 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	// One sweep for the whole loop, so each shard's directories are read once.
+	// One sweep for the whole loop: every tuple asks the same unloaded shards.
+	// A loaded shard is read again per tuple, since each deletion changes what
+	// the next one would list.
 	sweep := p.db.NewStalePartialReindexSweep()
 	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
