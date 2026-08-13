@@ -84,20 +84,16 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // typesConflictReason returns a non-empty reason string if two reindex
 // migrations on the same collection target overlapping properties.
 //
-// Overlap alone is the rule, whatever buckets the two types write: a
-// completing migration's UpdateProperty preserves the sibling's still-false
-// flag, and the apply then wipes the in-flight migration's working dir as
-// stale (weaviate/weaviate#10675).
+// Overlap alone is the rule, regardless of bucket type: a completing
+// migration's UpdateProperty preserves the sibling's still-false flag, and
+// the apply then wipes the in-flight migration's working dir as stale
+// (weaviate/weaviate#10675). Empty props means "all properties" and
+// overlaps with everything.
 //
-// Empty props means "all properties" (reserved for a future
-// whole-collection rebuild) and overlaps with everything.
-//
-// Fails closed on an unrecognized migration type (RAFT apply path — a panic
-// would crash-loop the cluster). Overlap is checked first since it needs
-// only property sets, which stay correct regardless of type. Safe only
-// because every overlap currently conflicts; a future compatible-types
-// exception must preserve that, or an older node would reject what a newer
-// one accepts, splitting the FSM.
+// Fails closed on an unrecognized migration type, since this runs on the
+// RAFT apply path where a panic would crash-loop the cluster. A future
+// compatible-types exception must still conflict on every overlap it
+// replaces, or nodes on different versions would split on the same entry.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
@@ -203,10 +199,8 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 // endpoint 202s with NO_OP on a non-matching request, so a guessed URL
 // would look like success for a still-running task.
 //
-// The collection keeps its namespace-qualified prefix — needed by the
-// global-operator reader; a confined caller's own prefix is stripped
-// elsewhere ([namespacing.StripErrorMessage]).
-//
+// The collection keeps its namespace-qualified prefix; a confined caller's
+// own prefix is stripped elsewhere ([namespacing.StripErrorMessage]).
 // Exported only for handlers_schema_remedy_test.go.
 func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	indexes := ReindexTargetIndexes(p.MigrationType)
@@ -220,10 +214,9 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 // ReindexRepairCall renders the request that repairs the property after the
 // migration terminalized with buckets ahead of the schema, or "" when this
 // build cannot name one. Re-submits the original migration rather than a
-// bare rebuild: every rebuild verb validates against the bit the skipped
-// schema flip would have set.
-//
-// change-algorithm on an already-promoted shard is untested (weaviate/weaviate#12575).
+// bare rebuild, since every rebuild verb validates against the bit the
+// skipped schema flip would have set. change-algorithm on an
+// already-promoted shard is untested (weaviate/weaviate#12575).
 //
 // Exported for the same reason as [ReindexCancelCall].
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
@@ -253,21 +246,14 @@ func reindexTenantScope(p ReindexTaskPayload) string {
 	return "?tenants=" + strings.Join(p.Tenants, ",")
 }
 
-// reindexRepairBody renders the submit body that produced p's migration
-// type — one index group per body, matching every per-type REST
-// precondition, not just group exclusivity (e.g. enable-searchable carries
-// its tokenization since the handler reads the target from the same body).
+// reindexRepairBody renders the submit body that reproduces p's migration
+// type, matching every per-type REST precondition (e.g. enable-searchable
+// carries its tokenization, not just the index group).
 //
-// "" for an unrecognized type, for enable-rangeable (no body is valid in
-// every terminal state), or when the payload carries no target
-// tokenization.
-//
-// No cluster reaches that last one: every submit path for the three types
-// that read the field rejects an empty target, and no payload version has
-// ever omitted it. The guard stays because this renders a request an
-// operator pastes, and a body carrying an empty tokenization is one the
-// API rejects — printing nothing beats printing a command that cannot
-// work, and guessing a value would retokenize to the wrong one.
+// "" for an unrecognized type, enable-rangeable (no body is ever valid), or
+// a missing target tokenization — dead today since every submit path
+// rejects an empty one, but kept: printing nothing beats printing a
+// command the API will reject.
 func reindexRepairBody(p ReindexTaskPayload) string {
 	switch p.MigrationType {
 	case ReindexTypeEnableSearchable:
@@ -320,43 +306,26 @@ func reindexNamedProperty(p ReindexTaskPayload, askedProperty string) string {
 // ReindexGateRemedy is the closing sentence every reindex schema gate (RAFT
 // apply path and REST pre-check) appends to its refusal, kept in one place
 // so the two can't drift. Not used by the backup gate (shard-keyed, never
-// sees the task — its wording is in reindexInFlightError).
+// sees the task; see reindexInFlightError).
 //
-// p is the offending task's payload; askedProperty is the property named in
-// the caller's request, or "" when the refusal isn't property-scoped.
-// callerDropsTheData is true only when the caller's action destroys ALL the
-// shards the migration works on (today only DeleteClass): those get told to
-// re-issue their request, since a follow-up repair call would 404. Tenant
-// mutations pass false — the migration's on-disk state survives them.
+// p is the offending task; askedProperty is the property named in the
+// caller's request, or "" when the refusal isn't property-scoped.
 //
-// callerDropsTheIndex is true only when the caller's action removes the very
-// index a repair call runs against (today only the property index DELETE,
-// which is the sole command that reaches [ReindexProvider.CheckPropertyUpdate]).
-// Those get prose instead of a rendered call: every repair verb validates
-// against the index flag the DELETE clears, so a command that is accepted
-// while the migration is in flight is refused once the DELETE the operator
-// came to make succeeds. The cancel call is still rendered — cancel does not
-// read that flag.
-//
-// STARTED is the only status a cancel is accepted in: both
-// [distributedtask.Manager.CancelTask] and the REST pre-flight key on
-// [distributedtask.TaskStatus.IsCancellable], a literal `== STARTED`, and
-// answer 409 Conflict for everything else. So the split below reads that
-// same predicate — naming a cancel for PREPARING or SWAPPING would hand the
-// operator a request the API refuses.
+// callerDropsTheData is true only when the caller's action destroys every
+// shard the migration works on (today only DeleteClass) — those get told to
+// re-issue their request rather than repair, since a follow-up call would
+// 404. callerDropsTheIndex is true only when the caller's action clears the
+// index flag a repair call would validate against (today only the property
+// index DELETE) — those get prose instead of a rendered repair call, though
+// cancel is still rendered since it doesn't read that flag.
 //
 // Precondition: status is non-terminal ([distributedtask.TaskStatus.IsActive]);
-// callers pre-filter on it, so a terminal status here would be misreported
-// as one this build doesn't recognize.
+// callers pre-filter on it.
 //
-// The rendered repair is a submit, so it needs RUNTIME_REINDEX_ENABLED=true;
-// cancel is exempt from that flag.
-//
-// FSM-determinism: three of the four call sites are apply-path gates, and the
-// wording branches on two local vocabularies (the status and the migration
-// type). Only the wording does. The gate returns an error either way, the
-// accept/reject decision never reads the remedy, and follower apply errors
-// are discarded — so the apply stays deterministic across binaries.
+// FSM-determinism: three of the four call sites are apply-path gates. Only
+// the wording branches on status/migration-type; accept/reject never reads
+// the remedy, and follower apply errors are discarded, so the apply stays
+// deterministic across binaries.
 func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, askedProperty string, callerDropsTheData, callerDropsTheIndex bool) string {
 	if status.IsCancellable() {
 		return cancellableGateRemedy(p, askedProperty, callerDropsTheData, callerDropsTheIndex)
@@ -369,15 +338,10 @@ func ReindexGateRemedy(status distributedtask.TaskStatus, p ReindexTaskPayload, 
 		"still applies; read the task on a node that knows the status"
 }
 
-// noRepairCallForIndexDelete is the tail a property index DELETE gets in place
-// of a rendered repair call.
-//
-// Deliberately prose. Every repair verb validates against the index flag the
-// caller's own DELETE clears, so any call rendered here is accepted while the
-// migration is in flight and refused once the DELETE succeeds — which is the
-// state the caller is trying to reach. Naming a verb that survives the DELETE
-// instead would only prove that verb is accepted, not that it is the right
-// repair, so this says what is true and leaves the choice with the operator.
+// noRepairCallForIndexDelete is the tail a property index DELETE gets in
+// place of a rendered repair call: every repair verb validates against the
+// flag the DELETE clears, so naming one would only prove it is accepted
+// now, not that it is the right repair once the DELETE lands.
 func noRepairCallForIndexDelete(p ReindexTaskPayload) string {
 	return "No repair call is named here: the index you are deleting is the " +
 		"one a repair would have to run against, so a call that is accepted " +
@@ -422,11 +386,9 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 				"property as soon as its first shard commits, and each of the " +
 				"two verbs is rejected in the state the other one covers."
 		}
-		// A format-only type flips no schema, so its original submit body
-		// stays accepted post-cancel — the re-submit IS the repair. That
-		// holds only because the caller is not dropping the index it runs
-		// against; a caller who is takes the callerDropsTheIndex arm above,
-		// since their own DELETE clears the flag this body validates against.
+		// Format-only: no schema flip means the original submit body still
+		// validates post-cancel, so the re-submit IS the repair — true only
+		// because callerDropsTheIndex (checked above) is false here.
 		return partial + "To finish the job later, re-submit it via " +
 			ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
@@ -440,21 +402,14 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 	return "cancel it via " + cancelCall + ", or wait for it to finish"
 }
 
-// coordinationPhaseGateRemedy is [ReindexGateRemedy] for a task in a coordination
-// phase (PREPARING or SWAPPING). Every cancel is refused there, so no arm may
-// name one: waiting is the whole remedy, and the rest of the sentence is what
-// the operator has to be ready for once the wait ends.
+// coordinationPhaseGateRemedy is [ReindexGateRemedy] for a task in a
+// coordination phase (PREPARING or SWAPPING): every cancel is refused
+// there, so no arm names one — waiting is the whole remedy.
 //
-// Both phases are entered from AllUnitsTerminal, and only
-// [distributedtask.Manager.CancelTask] ever writes CANCELLED — so a task that
-// reached here can still end FINISHED or FAILED, but no longer CANCELLED.
-//
-// For a semantic migration the repair window is already open: merged.mig is
-// written during PREPARING, before any shard swaps, and
-// [FinalizeCompletedMigrations] promotes on it alone. A FAILED outcome
-// therefore leaves promotion-eligible data behind that the next restart
-// promotes into the bucket↔schema inversion [ReindexProvider.CheckClassMutation]
-// treats as catastrophic (weaviate/weaviate#12575).
+// For a semantic migration the repair window is already open at this point:
+// merged.mig is written during PREPARING, before any shard swaps. A FAILED
+// outcome here leaves promotion-eligible data that the next restart
+// promotes into a bucket↔schema inversion (weaviate/weaviate#12575).
 func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, callerDropsTheData, callerDropsTheIndex bool) string {
 	wait := "wait for it to reach a terminal state (GET /v1/schema/" +
 		p.Collection + "/indexes reports when it clears; GET /v1/tasks names " +
@@ -501,14 +456,12 @@ func coordinationPhaseGateRemedy(p ReindexTaskPayload, askedProperty string, cal
 }
 
 // abortedMigrationConsequence names what killing an in-flight migration
-// costs the data that survives it: a schema inversion for semantic
-// types, a half-applied rebuild for format-only ones. Only
-// [ReindexProvider.CheckTenantMutation] uses it — see
-// [ReindexProvider.CheckClassMutation] for why DeleteClass does not.
+// costs the surviving data: a schema inversion for semantic types, a
+// half-applied rebuild for format-only ones. Only
+// [ReindexProvider.CheckTenantMutation] uses it.
 //
-// [IsSemanticMigration] is a positive allowlist: an unrecognized type would
-// otherwise fall into the format-only arm and claim a cost about semantics
-// this build doesn't know. Unknown types abstain instead.
+// [IsSemanticMigration] is a positive allowlist so an unrecognized type
+// abstains instead of falling into the format-only arm by default.
 func abortedMigrationConsequence(mt ReindexMigrationType) string {
 	if firstUnknownMigrationType(mt) != "" {
 		return "have a consequence this build cannot name (it does not know " +
@@ -589,13 +542,11 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
 			continue
 		}
-		// callerDropsTheIndex is a literal true because every command that
-		// reaches this gate is a property index DELETE: the guard fires only
-		// from SchemaManager.UpdateProperty, whose sole producer with the
-		// migration bypass off is Handler.DeleteClassPropertyIndex. Wire a
-		// property mutation here that does NOT drop an index and this must
-		// become a parameter, or the remedy will withhold a repair call the
-		// caller could have used.
+		// callerDropsTheIndex is a literal true: DeleteClassPropertyIndex is
+		// the only producer of an UpdateProperty command with the migration
+		// bypass off, so every task reaching this gate is behind a property
+		// index DELETE. A future producer that isn't would need this to
+		// become a parameter, or the remedy withholds a usable repair call.
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
@@ -684,11 +635,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
 //
-// Unlike [ReindexProvider.CheckClassMutation], the remedy must not claim the
-// migration's state disappears: a deactivated shard promotes its merged
-// generation on reactivation (weaviate/weaviate#12575), and a delete leaves it on
-// every surviving shard. The guard can't tell the two apart, so both render
-// callerDropsTheData=false.
+// Unlike [ReindexProvider.CheckClassMutation], the remedy must not claim
+// the migration's state disappears: a deactivated shard promotes its
+// merged generation on reactivation, and a delete still leaves it on every
+// surviving shard. Both render callerDropsTheData=false.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.

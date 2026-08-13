@@ -351,11 +351,10 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
-		// callerDropsTheData is false: DELETE removes only the named index,
-		// not the shards, so the migration's on-disk state survives it.
-		// callerDropsTheIndex is true: that same DELETE clears the index flag
-		// every repair verb validates against, so the remedy must not render
-		// a repair call the caller's own request is about to invalidate.
+		// callerDropsTheData=false: DELETE removes only the index, not the
+		// shards. callerDropsTheIndex=true: DELETE clears the flag every
+		// repair verb validates against, so the remedy must not name one
+		// the caller's own request is about to invalidate.
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+

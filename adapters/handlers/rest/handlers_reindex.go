@@ -241,12 +241,9 @@ func validateRebuildSearchableProperty(class *models.Class, prop *models.Propert
 	return nil
 }
 
-// validateChangeAlgorithmProperty guards searchable.algorithm: the property
-// needs a searchable index, the target must be a migratable algorithm, and
-// not already applied. The switch can only ever observe three values:
-// normalizeSearchableAlgorithm returns "" for anything its own inner switch
-// does not list, so a future algorithm never arrives here as itself — it
-// arrives as "", hits default, and gets a 400 instead of a silent no-op.
+// validateChangeAlgorithmProperty guards searchable.algorithm. A future
+// algorithm normalizeSearchableAlgorithm doesn't recognize arrives here as
+// "", hits default, and gets a 400 — never a silent no-op.
 func validateChangeAlgorithmProperty(class *models.Class, prop *models.Property, algorithm string) error {
 	if prop.IndexSearchable != nil && !*prop.IndexSearchable {
 		return errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))

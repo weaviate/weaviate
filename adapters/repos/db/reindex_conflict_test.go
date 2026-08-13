@@ -891,17 +891,11 @@ func renderedCancelCall(message string) string {
 	return ""
 }
 
-// requireCancelAdviceMatchesTheGuard asserts the one property these refusals
-// exist to get right: a remedy names a cancel call exactly when the cancel
-// endpoint would accept one.
-//
-// Both sides run production predicates —
-// [distributedtask.TaskStatus.IsCancellable], the literal that
-// Manager.CancelTask and the REST pre-flight both key on, and
-// [ReindexCancelCall], which decides whether this build can name the call at
-// all. The REST half of the same property (the rendered call driven through
-// findCancelTarget and cancelPreflight) is pinned by
-// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
+// requireCancelAdviceMatchesTheGuard asserts the one property these
+// refusals exist to get right: a remedy names a cancel call exactly when
+// [distributedtask.TaskStatus.IsCancellable] and [ReindexCancelCall] agree
+// it should. The REST half (rendered call through cancelPreflight) is
+// pinned separately by TestGateRemedyNamesOnlyACancelTheCancelPathAccepts.
 func requireCancelAdviceMatchesTheGuard(t *testing.T, message string,
 	status distributedtask.TaskStatus, payload ReindexTaskPayload, askedProperty string,
 ) {
@@ -1772,16 +1766,13 @@ func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
 // Same shape as the rest package's renderedCallRE.
 var gateRemedyCallRE = regexp.MustCompile(`PUT /v1/schema/[^ ]+ (\{"[a-z]+":\{[^{}]*\}\})`)
 
-// TestPropertyIndexDeleteGateRendersNoRepairCall pins the property index DELETE
-// arm: it may name a cancel, and it may not name anything else.
+// Pins the property index DELETE arm: it may name a cancel (which doesn't
+// read the index flag the DELETE clears), but nothing else — every repair
+// verb would validate against that same flag and be refused once the
+// DELETE succeeds.
 //
-// Every repair verb validates against the index flag that caller's own DELETE
-// clears, so a rendered repair is accepted while the migration runs and refused
-// once the DELETE succeeds — the state the caller is trying to reach. Cancel
-// does not read that flag, so it stays.
-//
-// The callerDropsTheIndex=false column is the control: it proves the flag is
-// what suppresses the repair, not that these inputs render nothing anyway.
+// callerDropsTheIndex=false is the control, proving the flag suppresses
+// the repair rather than these inputs rendering nothing anyway.
 func TestPropertyIndexDeleteGateRendersNoRepairCall(t *testing.T) {
 	statuses := []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,

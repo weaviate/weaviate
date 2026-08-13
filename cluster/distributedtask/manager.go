@@ -184,12 +184,9 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 	return nil
 }
 
-// sortedTasksWithLock returns the namespace's tasks ordered by task ID.
-// Caller must hold m.mu.
-//
-// Map order is nondeterministic; accept/reject is unaffected, but WHICH
-// conflicting task gets named in the refusal is not — sorting keeps that
-// message stable across nodes/retries and in sync with the REST pre-check.
+// sortedTasksWithLock returns the namespace's tasks ordered by task ID, so
+// which conflicting task a refusal names stays stable across nodes and
+// retries. Caller must hold m.mu.
 func (m *Manager) sortedTasksWithLock(namespace string) []*Task {
 	tasks := make([]*Task, 0, len(m.tasks[namespace]))
 	for _, t := range m.tasks[namespace] {
@@ -446,22 +443,14 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
-			// Fail-closed: AnyUnitFailed only trips via a restored snapshot
-			// (see its godoc). Without this branch such a task would advance
-			// to SWAPPING and run the schema flip on a half-failed migration.
+			// Fail-closed: without this branch a snapshot-restored task with
+			// a failed unit would advance to SWAPPING and run the schema
+			// flip on a half-failed migration.
 			task.Status = TaskStatusFailed
-			// Name a reason: FAILED with an empty Error leaves the operator
-			// nothing to act on.
-			//
-			// Accepted cross-version cost: an older peer replaying this same
-			// entry leaves Error empty, so during a rolling upgrade GET
-			// /v1/tasks answers differently depending on which node serves
-			// it. The status transition is identical on both binaries, every
-			// production reader of Task.Error outside serialization sits
-			// behind a status switch that returns on FAILED before reaching
-			// it, so the divergent value cannot change behavior, and the
-			// field is snapshot-serialized, so a leader snapshot install
-			// converges it. A version gate would buy nothing but delay.
+			// A reason is required so the operator has something to act on.
+			// An older peer replaying this entry may leave it empty during a
+			// rolling upgrade; accepted, since Task.Error is display-only and
+			// converges on the next leader snapshot.
 			task.Error = "task restored with a failed unit; failing the task rather than running the schema flip"
 			if unitID, unitErr, ok := task.firstFailedUnit(); ok {
 				if unitErr == "" {

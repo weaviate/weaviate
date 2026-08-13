@@ -618,10 +618,9 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 //
-// A live task should never be STARTED with a FAILED unit — the FSM sets
-// both statuses in one critical section. This is the fail-closed check for
-// when it happens anyway: [Manager.Restore] installs a peer's snapshot
-// verbatim, with no validation that task and unit statuses agree.
+// The FSM never leaves a live task STARTED with a FAILED unit; this covers
+// the case where it happens anyway via [Manager.Restore] installing an
+// unvalidated peer snapshot.
 func (t *Task) AnyUnitFailed() bool {
 	for _, u := range t.Units {
 		if u.Status == UnitStatusFailed {

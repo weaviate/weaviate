@@ -180,18 +180,15 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
 	require.Contains(t, err.Error(), "retry after the migration finishes")
 
-	// Property/index type aren't known here, so the message points at the
-	// poll instead of a guessable <placeholder> URL that would 202 NO_OP.
+	// No placeholder URLs: property/index type aren't known here.
 	require.Contains(t, err.Error(), "GET /v1/schema/MyClass/indexes")
 	require.Contains(t, err.Error(), "PUT /v1/schema/MyClass/indexes/{that property}")
 	require.NotContains(t, err.Error(), "<class>")
 	require.NotContains(t, err.Error(), "<prop>")
 	require.NotContains(t, err.Error(), "<indexType>")
 
-	// This gate is shard-keyed and never sees the task, so it cannot drop
-	// the cancel advice past STARTED the way ReindexGateRemedy does. It has
-	// to state the restriction instead, or it sends an operator whose task
-	// is already coordinating into a 409.
+	// Shard-keyed gate has no task to check, so it states the STARTED-only
+	// restriction outright instead of dropping it like ReindexGateRemedy.
 	require.Contains(t, err.Error(), "only while it is still in status STARTED")
 	require.Contains(t, err.Error(), "409 Conflict")
 	for _, status := range []distributedtask.TaskStatus{
@@ -203,16 +200,13 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 		require.Contains(t, err.Error(), status.String())
 	}
 
-	// An unclassifiable status is uncancellable too, but waiting is the wrong
-	// advice for it: only a node that recognizes the status can say whether
-	// the task is still running.
+	// Unclassifiable status: waiting is the wrong advice too, only a node
+	// that recognizes it can say whether the task is still running.
 	require.Contains(t, err.Error(), "cannot classify")
 }
 
-// On a namespace-enabled cluster the class name is stored qualified. The
-// rendered URLs keep the prefix: a global operator has to type it for the
-// request to reach the right collection, and the REST error path removes it
-// again for the namespace-confined caller who must not.
+// Namespace-qualified collection names must survive so the rendered URLs
+// stay usable by a global operator.
 func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	err := reindexInFlightError("customer1:MyClass", "shard1", false)
 	require.Error(t, err)

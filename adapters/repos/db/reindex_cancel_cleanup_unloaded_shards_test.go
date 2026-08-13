@@ -1131,10 +1131,9 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 				}
 			}()
 
-			// Registered but not loaded, which is what a cold tenant looks
-			// like while it stays in the shard map. A DEACTIVATED tenant is
-			// removed from that map and is invisible to this predicate — see
-			// [DB.anyPromotableReindexState] for why that is fail-open.
+			// Registered but not loaded — what a cold tenant looks like. A
+			// DEACTIVATED tenant is removed from the shard map entirely and
+			// is invisible here; see [DB.anyPromotableReindexState].
 			assert.Equal(t, tc.want, idx.anyPromotableReindexState(propName, indexType, ReindexTypeChangeTokenization, nil),
 				"the only shard carrying the state is registered but not loaded")
 			assert.False(t, cold.isLoaded(),
@@ -1143,11 +1142,8 @@ func TestIndexHasPromotableReindexStateAnswersForColdShards(t *testing.T) {
 	}
 }
 
-// The CANCELLED evidence gate asks about every (property, index type) pair a
-// migration targets, and each ask walks every shard. One shared cache is what
-// keeps that from re-listing the same .migrations dir once per pair. This
-// pins that the cache reaches the per-shard read at all: with one, a later
-// pair answers from the first pair's snapshot; without, it re-reads.
+// Pins that the cache is threaded through to the per-shard read: with one,
+// a later ask answers from the first ask's snapshot; without, it re-reads.
 func TestAnyPromotableReindexStateReadsThroughTheCacheItIsGiven(t *testing.T) {
 	const (
 		propName  = "category"

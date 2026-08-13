@@ -277,10 +277,9 @@ func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 }
 
 // preservingPropertyOnly is [migrationDirScope.preserving] without the
-// class-level tracker. For a caller asking what a *particular* migration
-// left behind: the class-level dirs outlive the task that wrote them, so
-// admitting one on index type alone answers for whichever migration ran
-// last.
+// class-level tracker, for a caller that cares about one particular
+// migration: class-level dirs outlive the task that wrote them, so index
+// type alone would misattribute them to whichever migration ran last.
 func (s migrationDirScope) preservingPropertyOnly() migrationDirScope {
 	s.preserve = true
 	return s

@@ -103,10 +103,8 @@ func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType pins that
-// the audit reads the migration type through [ReindexTargetIndexes], which
-// decides between the per-index-type cleanup and the blunt tracker-dir
-// removal fallback.
+// Pins that orphan cleanup routes each migration type through
+// [ReindexTargetIndexes] for its indexTypes.
 func TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
@@ -121,8 +119,7 @@ func TestCollectOrphanTrackers_CarriesTargetIndexesPerMigrationType(t *testing.T
 		{ReindexTypeRepairFilterable, []string{"filterable"}},
 		{ReindexTypeEnableRangeable, []string{"rangeable"}},
 		{ReindexTypeRepairRangeable, []string{"rangeable"}},
-		// A type only a newer node knows: nil drives the tracker-dir
-		// fallback, which is the safe answer when the index is unknown.
+		// Unknown type: nil drives the tracker-dir fallback.
 		{"a-type-from-a-newer-node", nil},
 	}
 

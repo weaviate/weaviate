@@ -241,12 +241,11 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 	}
 }
 
-// declaredReindexMigrationTypes is every migration type this build declares,
-// mirrored here by hand. db.TestReindexTargetIndexes scans the package source
-// and fails if the declared set grows past its own count, so a new type does
-// turn some test in db red — but nothing in that failure points at this file,
-// and this mirror itself going stale is not detected at all. Keeping it
-// current is manual.
+// declaredReindexMigrationTypes is every migration type this build
+// declares, mirrored here by hand: db.TestReindexTargetIndexes catches a
+// new type growing past its own count, but points at that failure, not
+// this file, and a stale mirror here goes undetected. Keeping it current
+// is manual.
 var declaredReindexMigrationTypes = []db.ReindexMigrationType{
 	db.ReindexTypeChangeTokenization,
 	db.ReindexTypeChangeTokenizationFilterable,
@@ -264,18 +263,10 @@ var declaredReindexMigrationTypes = []db.ReindexMigrationType{
 // pattern needs no brace balancing.
 var renderedCallRE = regexp.MustCompile(`PUT /v1/schema/([^ ]+)/indexes/([^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
 
-// TestGateRemedyNamesOnlyACancelTheCancelPathAccepts drives the cancel call a
-// schema gate's remedy prints through the path a PUT would take —
-// requestedCancel, validateBodyExclusivity, findCancelTarget, cancelPreflight
-// — and fails when the API would refuse it.
-//
-// This is the assertion the string tables cannot make. cancelPreflight keys on
-// TaskStatus.IsCancellable, a literal `== STARTED`, so a remedy that named a
-// cancel for PREPARING or SWAPPING would send the operator into a 409 while
-// every Contains-based row stayed green.
-//
-// It runs in both directions: a printed cancel has to be accepted, and a
-// status where one would be accepted has to have it printed.
+// Drives the cancel call a remedy prints through the real cancel path
+// (findCancelTarget, cancelPreflight) and fails if the API would refuse it
+// — the check a Contains-based string table can't make. Runs both ways: a
+// printed cancel must be accepted, and an acceptable status must print one.
 func TestGateRemedyNamesOnlyACancelTheCancelPathAccepts(t *testing.T) {
 	require.Len(t, declaredReindexMigrationTypes, 9,
 		"a new migration type needs rows here as well")

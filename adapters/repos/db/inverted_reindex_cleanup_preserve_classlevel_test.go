@@ -23,9 +23,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// newReindexTestShard is the fixture the reindex cancel/remedy tests start
-// from: one shard of a collection carrying propNames, under a class name no
-// other test in the run shares, with shutdown already registered.
+// newReindexTestShard builds a single shard under a unique class name so
+// concurrent tests never collide.
 func newReindexTestShard(t *testing.T, classPrefix string, propNames ...string) (*Shard, *Index) {
 	t.Helper()
 	ctx := testCtx()

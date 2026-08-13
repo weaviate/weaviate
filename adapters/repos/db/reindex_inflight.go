@@ -139,20 +139,12 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
 }
 
-// reindexInFlightError formats the operator-facing rejection. `preWire`
-// distinguishes "DTM lookup says live" from "lookup not yet installed" so
-// the body can hint at the right next step.
+// reindexInFlightError formats the operator-facing rejection; `preWire`
+// marks a DTM lookup not yet wired up vs. one that found a live task.
 //
-// Unlike the schema gates, it has no task to key a cancel call on — only
-// that a shard is live — so it points at the GET poll instead of guessing a
-// property/index-type pair that could 202 NO_OP. For the same reason it
-// cannot drop the cancel advice the way [ReindexGateRemedy] does once the
-// task is past STARTED, so it states the STARTED-only restriction instead:
-// TaskStatus.IsCancellable is a literal `== STARTED`, and every other status
-// answers 409 Conflict.
-//
-// `collection` stays namespace-qualified: the sync REST error path strips
-// it, but the async backup-status field does not.
+// Unlike the schema gates, it has no task to key a cancel on, so it names
+// the GET poll and states the STARTED-only restriction outright instead of
+// dropping it past STARTED the way [ReindexGateRemedy] does.
 func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(

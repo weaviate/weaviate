@@ -316,8 +316,7 @@ func TestIsSemanticMigration(t *testing.T) {
 		})
 	}
 
-	// A type added to neither list is classified format-only by default, so
-	// without this the omission only shows up as wrong behavior at runtime.
+	// Guards against a type silently falling into neither classification.
 	t.Run("every declared type is classified", func(t *testing.T) {
 		for _, mt := range allDeclaredReindexMigrationTypes(t) {
 			require.True(t,

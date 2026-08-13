@@ -239,15 +239,10 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_OutcomeAppearsInMessag
 	}
 }
 
-// Pins the renderer's fallback, not a state a cluster reaches: no submit
-// path lets a tokenization change through without a target. What it has to
-// keep is that abstaining from the command does not turn into abstaining
-// from the guidance — a silent terminal on a bucket↔schema inversion is the
-// worse failure — and that the two are separately observable.
-//
-// Also pins what the fallback tells the operator to do. It cannot be "ask
-// the node that submitted it": every node holds the same replicated payload,
-// so a field missing here is missing there.
+// Pins that an unnameable repair command (no submit path leaves a
+// tokenization change through without a target) still logs guidance, and
+// that the fallback text doesn't send the operator to another node — every
+// node holds the same replicated payload.
 func TestLogOperatorRepairGuidanceOnTornSemanticMigration_UnnameableRepairStillWarns(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
@@ -381,12 +376,9 @@ func loggedRepairGuidanceMessages(hook *logrustest.Hook) []string {
 	return msgs
 }
 
-// loggedRepairGuidance reports whether the operator guidance fired at all.
-//
-// Deliberately separate from loggedRepairCommand: a payload that cannot
-// name a repair command still gets the guidance, so asking one question
-// through the other turns a fixture that forgot a field into what looks
-// like a gate regression.
+// loggedRepairGuidance reports whether the operator guidance fired at all —
+// deliberately separate from loggedRepairCommand, since a payload that
+// cannot name a command still gets the guidance.
 func loggedRepairGuidance(hook *logrustest.Hook) bool {
 	return len(loggedRepairGuidanceMessages(hook)) > 0
 }

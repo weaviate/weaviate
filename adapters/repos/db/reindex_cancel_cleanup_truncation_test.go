@@ -609,20 +609,9 @@ func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T)
 		"the caller has nothing to act on, and no later sweep to retry")
 }
 
-// Pins the answer the CANCELLED evidence gate gives when the walk behind it
-// never happened. A shutdown racing a swap is how a promotable generation
-// gets left behind, and it is also what empties the walk: ForEachShard
-// reports a closing index as one that reached every shard. Answering
-// "nothing promotable here" off that is what suppresses the operator's
-// repair guidance, and no later run makes up for it — the next restart
-// promotes the generation onto the canonical bucket and says nothing.
-//
-// Covers the close causes only. The other thing strictness buys — a shard
-// that leaves the map mid-walk — has no deterministic trigger from out here,
-// so it stays pinned on the primitive by
-// TestForEachShardStrictReportsACloseThatLandsMidWalk. Swapping this walk
-// back to ForEachShard plus a closeCause check would still pass every row
-// below and lose that arm.
+// Pins that a walk which couldn't reach every shard (e.g. a shutdown
+// mid-check) answers "promotable" rather than "nothing found" — false here
+// would silently suppress the operator's repair guidance.
 func TestIndexAnyPromotableReindexStateOnAWalkThatCouldNotLook(t *testing.T) {
 	const (
 		propName  = "title"

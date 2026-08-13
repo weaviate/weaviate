@@ -1583,37 +1583,23 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
-				// A cancel only lands at STARTED, where a task that skipped the
-				// PREP barrier may already have swapped shards. Three witnesses,
-				// since each alone under-reports. The ack maps prove some node got
-				// past its units — PREP acks land in PreparationCompletionAcks,
-				// post-swap ones in PostCompletionAcks — but both are dropped for
-				// acks arriving after the cancel applied. The on-disk check proves
-				// only what this node holds, which is the one witness to a cancel
-				// that landed while the task was still STARTED but this node had
-				// already written merged.mig.
-				//
-				// Cleanup runs first: it drains the local worker, so the tracker
-				// dirs the disk check reads are no longer being written. A drain
-				// that timed out makes that answer unusable, so it counts as
-				// evidence rather than being trusted mid-write.
+				// A cancel only lands at STARTED, where a task that skipped the PREP
+				// barrier may already have swapped shards. Three witnesses combine
+				// because each alone can under-report: the ack maps drop any ack
+				// arriving after the cancel applied, and the on-disk check only
+				// covers what this node holds. Cleanup (which drains the worker)
+				// runs first so the disk check isn't racing a write; a timed-out
+				// drain makes that answer untrustworthy, so it counts as evidence too.
 				drained := p.autoCleanupAfterTerminal(task, payload, logger)
 				if !IsSemanticMigration(payload.MigrationType) {
-					// No repair guidance for a format-only cancel. Not
-					// because none of them touch the schema —
-					// enable-rangeable sets indexRangeFilters as its first
-					// shard commits — but because the shards that never
-					// built a rangeable bucket keep answering range filters
-					// off the filterable walk
-					// ([Shard.IsRangeableLocallyReady]), so the half-applied
-					// state is slow rather than wrong, and the gate remedy
-					// already names the re-submit that finishes it. Nothing
-					// here matches the bucket↔schema inversion the guidance
-					// exists for.
-					//
-					// IsSemanticMigration is a positive allowlist, so an
-					// unknown type lands here too and abstains rather than
-					// claiming a consequence this build cannot name.
+					// No repair guidance for a format-only cancel: even
+					// enable-rangeable's half-applied state is safe (shards
+					// without a rangeable bucket yet fall back to the
+					// filterable walk, so it's slow, not wrong), and the gate
+					// remedy already names the re-submit that finishes it.
+					// Unknown types land here too (IsSemanticMigration is a
+					// positive allowlist) and abstain rather than claim a
+					// consequence this build cannot name.
 					break
 				}
 				if len(task.PostCompletionAcks) > 0 ||
@@ -1998,13 +1984,11 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	for _, propName := range payload.Properties {
 		repairCall := ReindexRepairCall(*payload, propName)
 		if repairCall == "" {
-			// No node knows more than this one. The payload is the same
-			// replicated bytes everywhere, so a field missing here is
-			// missing on every node, and the operator has to supply what
-			// it lacks. The one case where another node would know more —
-			// a migration type this build does not recognize — cannot
-			// reach here: IsSemanticMigration is a positive allowlist and
-			// returns above.
+			// No node knows more than this one: the payload is the same
+			// replicated bytes everywhere, so a missing field here is
+			// missing everywhere. The one case where another node could
+			// know more — an unrecognized migration type — can't reach
+			// here, since IsSemanticMigration already returned above for it.
 			logger.WithFields(map[string]any{
 				"property":       propName,
 				"migration_type": payload.MigrationType,
@@ -2035,18 +2019,14 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 
 // promotableReindexStateOnThisNode reports whether this node holds reindex
 // state the next restart would promote — the evidence gate for CANCELLED
-// repair guidance, since an unconditional "buckets are inverted" claim would
-// be a false alarm at STARTED. Per-node, since one SWAPPING replica can have
-// merged while another hasn't. Answers true when it cannot tell (no local
-// store) — silence about possibly-inverted data is the worse error.
+// repair guidance, since an unconditional "buckets are inverted" claim
+// would be a false alarm at STARTED. Answers true when it cannot tell (no
+// local store): silence about possibly-inverted data is the worse error.
 //
-// The whole loop shares one directory-listing cache. The short-circuit only
-// helps when the answer is yes, and the quiet arm — the point of the gate —
-// walks every shard for every (property, index type) pair. Without the cache
-// that is two uncached ReadDir per shard per pair, so a change-tokenization
-// on a 50k-tenant collection would issue six figures of syscalls on a
-// scheduler callback. The cache is local to the call and dies with it, so
-// the snapshot it answers from cannot go stale between callbacks.
+// Shares one directory-listing cache across the whole loop — the quiet arm
+// (the point of the gate) walks every shard for every (property, index
+// type) pair, and without a cache that's six figures of syscalls on a
+// large multi-tenant collection.
 func (p *ReindexProvider) promotableReindexStateOnThisNode(payload *ReindexTaskPayload) bool {
 	if p.db == nil {
 		return true

@@ -686,9 +686,8 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
-// TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed pins that a
-// STARTED task with one FAILED unit (state only Restore can produce) stays
-// FAILED instead of advancing into the schema-flip phases.
+// Pins that a Restore-only STARTED+FAILED-unit state stays FAILED instead
+// of advancing into the schema-flip phases.
 func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T) {
 	for _, barrier := range []bool{false, true} {
 		name := "swapping path"
@@ -728,9 +727,8 @@ func TestManager_RecordUnitCompletion_FailedUnitKeepsTheTaskFailed(t *testing.T)
 	}
 }
 
-// TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit pins
-// that the fail-closed reason is the same on every node: two FAILED units
-// means the lowest ID is quoted, not whichever one map order surfaced.
+// Pins that the fail-closed reason always names the lowest-ID failed unit,
+// not whichever one map order surfaced.
 func TestManager_RecordUnitCompletion_FailClosedErrorNamesLowestFailedUnit(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1683,10 +1681,8 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 			"detector MUST be passed the FSM-stored task list at apply time")
 	})
 
-	// The task list is stored in a map, so an unsorted walk names a
-	// different task in the refusal per process. Accept/reject doesn't
-	// change, but two nodes applying the same entry — and the REST
-	// pre-check that mirrors this gate — must quote the same task ID.
+	// Sorting keeps the refusal naming the same task across nodes and in
+	// sync with the REST pre-check that mirrors this gate.
 	t.Run("detector receives the task list sorted by ID", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		detector := &fakeSchemaMutationDetector{rejectWith: nil}
@@ -1712,10 +1708,8 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		}
 	})
 
-	// The detector set is a map and the dispatch returns the FIRST
-	// rejection, so an unsorted walk lets two nodes applying the same RAFT
-	// entry refuse with a different namespace's message. The namespaces are
-	// walked in sorted order, so "alpha" always wins over "zulu".
+	// Namespaces are walked in sorted order, so "alpha" always wins over
+	// "zulu" regardless of registration order.
 	t.Run("two rejecting detectors → lowest namespace always wins", func(t *testing.T) {
 		tests := []struct {
 			name      string

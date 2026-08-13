@@ -20,10 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart pins
-// that cancelling after a merge (PREPARING or later) leaves buckets
-// NEW-tokenized under an unflipped OLD schema after restart
-// (weaviate/weaviate#12575).
+// Pins that cancelling after a merge leaves buckets NEW-tokenized under an
+// unflipped OLD schema after restart (weaviate/weaviate#12575).
 func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *testing.T) {
 	const (
 		propName  = "descr"
@@ -108,10 +106,8 @@ func TestCancelAfterMergedGeneration_LeavesBucketsAheadOfSchemaAcrossRestart(t *
 	}
 }
 
-// TestHasPromotableReindexState pins the predicate the CANCELLED repair
-// guidance is gated on: promotion starts at the merge, so a task cancelled
-// before that leaves nothing for a restart to promote and nothing for the
-// operator to repair.
+// Pins that promotion starts at the merge: a task cancelled before that
+// leaves nothing for a restart to promote or the operator to repair.
 func TestHasPromotableReindexState(t *testing.T) {
 	const (
 		propName  = "descr"
@@ -178,10 +174,8 @@ func TestHasPromotableReindexState(t *testing.T) {
 	}
 }
 
-// TestDBHasPromotableReindexStateWithoutLocalIndex pins the one place this
-// predicate does not fail closed: a node that holds no index for the
-// collection has no shard to promote, so answering true would emit repair
-// guidance for state that lives on other nodes.
+// Pins the one fail-open case: no local index means no shard to promote,
+// so true here would emit repair guidance for state on other nodes.
 func TestDBHasPromotableReindexStateWithoutLocalIndex(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 

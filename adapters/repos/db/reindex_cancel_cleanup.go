@@ -88,28 +88,14 @@ func (db *DB) cleanStalePartialReindexState(
 }
 
 // anyPromotableReindexState reports whether any local shard carries a
-// migration generation for (property, indexType, migrationType) that
-// [FinalizeCompletedMigrations] would promote on next restart. Read-only;
-// works on unloaded shards too. A nil cache reads the filesystem every time.
+// migration generation [FinalizeCompletedMigrations] would promote on next
+// restart. Works on unloaded shards; fails closed (true) on anything
+// unreadable.
 //
-// Over-approximates on purpose: any matching generation and any unreadable
-// dir count as promotable, so every shard it looks at fails closed to true.
-//
-// Two cases fail open, and answer false while promotable state exists: no
-// local index to promote into, and a tenant deactivated before the walk
-// starts, which Migrator.UpdateTenants removes from the shard map so no walk
-// can reach the merged generation it still holds on disk. Nothing guards that
-// second one here: [ReindexProvider.CheckTenantMutation] skips terminal tasks
-// and this walk runs inside the CANCELLED arm, so the guard has already
-// stopped refusing by the time the walk starts. The window runs from the
-// cancel being applied to the walk running, with a drain and a cleanup sweep
-// in between. A tenant that leaves mid-walk is caught instead, since the walk
-// is strict.
-//
-// A collection being deleted also answers false, and that one is not a gap:
-// nothing survives the delete for the next restart to promote. Both halves
-// agree on it, so the answer does not turn on where in DeleteIndex it is
-// sampled — see [Index.anyPromotableReindexState].
+// Answers false despite existing state in two safe cases: a tenant
+// deactivated before the walk started (an earlier guard already stopped
+// accepting mutations for it), and a deleted collection (nothing survives
+// the delete to promote).
 func (db *DB) anyPromotableReindexState(collection, propName, indexType string,
 	mt ReindexMigrationType, dirs *dirNamesCache,
 ) bool {
@@ -121,28 +107,15 @@ func (db *DB) anyPromotableReindexState(collection, propName, indexType string,
 }
 
 // anyPromotableReindexState is the per-index half of
-// [DB.anyPromotableReindexState]. Walks every shard, but does no further
-// disk reads once one of them has such a generation.
+// [DB.anyPromotableReindexState]: short-circuits on the first shard with a
+// promotable generation, and fails closed (true) if the walk can't reach
+// every shard — except on a collection delete, which is not a gap since
+// nothing survives it to promote.
 //
-// A walk that could not reach every shard answers true, the way
-// [hasPromotableReindexState] already fails closed on a shard it cannot
-// read. "No promotable generation here" has to come from a walk that
-// looked, because it is what suppresses the operator repair guidance: a
-// shutdown racing a swap is how a promotable generation gets left behind
-// in the first place, and the next restart promotes it onto the canonical
-// bucket without reporting anything.
-//
-// A collection delete is the exception, and the only stop that is not a gap
-// in what this node knows: [Index.drop] renames i.path() away whether or not
-// a backup makes it keep the files, so no canonical path survives for
-// [FinalizeCompletedMigrations] to promote onto. [classifyIncompleteWalk] and
-// [ErrCleanupCollectionDropped] read the same signal the same way. Every
-// other stop, named or not, answers true.
-//
-// Pass a shared cache when asking about several (property, index type) pairs
-// of the same collection: without one, each pair re-lists every shard's
-// .migrations dir, which on a large multi-tenant collection is a five-figure
-// syscall count per pair on the OnTaskCompleted callback.
+// Pass a shared cache when checking several (property, indexType) pairs on
+// the same collection — without one, each pair re-lists every shard's
+// .migrations dir, a five-figure syscall count on a large multi-tenant
+// collection.
 func (i *Index) anyPromotableReindexState(propName, indexType string,
 	mt ReindexMigrationType, dirs *dirNamesCache,
 ) bool {
@@ -164,19 +137,13 @@ func (i *Index) anyPromotableReindexState(propName, indexType string,
 }
 
 // hasPromotableReindexState is the on-disk predicate behind
-// [Index.anyPromotableReindexState] for the shard rooted at lsmPath. A nil
-// cache reads the filesystem every time.
+// [Index.anyPromotableReindexState] for the shard at lsmPath. Fails closed
+// (true) on anything unreadable, including a tracker with no payload; a
+// missing .migrations dir is the one exception, since most shards never
+// migrate.
 //
-// Fails closed (true) on an unrecognized indexType or unenumerable
-// .migrations dir; an absent dir is the one exception, since most shards
-// never migrate. A tracker with no readable payload counts, for the same
-// reason the sweep preserves it: guessing narrow here would report
-// promotable state as absent.
-//
-// The class-level tracker counts only for the migration type that writes
-// it. Those dirs survive until the next restart finalizes them, so matching
-// on index type alone would let a finished change-algorithm answer for a
-// later retokenize on the same collection.
+// The class-level tracker counts only for the migration type that wrote it
+// — index type alone would misattribute it to a later, unrelated migration.
 func hasPromotableReindexState(lsmPath, propName, indexType string,
 	mt ReindexMigrationType, dirs *dirNamesCache,
 ) bool {
@@ -198,16 +165,10 @@ func hasPromotableReindexState(lsmPath, propName, indexType string,
 }
 
 // writesClassLevelMigrationDir reports whether mt tracks its work in the
-// collection-wide tracker dir rather than a per-property one.
-//
-// Only change-algorithm's class-level dir is consulted. repair-filterable
-// writes one too, so asking about it takes the property-only branch and
-// excludes the tracker that migration itself wrote — answering false while
-// promotable state exists. That direction fails open, against the fails-closed
-// contract stated above. No caller can reach it today, because
-// promotableReindexStateOnThisNode derives the index types it asks about from
-// the same migration type it passes as mt, so the two cannot disagree; a
-// future caller that supplies them separately is the one who would.
+// collection-wide tracker dir. Only change-algorithm does; repair-filterable
+// also writes one but isn't listed here, so asking about it fails open
+// (false, though promotable state exists) — safe today only because every
+// caller derives indexType from this same mt.
 func writesClassLevelMigrationDir(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeAlgorithm
 }

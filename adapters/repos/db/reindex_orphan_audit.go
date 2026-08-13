@@ -510,8 +510,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		if knownTask(rec.TaskID, rec.TaskVersion) {
 			continue
 		}
-		// indexTypes is nil for a type this build does not know; the audit
-		// then falls back to direct tracker-dir removal.
+		// nil indexTypes (unknown migration type) falls back to direct
+		// tracker-dir removal.
 		orphans = append(orphans, orphanReindexTracker{
 			collection:  collection,
 			shardName:   shardName,

@@ -23,11 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// TestOnTaskCompleted_TerminalRepairGuidance pins which terminal outcomes
-// log "your buckets are inverted, rebuild the property": FAILED always (a
-// unit died mid-work), CANCELLED only once something actually merged — a
-// STARTED cancel wrote nothing, so an unconditional message would falsely
-// claim corruption on the status [ReindexGateRemedy] calls safe to cancel.
+// Pins that FAILED always logs repair guidance, but CANCELLED only once
+// something actually merged — a STARTED cancel wrote nothing.
 func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 	const (
 		propName  = "descr"
@@ -63,10 +60,9 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			// arm the repair_command counter can't see.
 			wantInLog: []string{
 				"no promotable generation on this node",
-				// The gate establishes what THIS task left behind, nothing
-				// about what the next restart will do: a finished migration
-				// on another property can still leave a dir for it to
-				// promote, and the restart scan filters on neither.
+				// The gate covers what THIS task left behind, not what the
+				// next restart will do overall — a finished migration on
+				// another property can still leave something to promote.
 				"this task left nothing for the next restart to promote here",
 			},
 			notInLog: []string{
