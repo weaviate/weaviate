@@ -48,6 +48,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
+	// Namespace admission runs before the schema-shape filter so a suspended
+	// namespace answers with its own state rather than a complaint about the
+	// entity the caller named.
+	if err := st.admitDestructive(req); err != nil {
+		return 0, err
+	}
+
 	// Call the filtering to avoid committing to the FSM unnecessary updates
 	if err := st.schemaManager.PreApplyFilter(req); err != nil {
 		return 0, err
@@ -69,6 +76,46 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
+}
+
+// admitDestructive refuses a data-destroying command whose namespace is not in
+// a state that admits one. It runs on the leader before the entry is appended,
+// which is the only place such a refusal can live: Apply must be a pure
+// function of the log, so a check there would have an older binary destroy the
+// data an upgraded one keeps, live during a rolling update and again on every
+// replay of that entry. Refusing before the append means no node ever sees a
+// committed entry it has to reject, so the set of commands checked here can grow
+// without becoming a compatibility event.
+//
+// The check reads the leader's namespace state and the entry commits shortly
+// after, so a suspend landing in between still lets an accepted delete through.
+// That is deliberate, and matches the rule that a suspend does not cancel work
+// already accepted. Every node applies the entry either way, so the outcome
+// stays the same across the cluster.
+func (st *Store) admitDestructive(req *api.ApplyRequest) error {
+	var name string
+	switch req.Type {
+	case api.ApplyRequest_TYPE_DELETE_CLASS:
+		// Index.drop renames the whole class directory, taking every tenant
+		// with it, loaded or not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_TENANT:
+		// Index.dropShards destroys the data on both arms: shard.drop when the
+		// shard is loaded, os.RemoveAll on its path when it is not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		// The command carries no Class, so the namespace comes off the alias
+		// name. An alias may target a class in another namespace, and
+		// AliasesInNamespace lists by alias prefix, so that is the same key.
+		sub := &api.DeleteAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal delete-alias subcommand: %w", err)
+		}
+		name = sub.Alias
+	default:
+		return nil
+	}
+	return usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(name))
 }
 
 // StoreConfiguration is invoked once a log entry containing a configuration
@@ -229,12 +276,8 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			// Index.drop renames the whole class directory, taking every tenant
-			// with it, loaded or not.
-			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
+			// No namespace check here: a committed delete must apply on every
+			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
@@ -274,18 +317,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
 		f = func() {
-			// The command carries no Class, so the namespace comes off the alias
-			// name. An alias may target a class in another namespace, and
-			// AliasesInNamespace lists by alias prefix, so that is the same key.
-			req := &api.DeleteAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal delete-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
+			// No namespace check here: a committed delete must apply on every
+			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
@@ -327,12 +360,8 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		f = func() {
-			// Index.dropShards destroys the data on both arms: shard.drop when the
-			// shard is loaded, os.RemoveAll on its path when it is not.
-			if err := usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
+			// No namespace check here: a committed delete must apply on every
+			// binary. Store.admitDestructive refuses it before the append.
 			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
 		}
 

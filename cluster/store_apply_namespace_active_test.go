@@ -37,7 +37,9 @@ const (
 	nsFlipIndex   uint64 = 2
 )
 
-// This file tests the namespace checks in store.Apply. Every ApplyRequest type
+// This file tests the namespace checks on both sides of the RAFT log: the
+// create-like ones in store.Apply and the destructive ones in
+// store.admitDestructive, which runs before the append. Every ApplyRequest type
 // belongs to exactly one of the three maps below. The namespace lifecycle
 // commands stay ungated, so a suspended namespace can still be resumed or
 // deleted.
@@ -60,7 +62,9 @@ var requireActiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
 }
 
-// Commands gated by namespaces.AdmitDestructiveApply.
+// Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
+// at propose time. Deliberately absent from the apply switch: see
+// Store.admitDestructive.
 var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DELETE_CLASS:  {},
 	api.ApplyRequest_TYPE_DELETE_TENANT: {},
@@ -225,7 +229,7 @@ type destructiveGateCase struct {
 	name    string
 	seed    func(*testing.T, *namespaces.Controller)
 	target  string
-	wantErr error // nil means the command must reach the store
+	wantErr error // nil means the check must admit the command
 }
 
 func destructiveGateCases() []destructiveGateCase {
@@ -262,25 +266,28 @@ func destructiveGateCases() []destructiveGateCase {
 	}
 }
 
-// TestApplyGate_DestructiveApplyTypes drives the three destructive commands
-// through the live apply switch against every namespace state, plus two cases
-// that name a namespace other than the suspended one.
-func TestApplyGate_DestructiveApplyTypes(t *testing.T) {
-	tests := []struct {
-		name string
-		// build returns the command bytes naming target.
-		build func(target string) []byte
-		// seedEntity puts the entity the command destroys into the schema, so
-		// both outcomes can be read back off it.
-		seedEntity func(t *testing.T, ms *MockStore, target string)
-		// expectApplied records the store calls a pass-through makes.
-		expectApplied func(t *testing.T, ms *MockStore, target string)
-		// stillThere reports whether the entity survived.
-		stillThere func(ms *MockStore, target string) bool
-	}{
+// destructiveCommand is one of the three destructive commands, with everything
+// needed to drive it through either side of the log and read the outcome back.
+type destructiveCommand struct {
+	name string
+	// build returns the command naming target.
+	build func(target string) *api.ApplyRequest
+	// seedEntity puts the entity the command destroys into the schema, so both
+	// outcomes can be read back off it.
+	seedEntity func(t *testing.T, ms *MockStore, target string)
+	// expectApplied records the store calls a pass-through makes.
+	expectApplied func(t *testing.T, ms *MockStore, target string)
+	// stillThere reports whether the entity survived.
+	stillThere func(ms *MockStore, target string) bool
+}
+
+func destructiveCommands() []destructiveCommand {
+	return []destructiveCommand{
 		{
-			name:       "TYPE_DELETE_CLASS",
-			build:      func(target string) []byte { return cmdAsBytes(target, api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil) },
+			name: "TYPE_DELETE_CLASS",
+			build: func(target string) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_CLASS, Class: target}
+			},
 			seedEntity: seedClass,
 			expectApplied: func(t *testing.T, ms *MockStore, target string) {
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -293,9 +300,12 @@ func TestApplyGate_DestructiveApplyTypes(t *testing.T) {
 		},
 		{
 			name: "TYPE_DELETE_TENANT",
-			build: func(target string) []byte {
-				return cmdAsBytes(target, api.ApplyRequest_TYPE_DELETE_TENANT, nil,
-					&api.DeleteTenantsRequest{Tenants: []string{seededTenant}})
+			build: func(target string) *api.ApplyRequest {
+				sub, err := gproto.Marshal(&api.DeleteTenantsRequest{Tenants: []string{seededTenant}})
+				if err != nil {
+					panic(err)
+				}
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_TENANT, Class: target, SubCommand: sub}
 			},
 			seedEntity: seedClass,
 			expectApplied: func(t *testing.T, ms *MockStore, target string) {
@@ -316,8 +326,12 @@ func TestApplyGate_DestructiveApplyTypes(t *testing.T) {
 		},
 		{
 			name: "TYPE_DELETE_ALIAS",
-			build: func(target string) []byte {
-				return cmdAsBytes("", api.ApplyRequest_TYPE_DELETE_ALIAS, nil, &api.DeleteAliasRequest{Alias: target})
+			build: func(target string) *api.ApplyRequest {
+				sub, err := gproto.Marshal(&api.DeleteAliasRequest{Alias: target})
+				if err != nil {
+					panic(err)
+				}
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_ALIAS, SubCommand: sub}
 			},
 			seedEntity: seedAlias,
 			// seedAlias already records the callback the delete makes.
@@ -327,53 +341,110 @@ func TestApplyGate_DestructiveApplyTypes(t *testing.T) {
 			},
 		},
 	}
+}
 
-	for _, tt := range tests {
+// TestExecuteGate_DestructiveApplyTypes drives the three destructive commands
+// through the propose-time check against every namespace state, plus two cases
+// that name a namespace other than the suspended one.
+func TestExecuteGate_DestructiveApplyTypes(t *testing.T) {
+	for _, tt := range destructiveCommands() {
 		for _, c := range destructiveGateCases() {
 			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ms, log := setupApplyTest(t)
+				ms, _ := setupApplyTest(t)
 				c.seed(t, ms.cfg.NamespacesController)
-				// Seeded before the command so both outcomes are observable:
-				// without the entity, a refusal and a successful delete leave
-				// the same schema behind.
-				tt.seedEntity(t, &ms, c.target)
-				if c.wantErr == nil {
-					tt.expectApplied(t, &ms, c.target)
-				}
-				log.Data = tt.build(c.target)
 
-				resp, ok := ms.store.Apply(log).(Response)
-				require.True(t, ok)
+				err := ms.store.admitDestructive(tt.build(c.target))
 				if c.wantErr != nil {
-					require.ErrorIs(t, resp.Error, c.wantErr)
-					// A guard that sets the error without returning still
-					// destroys the entity, and the sentinel alone cannot see it.
-					require.True(t, tt.stillThere(&ms, c.target), "a refusal must leave the entity in place")
+					require.ErrorIs(t, err, c.wantErr)
 					return
 				}
-				require.NoError(t, resp.Error)
-				require.False(t, tt.stillThere(&ms, c.target), "the command must have reached the schema")
+				require.NoError(t, err)
 			})
 		}
 	}
 }
 
-// TestApplyGate_DestructiveGateHoldsDuringReplay pins that the verdict is the
-// same live and on replay. Skipping the gate while catching up would let an
-// entry refused live be applied on the next restart. That is worse than the
-// divergence it avoids, where an un-upgraded node deletes the class and an
-// upgraded one keeps it and rebuilds the directory from its schema.
-func TestApplyGate_DestructiveGateHoldsDuringReplay(t *testing.T) {
-	ms, log := setupApplyTest(t)
+// TestExecuteGate_RefusesBeforeTheAppend pins that the check runs ahead of
+// st.raft.Apply. The mock store has no raft, so a refusal that returns the
+// sentinel proves nothing was appended: reaching the append would panic.
+func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
+	ms, _ := setupApplyTest(t)
 	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
 
+	_, err := ms.store.Execute(&api.ApplyRequest{
+		Type:  api.ApplyRequest_TYPE_DELETE_CLASS,
+		Class: "alpha:Foo",
+	})
+	require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+}
+
+// TestApplyGate_DestructiveTypesIgnoreNamespaceState is the guard that keeps the
+// destructive checks out of the FSM. Apply must be a pure function of the log,
+// so a committed delete has to apply in every namespace state, live and on
+// replay. Re-adding a gate to any of these three arms fails this test, and would
+// otherwise have an older binary destroy the data an upgraded one keeps.
+func TestApplyGate_DestructiveTypesIgnoreNamespaceState(t *testing.T) {
+	states := []struct {
+		name string
+		seed func(*testing.T, *namespaces.Controller)
+	}{
+		{"active", func(t *testing.T, c *namespaces.Controller) {
+			seedNamespaceInState(t, c, "alpha", api.NamespaceStateActive)
+		}},
+		{"suspended", func(t *testing.T, c *namespaces.Controller) {
+			seedNamespaceInState(t, c, "alpha", api.NamespaceStateSuspended)
+		}},
+		{"resuming", func(t *testing.T, c *namespaces.Controller) {
+			seedNamespaceInState(t, c, "alpha", api.NamespaceStateResuming)
+		}},
+		{"deleting", func(t *testing.T, c *namespaces.Controller) {
+			seedNamespaceInState(t, c, "alpha", api.NamespaceStateDeleting)
+		}},
+		{"missing", func(*testing.T, *namespaces.Controller) {}},
+	}
+
+	const target = "alpha:Foo"
+	for _, tt := range destructiveCommands() {
+		for _, s := range states {
+			t.Run(tt.name+"/"+s.name, func(t *testing.T) {
+				ms, log := setupApplyTest(t)
+				s.seed(t, ms.cfg.NamespacesController)
+				tt.seedEntity(t, &ms, target)
+				tt.expectApplied(t, &ms, target)
+
+				data, err := gproto.Marshal(tt.build(target))
+				require.NoError(t, err)
+				log.Data = data
+
+				resp, ok := ms.store.Apply(log).(Response)
+				require.True(t, ok)
+				require.NoError(t, resp.Error)
+				require.False(t, tt.stillThere(&ms, target),
+					"a committed delete must apply regardless of namespace state")
+			})
+		}
+	}
+}
+
+// TestApplyGate_DestructiveTypesApplyDuringReplay is the same guard on the
+// catch-up path, which is where a gate in the FSM did its damage: the entry was
+// committed and executed by a binary without the gate, so refusing it on replay
+// returns a class whose data is already gone.
+func TestApplyGate_DestructiveTypesApplyDuringReplay(t *testing.T) {
+	ms, log := setupApplyTest(t)
+	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+	seedClass(t, &ms, "alpha:Foo")
+
+	// schemaOnly, so the delete touches the schema and leaves the store alone.
 	ms.store.lastAppliedIndexToDB.Store(10)
 	log.Index = 5
 	log.Data = cmdAsBytes("alpha:Foo", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil)
 
 	resp, ok := ms.store.Apply(log).(Response)
 	require.True(t, ok)
-	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+	require.NoError(t, resp.Error)
+	require.Empty(t, ms.store.SchemaReader().ClassEqual("alpha:Foo"),
+		"replay must not resurrect a class the committed entry deleted")
 }
 
 func TestSubjectNamespace(t *testing.T) {
