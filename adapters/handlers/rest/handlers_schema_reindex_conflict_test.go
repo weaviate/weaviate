@@ -75,11 +75,8 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	}
 }
 
-// Pins: the pre-flight ends on the same remedy as the FSM guard, and
-// wherever the cancel verb would answer 409 neither of them advises a
-// cancel. It has to hold on this surface in particular: a DELETE of a
-// property index is refused here, before the apply runs, so this is the
-// only wording the operator ever reads.
+// Pins: the pre-flight's refusal ends on the same remedy as the FSM guard,
+// and never advises a cancel where the cancel verb itself would 409.
 func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,
@@ -94,8 +91,8 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
 
-	// The remedy for the one status a cancel is accepted in. Where it is
-	// not, this advice must not merely be qualified — it must be gone.
+	// The remedy for the one cancellable status; elsewhere it must be gone,
+	// not merely qualified.
 	cancellable, _ := refusals(distributedtask.TaskStatusStarted)
 	cancellableRemedy := remedyOf(t, cancellable)
 

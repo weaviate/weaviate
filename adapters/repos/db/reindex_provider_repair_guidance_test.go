@@ -389,12 +389,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	})
 	require.NoError(t, err)
 
-	// A server context that expires shortly: the drain's bounded child
-	// inherits it, so the wait ends on that deadline instead of after
-	// reindexTerminalCleanupDrainTimeout. The deadline is ahead rather than
-	// behind so the probe, which runs before the drain and is bounded off
-	// the same context, still gets to read the disk — that ordering is what
-	// this test pins.
+	// The server context expires shortly, so the drain's bounded child ends
+	// on that deadline instead of reindexTerminalCleanupDrainTimeout — ahead
+	// of, not behind, the probe (which runs first, off the same context), so
+	// the probe still gets to read the disk before the drain times out.
 	expired, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	logger, hook := logrustest.NewNullLogger()

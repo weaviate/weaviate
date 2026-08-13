@@ -394,11 +394,11 @@ func preserveSidecarsSlice(preserveSidecars map[string]bool) []string {
 // CleanStalePartialReindexState to compute the prefix that identifies
 // per-property sidecar buckets.
 //
-// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than this
-// function: bucket names are "property_<prop>" plus a fixed suffix, and
-// property names may collide with them — e.g. "cat_searchable" filterable and
-// "cat" searchable share a bucket name, so a sweep of either reaches the
-// other's sidecars. Fixing it means renaming buckets on disk.
+// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than
+// this function: bucket names are "property_<prop>" plus a fixed suffix, and
+// property names can collide with them — e.g. "cat_searchable" filterable
+// and "cat" searchable share a bucket name, so a sweep of either reaches the
+// other's sidecars.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":
@@ -491,15 +491,15 @@ var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
-// too, so "property_a__b" is property "a__b"'s own main bucket, not a
-// sidecar of "a" — the trailing role word decides instead. Shared with
+// too, so "property_a__b" is "a__b"'s own main bucket, not a sidecar of "a"
+// — the trailing role word decides instead. Shared with
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
-// The role word is too weak: any property named "a__<word>_<role>" reads as a
-// sidecar of "a" on all three index types, so sweeping "a" deletes that
-// property's live bucket. Whole-suffix matching against [migrationSuffixes],
-// as [sidecarDirsForOrphan] does, closes it without an on-disk rename.
-// weaviate/weaviate#12621
+// Still too weak: a property named "a__<word>_<role>" reads as a sidecar of
+// "a" on all three index types, so sweeping "a" deletes that property's live
+// bucket. Whole-suffix matching against [migrationSuffixes]
+// ([sidecarDirsForOrphan] does this) would close it without an on-disk
+// rename. weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
 	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
 	if !ok {
@@ -511,11 +511,10 @@ func isSidecarDirOf(name, mainBucketName string) bool {
 // sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
 // "_<gen>" tail [genSuffix] appends.
 //
-// Only an all-digit tail is dropped — a non-numeric tail is part of the
-// property's own name, not a generation, so "property_a__ingest_x" stays
-// "a__ingest_x"'s main bucket. That also covers generation 0, which a buggy
-// writer could have left even though [parseMigrationDirName] only accepts
-// generations >= 1.
+// Only an all-digit tail is dropped: a non-numeric tail is part of the
+// property's own name, not a generation. This also covers generation 0,
+// which a buggy writer could leave even though [parseMigrationDirName] only
+// accepts generations >= 1.
 func sidecarRoleWord(suffix string) string {
 	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
 		suffix = suffix[:i]

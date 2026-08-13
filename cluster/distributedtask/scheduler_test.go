@@ -2211,11 +2211,9 @@ func TestSchedulerTick_UnrecognizedStatusSeriesSurvivesALaterFailingList(t *test
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)))
 }
 
-// The ordinary case, not the edge case: production always wires the
-// inspector, so a task in an unrecognized status sits in the
-// leader-routed list and in this node's own FSM at the same time. Both
-// loops see it, and counting it twice would double the gauge and tag a
-// task the whole cluster still lists as this node's own.
+// The ordinary case, not the edge case: a task in an unrecognized status
+// sits in both the leader-routed list and this node's own FSM at once, so
+// counting it twice would double the gauge and mislabel it as this node's own.
 func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
 	const namespace = "tasks-namespace"
 	wedged := &Task{

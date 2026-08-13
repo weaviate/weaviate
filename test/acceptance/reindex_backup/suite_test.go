@@ -623,11 +623,11 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 //  2. DELETE class after the task reaches a terminal state succeeds and
 //     leaves no on-disk class dir behind.
 //
-// Whether the cancel is what ends the task is not one of them. The reindex
-// cannot be held at a chosen phase from the outside, so the cancel can land
-// after the task has finished on its own; the switch below asserts the
-// response the phase it did land in has to produce, and logs which one that
-// was. Only the 202/CANCELLED path proves cancel-driven cleanup.
+// Whether the cancel is what ends the task is not one of them: the reindex
+// can't be held at a chosen phase from outside, so the cancel may land after
+// the task already finished on its own. The switch below asserts whatever
+// response the landed-in phase requires, and logs which one that was — only
+// the 202/CANCELLED path proves cancel-driven cleanup.
 func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	const (
 		className = "ReindexBackup_CancelCleanup"

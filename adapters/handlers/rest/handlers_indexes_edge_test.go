@@ -946,10 +946,8 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 	return events[0]
 }
 
-// Pins: a cancel refused at apply time answers at the same status code the
-// pre-flight would have used. The status can flip between the list read and
-// the apply, and the 500 that used to result rendered the sentinel's
-// internal marker into the response body.
+// Pins: a cancel refused at apply time answers with the pre-flight's status
+// code, not a 500 that leaked the sentinel's internal marker.
 func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -1024,12 +1022,8 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	}
 }
 
-// Pins: the apply-race 409 names no status. Reaching the apply required the
-// target to be STARTED, so the status this handler still holds is stale by
-// definition — [distributedtask.ErrTaskNotRunning] covers a move into a
-// coordination phase and a move into a terminal state alike. Rendering the
-// stale STARTED told an operator whose task had already FINISHED to wait
-// for a terminal state it was already in.
+// Pins: the apply-race 409 names no status, since the held STARTED is stale
+// by the time [distributedtask.ErrTaskNotRunning] fires.
 func TestCancelApplyFailureResponder_ApplyRaceNamesNoStatus(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	h := &indexesHandlers{appState: &state.State{Logger: logger}}

@@ -191,11 +191,8 @@ type divergence struct {
 	narrow, widened          bool
 }
 
-// TestWidenedMatchesAgreesWithTheNarrowGate is the differential gate on Fix A:
-// over every fixture a writer can produce, the widened name shortcut must
-// select exactly the dirs the narrower one did. Only the deletion path
-// ([migrationDirScope.matches]) consults it, so agreement here is agreement
-// everywhere downstream.
+// Pins that the widened name shortcut selects exactly the dirs the narrower
+// gate did, for every fixture a writer can produce.
 func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 	for _, payloadMode := range diffPayloadModes {
 		for _, completed := range []bool{false, true} {
@@ -244,11 +241,9 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 	}
 }
 
-// requireOnlyTheContradictionDivergence pins the single shape in which the two
-// gates may differ: a dir named for one provably-single property whose payload
-// names another. Its name and its payload cannot both come from one sorted
-// list, so no writer produces it, and the narrow gate already answers the
-// underscore-free half of it from the name.
+// requireOnlyTheContradictionDivergence pins the one shape where the gates
+// differ: a dir named for a provably-single property whose payload names
+// another — a pair no writer produces.
 func requireOnlyTheContradictionDivergence(t *testing.T, diverged []divergence) {
 	t.Helper()
 	require.NotEmpty(t, diverged,
@@ -298,9 +293,8 @@ func completedMigrationGensNarrow(
 	return out
 }
 
-// TestWidenedSweepLeavesTheSameDirsBehind runs the real deletion sweep and
-// compares what survives against a sweep driven by the narrower gate. This is
-// the claim that matters: the same directories are removed.
+// Pins that the real deletion sweep leaves the same dirs behind as a sweep
+// driven by the narrower gate.
 func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 

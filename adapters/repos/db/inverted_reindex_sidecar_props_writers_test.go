@@ -25,9 +25,7 @@ import (
 )
 
 // writerSidecar is the properties.mig content getPropsToReindex writes for a
-// task: the selected-property set, iterated out of the map it is held in and
-// sorted. Mirrors findPropsToReindex, which is the only non-test caller of
-// saveProps.
+// task. Mirrors findPropsToReindex, the only non-test caller of saveProps.
 func writerSidecar(cfg reindexTaskConfig, collectionName string) []byte {
 	var props []string
 	for p := range cfg.selectedPropsByCollection[collectionName] {
@@ -37,15 +35,11 @@ func writerSidecar(cfg reindexTaskConfig, collectionName string) []byte {
 	return []byte(strings.Join(props, ","))
 }
 
-// TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName drives every
-// per-property strategy through its real constructor and pins the invariant the
-// sidecar shortcut rests on: the dir name and properties.mig are two renderings
-// of one property list, so the name can vouch for the sidecar.
-//
-// It also pins where that breaks. The name is built from the raw slice and the
-// sidecar from a set, so a task submitted with a repeated property produces a
-// name the sidecar can no longer rebuild. That tracker falls back to its
-// payload, which is the safe direction and the reason the fallback stays.
+// Drives every per-property strategy through its real constructor and pins
+// that the dir name and properties.mig are two renderings of one property
+// list — and where that breaks: a repeated property makes the sidecar (built
+// from a set) unable to rebuild the name (built from the raw slice), so that
+// tracker safely falls back to its payload.
 func TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const collection = "Docs"
@@ -145,14 +139,9 @@ func TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName(t *testing
 	}
 }
 
-// TestPropsFromSidecarRefusesAnEmptyListOnABarePrefixDir pins the explicit
-// empty-list refusal. A tracker dir naming no properties is the one name an
-// empty sidecar would rebuild, and accepting it would report "the task recorded
-// an empty property list" — a claim only the payload may make.
-//
-// [migrationDirScope.match] never asks about such a dir, since
-// [migrationDirScope.hasStrategyPrefix] requires a property segment, so this
-// guards the reader's own contract rather than a reachable sweep decision.
+// Pins the explicit empty-list refusal: a bare-prefix dir is the one name an
+// empty sidecar would rebuild, and accepting it would claim "the task
+// recorded an empty property list" — a claim only the payload may make.
 func TestPropsFromSidecarRefusesAnEmptyListOnABarePrefixDir(t *testing.T) {
 	for _, prefix := range migrationDirPrefixesForIndexType("filterable") {
 		lsm := t.TempDir()
@@ -206,13 +195,9 @@ func writeAmbiguousSweepTree(t testing.TB, withSidecar bool) string {
 	return lsm
 }
 
-// TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere is the regression
-// guard on the cost this change exists to remove. A refactor that puts the
-// payload parse back on this path fails here rather than in production, where
-// it blocks the RAFT apply loop for every node in the cluster.
-//
-// The read count is the exact claim; the allocation ceiling is the blunt one,
-// far enough below the payload-parsing cost that it cannot trip on noise.
+// Regression guard on the cost this change removes: a refactor that puts
+// the payload parse back on this path fails here rather than in production,
+// where it blocks the RAFT apply loop cluster-wide.
 func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 

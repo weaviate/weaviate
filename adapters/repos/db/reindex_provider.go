@@ -1740,13 +1740,12 @@ func sweepTerminalTuples(
 
 // terminalSweepOutcome is what one sweep left for the operator, ordered by
 // how certain it is that actionable state remains; the max across a run's
-// sweeps is what's reported.
+// sweeps is reported.
 //
-// "Every shard" means every shard in the index's shard map — a tenant already
-// COLD when the sweep starts isn't in it, so its state waits for a later
-// reindex task; reactivation does not clear it. A tenant deactivated mid-walk
-// was in the map and reports [terminalSweepUnknown]. A tenant activated
-// mid-walk is out of scope like an already-COLD one.
+// "Every shard" means every shard in the index's map when the sweep starts:
+// an already-COLD tenant isn't in it and waits for a later reindex task,
+// same as one activated mid-walk. One deactivated mid-walk was in the map
+// and reports [terminalSweepUnknown].
 type terminalSweepOutcome int
 
 const (
@@ -1786,11 +1785,11 @@ func classifyTerminalSweep(err error) (outcome terminalSweepOutcome, failure err
 }
 
 // terminalCleanupOutcome is what the operator is told after the post-terminal
-// sweep. A dropped collection warrants no warning: the delete removes the whole
-// collection directory, and the files an in-flight backup holds back are
-// reclaimed when that backup is released or on the next restart. Failed and
-// unknown both warrant one — neither confirms the state is gone, and nothing
-// removes it before the next submit for the tuple or the next-restart audit.
+// sweep. A dropped collection warrants no warning — the delete removes the
+// whole collection directory (barring an in-flight backup's keepFiles,
+// reclaimed on release or restart). Failed and unknown both warrant one:
+// neither confirms the state is gone, and nothing removes it before the next
+// submit or the next-restart audit.
 func terminalCleanupOutcome(outcome terminalSweepOutcome) (msg string, warn bool) {
 	switch outcome {
 	case terminalSweepFailed:
@@ -1816,13 +1815,11 @@ func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) 
 
 // hasLocalPostMergeState reports whether any shard of the task on this
 // node carries a tracker dir the migration already merged or tidied.
-// Local by construction: only shards in this index's map are read, and
-// they are read without being loaded — the tracker dir sits at a path this
-// node can join, so a cold tenant stays cold.
+// Reads shards without loading them — the tracker dir sits at a path this
+// node can join without a load, so a cold tenant stays cold.
 //
-// The repair guidance fires only for a semantic migration, so anything
-// else skips the shard walk. Gives up on a cancelled or expired ctx: the
-// answer feeds a log line, and a shutdown is not worth holding open for it.
+// Fires only for a semantic migration; skips the walk otherwise. Gives up
+// on a cancelled or expired ctx since the answer only feeds a log line.
 func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
@@ -2087,20 +2084,19 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
-// Returns false when a tracker dir on this node is neither tidied nor merged,
-// or when unreadable tracker state could hide one — the signature of a swap
-// interrupted mid-flight; see [hasUntidiedTracker]. It also returns false when
-// the shard walk could not reach this node's shards at all, which is what a
-// closing index looks like: not knowing is not the same as being done. An
-// unreadable *task* payload goes the other way: nothing here can be recovered,
-// so it returns true.
+// Returns false when a tracker dir on this node is neither tidied nor
+// merged, or when unreadable tracker state could hide one (see
+// [hasUntidiedTracker]) — the signature of a swap interrupted mid-flight. It
+// also returns false when the shard walk could not reach this node's shards
+// at all, which is what a closing index looks like: not knowing is not the
+// same as being done. An unreadable *task* payload goes the other way and
+// returns true: nothing here can be recovered from it.
+//
 // Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
 // the rehydrate path completes the swap; without it, a half-applied local
-// swap could leave this node at OLD tokenization after a cluster-wide
-// schema flip already committed (#10675 family).
-//
-// Reads tracker dirs at a path this node joins itself, so a tenant that is
-// unloaded when the scheduler bootstrap fires stays unloaded.
+// swap could leave this node at OLD tokenization after a cluster-wide schema
+// flip already committed (#10675 family). Tracker dirs are read at a path
+// this node joins itself, so an unloaded tenant stays unloaded.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
@@ -2200,27 +2196,25 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 	return nil
 }
 
-// hasUntidiedTracker returns true when at least one tracker dir in scope carries
-// neither tidied.mig nor merged.mig — a swap that began and did not commit, or
-// a tracker dir written before iteration ever started. Trackers that have
-// tidied/merged are NOT a recovery signal (they are completed migrations
-// waiting for the next restart's FinalizeCompletedMigrations to promote them to
-// canonical). A completely missing tracker dir is also NOT a recovery signal: a
-// prior FinalizeCompletedMigrations already promoted-and-removed it.
+// hasUntidiedTracker returns true when at least one tracker dir in scope
+// carries neither tidied.mig nor merged.mig — a swap begun but not
+// committed, or a tracker written before iteration started. A tidied/merged
+// tracker is NOT a recovery signal (it's a completed migration awaiting
+// next-restart promotion); neither is a missing dir (already
+// promoted-and-removed).
 //
-// Generation-less dirs (from before [genSuffix]) count too, matching what
-// [migrationDirScope.match] — and through it the cleanup sweep — treats as
-// this tuple's trackers. A tracker whose payload exists but can't be read or
-// parsed counts as well, and so does a .migrations dir that exists but can't
-// be listed: either could hide a tracker naming this property, and reporting
-// "done" on unreadable state would deregister the local callbacks while an
-// untidied tracker remains. Like the unloaded-shard gate
+// Generation-less dirs (pre-[genSuffix]) count too, matching what
+// [migrationDirScope.match] treats as this tuple's trackers. An unreadable
+// payload and an unlistable .migrations dir both count as well — either
+// could hide a tracker naming this property, and reporting "done" on
+// unreadable state would deregister the local callbacks while an untidied
+// tracker remains. Like the unloaded-shard gate
 // ([hasStalePartialReindexState]), this fails toward recovery.
 //
 // The unreadable payload only counts while no properties.mig rebuilds the
-// dir's name. Where one does, [readTaskProps] answers from it, and a tracker
-// naming other properties stops counting — so this can report "done" and
-// deregister.
+// dir's name. Where one does, [readTaskProps] answers from it, and a
+// tracker naming other properties stops counting — so this can report
+// "done" and deregister.
 func hasUntidiedTracker(scope migrationDirScope) bool {
 	migsDir := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)

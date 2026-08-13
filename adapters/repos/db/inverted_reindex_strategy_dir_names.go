@@ -189,35 +189,18 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 }
 
 // migrationDirScope names the migration tracker dirs one (property, index
-// type) cleanup owns on one shard, and decides which dir on disk is one of
-// them.
+// type) cleanup owns on one shard, and decides whether a dir on disk is one
+// of them.
 //
-// The dir name alone is ambiguous — "enable_filterable_a_b_1" is both a
-// two-property tracker for "a" and "b" and a single-property tracker for
-// "a_b" — so the list the task recorded decides every name
-// [migrationDirScope.matchByName] cannot settle on its own. That list comes
-// from properties.mig where it rebuilds the dir's own name and from
-// payload.mig otherwise; see [readTaskProps]. With neither readable, the two
-// directions guess differently because a wrong guess costs differently:
-//
-//   - Deletion (the plain scope) answers only the single-property shape;
-//     guessing wider would remove another property's tracker. The refusal
-//     leaves a payload-less multi-property tracker behind while its sidecars
-//     — whose deletion is not payload-gated — are removed. Nothing reclaims
-//     that tracker only when its payload was never written: the orphan audit
-//     skips a tracker with no started.mig, and payload.mig is written first,
-//     so a tracker whose payload is merely corrupt still carries started.mig
-//     and the audit does quarantine it.
-//   - Preservation ([migrationDirScope.preserving]) also accepts a dir whose
-//     property list carries this property as a whole "_"-delimited token,
-//     because refusing to guess lets sidecar deletion — which is not
-//     payload-gated — remove the live bucket the in-memory pointer is on.
-//
-// The preserve direction therefore over-matches: e.g. "cat" also keeps
-// unrelated "cat_x", and "b_a" keeps "a" — the name can't tell them apart.
-// This is the cheaper failure: an over-kept dir costs a recoverable
-// "rename: file exists" on re-enable, while an under-kept one deletes live
-// data.
+// A dir name alone can be ambiguous (e.g. "enable_filterable_a_b_1" is both
+// a two-property tracker for "a"+"b" and a one-property tracker for "a_b"),
+// so an ambiguous name falls back to the task's recorded property list
+// ([readTaskProps]). Deletion only trusts an exact match, since guessing
+// wider could remove another property's tracker; preservation also matches
+// on a name token alone, since guessing too narrow could delete a live
+// sidecar bucket. Preservation's over-matching (e.g. "cat" also keeps
+// "cat_x") only costs a recoverable rename collision on re-enable — cheaper
+// than deletion's under-matching, which loses data.
 type migrationDirScope struct {
 	lsmPath  string
 	dirs     *dirNamesCache
@@ -259,18 +242,16 @@ func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
 	return migrationDirScope{lsmPath: lsmPath, classDirs: []string{classDir}}
 }
 
-// preserving widens the scope, both to keep live data out of the sweep's
-// reach (else #10675-shape data loss): the class-level tracker for indexType
-// joins it (a completed one owns live sidecars of every property), and a
-// tracker with no readable payload matches on its name alone; see
-// [migrationDirScope]. Used identically by the unloaded-shard gate and the
-// sweep so the two can't drift apart.
+// preserving widens the scope to keep live data out of the sweep's reach:
+// the class-level tracker for indexType joins it (a completed one owns live
+// sidecars of every property), and a tracker with no readable payload
+// matches on name alone. Used identically by the unloaded-shard gate and
+// the sweep so the two can't drift apart.
 func (s migrationDirScope) preserving(indexType string) migrationDirScope {
 	s.preserve = true
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		// Cloned so two preserving() results can't share a backing array.
-		// Unreachable today (both constructors leave classDirs empty or are
-		// never widened); kept for the constructor that changes that.
+		// Cloned so two preserving() results can't share a backing array —
+		// unreachable today, but kept for a constructor that pre-populates classDirs.
 		s.classDirs = append(slices.Clone(s.classDirs), classDir)
 	}
 	return s
@@ -295,14 +276,11 @@ func (s migrationDirScope) matches(name string) bool {
 // decided=false means ask the payload.
 //
 // A dir's property segment is [migrationDirWithProps]'s sorted "_"-join, so
-// equality with a propName no such join can reproduce is unforgeable (see
-// [isProvablySingleProperty]), and a name that neither equals propName nor
-// carries it as a whole token cannot come from any list holding propName.
-//
-// A decided answer never reads the payload, so a payload naming a different
-// property loses to the name. No writer produces that pair — the name and the
-// payload come from one sorted list — and
-// [TestMatchByNameOverridesAContradictingPayload] pins it.
+// an exact match is unforgeable (see [isProvablySingleProperty]), and a name
+// that doesn't equal or carry propName as a token can't come from any list
+// holding it — both decide without the payload, which is safe because name
+// and payload always come from the same sorted list
+// ([TestMatchByNameOverridesAContradictingPayload] pins this).
 //
 // [migrationDirScope.match] deliberately skips this shortcut, so the
 // unloaded-shard gate still fails open on a payload it cannot parse.
@@ -336,17 +314,15 @@ func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 // direction that cannot delete a dir it should have kept.
 const maxProvablySinglePropertyTokens = 8
 
-// isProvablySingleProperty reports whether propName can only have come from a
-// one-property list, i.e. whether an equal property segment is unforgeable.
+// isProvablySingleProperty reports whether propName can only have come
+// from a one-property list, i.e. whether an equal property segment is
+// unforgeable.
 //
-// [migrationDirWithProps] joins a sorted list with "_", so the segment of a
-// multi-property dir is some split of its "_"-tokens whose parts run in
-// non-decreasing order. A name no such split reproduces names one property,
-// whatever its own underscores: "price_cents" cannot, because a list holding
-// "price" and "cents" sorts the other way round.
-//
-// Non-decreasing rather than increasing: the sort does not dedup, so "a_a" is a
-// legal two-property name.
+// [migrationDirWithProps] joins a sorted, non-decreasing list with "_", so a
+// name with no such split names one property regardless of its own
+// underscores — e.g. "price_cents" can't come from ["price","cents"], which
+// sorts the other way. Non-decreasing (not strictly increasing) because the
+// join doesn't dedup, so "a_a" is a legal two-property name.
 func isProvablySingleProperty(propName string) bool {
 	gaps := strings.Count(propName, "_")
 	if gaps == 0 {
@@ -391,23 +367,19 @@ func migrationDirBase(name string) string {
 	return name
 }
 
-// match additionally reports a payload that exists but could not be read or
-// parsed. Deletion ([migrationDirScope.matches]) ignores that and keeps the
-// no-payload fallback — deleting on a guess could remove another property's
-// tracker — while the unloaded-shard gate and the recovery probe
-// ([hasUntidiedTracker]) fail open on it, since answering from the narrowed
-// fallback could report as clean (or recovered) state that the payload, once
-// readable again, says they own.
+// match additionally reports a payload that exists but could not be read
+// or parsed. Deletion ([migrationDirScope.matches]) ignores it and keeps
+// the no-payload fallback (guessing wider could remove another property's
+// tracker); the unloaded-shard gate and recovery probe fail open on it
+// instead, since the narrowed fallback could wrongly report clean/recovered.
 //
 // That fail-open only covers a dir no properties.mig corroborates. Where one
 // rebuilds the dir's name, [readTaskProps] answers from it, unreadablePayload
 // stays false, and both probes decide from that list instead.
 //
-// An intact payload naming this property still requires the exact sorted-name
-// reconstruction, so a dir whose name lists its properties unsorted would be
-// preserved with a missing or corrupt payload (name-token fallback) but not
-// with an intact one — unreachable from real writers, which derive the name
-// and the payload from the same sorted list.
+// An intact payload still requires the exact sorted-name reconstruction —
+// unreachable from real writers, which always derive the name and payload
+// from the same sorted list.
 func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) {
 	base := migrationDirBase(name)
 	for _, classDir := range s.classDirs {
@@ -446,14 +418,11 @@ func (s migrationDirScope) match(name string) (matched, unreadablePayload bool) 
 // that carries propName as one whole "_"-delimited token, e.g.
 // "enable_filterable_a_b" for propName "a".
 //
-// A whole token is as precise as the name gets: a single property named "a_b"
-// produces the identical dir name, so this also reports true for a property
-// whose own name merely extends propName across "_". See [migrationDirScope]
-// for why over-matching is the safe direction here.
-//
-// The single-token shape (props == propName) is not checked here: the exact
-// single-property equality in [migrationDirScope.match] answers it before
-// this is consulted.
+// This also matches a property whose own name extends propName across "_"
+// (e.g. "a_b" produces the same dir as a list containing "a"+"b") — see
+// [migrationDirScope] for why over-matching is the safe direction here. The
+// single-token shape (props == propName) is handled earlier, by the exact
+// match in [migrationDirScope.match].
 func namesPropertyToken(base, prefix, propName string) bool {
 	props, ok := strings.CutPrefix(base, prefix+"_")
 	if !ok {
@@ -476,28 +445,26 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 	return false
 }
 
-// taskProperties returns the property list the task recorded in its tracker
-// dir. ok=false with unreadable=false means the task recorded nothing (no
-// payload file, or one naming no property); unreadable=true means a payload
-// is there but its content couldn't be obtained, so "recorded nothing" is not
-// a safe conclusion.
+// taskProperties returns the property list the task recorded in its
+// tracker dir. ok=false, unreadable=false means the task recorded nothing
+// (no payload file, or one naming no property); unreadable=true means a
+// payload exists but couldn't be read, so "recorded nothing" isn't a safe
+// conclusion.
 //
-// An unusable payload still answers ok=true where properties.mig rebuilds the
-// dir's own name, which is the list the payload would have carried; see
-// [readTaskProps].
+// An unusable payload still answers ok=true where properties.mig rebuilds
+// the dir's own name — see [readTaskProps].
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
 	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name), s.prefixes)
 	return answer.props, answer.ok, answer.unreadable
 }
 
 // taskPropsCache memoizes parsed tracker payloads for one cleanup pass
-// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]) or one
-// unloaded-shard gate call ([hasStalePartialReindexState], which sweeps
-// nothing and never loads a shard); a nil cache reads every time. Not safe
-// for concurrent use.
+// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]) or
+// one unloaded-shard gate call ([hasStalePartialReindexState]); a nil cache
+// reads every time. Not safe for concurrent use.
 //
-// Anything longer-lived would let a hydrated shard's sweep act on a snapshot,
-// which [DB.NewStalePartialReindexSweep] promises it never does.
+// Anything longer-lived would let a hydrated shard's sweep act on a stale
+// snapshot, which [DB.NewStalePartialReindexSweep] promises it never does.
 type taskPropsCache struct {
 	byDir map[string]taskProps
 	reads int
@@ -510,12 +477,11 @@ type taskProps struct {
 	unreadable bool
 }
 
-// lookup answers for one tracker dir. prefixes are the asking scope's strategy
-// prefixes; the memo stays keyed by dir alone because the answer cannot depend
-// on which scope asked. [migrationDirScope.match] only gets here once
-// [migrationDirScope.hasStrategyPrefix] accepted the name, no strategy prefix
-// is a prefix of another, and [propsFromSidecar] needs whole-name equality — so
-// at most one prefix, the same one for every scope, can satisfy it.
+// lookup answers for one tracker dir. The memo is keyed by dir alone —
+// safe because [migrationDirScope.match] only reaches here after
+// [migrationDirScope.hasStrategyPrefix] accepts the name, no strategy
+// prefix is a prefix of another, and [propsFromSidecar] needs whole-name
+// equality, so at most one prefix can ever satisfy a given dir.
 func (c *taskPropsCache) lookup(migDir string, prefixes []string) taskProps {
 	if c == nil {
 		answer, _ := readTaskProps(migDir, prefixes)
@@ -544,14 +510,14 @@ func (c *taskPropsCache) count() int {
 	return c.reads
 }
 
-// readTaskProps answers from the tracker's properties.mig sidecar where that
-// file corroborates the dir's own name, and only then falls back to payload.mig
-// — which this path used to read and fully parse for every tracker whose name
-// leaves the property undecided. That parse is megabytes per tracker on a large
-// migration and runs inside a RAFT apply, holding the FSM loop cluster-wide.
+// readTaskProps answers from properties.mig where it corroborates the dir's
+// own name, falling back to payload.mig only when it doesn't. This path
+// used to fully parse payload.mig for every tracker whose name left the
+// property undecided — megabytes per tracker on a large migration, run
+// inside a RAFT apply that holds the FSM loop cluster-wide.
 //
-// readPayload reports whether payload.mig was opened, so the caller's counter
-// keeps meaning what it says.
+// readPayload reports whether payload.mig was opened, so the caller's read
+// counter keeps meaning what it says.
 func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayload bool) {
 	if props, ok := propsFromSidecar(migDir, prefixes); ok {
 		return taskProps{props: props, ok: true}, false
@@ -569,20 +535,14 @@ func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayl
 	return taskProps{props: props, ok: true}, true
 }
 
-// propsFromSidecar reads the tracker's properties.mig and accepts its property
-// list only if that list rebuilds the dir's own name. The name is an
-// independent on-disk witness of the same sorted list, so corroborating against
-// it costs nothing and rejects every sidecar that does not agree with it.
+// propsFromSidecar accepts properties.mig's list only if it reconstructs
+// the tracker dir's own name — an independent witness that catches a
+// truncated, deduped, or contradicting list for free.
 //
-// The corroboration is load-bearing, not a sanity check. A list that omits a
-// property this tracker owns makes [migrationDirScope.match] answer
-// not-in-scope, which drops a completed migration from the preserve pass
-// ([forEachCompletedMigration]) and lets the sweep delete the live sidecar dirs
-// its in-memory bucket pointers still use. Truncated, deduped and contradicting
-// lists fail the name equality; an empty one is rejected above.
-//
-// A tracker with no payload.mig at all is left to the caller untouched, so
-// "the task recorded nothing" stays a conclusion only the payload can license.
+// This is load-bearing: a rejected list makes [migrationDirScope.match]
+// report not-in-scope, dropping a completed migration from the preserve
+// pass ([forEachCompletedMigration]) and letting the sweep delete live
+// sidecar dirs still in use.
 func propsFromSidecar(migDir string, prefixes []string) ([]string, bool) {
 	if _, err := os.Stat(filepath.Join(migDir, reindexRecoveryPayloadFile)); err != nil {
 		return nil, false

@@ -23,14 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMatchNeverReachesMatchByName pins what keeps the name shortcut out of the
-// unloaded-shard gate's fail-open answer: the gate asks
-// [migrationDirScope.match], which reports an unreadable payload, and no call
-// under it consults [migrationDirScope.matchByName].
-//
-// The gate's preserve set does route through [migrationDirScope.matches] and so
-// does see the shortcut; that path is covered by
-// [TestWidenedMatchesAgreesWithTheNarrowGate].
+// Pins that [migrationDirScope.match] never reaches
+// [migrationDirScope.matchByName] through any call path, so the
+// unloaded-shard gate's fail-open answer can't take the name shortcut
+// (the preserve set does take it; see [TestWidenedMatchesAgreesWithTheNarrowGate]).
 func TestMatchNeverReachesMatchByName(t *testing.T) {
 	callees := packageCallGraph(t, ".")
 	require.Contains(t, callees, "match", "the call graph must have found match itself")

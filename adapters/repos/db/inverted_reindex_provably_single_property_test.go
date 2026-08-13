@@ -20,12 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// multiPropertyDecompositions returns every property list of two or more names
-// whose directory name is prefix + "_" + name.
-//
-// It is the oracle [isProvablySingleProperty] is checked against, so it must
-// not share the predicate's reasoning: it enumerates candidate lists and hands
-// each to the production joiner instead of inverting the join itself.
+// multiPropertyDecompositions returns every property list of two or more
+// names whose directory name is prefix + "_" + name — the brute-force oracle
+// [isProvablySingleProperty] is checked against, so it enumerates candidates
+// and hands them to the production joiner rather than inverting it.
 func multiPropertyDecompositions(name string) [][]string {
 	tokens := strings.Split(name, "_")
 	var universe []string
