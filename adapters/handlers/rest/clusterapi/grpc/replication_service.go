@@ -266,6 +266,14 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 		return nil, replicationErrorToGRPC(err)
 	}
 
+	if req.GetAcceptEncoding() == replica.DigestsEncodingBinary {
+		return &pb.HashTreeLevelResponse{
+			DigestsData: hashtree.DigestsToBinary(digests),
+			Encoding:    replica.DigestsEncodingBinary,
+		}, nil
+	}
+
+	// JSON default: older clients never set accept_encoding.
 	data, err := json.Marshal(digests)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal digests: %v", err)

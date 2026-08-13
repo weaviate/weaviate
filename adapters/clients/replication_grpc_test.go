@@ -71,6 +71,10 @@ type fakeGRPCReplicationServer struct {
 	// hashTreeLevelErr/compareDigestsErr, when set, are returned verbatim.
 	hashTreeLevelErr  error
 	compareDigestsErr error
+
+	// hashTreeLevelResp, when set, is returned verbatim; the last request is captured.
+	hashTreeLevelResp    *pb.HashTreeLevelResponse
+	lastHashTreeLevelReq atomic.Pointer[pb.HashTreeLevelRequest]
 }
 
 func newFakeGRPCReplicationServer(t *testing.T) *fakeGRPCReplicationServer {
@@ -107,9 +111,13 @@ func (f *fakeGRPCReplicationServer) dispatchWrite(requestID, index, shard string
 	}
 }
 
-func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, _ *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {
+func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, req *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {
+	f.lastHashTreeLevelReq.Store(req)
 	if f.hashTreeLevelErr != nil {
 		return nil, f.hashTreeLevelErr
+	}
+	if f.hashTreeLevelResp != nil {
+		return f.hashTreeLevelResp, nil
 	}
 	return &pb.HashTreeLevelResponse{DigestsData: []byte("[]")}, nil
 }
@@ -814,6 +822,103 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 			[]strfmt.UUID{UUID1}, 9)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
+	})
+}
+
+func TestGRPCReplicationHashTreeLevelEncoding(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
+	discriminant.Set(0)
+	digests := []hashtree.Digest{{1, 2}, {3, 4}, {^uint64(0), 5}}
+
+	t.Run("BinaryFromNewServer", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{
+			DigestsData: hashtree.DigestsToBinary(digests),
+			Encoding:    replica.DigestsEncodingBinary,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		got, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.NoError(t, err)
+		assert.Equal(t, digests, got)
+		require.NotNil(t, fake.lastHashTreeLevelReq.Load())
+		assert.Equal(t, replica.DigestsEncodingBinary, fake.lastHashTreeLevelReq.Load().GetAcceptEncoding())
+	})
+
+	t.Run("JSONFromOldServer", func(t *testing.T) {
+		jsonData, err := json.Marshal(digests)
+		require.NoError(t, err)
+
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{DigestsData: jsonData}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		got, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.NoError(t, err)
+		assert.Equal(t, digests, got)
+	})
+
+	t.Run("EmptyJSONFromOldServer", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		got, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("EmptyBinary", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{Encoding: replica.DigestsEncodingBinary}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		got, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("TruncatedBinaryRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{
+			DigestsData: make([]byte, hashtree.DigestLength+1),
+			Encoding:    replica.DigestsEncodingBinary,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode binary digests")
+	})
+
+	t.Run("JSONBodyClaimedBinaryRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{
+			DigestsData: []byte("[]"),
+			Encoding:    replica.DigestsEncodingBinary,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
+	})
+
+	t.Run("InvalidJSONRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{DigestsData: []byte("not json")}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
 	})
 }
 

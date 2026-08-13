@@ -257,11 +257,18 @@ message HashTreeLevelRequest {
   string shard = 2;
   int32 level = 3;
   bytes discriminant = 4; // hashtree.Bitset.Marshal() output
+  // Encoding the sender accepts for digests_data. 0 (default, used by older
+  // senders) = JSON; 1 = fixed 16-byte big-endian records. Servers only emit
+  // 1 when asked, so rolling upgrades stay JSON until both sides are new.
+  uint32 accept_encoding = 5;
 }
 
-// HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
+// HashTreeLevelResponse carries level digests; encoding declares their format.
 message HashTreeLevelResponse {
-  bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+  bytes digests_data = 1; // []hashtree.Digest, encoded per `encoding`
+  // 0 (default, emitted by older servers) = JSON; 1 = fixed 16-byte
+  // big-endian records (hashtree.DigestsToBinary).
+  uint32 encoding = 2;
 }
 
 // CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
