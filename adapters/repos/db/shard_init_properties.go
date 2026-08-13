@@ -168,39 +168,23 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	payloadReads *atomic.Int64,
 ) {
 	eg.Go(func() error {
-		if !inverted.HasFilterableIndex(prop) {
-			mainBucket := helpers.BucketFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
+		for _, indexType := range disabledIndexTypes(prop) {
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			if !ok {
+				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "filterable", payloadReads)
-			s.cleanStaleSidecarDirs(mainBucket)
-		}
-		if !inverted.HasSearchableIndex(prop) {
-			mainBucket := helpers.BucketSearchableFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
+			if err := s.removeBucket(ctx, mainBucket); err != nil {
+				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, "searchable", payloadReads)
-			s.cleanStaleSidecarDirs(mainBucket)
-		}
-		if !inverted.HasRangeableIndex(prop) {
-			mainBucket := helpers.BucketRangeableFromPropNameLSM(prop.Name)
-			err := s.removeBucket(ctx, mainBucket)
-			if err != nil {
-				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
-			}
-			s.cleanStaleMigrationDirs(prop.Name, "rangeable", payloadReads)
+			s.cleanStaleMigrationDirs(prop.Name, indexType, payloadReads)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
 }
 
-// disabledIndexTypes mirrors updatePropertyBuckets's checks, so the summary
-// log lists exactly what the sweep touched.
+// disabledIndexTypes drives the sweep in updatePropertyBuckets and names it in
+// Index.updateProperty's summary log, so the two can never disagree.
 func disabledIndexTypes(prop *models.Property) []string {
 	var types []string
 	if !inverted.HasFilterableIndex(prop) {
