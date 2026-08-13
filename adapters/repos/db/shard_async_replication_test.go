@@ -2417,6 +2417,79 @@ func (b blockingSerializeHashTree) Serialize(io.Writer) (int64, error) {
 	return 0, nil
 }
 
+// TestDumpPublishGateCancelNeverBlocksOnInFlightRename: a hung rename must not defeat the dump timeout through a blocking cancel — that pins performShutdown under shutdownLock.
+func TestDumpPublishGateCancelNeverBlocksOnInFlightRename(t *testing.T) {
+	gate := &dumpPublishGate{}
+	renameStarted := make(chan struct{})
+	renameRelease := make(chan struct{})
+	publishDone := make(chan struct{})
+	cleanupCh := make(chan bool, 1)
+	publishErrCh := make(chan error, 1)
+	go func() {
+		defer close(publishDone)
+		cleanup, err := gate.publish(func() error {
+			close(renameStarted)
+			<-renameRelease
+			return nil
+		})
+		publishErrCh <- err
+		cleanupCh <- cleanup
+	}()
+	<-renameStarted
+
+	cancelWon := make(chan bool, 1)
+	go func() { cancelWon <- gate.cancel() }()
+	select {
+	case won := <-cancelWon:
+		require.True(t, won, "cancel must win over an in-flight rename")
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel blocked behind the in-flight rename — the dump timeout is defeated")
+	}
+
+	close(renameRelease)
+	select {
+	case <-publishDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publish never returned after release")
+	}
+	require.ErrorIs(t, <-publishErrCh, errHashtreeDumpCancelled)
+	require.True(t, <-cleanupCh, "a rename finishing after a won cancel must demand cleanup")
+}
+
+// TestDumpPublishGateOutcomes: published-before-cancel keeps the file; cancel-before-publish blocks it; a failed publish leaves cancel the winner.
+func TestDumpPublishGateOutcomes(t *testing.T) {
+	g := &dumpPublishGate{}
+	cleanup, err := g.publish(func() error { return nil })
+	require.NoError(t, err)
+	require.False(t, cleanup)
+	require.False(t, g.cancel(), "cancel must lose against a completed publish")
+
+	g = &dumpPublishGate{}
+	require.True(t, g.cancel())
+	cleanup, err = g.publish(func() error { t.Fatal("must not run after cancel"); return nil })
+	require.ErrorIs(t, err, errHashtreeDumpCancelled)
+	require.False(t, cleanup)
+
+	g = &dumpPublishGate{}
+	cleanup, err = g.publish(func() error { return errors.New("rename failed") })
+	require.Error(t, err)
+	require.False(t, cleanup)
+	require.True(t, g.cancel(), "a failed publish leaves nothing published, so cancel wins")
+}
+
+// TestRemoveLatePublishedHashTree: the publisher's self-delete removes a late-published .ht.
+func TestRemoveLatePublishedHashTree(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "RemoveLatePublishedTest")
+	dir := s.pathHashTree()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+	late := filepath.Join(dir, "hashtree-00000000000000bb.ht")
+	require.NoError(t, os.WriteFile(late, []byte("late"), 0o600))
+
+	s.removeLatePublishedHashTree(late)
+	require.Empty(t, htFilesInDir(t, dir))
+}
+
 // TestDumpHashTreeWithTimeoutSkipsLatePublication: a timed-out dump returns promptly and the late writer can never publish.
 func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 	ctx := context.Background()

@@ -1364,35 +1364,37 @@ func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
 	return s.asyncRepDrainObserver
 }
 
-// dumpPublishGate serializes publish (rename) against timeout cancellation: once cancel wins, no publish can ever happen.
+// dumpPublishGate serializes publish (rename) against timeout cancellation without ever blocking cancel; once cancel wins, no published .ht survives (a late publisher self-deletes).
 type dumpPublishGate struct {
-	mu        sync.Mutex
-	cancelled bool
-	published bool
+	state atomic.Int32
 }
 
-func (g *dumpPublishGate) publish(fn func() error) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.cancelled {
-		return errHashtreeDumpCancelled
+const (
+	dumpGateIdle int32 = iota
+	dumpGatePublishing
+	dumpGatePublished
+	dumpGateCancelled
+)
+
+// publish runs fn unless cancelled; cleanup=true means fn completed after a cancel won, so the caller must remove what fn published.
+func (g *dumpPublishGate) publish(fn func() error) (cleanup bool, err error) {
+	if !g.state.CompareAndSwap(dumpGateIdle, dumpGatePublishing) {
+		return false, errHashtreeDumpCancelled
 	}
 	if err := fn(); err != nil {
-		return err
+		g.state.CompareAndSwap(dumpGatePublishing, dumpGateIdle)
+		return false, err
 	}
-	g.published = true
-	return nil
+	if !g.state.CompareAndSwap(dumpGatePublishing, dumpGatePublished) {
+		return true, errHashtreeDumpCancelled
+	}
+	return false, nil
 }
 
-// cancel reports whether it won (nothing was or will be published); it deliberately waits for an in-flight rename, which could otherwise publish past a reactivation's load.
+// cancel reports whether it won (no published .ht will remain); a rename already in flight is removed by the publisher itself, never waited on — a blocking cancel would pin performShutdown under shutdownLock on stalled storage.
 func (g *dumpPublishGate) cancel() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.published {
-		return false
-	}
-	g.cancelled = true
-	return true
+	return g.state.CompareAndSwap(dumpGateIdle, dumpGateCancelled) ||
+		g.state.CompareAndSwap(dumpGatePublishing, dumpGateCancelled)
 }
 
 // dumpHashTreeWithTimeout caps the dump; on timeout the gate guarantees the late writer can never publish.
@@ -1445,7 +1447,11 @@ func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPu
 	rename := func() error { return os.Rename(tmpFilename, finalFilename) }
 	var err error
 	if gate != nil {
-		err = gate.publish(rename)
+		var cleanup bool
+		cleanup, err = gate.publish(rename)
+		if cleanup {
+			s.removeLatePublishedHashTree(finalFilename)
+		}
 	} else {
 		err = rename()
 	}
@@ -1505,6 +1511,27 @@ func (s *Shard) writeHashTreeTmp(ht hashtree.AggregatedHashTree, tmpFilename str
 		return fmt.Errorf("closing hashtree %q: %w", tmpFilename, err)
 	}
 	return nil
+}
+
+// removeLatePublishedHashTree removes a .ht whose rename completed after a cancel won; left behind it could resurrect a stale tree on a later boot.
+func (s *Shard) removeLatePublishedHashTree(filename string) {
+	err := os.Remove(filename)
+	if err == nil || os.IsNotExist(err) {
+		return
+	}
+	if renameErr := os.Rename(filename, filename+".tmp"); renameErr != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("late-published hashtree %q: remove failed: %v; demoting rename failed: %v", filename, err, renameErr)
+		return
+	}
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		Warnf("late-published hashtree demoted to %q: %v", filename+".tmp", err)
 }
 
 // removePartialHashTreeTmp best-effort removes a leftover .tmp; already-gone is fine.
