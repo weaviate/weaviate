@@ -235,15 +235,39 @@ func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string 
 		reindexTenantScope(p), body)
 }
 
-// reindexTenantScope repeats the tenant subset the task was submitted with,
-// so a re-submit covers what the task covered rather than every tenant. A
-// semantic migration never carries one: the submit endpoint rejects
+// reindexTenantsPlaceholder stands in for the task's tenant subset in a
+// rendered re-submit.
+const reindexTenantsPlaceholder = "<tenant-names>"
+
+// reindexTenantScope keeps a re-submit tenant-scoped without naming the
+// tenants. The only gate that reaches this refuses a tenant mutation, which
+// is authorized per tenant, so the task's full subset is not the caller's to
+// read; and the tenants they are mutating stop being valid submit targets the
+// moment that mutation goes through. Dropping the parameter is not the
+// alternative: an unscoped re-submit runs the migration on every tenant of
+// the collection. [reindexTenantScopeNote] explains the placeholder.
+//
+// A semantic migration never carries one: the submit endpoint rejects
 // ?tenants= for those, so rendering it would print a request the API 400s.
 func reindexTenantScope(p ReindexTaskPayload) string {
 	if len(p.Tenants) == 0 || IsSemanticMigration(p.MigrationType) {
 		return ""
 	}
-	return "?tenants=" + strings.Join(p.Tenants, ",")
+	return "?tenants=" + reindexTenantsPlaceholder
+}
+
+// reindexTenantScopeNote tells the operator to fill in the placeholder, or ""
+// when the rendered call carries no tenant scope to fill in.
+func reindexTenantScopeNote(p ReindexTaskPayload) string {
+	if reindexTenantScope(p) == "" {
+		return ""
+	}
+	return " Fill in " + reindexTenantsPlaceholder + " yourself: this message " +
+		"does not name the task's tenant subset (GET /v1/tasks does, but needs " +
+		"cluster read access), and the tenants this request removes or " +
+		"deactivates are refused by the submit endpoint once it goes through. " +
+		"Leaving the parameter off is not the alternative: that re-runs the " +
+		"migration on every tenant of the collection."
 }
 
 // reindexRepairBody renders the submit body that reproduces p's migration
@@ -384,7 +408,8 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 				" once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike " +
 				"cancel). enable-rangeable sets indexRangeFilters on the " +
 				"property as soon as its first shard commits, and each of the " +
-				"two verbs is rejected in the state the other one covers."
+				"two verbs is rejected in the state the other one covers." +
+				reindexTenantScopeNote(p)
 		}
 		// Format-only: no schema flip means the original submit body still
 		// validates post-cancel, so the re-submit IS the repair — true only
@@ -393,7 +418,7 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 			ReindexRepairCall(p, askedProperty) +
 			" (which needs RUNTIME_REINDEX_ENABLED=true, unlike cancel), which " +
 			"re-runs every shard it covers, the ones that already finished " +
-			"included."
+			"included." + reindexTenantScopeNote(p)
 	}
 	if callerDropsTheData {
 		return "cancel it via " + cancelCall + ", or wait for it to finish, " +

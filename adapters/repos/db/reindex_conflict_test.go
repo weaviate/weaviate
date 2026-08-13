@@ -1795,9 +1795,15 @@ func TestReindexRepairCall(t *testing.T) {
 	})
 }
 
-// A re-submit that drops the task's tenant subset rebuilds every tenant on
-// the collection, which is not what the operator is being told to re-run.
-func TestReindexRepairCall_KeepsTheTenantScope(t *testing.T) {
+// Tenant names the rendered calls must never carry. Deliberately unlike any
+// word the remedy prose uses, so a NotContains cannot pass on a coincidence.
+var gateRemedyTenants = []string{"alphatenant", "betatenant"}
+
+// A re-submit that drops the tenant scope rebuilds every tenant on the
+// collection, so the scope stays. The names do not: the gate that renders
+// this refuses a caller authorized for one tenant, who must not learn the
+// task's other tenants from it.
+func TestReindexRepairCall_WithholdsTheTenantNames(t *testing.T) {
 	for _, mt := range allDeclaredReindexMigrationTypes(t) {
 		t.Run(string(mt), func(t *testing.T) {
 			got := ReindexRepairCall(ReindexTaskPayload{
@@ -1805,10 +1811,14 @@ func TestReindexRepairCall_KeepsTheTenantScope(t *testing.T) {
 				MigrationType:      mt,
 				Properties:         []string{"name"},
 				TargetTokenization: "word",
-				Tenants:            []string{"t1", "t2"},
+				Tenants:            gateRemedyTenants,
 			}, "name")
 			if got == "" {
 				return // the type renders no repair call at all
+			}
+			for _, tenant := range gateRemedyTenants {
+				require.NotContains(t, got, tenant,
+					"a repair call must not name a tenant off the task's payload")
 			}
 			if IsSemanticMigration(mt) {
 				// updateIndex 400s on ?tenants= for these, so rendering one
@@ -1817,8 +1827,10 @@ func TestReindexRepairCall_KeepsTheTenantScope(t *testing.T) {
 					"a semantic migration always targets every tenant")
 				return
 			}
-			require.Contains(t, got, "PUT /v1/schema/C/indexes/name?tenants=t1,t2 ",
-				"a format-only re-submit has to repeat the tenants it was submitted with")
+			require.Contains(t, got,
+				"PUT /v1/schema/C/indexes/name?tenants="+reindexTenantsPlaceholder+" ",
+				"a format-only re-submit stays tenant-scoped, with a placeholder "+
+					"the operator fills in")
 		})
 	}
 }
@@ -1832,19 +1844,92 @@ func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
 			Collection:    "C",
 			MigrationType: ReindexTypeEnableRangeable,
 			Properties:    []string{"name"},
-			Tenants:       []string{"t1", "t2"},
+			Tenants:       gateRemedyTenants,
 		}, "name", false, false)
 
+	for _, tenant := range gateRemedyTenants {
+		require.NotContains(t, remedy, tenant,
+			"the tenant gate refuses a per-tenant authorized caller")
+	}
 	require.Contains(t, remedy,
-		`PUT /v1/schema/C/indexes/name?tenants=t1,t2 {"rangeable":{"enabled":true}}`)
+		`PUT /v1/schema/C/indexes/name?tenants=`+reindexTenantsPlaceholder+` {"rangeable":{"enabled":true}}`)
 	require.Contains(t, remedy,
-		`PUT /v1/schema/C/indexes/name?tenants=t1,t2 {"rangeable":{"rebuild":true}}`)
+		`PUT /v1/schema/C/indexes/name?tenants=`+reindexTenantsPlaceholder+` {"rangeable":{"rebuild":true}}`)
 	// The cancel call on the same arm is deliberately unscoped, so only the
 	// two submit bodies are asserted against.
 	require.NotContains(t, remedy, `name {"rangeable":{"enabled":true}}`,
 		"an unscoped rangeable re-submit would rebuild every tenant")
 	require.NotContains(t, remedy, `name {"rangeable":{"rebuild":true}}`,
 		"an unscoped rangeable re-submit would rebuild every tenant")
+	require.Contains(t, remedy, "Fill in "+reindexTenantsPlaceholder+" yourself",
+		"a rendered placeholder is only usable with the note that explains it")
+}
+
+// Tenant deletion authorizes per tenant (authorization.ShardsMetadata(class,
+// tenants...)), so a caller admitted for one tenant reaches the tenant gate
+// and reads its refusal. No arm may hand them a tenant name off the task's
+// payload. Sweeps every migration type, status and caller the gates use, and
+// pins which caller renders a tenant scope at all.
+func TestGateRemedy_NeverNamesTheTasksTenants(t *testing.T) {
+	callers := []struct {
+		name              string
+		dropsData         bool
+		dropsIndex        bool
+		mayRenderAScope   bool
+		rendersAScopeSeen bool
+	}{
+		// The only caller whose request is itself tenant-scoped.
+		{name: "tenant mutation", mayRenderAScope: true},
+		{name: "property index DELETE", dropsIndex: true},
+		{name: "class DELETE", dropsData: true},
+	}
+	statuses := []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	}
+
+	for i := range callers {
+		c := &callers[i]
+		for _, mt := range allDeclaredReindexMigrationTypes(t) {
+			for _, status := range statuses {
+				t.Run(c.name+"/"+string(mt)+"/"+string(status), func(t *testing.T) {
+					remedy := ReindexGateRemedy(status, ReindexTaskPayload{
+						Collection:         "C",
+						MigrationType:      mt,
+						Properties:         []string{"name"},
+						TargetTokenization: "word",
+						Tenants:            gateRemedyTenants,
+					}, "name", c.dropsData, c.dropsIndex)
+					require.NotEmpty(t, remedy)
+
+					for _, tenant := range gateRemedyTenants {
+						require.NotContains(t, remedy, tenant,
+							"%s must not learn a tenant name from this refusal", c.name)
+					}
+					if !strings.Contains(remedy, "?tenants=") {
+						return
+					}
+					c.rendersAScopeSeen = true
+					require.True(t, c.mayRenderAScope,
+						"%s renders a tenant scope it has no request scope for", c.name)
+					require.Contains(t, remedy,
+						"?tenants="+reindexTenantsPlaceholder+" ")
+					require.Contains(t, remedy,
+						"Fill in "+reindexTenantsPlaceholder+" yourself",
+						"a rendered placeholder is only usable with the note that "+
+							"explains it")
+				})
+			}
+		}
+	}
+
+	// Control: the caller allowed to render a scope actually renders one, so
+	// the assertions above are not vacuous.
+	for _, c := range callers {
+		require.Equal(t, c.mayRenderAScope, c.rendersAScopeSeen,
+			"%s: expected a rendered tenant scope somewhere in the sweep", c.name)
+	}
 }
 
 // gateRemedyCallRE matches a `PUT <path> <body>` the reindex messages render.
