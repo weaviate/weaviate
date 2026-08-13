@@ -560,7 +560,7 @@ func (p *ReindexProvider) processOneUnit(
 	// goroutine holding no closeLock — same re-materialization race as
 	// newReindexTrackerGuarded.
 	if err := concreteShard.Index().withCloseRLockGuard(func() error {
-		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
+		return p.persistRecoveryRecord(task, payload, unitID, concreteShard, tasks)
 	}); err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Index is closing: cascade-cancel ends the task; don't fail the unit.
@@ -1035,17 +1035,19 @@ type reindexRecoveryRecord struct {
 // filterable) and therefore two migration directories per shard; the
 // same record is written into each.
 //
-// lsmPath must be the concrete shard's LSM directory
-// (<data>/<index>/<shard>/lsm) — the migration sub-directory under
-// <lsmPath>/.migrations/<dir>/ is what holds the per-strategy sentinels
-// and the new payload.mig file.
+// The migration sub-directory under <shard>/lsm/.migrations/<dir>/ is what
+// holds the per-strategy sentinels and the new payload.mig file. Each task's
+// property list is recorded beside it
+// ([ShardReindexTaskGeneric.SaveSelectedProps]) so a property DELETE landing
+// before the shard's first reindex pass need not parse payload.mig.
 func (p *ReindexProvider) persistRecoveryRecord(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	unitID string,
-	lsmPath string,
+	shard ShardLike,
 	tasks []*ShardReindexTaskGeneric,
 ) error {
+	lsmPath := shard.pathLSM()
 	if lsmPath == "" {
 		return fmt.Errorf("empty lsm path")
 	}
@@ -1062,6 +1064,12 @@ func (p *ReindexProvider) persistRecoveryRecord(
 	for _, t := range tasks {
 		if err := t.SaveRecoveryPayload(lsmPath, encoded); err != nil {
 			return fmt.Errorf("save recovery payload for task %q: %w", t.Name(), err)
+		}
+		// Not fatal: the DELETE path still answers from payload.mig, just at
+		// the cost this write exists to avoid.
+		if err := t.SaveSelectedProps(shard); err != nil {
+			p.logger.WithField("task", t.Name()).WithField("shard", shard.Name()).
+				Warnf("reindex provider: failed to record task properties: %v", err)
 		}
 	}
 	return nil

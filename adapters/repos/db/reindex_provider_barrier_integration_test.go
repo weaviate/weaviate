@@ -282,7 +282,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// after this write but before markStarted / iteration.
 	p, _ := barrierIntegrationProvider(t)
 	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard.pathLSM(), []*ShardReindexTaskGeneric{task}))
+		shard, []*ShardReindexTaskGeneric{task}))
 
 	// Sanity: payload.mig is on disk in the migration dir.
 	migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
@@ -322,7 +322,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// circuit at SaveRecoveryPayload line 279). Re-call to verify
 	// idempotency.
 	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard.pathLSM(), []*ShardReindexTaskGeneric{task}),
+		shard, []*ShardReindexTaskGeneric{task}),
 		"persistRecoveryRecord must be idempotent against an existing identical record")
 	rawPayload2, err := os.ReadFile(payloadPath)
 	require.NoError(t, err)

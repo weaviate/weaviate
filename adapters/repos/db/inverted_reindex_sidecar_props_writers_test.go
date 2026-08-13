@@ -15,17 +15,23 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// writerSidecar is the properties.mig content getPropsToReindex writes for a
-// task. Mirrors findPropsToReindex, the only non-test caller of saveProps.
+// writerSidecar is the properties.mig content a task's own writers produce.
+// Mirrors selectedProps, which both getPropsToReindex and SaveSelectedProps
+// answer from.
 func writerSidecar(cfg reindexTaskConfig, collectionName string) []byte {
 	var props []string
 	for p := range cfg.selectedPropsByCollection[collectionName] {
@@ -156,6 +162,201 @@ func TestPropsFromSidecarRefusesAnEmptyListOnABarePrefixDir(t *testing.T) {
 		require.False(t, ok, "prefix %s", prefix)
 		require.Nil(t, props)
 	}
+}
+
+// Drives the real payload-save path and pins that the property sidecar lands
+// with payload.mig rather than waiting for the shard's first reindex pass. A
+// property DELETE arriving in between is answered from the sidecar instead of
+// parsing payload.mig, which runs inside the RAFT apply that holds the FSM loop
+// cluster-wide.
+func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
+	tests := []struct {
+		name      string
+		migration ReindexMigrationType
+		props     []string
+		// tokenization and bucketStrategy are only read by the migration types
+		// that require them.
+		tokenization   string
+		bucketStrategy string
+		// sweptProp and sweptIndexType are the property DELETE the sidecar has
+		// to answer.
+		sweptProp      string
+		sweptIndexType string
+		// sweptDirs are the tracker dirs that DELETE removes; every one must
+		// carry a sidecar and cost no payload read.
+		sweptDirs []string
+	}{
+		{
+			// ["cat","dog"] sorts to the same dir name a lone "cat_dog"
+			// property would produce, so only a recorded list settles it.
+			name:           "two properties share a dir name with one",
+			migration:      ReindexTypeEnableFilterable,
+			props:          []string{"dog", "cat"},
+			sweptProp:      "cat",
+			sweptIndexType: "filterable",
+			sweptDirs:      []string{"enable_filterable_cat_dog_1"},
+		},
+		{
+			name:           "one property carrying the join character",
+			migration:      ReindexTypeEnableRangeable,
+			props:          []string{"cat_dog"},
+			sweptProp:      "cat_dog",
+			sweptIndexType: "rangeable",
+			sweptDirs:      []string{"filterable_to_rangeable_cat_dog_1"},
+		},
+		{
+			// Two tasks, two migration dirs, one payload — the sidecar has to
+			// reach both.
+			name:           "change-tokenization writes one sidecar per sub-task",
+			migration:      ReindexTypeChangeTokenization,
+			props:          []string{"cat_dog"},
+			tokenization:   "field",
+			bucketStrategy: "MapCollection",
+			sweptProp:      "cat_dog",
+			sweptIndexType: "filterable",
+			sweptDirs:      []string{"filterable_retokenize_cat_dog_1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "PropsSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, tc.props),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			lsm := shard.pathLSM()
+
+			p, _ := newTestProvider(t)
+			payload := &ReindexTaskPayload{
+				MigrationType:      tc.migration,
+				Collection:         className,
+				Properties:         tc.props,
+				TargetTokenization: tc.tokenization,
+				BucketStrategy:     tc.bucketStrategy,
+				UnitToShard:        map[string]string{"unit-1": shard.Name()},
+			}
+			tasks, err := p.createReindexTasks(payload, lsm, false)
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
+
+			dtmTask := &distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-1", Version: 1},
+			}
+			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks))
+
+			want := slices.Clone(tc.props)
+			sort.Strings(want)
+			for _, task := range tasks {
+				migDir := filepath.Join(lsm, ".migrations", task.MigrationDirName())
+				got, err := readMigrationProps(migDir)
+				require.NoErrorf(t, err, "task %q wrote no properties.mig", task.Name())
+				require.Equal(t, want, got)
+			}
+
+			logger, _ := test.NewNullLogger()
+			// A real memo, never nil: the read count accrues into it, and a nil
+			// one reads every payload again while counting nothing, which would
+			// make the assertion below hold no matter what the sweep read.
+			props := &taskPropsCache{}
+			cleanStaleMigrationDirsAt(lsm, tc.sweptProp, tc.sweptIndexType, logger, props)
+			require.Zero(t, props.count(),
+				"every swept tracker was answerable from its sidecar")
+			// Without this the zero above would also hold for a sweep that
+			// matched nothing at all.
+			for _, dir := range tc.sweptDirs {
+				require.NoDirExistsf(t, filepath.Join(lsm, ".migrations", dir),
+					"the sweep must have owned %s to have read its properties", dir)
+			}
+		})
+	}
+}
+
+// Pins the guard the early write rests on: a task that has to discover its
+// properties per shard leaves properties.mig absent.
+// [TestAnEmptyPropsSidecarSuppressesWholeCollectionDiscovery] is why that
+// matters.
+func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name    string
+		newTask func(className, shardName string) *ShardReindexTaskGeneric
+	}{
+		{
+			name: "whole-collection task selects no properties",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				return newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+			},
+		},
+		{
+			name: "properties are selected for another collection",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				return NewRuntimeEnableFilterableTask(logger, []string{"cat"}, className+"Other", 1)
+			},
+		},
+		{
+			name: "properties are selected for another shard",
+			newTask: func(className, shardName string) *ShardReindexTaskGeneric {
+				task := NewRuntimeEnableFilterableTask(logger, []string{"cat"}, className, 1)
+				task.constrainToShard(className, shardName+"-other")
+				return task
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "NoSidecar" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx,
+				newTestClassWithProps(className, []string{"cat"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			task := tc.newTask(className, shard.Name())
+			migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+			require.NoError(t, os.MkdirAll(migDir, 0o777))
+
+			require.NoError(t, task.SaveSelectedProps(shard))
+			require.NoFileExists(t, filepath.Join(migDir, "properties.mig"))
+		})
+	}
+}
+
+// The failure mode the empty-list guard exists for: properties.mig is also how
+// a task records that discovery already ran, so writing an empty one ahead of
+// time retires the discovery and the shard reindexes nothing.
+func TestAnEmptyPropsSidecarSuppressesWholeCollectionDiscovery(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := test.NewNullLogger()
+	className := "EmptySidecar" + uuid.NewString()[:8]
+	shd, _ := testShardWithSettings(t, ctx,
+		newTestClassWithProps(className, []string{"cat", "dog"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+	rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+	require.NoError(t, rt.init())
+
+	discovered, err := task.getPropsToReindex(shard, rt)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"cat", "dog"}, discovered,
+		"a whole-collection task discovers its properties from the shard's buckets")
+
+	propsPath := filepath.Join(rt.config.migrationPath, "properties.mig")
+	require.NoError(t, os.WriteFile(propsPath, nil, 0o644))
+
+	suppressed, err := task.getPropsToReindex(shard, rt)
+	require.NoError(t, err)
+	require.Empty(t, suppressed,
+		"an empty sidecar reads as a finished discovery, so nothing is left to reindex")
 }
 
 // ambiguousSweepDirs is how many tracker dirs the hot cell carries.
