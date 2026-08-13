@@ -1766,8 +1766,9 @@ const (
 	// CleanupSweepUnknown: shards were left unvisited. What is on them is
 	// unknown, which is not the same as knowing state is there.
 	CleanupSweepUnknown
-	// CleanupSweepFailed: a shard was reached and could not be swept. Nothing
-	// was removed from it, so whatever partial state it holds is still there.
+	// CleanupSweepFailed: a shard was reached and could not be swept. It can
+	// fail after already removing part of its state, so what the shard holds
+	// is an unknown remainder rather than the state the sweep found.
 	CleanupSweepFailed
 )
 
