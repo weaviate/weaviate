@@ -3788,8 +3788,13 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				perNodeStatus = make(map[string]string, len(replicas))
 			)
 			for _, nodeName := range replicas {
+				var err error
 				if nodeName == thisNode {
-					shard, release, err := i.getShardForDirectLocalOperation(
+					var (
+						shard   ShardLike
+						release func()
+					)
+					shard, release, err = i.getShardForDirectLocalOperation(
 						ctx,
 						shardName,
 						shardName,
@@ -3797,16 +3802,21 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						0,
 					)
 					if err == nil && shard != nil {
-						ss := shard.GetStatus().String()
-						oneNodeStatus.Store(ss)
-						perNodeStatus[nodeName] = shard.GetStatus().String()
+						status := shard.GetStatus().String()
+						oneNodeStatus.Store(status)
+						perNodeStatus[nodeName] = status
 					}
 					release()
 				} else {
-					if ss, err := i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
-						oneNodeStatus.CompareAndSwap(nil, ss)
-						perNodeStatus[nodeName] = ss
+					var status string
+					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+						oneNodeStatus.CompareAndSwap(nil, status)
+						perNodeStatus[nodeName] = status
 					}
+				}
+
+				if errors.Is(err, errAlreadyShutdown) {
+					return err
 				}
 			}
 
