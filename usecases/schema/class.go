@@ -512,6 +512,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
+	if updated.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(updated.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
+	}
+
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
@@ -1079,6 +1085,12 @@ func (h *Handler) validateClassInvariants(
 
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
+	}
+
+	if class.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(class.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
 	}
 
 	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
