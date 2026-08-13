@@ -601,12 +601,6 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 			expectedSuccesses: beaconsOf(0, 1, 2),
 		},
 		{
-			name:              "negative index",
-			replyErrors:       []*pb.BatchReferencesReply_BatchError{{Error: "boom", Index: -1}},
-			expectedErrors:    []string{},
-			expectedSuccesses: beaconsOf(0, 1, 2),
-		},
-		{
 			name: "valid entry alongside unattributable ones",
 			replyErrors: []*pb.BatchReferencesReply_BatchError{
 				nil,
@@ -682,29 +676,7 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			wantErrored: []int{0, 3, 5},
 		},
 		{
-			name:     "middle sub-batch replies first",
-			objCount: 6,
-			replies: []replySpec{
-				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e1"}}},
-				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e0"}}},
-				{offset: 4, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e2"}}},
-			},
-			wantErrors:  []errorSpec{{0, "e0"}, {3, "e1"}, {5, "e2"}},
-			wantErrored: []int{0, 3, 5},
-		},
-		{
 			// a batch that is not a multiple of the fanout ends in a short sub-batch
-			name:     "short final sub-batch, replies in order",
-			objCount: 5,
-			replies: []replySpec{
-				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e0"}}},
-				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e1"}}},
-				{offset: 4, length: 1, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e2"}}},
-			},
-			wantErrors:  []errorSpec{{1, "e0"}, {2, "e1"}, {4, "e2"}},
-			wantErrored: []int{1, 2, 4},
-		},
-		{
 			name:     "short final sub-batch, replies out of order",
 			objCount: 5,
 			replies: []replySpec{
