@@ -67,6 +67,11 @@ func (st *Store) Notify(id, addr string) (err error) {
 	st.candidatesMu.Lock()
 	defer st.candidatesMu.Unlock()
 
+	// Re-evaluate under the lock: a competing notify may have bootstrapped while we waited.
+	if st.bootstrapped.Load() || st.Leader() != "" {
+		return nil
+	}
+
 	st.candidates[id] = addr
 	if len(st.candidates) < st.cfg.BootstrapExpect {
 		st.log.WithFields(logrus.Fields{
