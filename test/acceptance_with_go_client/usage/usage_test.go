@@ -589,9 +589,8 @@ func TestRestart(t *testing.T) {
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
 
-	// piggybacks on this container instead of starting its own — same env (debug port +
-	// dimension tracking). Runs after the restart, so URIs must be re-fetched: the mapped
-	// ports change across a container stop/start.
+	// shares this container instead of starting its own, URIs are re-fetched because the
+	// mapped ports change across the restart above
 	t.Run("muvera usage", func(t *testing.T) {
 		c, err := client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 		require.NoError(t, err)
@@ -1231,9 +1230,8 @@ func sanitizeName(name string) string {
 	return name
 }
 
-// testUsageMuvera runs on a caller-provided instance so it can share a testcontainer with
-// another test instead of paying for its own start. The instance must expose the debug port
-// and have TRACK_VECTOR_DIMENSIONS enabled.
+// testUsageMuvera takes an instance so it can share a testcontainer, it must expose the
+// debug port and have TRACK_VECTOR_DIMENSIONS enabled.
 func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	ctx := context.Background()
 
@@ -1255,11 +1253,9 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 		ksim         = 4
 		dprojections = 16
 		repetitions  = 10
-		encodedDims  = repetitions * (1 << ksim) * dprojections // what MUVERA holds in memory per object
+		encodedDims  = repetitions * (1 << ksim) * dprojections
 	)
 
-	// the MUVERA vector reports its fixed encoded dimensionality, the plain multi-vector keeps
-	// reporting raw per-object dims, and the single vector is a control
 	expected := map[string]usagetypes.Dimensionality{
 		muveraVec:  {Dimensions: encodedDims, Count: numObjects},
 		colbertVec: {Dimensions: fixedTokens * tokenDim, Count: numObjects},
@@ -1303,7 +1299,6 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 				VectorIndexType: "hnsw",
 			},
 		},
-		// the COLD/HOT cycle below routes the report through the unloaded-shard path
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
@@ -1320,8 +1315,8 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 				"name": fmt.Sprintf("name %d", i),
 			},
 			Vectors: models.Vectors{
-				// varying token counts spread the raw dimension rows over several per-object
-				// totals, so a report that only picks up one row cannot reach the full count
+				// varying token counts spread the raw dims over several rows, so a
+				// single-row report cannot reach the full count
 				muveraVec:  generateRandomMultiVector(2+i%3, tokenDim),
 				colbertVec: generateRandomMultiVector(fixedTokens, tokenDim),
 				regularVec: generateRandomVector(tokenDim),
@@ -1337,8 +1332,7 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	}
 	testAllObjectsIndexed(t, c, className)
 
-	// asserting the status pins which report path served the shard: active = loaded, inactive =
-	// read from disk without loading
+	// the status pins which path served the report: active = loaded, inactive = read from disk
 	assertUsage := func(t require.TestingT, expectedStatus string) {
 		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
 		require.NoError(t, err)
@@ -1363,8 +1357,7 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 		}
 	}
 
-	// the schema-level tenant status flips before the local shard finishes its activation or
-	// deactivation, so reports around a transition are polled until they converge
+	// the tenant status flips before the local shard finishes activating, so poll until converged
 	assertUsageEventually := func(expectedStatus string) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			assertUsage(ct, expectedStatus)
@@ -1376,7 +1369,6 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
 	assertUsageEventually(models.TenantActivityStatusINACTIVE)
-	// a second cold report is served from the on-disk usage cache instead of recomputing
 	assertUsage(t, models.TenantActivityStatusINACTIVE)
 
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).

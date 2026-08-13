@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -653,34 +654,6 @@ func Test_UserConfig(t *testing.T) {
 				"with a minimum of 4",
 		},
 		{
-			name: "invalid negative muvera ksim",
-			input: map[string]interface{}{
-				"multivector": map[string]interface{}{
-					"enabled": true,
-					"muvera": map[string]interface{}{
-						"enabled": true,
-						"ksim":    json.Number("-1"),
-					},
-				},
-			},
-			expectErr:    true,
-			expectErrMsg: "ksim must not be negative",
-		},
-		{
-			name: "invalid too large muvera ksim",
-			input: map[string]interface{}{
-				"multivector": map[string]interface{}{
-					"enabled": true,
-					"muvera": map[string]interface{}{
-						"enabled": true,
-						"ksim":    json.Number("11"),
-					},
-				},
-			},
-			expectErr:    true,
-			expectErrMsg: "ksim must be less than 10",
-		},
-		{
 			name: "with bq",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": float64(11),
@@ -1223,4 +1196,39 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
+}
+
+// The ksim bound is an upper bound only, a degenerate value must stay parseable so that restore
+// and log replay, which run the same validation, cannot fail on an already persisted class.
+func TestUserConfigMuveraKSimBound(t *testing.T) {
+	tests := []struct {
+		name         string
+		ksim         int
+		expectErrMsg string
+	}{
+		{name: "default", ksim: DefaultMultivectorKSim},
+		{name: "at the upper bound", ksim: 10},
+		{name: "above the upper bound", ksim: 11, expectErrMsg: "ksim must be at most 10"},
+		{name: "negative is not rejected", ksim: -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := ParseAndValidateConfig(map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number(strconv.Itoa(tt.ksim)),
+					},
+				},
+			}, true)
+			if tt.expectErrMsg != "" {
+				require.ErrorContains(t, err, tt.expectErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.ksim, parsed.(UserConfig).Multivector.MuveraConfig.KSim)
+		})
+	}
 }

@@ -143,21 +143,19 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer bucket.Shutdown(ctx)
 
-	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, false)
+	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, 0)
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
-	return scan.Dimensionality, nil
+	return scan.Raw, nil
 }
 
 // CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
 // vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
 // once and shared by all target vector calculations, instead of once per target vector.
-// Target vectors present in needTotal additionally get the object count summed across all rows
-// (the MUVERA reading); the others keep the cheaper first-complete-row scan.
+// targetVectors maps each vector name to its MUVERA-encoded dimensionality, or 0 if not MUVERA.
 func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
-	needTotal map[string]int,
+	logger logrus.FieldLogger, path, tenantName string, targetVectors map[string]int,
 ) (map[string]DimensionsScan, error) {
 	if len(targetVectors) == 0 {
 		return nil, nil
@@ -176,9 +174,8 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	defer bucket.Shutdown(ctx)
 
 	scans := make(map[string]DimensionsScan, len(targetVectors))
-	for _, targetVector := range targetVectors {
-		_, withTotal := needTotal[targetVector]
-		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, withTotal)
+	for targetVector, encodedDimensions := range targetVectors {
+		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, encodedDimensions)
 		if err != nil {
 			return nil, err
 		}
@@ -351,33 +348,19 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
-// DimensionsScan holds both readings the usage report needs from a single pass over the
-// dimensions bucket.
 type DimensionsScan struct {
-	// Dimensionality is the first row with non-zero dimensions and a non-empty doc set —
-	// the classic single-vector reading.
-	types.Dimensionality
-	// TotalCount is the number of objects with a vector, summed across every row.
-	// Multi-vector objects are recorded under their varying per-object total dimensions,
-	// so no single row counts them all. Only populated when the scan runs with needTotal.
-	TotalCount int
+	Raw      types.Dimensionality
+	Reported types.Dimensionality
 }
 
-// MuveraDimensionality reports the fixed MUVERA-encoded dimensionality (what is held in
-// memory per object) with the object count summed across all rows. The scan must have run
-// with needTotal.
-func (s DimensionsScan) MuveraDimensionality(encodedDimensions int) types.Dimensionality {
-	if s.TotalCount == 0 {
-		return types.Dimensionality{}
-	}
-	return types.Dimensionality{Dimensions: encodedDimensions, Count: s.TotalCount}
-}
+const contextCheckInterval = 1024
 
-// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from
-// an LSMKV bucket. With needTotal it additionally sums the object count across all rows (the
-// MUVERA reading); without it the scan stops at the first complete row.
+// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
+// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
+// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
+// first complete row.
 func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-	needTotal bool,
+	encodedDimensions int,
 ) (DimensionsScan, error) {
 	scan := DimensionsScan{}
 
@@ -388,10 +371,14 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 	prefix := []byte(targetVector)
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4 // vector name + uint32
-	// addRow feeds one bucket row into both readings and reports whether the scan may stop.
+	totalCount := 0
+	rows := 0
 	addRow := func(k []byte, count int) (done bool) {
+		// a full-prefix scan is long enough to need cancelling; the error is picked up after the loop
+		if rows++; rows%contextCheckInterval == 0 && ctx.Err() != nil {
+			return true
+		}
 		// a longer name sharing this prefix can sort before the target's own keys
-		// ("texts…" before "text\x80…"); rows with dims=0 are objects without a vector
 		if len(k) != expectedKeyLen {
 			return false
 		}
@@ -399,16 +386,17 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 		if dimLength == 0 {
 			return false
 		}
-		if scan.Dimensions == 0 || scan.Count == 0 {
-			scan.Dimensions = int(dimLength)
-			scan.Count = count
+		if scan.Raw.Dimensions == 0 || scan.Raw.Count == 0 {
+			scan.Raw.Dimensions = int(dimLength)
+			scan.Raw.Count = count
 		}
-		if needTotal {
-			scan.TotalCount += count
+		if encodedDimensions > 0 {
+			totalCount += count
+			return false
 		}
-		// remaining rows cannot change a complete result unless the total is needed, and an
-		// empty name matches every key so the prefix check in the loop condition never fires
-		return !needTotal && scan.Dimensions != 0 && scan.Count != 0
+		// remaining keys cannot change a complete result, and an empty name
+		// matches every key so the prefix break above never fires
+		return scan.Raw.Dimensions != 0 && scan.Raw.Count != 0
 	}
 	var k []byte
 
@@ -453,6 +441,11 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 
 	if err := ctx.Err(); err != nil {
 		return scan, err
+	}
+
+	scan.Reported = scan.Raw
+	if encodedDimensions > 0 && totalCount > 0 {
+		scan.Reported = types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}
 	}
 	return scan, nil
 }

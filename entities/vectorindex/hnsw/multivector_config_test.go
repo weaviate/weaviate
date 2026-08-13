@@ -42,11 +42,56 @@ func TestMuveraConfigEncodedDimensions(t *testing.T) {
 			expected: 5 * 8 * 8,
 		},
 		{
+			name: "ksim at the validated upper bound",
+			config: MuveraConfig{
+				KSim:         10,
+				DProjections: DefaultMultivectorDProjections,
+				Repetitions:  DefaultMultivectorRepetitions,
+			},
+			expected: 10 * 1024 * 16,
+		},
+		{
 			name: "negative ksim does not panic",
 			config: MuveraConfig{
 				KSim:         -1,
 				DProjections: 16,
 				Repetitions:  10,
+			},
+			expected: 0,
+		},
+		{
+			name: "zero repetitions",
+			config: MuveraConfig{
+				KSim:         DefaultMultivectorKSim,
+				DProjections: DefaultMultivectorDProjections,
+				Repetitions:  0,
+			},
+			expected: 0,
+		},
+		{
+			name: "negative repetitions",
+			config: MuveraConfig{
+				KSim:         DefaultMultivectorKSim,
+				DProjections: DefaultMultivectorDProjections,
+				Repetitions:  -1,
+			},
+			expected: 0,
+		},
+		{
+			name: "zero dprojections",
+			config: MuveraConfig{
+				KSim:         DefaultMultivectorKSim,
+				DProjections: 0,
+				Repetitions:  DefaultMultivectorRepetitions,
+			},
+			expected: 0,
+		},
+		{
+			name: "negative dprojections",
+			config: MuveraConfig{
+				KSim:         DefaultMultivectorKSim,
+				DProjections: -1,
+				Repetitions:  DefaultMultivectorRepetitions,
 			},
 			expected: 0,
 		},
