@@ -76,17 +76,19 @@ func main() {
 	b1 := flag.Int("b1", 4096, "stage-1 budget")
 	b1Alt := flag.Int("b1alt", 0, "optional second stage-1 budget: run every filter at both")
 	only := flag.String("only", "", "only run filters whose name has this prefix")
+	mode := flag.String("mode", "scan", "scan (three-stage prefix scan) or acorn (current filtered graph search)")
+	efsArg := flag.String("efs", "64,128,256,512", "acorn mode: ef sweep")
 	b2 := flag.Int("b2", 700, "stage-2 budget")
 	trainLimit := flag.Int("trainlimit", 10000, "centering training limit")
 	csvPath := flag.String("csv", "filteredscan-results.csv", "per-filter CSV output")
 	flag.Parse()
-	if err := run(*hdf5Path, *sidecar, *limit, *b1, *b1Alt, *b2, *trainLimit, *csvPath, *only); err != nil {
+	if err := run(*hdf5Path, *sidecar, *limit, *b1, *b1Alt, *b2, *trainLimit, *csvPath, *only, *mode, *efsArg); err != nil {
 		fmt.Fprintf(os.Stderr, "filteredscan: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath string, only string) error {
+func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath, only, mode, efsArg string) error {
 	ctx := context.Background()
 
 	// mmap the corpus floats straight out of the HDF5.
@@ -132,13 +134,21 @@ func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath
 
 	uc := enthnsw.NewDefaultUserConfig()
 	uc.VectorCacheMaxObjects = 1e13
-	// The graph is not used by the scan; build it as cheaply as the index
-	// allows while keeping the real activation path.
-	uc.MaxConnections = 8
-	uc.EFConstruction = 32
+	if mode == "scan" {
+		// The graph is not used by the scan; build it as cheaply as the
+		// index allows while keeping the real activation path.
+		uc.MaxConnections = 8
+		uc.EFConstruction = 32
+	}
+	// acorn mode keeps the defaults: MaxConnections/EFConstruction as
+	// shipped, FilterStrategy already defaults to acorn.
+	rescore := 100
+	if mode == "acorn" {
+		rescore = enthnsw.DefaultBRQRescoreLimit // the bits=1 default, untuned
+	}
 	uc.RQ = enthnsw.RQConfig{
 		Enabled: true, Bits: 1, Centering: true,
-		TrainingLimit: trainLimit, RescoreLimit: 100,
+		TrainingLimit: trainLimit, RescoreLimit: rescore,
 	}
 
 	scratchDir, err := os.MkdirTemp("", "filteredscan-*")
@@ -207,13 +217,21 @@ func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath
 	if b1Alt > 0 {
 		budgets = append(budgets, b1Alt)
 	}
+	var efs []int
+	for _, part := range strings.Split(efsArg, ",") {
+		var v int
+		fmt.Sscanf(strings.TrimSpace(part), "%d", &v)
+		if v > 0 {
+			efs = append(efs, v)
+		}
+	}
 
 	csv, err := os.Create(csvPath)
 	if err != nil {
 		return err
 	}
 	defer csv.Close()
-	fmt.Fprintln(csv, "filter,family,size,b1,queries,recall_at_10,perfect_frac,sim_regret,p50_ms,p95_ms,p99_ms,"+
+	fmt.Fprintln(csv, "method,filter,family,size,b1,queries,recall_at_10,perfect_frac,sim_regret,p50_ms,p95_ms,p99_ms,"+
 		"allow_iter_p50_ms,stage1_p50_ms,stage2_p50_ms,stage3_p50_ms,stage1_mb_per_q,stage2_kb_per_q,stage3_kb_per_q")
 
 	k := 10
@@ -247,7 +265,32 @@ func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath
 			}
 		}
 
-		for _, budget1 := range budgets {
+		type armSpec struct {
+			label   string
+			budget1 int
+			ef      int
+		}
+		var arms []armSpec
+		if mode == "acorn" {
+			for _, ef := range efs {
+				arms = append(arms, armSpec{label: fmt.Sprintf("acorn-ef%d", ef), ef: ef})
+			}
+		} else {
+			for _, budget1 := range budgets {
+				arms = append(arms, armSpec{label: "scan", budget1: budget1})
+			}
+		}
+		for _, arm := range arms {
+			budget1 := arm.budget1
+			if arm.ef > 0 {
+				uc.EF = arm.ef
+				var cwg sync.WaitGroup
+				cwg.Add(1)
+				if err := index.UpdateUserConfig(uc, cwg.Done); err != nil {
+					return err
+				}
+				cwg.Wait()
+			}
 			cfg := hnsw.FilteredScanConfig{Budget1: budget1, Budget2: b2, FloatsForID: func(id uint64) []float32 {
 				return floatsFor(id)
 			}}
@@ -259,9 +302,26 @@ func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath
 			var hits, wanted, perfect int
 			for qi, qRow := range qRows {
 				q := queries[qRow*dims : (qRow+1)*dims]
-				ids, _, stats, err := index.FilteredPrefixScan(ctx, q, k, allow, cfg, scratch)
-				if err != nil {
-					return fmt.Errorf("filter %s query %d: %w", m.Name, qRow, err)
+				var ids []uint64
+				var stats hnsw.FilteredScanStats
+				if arm.ef > 0 {
+					// the current filtered graph path: ACORN strategy (the
+					// default) inside SearchByVector, whole query timed as
+					// one stage
+					qStart := time.Now()
+					gotIDs, _, err := index.SearchByVector(ctx, q, k, allow)
+					if err != nil {
+						return fmt.Errorf("acorn filter %s query %d: %w", m.Name, qRow, err)
+					}
+					ids = gotIDs
+					stats.Stage1 = time.Since(qStart)
+					stats.Members = allow.Len()
+				} else {
+					var err error
+					ids, _, stats, err = index.FilteredPrefixScan(ctx, q, k, allow, cfg, scratch)
+					if err != nil {
+						return fmt.Errorf("filter %s query %d: %w", m.Name, qRow, err)
+					}
 				}
 				total := stats.AllowIter + stats.Stage1 + stats.Stage2 + stats.Stage3
 				totals = append(totals, total.Seconds()*1000)
@@ -312,13 +372,13 @@ func run(hdf5Path, sidecar string, limit, b1, b1Alt, b2, trainLimit int, csvPath
 			}
 			nQ := float64(len(qRows))
 			recall := float64(hits) / float64(wanted)
-			fmt.Fprintf(csv, "%s,%s,%d,%d,%d,%.4f,%.4f,%.5f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.1f,%.1f\n",
-				m.Name, m.Family, m.Size, budget1, len(qRows), recall, float64(perfect)/nQ, regretSum/nQ,
+			fmt.Fprintf(csv, "%s,%s,%s,%d,%d,%d,%.4f,%.4f,%.5f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.1f,%.1f\n",
+				arm.label, m.Name, m.Family, m.Size, budget1, len(qRows), recall, float64(perfect)/nQ, regretSum/nQ,
 				pct(totals, 0.50), pct(totals, 0.95), pct(totals, 0.99),
 				pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50),
 				b1MB/nQ, b2KB/nQ, b3KB/nQ)
-			fmt.Fprintf(os.Stderr, "%-28s %-11s size=%-8d b1=%-6d recall@10=%.4f perfect=%.3f regret=%.5f p50=%.2fms (iter %.2f | s1 %.2f | s2 %.2f | s3 %.2f)\n",
-				m.Name, m.Family, m.Size, budget1, recall, float64(perfect)/nQ, regretSum/nQ,
+			fmt.Fprintf(os.Stderr, "%-11s %-28s %-11s size=%-8d recall@10=%.4f perfect=%.3f regret=%.5f p50=%.2fms (iter %.2f | s1 %.2f | s2 %.2f | s3 %.2f)\n",
+				arm.label, m.Name, m.Family, m.Size, recall, float64(perfect)/nQ, regretSum/nQ,
 				pct(totals, 0.50), pct(iters, 0.50), pct(s1s, 0.50), pct(s2s, 0.50), pct(s3s, 0.50))
 		}
 		allow.Close()
