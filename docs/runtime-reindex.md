@@ -88,8 +88,8 @@ Submit a migration. Body shape selects which one:
 | `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
 | `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
 | `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `rebuild-searchable` | Rebuild an existing Blockmax searchable bucket, preserving tokenization and algorithm. Rejected on WAND properties. |
-| `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property is on Blockmax. |
+| `{"searchable":{"rebuild":true}}` | `rebuild-searchable` | Rebuild an existing Blockmax searchable bucket, preserving tokenization and algorithm. Rejected on WAND properties; migrate those with `{"searchable":{"algorithm":"blockmax"}}` first. |
+| `{"searchable":{"algorithm":"blockmax"}}` | `change-algorithm` | Map → Blockmax upgrade. `flipSemanticMigrationSchema` flips the class-level `UsingBlockMaxWAND` flag once every searchable property is on Blockmax. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
 | `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when the task is `STARTED`, the only cancellable status; 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled); 409 when the pre-flight finds a status other than `STARTED`, i.e. a coordination phase (`PREPARING` / `SWAPPING`) or one this build does not recognize; 409 again when the target leaves `STARTED` between that read and the cancel. See §12. |
@@ -430,9 +430,11 @@ Two reasons it can't move earlier into the STARTED phase:
 
 That phase reading only holds for semantic migrations. Format-only
 migrations (`NeedsPreparationBarrier=false`) never enter PREPARING:
-`OnGroupCompleted` fires per group while the task is still STARTED and
-runs the inline PREP+SWAP body, so a STARTED format-only task can
-already have shards that committed their swap.
+each per-unit worker runs the inline PREP+SWAP body as soon as its own
+unit finishes, while the task is still STARTED, so a STARTED format-only
+task can already have shards that committed their swap.
+`OnGroupCompleted` short-circuits on format-only before it reaches any
+barrier branch, so it does no swap work of its own.
 
 The role `PREPARING` plays is twofold: (a) signaling that every unit
 is terminal, so every node has the right on-disk state to start its
