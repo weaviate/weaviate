@@ -1814,11 +1814,12 @@ const (
 // the caller, and everything after it is shared, so the same outcome never
 // reaches an operator as two claims at two severities.
 //
-// [CleanupSweepFailed] is the only Error. It is the only outcome that confirms
-// a shard this node holds was left partly swept, with nothing scheduled to
-// finish it, so an operator has to act. Everything else is either clean or
-// merely unverified, and routine tenant churn produces unverified on a healthy
-// node.
+// [CleanupSweepFailed] is the only Error. It reports a shard that was reached
+// and could not be swept, and was left partly swept with nothing scheduled to
+// finish it, so an operator has to act. A cancelled run can also stop a shard
+// partway through — that reaches the operator as unverified, not as confirmed.
+// Everything else is either clean or merely unverified, and routine tenant
+// churn produces unverified on a healthy node.
 //
 // Exported alongside [ClassifyCleanupSweep] so the REST handlers that run the
 // same sweep word and rank their outcome by this taxonomy rather than a second

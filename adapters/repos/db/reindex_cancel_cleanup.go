@@ -111,23 +111,29 @@ func IsCleanupCollectionDropped(err error) bool {
 // A run the context stopped confirms nothing about the shard it stopped on, so
 // reporting that as a shard that failed would page an operator over a timeout.
 // It stops the walk for the same reason the check at the top of the next
-// shard's turn does — the context is gone either way.
+// shard's turn does — the context is gone either way. The two checks read
+// different keys on purpose: that one asks whether the next shard may start,
+// so it reads the clock; this one asks what stopped a shard, so it reads the
+// error's cause — the clock would re-badge a shard that broke for a reason of
+// its own as a timeout.
 //
-// Keyed on the error chain, not on ctx.Err(): a shard that broke for a reason
-// of its own while the context happened to be gone is a failure the operator
-// has to see, and the clock cannot tell that apart from a cancellation.
-//
-// Matching on the chain works because both steps this guards report the
-// cancellation rather than an error of their own: the shard load waits for its
-// permit on this context, and the sidecar shutdown hands it to the bucket's
-// shutdown, whose compaction and flush waits both wrap it. Both are pinned,
-// since a step that started swallowing the cause would silently turn every
-// cancelled run back into a broken shard.
+// The match is a sentinel test, not provenance: any chain reaching
+// context.Canceled or context.DeadlineExceeded matches, an inner timeout's or
+// a wrapped cause's (entities/errors.CanceledCause) included. That is sound
+// here because the two steps this guards carry no context but the sweep's:
+// the shard load's permit wait reports this context's cancellation, and the
+// sidecar shutdown hands the context to the bucket's shutdown, whose
+// compaction and flush waits both wrap it. Both are pinned, since a step that
+// started swallowing the cause would silently turn every cancelled run back
+// into a broken shard. A cancellation surfacing deeper, inside NewShard, is
+// flattened to a string in [LazyLoadShard.Load] and reads as a shard failure —
+// an Error-level false alarm on that arm, accepted over masking a real failure
+// as a timeout.
 func truncatedByCancellation(reported error) error {
 	if !errors.Is(reported, context.Canceled) && !errors.Is(reported, context.DeadlineExceeded) {
 		return nil
 	}
-	return fmt.Errorf("%w: the cleanup budget expired: %w", ErrCleanupSweepTruncated, reported)
+	return fmt.Errorf("%w: the run's context ended before the sweep finished: %w", ErrCleanupSweepTruncated, reported)
 }
 
 // classifyIncompleteWalk tags a walk that did not reach every shard: a
