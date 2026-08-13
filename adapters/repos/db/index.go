@@ -1022,7 +1022,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	return i.applyAsyncReplicationToLoadedShards(ctx)
 }
 
-// withAsyncReplicationApply serializes fn with every other config apply; fn must snapshot via the config getters and must NOT be entered holding replicationConfigLock (lazy-load ABBA).
+// withAsyncReplicationApply serializes fn with all config applies; never enter it holding replicationConfigLock (lazy-load ABBA).
 func (i *Index) withAsyncReplicationApply(fn func() error) error {
 	i.asyncReplicationApplyWaiters.Add(1)
 	i.asyncReplicationApplyLock.Lock()
@@ -1705,7 +1705,7 @@ func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName str
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// Apply-lock (not config-lock) serialization: a concurrent update's fan-out queues behind this apply and re-snapshots.
+	// Apply-lock serialized; a concurrent update's fan-out re-snapshots behind it.
 	return i.withAsyncReplicationApply(func() error {
 		enabled, config := i.asyncReplicationStateForShard(shardName)
 		if enabled {
@@ -1730,8 +1730,7 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// Holding the config lock across the ctrl call is the 3-way lazy-load ABBA (the shard can be mid-reload by then); the apply lock also blocks kill-switch resurrection.
-	// Blocking on the apply lock is deliberate: a concurrent fan-out may have snapshotted before this replica change, so skipping would lose the apply; the RAFT applier's wait is bounded by that fan-out.
+	// Config lock must not span the ctrl call (3-way lazy-load ABBA); blocking on the apply lock is deliberate — skipping would lose the apply behind a fan-out that snapshotted earlier.
 	return i.withAsyncReplicationApply(func() error {
 		enabled, config := i.asyncReplicationStateForShard(shardName)
 		if enabled {

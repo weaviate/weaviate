@@ -594,7 +594,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 // removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
 var removeHashtreeFile = os.Remove
 
-// removeOrDemoteHashtreeFile deletes filename, demoting an undeletable one to a stray .tmp (outside trust scope, re-swept later); only a failed demotion errors, so a persistent condition cannot fail shard init or scrubs forever.
+// removeOrDemoteHashtreeFile: undeletable files demote to stray .tmp (never trusted, re-swept); only a failed demotion errors.
 func (s *Shard) removeOrDemoteHashtreeFile(logger logrus.FieldLogger, filename, reason string) error {
 	err := removeHashtreeFile(filename)
 	if err == nil || os.IsNotExist(err) {
@@ -700,7 +700,7 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		}
 		filename := filepath.Join(dir, entry.Name())
 
-		// Sweep everything but the newest .ht; removeSnapshotFile demotes an undeletable .ht, so only an un-neutralizable one fails the load.
+		// Sweep everything but the newest .ht (undeletable ones demote; only un-neutralizable fails).
 		if attemptedNewest || ext != ".ht" {
 			removed, err := s.removeSnapshotFile(filename, ext)
 			if err != nil {
@@ -1045,7 +1045,7 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		return s.initAsyncReplication(config, nil)
 	}
 
-	// A fresh init during a transfer halt would resurrect async replication mid-offload; the resume paths re-derive the state afterwards.
+	// A fresh init mid-halt would resurrect async replication mid-offload; resume re-derives.
 	if s.haltedForTransfer() {
 		return nil
 	}
@@ -1130,7 +1130,7 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.asyncReplicationStatsMux.Unlock()
 	}
 
-	// Re-check post-mux: a shutdown that won the mux ordering (or is in flight — its dump must survive) owns the snapshot; a drop left nothing behind. Residual: descheduling between this check and the Remove spans a full performShutdown only in theory; the loss direction is a safe boot rescan.
+	// Post-mux re-check: a completed or in-flight shutdown owns the snapshot; the residual race loses only to a safe boot rescan.
 	if s.shutOrDropped() || s.shutdownRequested.Load() {
 		return nil
 	}
@@ -1169,7 +1169,7 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 			clearStats = true
 		}
 
-		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached; scrub (incl. dir fsync) stays under the mux — atomicity vs a racing enable is load-bearing on this rare offload-abort path
+		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached; fsync-under-mux is load-bearing vs a racing enable
 			return err
 		}
 
@@ -1379,7 +1379,7 @@ func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
 	return s.asyncRepDrainObserver
 }
 
-// dumpPublishGate serializes publish (rename) against timeout cancellation without ever blocking cancel; once cancel wins, no published .ht survives (a late publisher self-deletes).
+// dumpPublishGate: cancel never blocks; once it wins, no published .ht survives (late publisher self-deletes).
 type dumpPublishGate struct {
 	state atomic.Int32
 }
@@ -1406,7 +1406,7 @@ func (g *dumpPublishGate) publish(fn func() error) (cleanup bool, err error) {
 	return false, nil
 }
 
-// cancel reports whether it won (no published .ht will remain); a rename already in flight is removed by the publisher itself, never waited on — a blocking cancel would pin performShutdown under shutdownLock on stalled storage.
+// cancel never waits on an in-flight rename (a blocking cancel pins performShutdown under shutdownLock); false means a .ht was published and kept.
 func (g *dumpPublishGate) cancel() bool {
 	for {
 		switch st := g.state.Load(); st {
@@ -1415,7 +1415,7 @@ func (g *dumpPublishGate) cancel() bool {
 		case dumpGateCancelled:
 			return true
 		default:
-			// Loop instead of two one-shot CASes: a failed publish resetting publishing→idle mid-cancel must not read as lost.
+			// Loop: a failed publish resetting publishing→idle mid-cancel must not read as lost.
 			if g.state.CompareAndSwap(st, dumpGateCancelled) {
 				return true
 			}
@@ -1539,7 +1539,7 @@ func (s *Shard) writeHashTreeTmp(ht hashtree.AggregatedHashTree, tmpFilename str
 	return nil
 }
 
-// removeLatePublishedHashTree removes a .ht whose rename completed after a cancel won; left behind it could resurrect a stale tree on a later boot. Accepted residual: a SIGKILL between the late rename and this remove leaves the file, which is only stale if the shard reactivated meanwhile (needs doubly-stalled storage).
+// removeLatePublishedHashTree: a rename that lost to cancel must not survive; SIGKILL-window residual is stale only after a reactivation.
 func (s *Shard) removeLatePublishedHashTree(filename string) {
 	err := os.Remove(filename)
 	if err == nil || os.IsNotExist(err) {

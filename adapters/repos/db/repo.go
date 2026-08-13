@@ -604,7 +604,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 			select {
 			case db.jobQueueCh <- job{index: -1}:
 			case <-time.After(30 * time.Second):
-				// Dead workers behind a full queue: skipping is safe (their defer already settled shutDownWg), but blocking here would wedge the whole shutdown.
+				// Skipping is safe (worker Done is deferred); blocking here would wedge the shutdown.
 				db.logger.Warnf("batch worker poison pill %d/%d not accepted after 30s; continuing shutdown", i+1, db.maxNumberGoroutines)
 			}
 		}

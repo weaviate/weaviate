@@ -50,7 +50,7 @@ const (
 	// acquirer started waiting). Yield probes are near-free, so keep this short.
 	asyncRepRebuildContentionBackoff = 1 * time.Second
 
-	// After this many consecutive yields the retry delay escalates through the failure backoff schedule (a stuck teardown intent must not pin a 1 Hz probe loop).
+	// Yields past this threshold escalate to the failure backoff (no 1 Hz spin against a stuck teardown).
 	asyncRepRebuildYieldEscalationThreshold = 30
 )
 
@@ -1055,7 +1055,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	for len(sched.h) > 0 && !sched.h[0].nextRunAt.After(now) && !full {
 		entry := sched.h[0]
 		if entry.inFlight {
-			// Invariant violation (heap entries must have inFlight=false); recover liveness and settle a still-unclaimed Done so the re-dispatch below cannot overwrite the token and leak a count.
+			// Invariant violation; settle an unclaimed Done so the re-dispatch cannot overwrite the token.
 			heap.Pop(&sched.h)
 			entry.inFlight = false
 			entry.settleDone()
@@ -1362,7 +1362,7 @@ func (sched *AsyncReplicationScheduler) spawnWorker() {
 	}, sched.logger)
 }
 
-// adjustWorkers reconciles the pool to n on every call — including workers lost to escaped panics, which shrink liveWorkers without a target change. n <= 0 falls back to the default; workersMu serialises.
+// adjustWorkers reconciles the pool to n every call (heals panic-lost workers); workersMu serialises.
 func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	if n <= 0 {
 		n = defaultAsyncReplicationSchedulerWorkers
@@ -1386,7 +1386,7 @@ func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 		sched.metrics.setWorkerPoolSize(n)
 	}
 
-	// needed = target minus the workers that will remain after pending retirements; reclaim stale tokens before spawning (a reclaim keeps a worker, a spawn adds one).
+	// needed = target − (live − pending retirements); reclaim tokens before spawning.
 	needed := sched.targetWorkers - int(sched.liveWorkers.Load()) + len(sched.scaleDownCh)
 	for needed > 0 && sched.tryReclaimScaleDownToken() {
 		needed--
@@ -1591,15 +1591,13 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		ctx          context.Context
 	)
 
-	// Registered FIRST so it runs LAST of all: without the result, entry.inFlight sticks true forever (the entry sits in no heap and no channel), even if the settle defer below panics.
+	// Runs LAST: without the result, entry.inFlight sticks forever — even if the settle defer panics.
 	defer func() {
-		// Unconditional send: the buffered resultCh plus Close()'s parallel
-		// drain keep this non-blocking. A ctx.Done() branch would leave
-		// entry.inFlight=true permanently if the scheduler kept running.
+		// Buffered resultCh + Close()'s drain keep this non-blocking; a ctx.Done() arm would strand inFlight.
 		sched.resultCh <- asyncSchedulerResult{entry: entry, propagated: propagated, err: err, cfg: cfg, ctx: ctx}
 	}()
 
-	// Settle defer: Done and the rebuild spawn must survive even a panic inside the recover block below (e.g. a logging hook).
+	// Done and the rebuild spawn must survive a panic in the recover block below (logging hook).
 	defer func() {
 		// Done() before the resultCh send so the WG drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
 		s.asyncRepWg.Done()
@@ -1626,7 +1624,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		sched.metrics.decWorkersActive()
 	}()
 
-	// Registered LAST so it runs FIRST: recover keeps the worker alive and turns the panic into a retryable error; if the logging itself panics, the defers above still settle and report.
+	// Runs FIRST: recover → retryable error; a panicking log still settles via the defers above.
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in async replication cycle: %v", r)
@@ -1722,7 +1720,7 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		}
 		if yielded {
 			consecutiveYields++
-			// Re-log every 10 escalation steps: a permanently starved rebuild must stay loud, not go quiet after one warn.
+			// Re-log every 10 steps: a starved rebuild must stay loud.
 			if consecutiveYields >= asyncRepRebuildYieldEscalationThreshold &&
 				(consecutiveYields-asyncRepRebuildYieldEscalationThreshold)%10 == 0 && sched.logger != nil {
 				sched.logger.
@@ -1888,7 +1886,7 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	s.asyncReplicationRWMux.RUnlock()
 
 	if !rebuilt {
-		// A skipped or clobbered enable left the shard deregistered with no tree; returning no-retry here would silently disable async replication until the next config apply.
+		// Enable skipped/clobbered: no-retry here would silently disable async replication.
 		return yield()
 	}
 	return false, 0, true, false

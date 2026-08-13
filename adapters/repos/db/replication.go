@@ -1107,7 +1107,7 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots returns shards whose loaded tree differs, is not ready, or errors on access (the source descends instead of reading any of those as converged); unloaded shards are omitted without loading them.
+// CompareHashTreeRoots: differing, not-ready, or erroring shards diverge (source descends); unloaded ones are omitted without loading.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {

@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
-// haltedForTransfer reports whether a backup/offload halt is in progress; the lock-free read never parks callers behind the backup prep and never misreads a concurrent probe as halted.
+// haltedForTransfer is a lock-free probe: never parks behind backup prep, never misreads a concurrent reader as halted.
 func (s *Shard) haltedForTransfer() bool {
 	return s.haltForTransferCount.Load() > 0
 }
@@ -428,7 +428,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	fullyResumed := s.haltForTransferCount.Load() == 0
 	s.haltForTransferMux.Unlock()
 
-	// Enables are skipped while halted and nothing else re-derives them for plain (non-offload) halts.
+	// Enables skipped while halted have no other re-derive path for plain halts.
 	if fullyResumed {
 		s.reapplyAsyncReplicationAfterResume(ctx)
 	}
