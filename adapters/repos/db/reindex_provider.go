@@ -2052,8 +2052,10 @@ func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLook
 // stuck-task behavior.
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
-// reindexTerminalCleanupTimeout bounds cleanup per shard across all
-// (property, indexType) pairs.
+// reindexTerminalCleanupTimeout is one window for the whole cleanup run: every
+// shard and every (property, indexType) pair share it, and the shards it cuts
+// short are reported as ones the sweep never reached. [dirNamesCache] relies on
+// it being run-wide for the lifetime of its listings.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // Matches the drain timeout: both run inline on the same dispatch.
