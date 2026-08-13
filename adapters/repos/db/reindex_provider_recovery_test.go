@@ -538,3 +538,35 @@ func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *test
 		Payload:        payload,
 	}, "n1"))
 }
+
+// Pins the bootstrap probe's cost per shard: every tuple it walks asks the
+// same tracker dirs whose properties they name, and answering that from disk
+// is a full payload.mig parse — 126ms on an 8 MB payload.
+func TestLocalCallbacksDoneReadsAShardsPayloadOnce(t *testing.T) {
+	lsm := t.TempDir()
+	// A two-property name no shortcut can settle, so every tuple pays for the
+	// payload. Tidied, so the walk runs past it instead of stopping there.
+	const tracker = MigrationDirPrefixEnableFilterable + "_alpha_beta_1"
+	mkTrackerDir(t, lsm, tracker, "started.mig", "tidied.mig")
+	mkRecoveryPayload(t, lsm, tracker, "alpha", "beta")
+
+	payload := &ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"alpha", "beta"},
+	}
+	indexTypes := semanticMigrationIndexTypes(payload.MigrationType)
+	require.Equal(t, []string{"filterable"}, indexTypes)
+
+	// A memo per tuple is what the probe cost before they shared one.
+	var perTuple int
+	for _, propName := range payload.Properties {
+		own := &taskPropsCache{}
+		hasUntidiedTracker(migrationDirsOf(lsm, nil, propName, indexTypes[0]).cachingProps(own))
+		perTuple += own.count()
+	}
+	require.Equal(t, 2, perTuple, "a memo per tuple reads the same payload once each")
+
+	shared := &taskPropsCache{}
+	require.False(t, shardHasUntidiedTracker(lsm, payload, indexTypes, shared))
+	require.Equal(t, 1, shared.count(), "one memo per shard covers the whole walk")
+}

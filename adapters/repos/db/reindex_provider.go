@@ -2152,22 +2152,40 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		if !isHosted {
 			continue
 		}
-		lsmPath := shardPathLSM(idx.path(), shardName)
-		// ChangeAlgorithm uses a class-level tracker dir; the per-property
-		// scope deliberately omits it.
-		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
-			hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
+		// A memo per shard, not per shard walk: no two shards name the same
+		// tracker path, so nothing carries over between them anyway.
+		if shardHasUntidiedTracker(shardPathLSM(idx.path(), shardName),
+			&payload, indexTypes, &taskPropsCache{}) {
 			return false
-		}
-		for _, indexType := range indexTypes {
-			for _, propName := range payload.Properties {
-				if hasUntidiedTracker(migrationDirsOf(lsmPath, nil, propName, indexType)) {
-					return false
-				}
-			}
 		}
 	}
 	return true
+}
+
+// shardHasUntidiedTracker reports whether any (index type, property) tuple
+// this task owns left an uncommitted tracker on the shard at lsmPath.
+//
+// Every tuple asks the same tracker dirs for their property list, so props
+// memoizes the answer across them; a nil memo re-reads, and one such read is
+// a full payload.mig parse — hundreds of milliseconds on a large migration.
+func shardHasUntidiedTracker(
+	lsmPath string, payload *ReindexTaskPayload, indexTypes []string, props *taskPropsCache,
+) bool {
+	// ChangeAlgorithm uses a class-level tracker dir; the per-property
+	// scope deliberately omits it.
+	if payload.MigrationType == ReindexTypeChangeAlgorithm &&
+		hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
+		return true
+	}
+	for _, indexType := range indexTypes {
+		for _, propName := range payload.Properties {
+			scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
+			if hasUntidiedTracker(scope) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
