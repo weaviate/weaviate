@@ -2509,6 +2509,71 @@ func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the late writer must publish nothing and clean up its .tmp")
 }
 
+// TestHaltedForTransferDoesNotBlockOnHeldMux: haltedForTransfer must report promptly while a halt holds the mux, or the rebuild parks un-cancellably for the whole backup prep.
+func TestHaltedForTransferDoesNotBlockOnHeldMux(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "HaltedNonBlockingTest")
+
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+
+	got := make(chan bool, 1)
+	go func() { got <- s.haltedForTransfer() }()
+	select {
+	case halted := <-got:
+		require.True(t, halted, "a mid-flight halt must read as halted")
+	case <-time.After(2 * time.Second):
+		t.Fatal("haltedForTransfer parked on the held mux")
+	}
+}
+
+// TestEnableAsyncReplicationSkipsFreshInitDuringHalt: a fresh enable during a transfer halt must not resurrect async replication mid-offload.
+func TestEnableAsyncReplicationSkipsFreshInitDuringHalt(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "EnableSkipsDuringHaltTest")
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferCount = 1
+	s.haltForTransferMux.Unlock()
+
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	installed := s.hashtree != nil
+	s.asyncReplicationRWMux.RUnlock()
+	require.False(t, installed, "enable during a halt must not install a tree")
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferCount = 0
+	s.haltForTransferMux.Unlock()
+	enableAndAwaitAsync(t, ctx, s)
+}
+
+// TestEnableAsyncReplicationConfigUpdateSurvivesHalt: an already-running shard still takes config updates during a plain-backup halt via the fast path.
+func TestEnableAsyncReplicationConfigUpdateSurvivesHalt(t *testing.T) {
+	ctx := context.Background()
+	_, s := newAsyncTestShard(t, ctx, "EnableFastPathDuringHaltTest")
+	enableAndAwaitAsync(t, ctx, s)
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferCount = 1
+	s.haltForTransferMux.Unlock()
+	t.Cleanup(func() {
+		s.haltForTransferMux.Lock()
+		s.haltForTransferCount = 0
+		s.haltForTransferMux.Unlock()
+	})
+
+	cfg := minAsyncReplicationConfig()
+	cfg.frequency = 123 * time.Second
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	s.asyncReplicationRWMux.RLock()
+	gotFrequency := s.asyncReplicationConfig.frequency
+	treeAlive := s.hashtree != nil
+	s.asyncReplicationRWMux.RUnlock()
+	require.Equal(t, 123*time.Second, gotFrequency)
+	require.True(t, treeAlive, "the running tree must survive a fast-path config update during a halt")
+}
+
 // TestDisableAsyncReplicationScrubsWhenAlreadyStopped: disable scrubs even when the tree is already nil (the offload-halt shape).
 func TestDisableAsyncReplicationScrubsWhenAlreadyStopped(t *testing.T) {
 	ctx := context.Background()

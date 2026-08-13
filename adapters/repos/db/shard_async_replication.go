@@ -1032,10 +1032,15 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		}
 		// Hashtree was nil-ed between the RLock check and write lock acquisition.
 		// Fall through to a fresh init without a cached tree.
-		if s.shutOrDropped() {
+		if s.shutOrDropped() || s.haltedForTransfer() {
 			return nil
 		}
 		return s.initAsyncReplication(config, nil)
+	}
+
+	// A fresh init during a transfer halt would resurrect async replication mid-offload; the resume paths re-derive the state afterwards.
+	if s.haltedForTransfer() {
+		return nil
 	}
 
 	// Compute the effective config (needed for hashtreeHeight) before taking
