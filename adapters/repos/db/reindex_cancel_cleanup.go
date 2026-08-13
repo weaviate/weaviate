@@ -88,7 +88,7 @@ func (db *DB) cleanStalePartialReindexState(
 }
 
 // anyPromotableReindexState reports whether any local shard carries a
-// migration generation for (property, indexType) that
+// migration generation for (property, indexType, migrationType) that
 // [FinalizeCompletedMigrations] would promote on next restart. Read-only;
 // works on unloaded shards too. A nil cache reads the filesystem every time.
 //
@@ -98,10 +98,13 @@ func (db *DB) cleanStalePartialReindexState(
 // Two cases fail open, and answer false while promotable state exists: no
 // local index to promote into, and a tenant deactivated before the walk
 // starts, which Migrator.UpdateTenants removes from the shard map so no walk
-// can reach the merged generation it still holds on disk. That second one is
-// why [ReindexProvider.CheckTenantMutation] refuses the deactivation while
-// the migration is in flight in the first place; a tenant that leaves
-// mid-walk is caught instead, since the walk is strict.
+// can reach the merged generation it still holds on disk. Nothing guards that
+// second one here: [ReindexProvider.CheckTenantMutation] skips terminal tasks
+// and this walk runs inside the CANCELLED arm, so the guard has already
+// stopped refusing by the time the walk starts. The window runs from the
+// cancel being applied to the walk running, with a drain and a cleanup sweep
+// in between. A tenant that leaves mid-walk is caught instead, since the walk
+// is strict.
 //
 // A collection being deleted also answers false, and that one is not a gap:
 // nothing survives the delete for the next restart to promote. Both halves
@@ -196,6 +199,15 @@ func hasPromotableReindexState(lsmPath, propName, indexType string,
 
 // writesClassLevelMigrationDir reports whether mt tracks its work in the
 // collection-wide tracker dir rather than a per-property one.
+//
+// Only change-algorithm's class-level dir is consulted. repair-filterable
+// writes one too, so asking about it takes the property-only branch and
+// excludes the tracker that migration itself wrote — answering false while
+// promotable state exists. That direction fails open, against the fails-closed
+// contract stated above. No caller can reach it today, because
+// promotableReindexStateOnThisNode derives the index types it asks about from
+// the same migration type it passes as mt, so the two cannot disagree; a
+// future caller that supplies them separately is the one who would.
 func writesClassLevelMigrationDir(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeAlgorithm
 }

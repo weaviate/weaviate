@@ -1621,9 +1621,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					p.promotableReindexStateOnThisNode(payload) {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				} else {
-					// No migration_type field on purpose: the guidance tests use
-					// its presence to tell a repair-guidance entry from this
-					// one, which is the negative of that.
+					// No migration_type field on purpose: its presence is what
+					// tells a repair-guidance entry apart from this one, which
+					// is the negative of that.
 					logger.Info("reindex provider: cancelled with no promotable generation on this node and no recorded swap ack; the next restart would promote nothing here, so no repair guidance is issued for this node")
 				}
 			case distributedtask.TaskStatusStarted,
