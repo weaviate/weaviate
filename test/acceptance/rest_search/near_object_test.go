@@ -229,12 +229,14 @@ func TestRESTSearchNearObject(t *testing.T) {
 
 	t.Run("well-formed unknown id is a 400", func(t *testing.T) {
 		// the engine cannot resolve the source object: a bad body value
-		// (typed ErrSourceObjectNotFound), not a 404 and not a 502
+		// (typed ErrSourceObjectNotFound), not a 404 and not a 500
 		status, out := postNearObject(t, "Poem", map[string]any{
 			"id": ghostID.String(),
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
-		assert.Contains(t, errMessage(t, out), "vector not found")
+		msg := errMessage(t, out)
+		assert.Contains(t, msg, ghostID.String(), "the 400 must name the unresolvable id: %v", out)
+		assert.Contains(t, msg, "not found")
 	})
 
 	t.Run("structurally invalid id is rejected at bind time", func(t *testing.T) {
