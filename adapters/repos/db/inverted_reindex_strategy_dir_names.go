@@ -419,9 +419,9 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 	return answer.props, answer.ok, answer.unreadable
 }
 
-// taskPropsCache memoizes parsed tracker payloads for one
-// [Shard.CleanStalePartialReindexState]; a nil cache reads every time. Not safe
-// for concurrent use.
+// taskPropsCache memoizes parsed tracker payloads for one cleanup pass
+// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]); a nil
+// cache reads every time. Not safe for concurrent use.
 //
 // Anything longer-lived would let a hydrated shard's sweep act on a snapshot,
 // which [DB.NewStalePartialReindexSweep] promises it never does.

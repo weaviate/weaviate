@@ -210,7 +210,13 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
-	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
+	reads := cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
+	s.index.logger.WithFields(map[string]any{
+		"shard":         s.Name(),
+		"property":      propName,
+		"index_type":    indexType,
+		"payload_reads": reads,
+	}).Info("partial-reindex cleanup: migration dirs swept after index DELETE")
 }
 
 // cleanStaleMigrationDirsAt is the pure-function form of
@@ -231,8 +237,15 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 // bucket pointer is what produces the #10675-shape silent data loss on
 // back-to-back submits without a restart (R2/R2b on the controller
 // node).
-func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) {
-	cleanStaleMigrationDirsIn(migrationDirsOf(lsmPath, nil, propName, indexType), logger)
+//
+// The preserve pass and the deletion loop ask about the same tracker dirs, so
+// they share one payload memo. The return is how many payloads that came to,
+// for the caller's log line.
+func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) int {
+	props := &taskPropsCache{}
+	cleanStaleMigrationDirsIn(
+		migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props), logger)
+	return props.count()
 }
 
 // cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
