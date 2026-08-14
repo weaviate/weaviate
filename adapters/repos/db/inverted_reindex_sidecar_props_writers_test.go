@@ -246,7 +246,7 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 				Namespace:      ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-1", Version: 1},
 			}
-			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks))
+			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks, &selectedPropsFailures{}))
 
 			want := slices.Clone(tc.props)
 			sort.Strings(want)
