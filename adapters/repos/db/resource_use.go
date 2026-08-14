@@ -12,12 +12,14 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -69,7 +71,7 @@ func (d *DB) scanResourceUsage() {
 // memory pressure would never see the usage drop back below the threshold.
 func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
 	mon.Refresh(updateMappings)
-	if db.resourceScanState.isReadOnly {
+	if db.resourceScanState.isReadOnly.Load() {
 		db.resourceUseRecovery(mon, du)
 	} else {
 		db.resourceUseWarn(mon, du)
@@ -80,7 +82,19 @@ func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMap
 type resourceScanState struct {
 	diskWarning *interval.BackoffTimer
 	memWarning  *interval.BackoffTimer
-	isReadOnly  bool
+
+	// isReadOnly reports whether the scan currently holds shards read-only.
+	// Written by the scan goroutine, read by every shard that is built: a shard
+	// created or loaded while this is set comes up READONLY instead of READY.
+	// See [Shard.inheritResourcePressureReadOnly].
+	isReadOnly atomic.Bool
+}
+
+// resourcePressureReadOnly reports whether the resource scan currently holds
+// shards read-only. Tolerates a nil DB and a nil scan state, both of which
+// occur in tests that build an Index without its owning DB.
+func (db *DB) resourcePressureReadOnly() bool {
+	return db != nil && db.resourceScanState != nil && db.resourceScanState.isReadOnly.Load()
 }
 
 func newResourceScanState() *resourceScanState {
@@ -163,9 +177,19 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 }
 
 func (db *DB) setShardsReadOnly(reason string) {
+	// Raise the flag before the sweep, never after: a shard loading concurrently
+	// reads it while holding the load lock the sweep needs to see that shard as
+	// loaded, so flag-then-sweep means every shard is caught by exactly one of
+	// the two - the sweep if it was already loaded, the flag if it loads later.
+	db.resourceScanState.isReadOnly.Store(true)
+
 	db.indexLock.Lock()
+	defer db.indexLock.Unlock()
 	for _, index := range db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		// Loaded shards only: force-loading a cold shard here costs the memory the
+		// scan may be reacting to, and a failed load panics out of the scan
+		// goroutine. Cold shards inherit the flag when they load instead.
+		index.ForEachLoadedShard(func(name string, shard ShardLike) error {
 			// Don't overwrite the reason of an already read-only shard: it may be
 			// read-only for a non-resource reason (e.g. a vector-index config
 			// update), and relabeling it would let setShardsReady flip it back to
@@ -173,17 +197,17 @@ func (db *DB) setShardsReadOnly(reason string) {
 			if shard.GetStatus() == storagestate.StatusReadOnly {
 				return nil
 			}
+			// A shard whose store closed concurrently (tenant deletion,
+			// deactivation, shutdown) is going away and takes no more writes.
 			err := shard.SetStatusReadonly(statusReasonResourcePressure)
-			if err != nil {
+			if err != nil && !errors.Is(err, lsmkv.ErrAlreadyClosed) {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).
-					Fatalf("failed to set to READONLY: shard %q: %v", name, err)
+					Errorf("failed to set to READONLY: shard %q: %v", name, err)
 			}
 			return nil
 		})
 	}
-	db.indexLock.Unlock()
-	db.resourceScanState.isReadOnly = true
 }
 
 // resourceUseRecovery checks whether resource usage has dropped below the
@@ -208,6 +232,12 @@ func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
 }
 
 func (db *DB) setShardsReady() {
+	// Drop the flag before the sweep, never after: a shard loading concurrently
+	// would otherwise inherit READONLY after the sweep already passed it, and
+	// nothing would flip it back - this recovery pass only runs while the flag
+	// is set. It goes back up below if any shard failed to transition.
+	db.resourceScanState.isReadOnly.Store(false)
+
 	var failedCount atomic.Int64
 	func() {
 		db.indexLock.Lock()
@@ -217,12 +247,14 @@ func (db *DB) setShardsReady() {
 				if shard.GetStatus() == storagestate.StatusReadOnly &&
 					shard.GetStatusReason() == statusReasonResourcePressure {
 					err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
-					if err != nil {
+					// A shard whose store closed concurrently (tenant deletion,
+					// deactivation, shutdown) takes no writes either way, and comes
+					// back READY if it is ever loaded again.
+					if err != nil && !errors.Is(err, lsmkv.ErrAlreadyClosed) {
 						failedCount.Add(1)
 						db.logger.WithField("action", "set_shard_ready").
 							WithField("path", db.config.RootPath).
-							WithError(err).
-							Error("failed to set to READY")
+							Errorf("failed to set to READY: shard %q: %v", name, err)
 					}
 				}
 				return nil
@@ -231,12 +263,12 @@ func (db *DB) setShardsReady() {
 	}()
 
 	if count := failedCount.Load(); count > 0 {
+		db.resourceScanState.isReadOnly.Store(true)
 		db.logger.WithField("action", "set_shard_ready").
 			WithField("failed_count", count).
 			Warn("Resource usage below threshold, but some shards failed to transition to READY")
 		return
 	}
-	db.resourceScanState.isReadOnly = false
 	db.logger.WithField("action", "set_shard_ready").
 		Info("Resource usage below threshold. Set shards back to READY")
 }
