@@ -14,7 +14,10 @@ package hnsw
 import (
 	"context"
 	"math/bits"
+	"os"
 	"sort"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -295,4 +298,68 @@ func (h *hnsw) FilteredPrefixScan(ctx context.Context, query []float32, k int,
 	scratch.stage2 = stage2[:0]
 	scratch.topK = topK[:0]
 	return ids, dists, stats, nil
+}
+
+// scanRouteThreshold is the process-level routing toggle for the filtered
+// prefix scan: filtered searches whose allowlist cardinality is at or below
+// the threshold route to the scan; 0 (the default) disables routing
+// entirely. Bench plumbing in the FILTERED_SCAN_THRESHOLD env var, read
+// once — the crossover experiments size it (~600k members on wiki-dpr/M1).
+var scanRouteThreshold = func() int {
+	v := os.Getenv("FILTERED_SCAN_THRESHOLD")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}()
+
+// scanScratchPool holds default-config scratch; the routed path always runs
+// default budgets, so pooled scratch always fits.
+var scanScratchPool = sync.Pool{
+	New: func() any {
+		return NewFilteredScanScratch(FilteredScanConfig{})
+	},
+}
+
+// tryRoutedFilteredScan runs the filtered prefix scan for allowlists at or
+// below the routing threshold. Returns handled=false when routing does not
+// apply (toggle off, list too large, incompatible compressor) so the caller
+// falls through to the existing graph path untouched. Stage-3 floats come
+// from the index's own vector source, normalized like every other search
+// path.
+func (h *hnsw) tryRoutedFilteredScan(ctx context.Context, vector []float32,
+	k int, allow helpers.AllowList,
+) ([]uint64, []float32, bool, error) {
+	if scanRouteThreshold <= 0 || allow == nil || allow.IsEmpty() || allow.Len() > scanRouteThreshold {
+		return nil, nil, false, nil
+	}
+	if !h.compressed.Load() {
+		return nil, nil, false, nil
+	}
+	source, ok := h.compressor.(compressionhelpers.WordCodeSource)
+	if !ok {
+		return nil, nil, false, nil
+	}
+	if _, ok := source.ScanQuantizer().(*compressionhelpers.CenteredBinaryRotationalQuantizer); !ok {
+		return nil, nil, false, nil
+	}
+
+	cfg := FilteredScanConfig{FloatsForID: func(id uint64) []float32 {
+		vec, err := h.vectorForID(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return h.normalizeVec(vec)
+	}}
+	scratch := scanScratchPool.Get().(*FilteredScanScratch)
+	defer scanScratchPool.Put(scratch)
+	ids, dists, _, err := h.FilteredPrefixScan(ctx, vector, k, allow, cfg, scratch)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return ids, dists, true, nil
 }

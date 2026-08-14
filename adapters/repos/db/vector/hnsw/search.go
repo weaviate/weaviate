@@ -84,6 +84,14 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
+
+	// Experimental routing (FILTERED_SCAN_THRESHOLD, default off): small
+	// allowlists take the three-stage prefix scan; everything else falls
+	// through to the existing paths untouched.
+	if ids, dists, handled, err := h.tryRoutedFilteredScan(ctx, vector, k, allowList); handled || err != nil {
+		return ids, dists, err
+	}
+
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)

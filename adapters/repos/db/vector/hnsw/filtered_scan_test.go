@@ -212,3 +212,56 @@ func TestFilteredPrefixScan(t *testing.T) {
 		assert.LessOrEqual(t, len(got), 2)
 	})
 }
+
+// TestRoutedFilteredScanToggle pins the routing contract: threshold unset →
+// never handled; set → small allowlists take the scan and produce brute-
+// force-exact results (budgets cover the list), large allowlists fall
+// through to the graph path.
+func TestRoutedFilteredScanToggle(t *testing.T) {
+	ctx := context.Background()
+	dims := 128
+	n := 3000
+	all := biasedUnitVecs(n+5, dims, 13)
+	vectors, queries := all[:n], all[n:]
+	index := newScanTestIndex(t, vectors, 1000)
+
+	var ids []uint64
+	allowSet := map[uint64]bool{}
+	for id := uint64(0); id < 200; id++ {
+		ids = append(ids, id)
+		allowSet[id] = true
+	}
+	allow := helpers.NewAllowList(ids...)
+
+	// toggle off (default): tryRoutedFilteredScan must not handle
+	_, _, handled, err := index.tryRoutedFilteredScan(ctx, queries[0], 5, allow)
+	require.NoError(t, err)
+	require.False(t, handled, "routing must be off by default")
+
+	// toggle on: small list handled, exact against brute force
+	prev := scanRouteThreshold
+	scanRouteThreshold = 500
+	defer func() { scanRouteThreshold = prev }()
+
+	got, _, handled, err := index.tryRoutedFilteredScan(ctx, queries[0], 5, allow)
+	require.NoError(t, err)
+	require.True(t, handled)
+	want := bruteForceFiltered(queries[0], vectors, allowSet, 5)
+	assert.Equal(t, want, got, "routed scan must be exact when budgets cover the list")
+
+	// large list: falls through
+	var bigIDs []uint64
+	for id := uint64(0); id < 1000; id++ {
+		bigIDs = append(bigIDs, id)
+	}
+	big := helpers.NewAllowList(bigIDs...)
+	_, _, handled, err = index.tryRoutedFilteredScan(ctx, queries[0], 5, big)
+	require.NoError(t, err)
+	require.False(t, handled, "above-threshold lists must fall through")
+
+	// and the full SearchByVector path with the toggle on returns the same
+	// exact results for the small list
+	sIDs, _, err := index.SearchByVector(ctx, queries[0], 5, allow)
+	require.NoError(t, err)
+	assert.Equal(t, want, sIDs)
+}
