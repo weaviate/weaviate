@@ -588,6 +588,12 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	}
 
 	if resp.GetEncoding() == replica.DigestsEncodingBinary {
+		// A compliant server returns at most one digest per set discriminant bit;
+		// reject larger payloads before decoding, like the REST reader's pre-size clamp.
+		if maxLen := discriminant.SetCount() * hashtree.DigestLength; len(resp.GetDigestsData()) > maxLen {
+			return nil, fmt.Errorf("binary digests payload of %d bytes exceeds the %d bytes for the %d requested digests",
+				len(resp.GetDigestsData()), maxLen, discriminant.SetCount())
+		}
 		digests, err := hashtree.DigestsFromBinary(resp.GetDigestsData())
 		if err != nil {
 			return nil, fmt.Errorf("decode binary digests: %w", err)

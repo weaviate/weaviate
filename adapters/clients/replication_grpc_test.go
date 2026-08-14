@@ -830,7 +830,7 @@ func TestGRPCReplicationHashTreeLevelEncoding(t *testing.T) {
 	ctx := context.Background()
 
 	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
-	discriminant.Set(0)
+	discriminant.Set(0).Set(1).Set(2)
 	digests := []hashtree.Digest{{1, 2}, {3, 4}, {^uint64(0), 5}}
 
 	t.Run("BinaryFromNewServer", func(t *testing.T) {
@@ -896,6 +896,20 @@ func TestGRPCReplicationHashTreeLevelEncoding(t *testing.T) {
 		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode binary digests")
+	})
+
+	t.Run("OversizedBinaryRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelResp = &pb.HashTreeLevelResponse{
+			DigestsData: hashtree.DigestsToBinary(append([]hashtree.Digest{{6, 7}}, digests...)),
+			Encoding:    replica.DigestsEncodingBinary,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds")
 	})
 
 	t.Run("JSONBodyClaimedBinaryRejected", func(t *testing.T) {
