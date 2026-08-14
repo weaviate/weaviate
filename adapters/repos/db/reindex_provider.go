@@ -1060,8 +1060,6 @@ func (f *selectedPropsFailures) record(taskName, shardName string, err error) {
 	})
 }
 
-func (f *selectedPropsFailures) count() int64 { return f.n.Load() }
-
 // report emits the task's one warning, or nothing when every unit wrote its
 // list. Call it once the unit goroutines have joined, which is also what
 // makes reading first race-free.

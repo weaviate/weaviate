@@ -89,7 +89,7 @@ func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 	require.Zero(t, perUnitWarnings,
 		"a failure that repeats on every unit must not log once per unit")
 
-	require.EqualValues(t, units*len(tasks), failures.count(),
+	require.EqualValues(t, units*len(tasks), failures.n.Load(),
 		"every failed write must still be counted")
 
 	// The aggregate the task reports once, after its units have joined.
