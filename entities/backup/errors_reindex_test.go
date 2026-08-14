@@ -32,6 +32,26 @@ var reindexSentinels = []struct {
 		name: "restore gate, undetermined", err: ErrReindexActivityUndetermined,
 		text: "restore blocked: whether a runtime-reindex is in flight could not be determined",
 	},
+	{
+		name: "commit-time overlap observed",
+		err:  ErrBackupSpannedReindex,
+		text: "backup blocked: a runtime-reindex overlapped this backup",
+	},
+	{
+		name: "commit-time overlap unanswerable",
+		err:  ErrReindexOverlapUndetermined,
+		text: "backup blocked: the runtime-reindex overlap could not be determined",
+	},
+}
+
+// TestReindexOverlapUndeterminedWording pins the one phrase separating the
+// commit-time pair: "overlapped this backup" states an overlap was observed,
+// and the undetermined case observed nothing.
+func TestReindexOverlapUndeterminedWording(t *testing.T) {
+	msg := ErrReindexOverlapUndetermined.Error()
+	assert.NotContains(t, msg, "overlapped this backup")
+	assert.NotContains(t, msg, "in flight")
+	assert.Contains(t, ErrBackupSpannedReindex.Error(), "overlapped this backup")
 }
 
 func TestReindexSentinelTexts(t *testing.T) {

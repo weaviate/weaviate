@@ -27,6 +27,11 @@ var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runt
 // The backup side of the same answer; the restore sentinel's text opens with "restore blocked:" and cannot be reused.
 var ErrBackupReindexActivityUndetermined = errors.New("backup blocked: whether a runtime-reindex is in flight could not be determined")
 
+var ErrBackupSpannedReindex = errors.New("backup blocked: a runtime-reindex overlapped this backup")
+
+// Shares no wording with ErrBackupSpannedReindex: there may be none to find.
+var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
+
 type ReindexBlockedError struct {
 	Msg string
 }

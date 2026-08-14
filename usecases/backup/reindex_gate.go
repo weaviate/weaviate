@@ -76,8 +76,15 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// Only the operation context marks an operator abort; a refusal whose cause wraps a RAFT-client cancel must not be reported as one.
+// A commit-time overlap verdict keeps the id spent even under an operator
+// abort: a capture exists and may be torn, and CANCELLED would make the id
+// re-postable over it. Every other refusal loses to the abort, because the
+// operation context is the abort signal itself.
 func publishAsCancelled(err, ctxErr error) bool {
+	if errors.Is(err, backup.ErrBackupSpannedReindex) ||
+		errors.Is(err, backup.ErrReindexOverlapUndetermined) {
+		return false
+	}
 	return errors.Is(ctxErr, context.Canceled) ||
 		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
 }
@@ -88,6 +95,7 @@ func backupRefusedByParticipant(classes []string) error {
 		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
+// Rebuilt, not forwarded: an older participant names its own shards and node.
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes. %s",

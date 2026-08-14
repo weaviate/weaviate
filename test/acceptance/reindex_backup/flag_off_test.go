@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -43,6 +44,11 @@ func TestGatesAreNoOpsWithTheFeatureOff(t *testing.T) {
 	require.NoError(t, err, "with the feature off a backup must behave as it did before the gates existed")
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil,
 		helper.WithDeadline(2*time.Minute))
+
+	status, reason := awaitBackupTerminal(t, backend, backupID, 2*time.Minute)
+	require.Equalf(t, string(entitiesbackup.Success), status,
+		"the commit-time backstop must be off too (reason=%q)", reason)
+
 	helper.DeleteClass(t, className)
 	require.NoError(t, restoreClasses(t, backend, backupID, className),
 		"with the feature off a restore must not be gated either")

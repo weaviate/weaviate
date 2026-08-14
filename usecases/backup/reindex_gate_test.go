@@ -268,6 +268,44 @@ func TestAllReindexRefusals(t *testing.T) {
 	}
 }
 
+// TestIsReindexBackupFailure pins the wider question: any of the four routes
+// counts, because all four mean the guard is why a capture will not be
+// published.
+func TestIsReindexBackupFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "an overlap the commit-time check observed",
+			err:  fmt.Errorf("%w: x", backup.ErrBackupSpannedReindex),
+			want: true,
+		},
+		{
+			name: "an overlap the commit-time check could not answer",
+			err:  fmt.Errorf("%w: x", backup.ErrReindexOverlapUndetermined),
+			want: true,
+		},
+		{
+			// The check reaches the task manager over RAFT, so its own cause
+			// can wrap a cancellation. That must not read as somebody
+			// stopping the backup.
+			name: "an unanswerable check whose cause was cancelled",
+			err: fmt.Errorf("%w: %w",
+				backup.ErrReindexOverlapUndetermined, context.Canceled),
+			want: true,
+		},
+		{name: "a plain cancellation", err: context.Canceled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isReindexBackupFailure(tt.err))
+		})
+	}
+}
+
 func TestRestoreGateOrdering(t *testing.T) {
 	const (
 		cls         = "MyClass"
