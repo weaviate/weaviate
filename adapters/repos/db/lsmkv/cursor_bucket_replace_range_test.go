@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -81,7 +82,7 @@ func TestCursorReplaceDigestRange_MemtableOnly(t *testing.T) {
 		min := toBound(bo[0])
 		max := toBound(bo[1])
 		want := drainWithin(b.CursorReplaceDigestReusable(bigPrefix), min, max)
-		got := drainWithin(b.CursorReplaceDigestReusableRange(bigPrefix, min, max), min, max)
+		got := drainWithin(b.CursorReplaceDigestReusableRange(bigPrefix, min, max), min, nil)
 		require.Equal(t, want, got, "bounds %q..%q", bo[0], bo[1])
 	}
 }
@@ -100,6 +101,8 @@ func TestCursorReplaceDigestRange_ConcurrentWritesAndFlushes(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)
+	defer wg.Wait()
+	defer close(stop)
 	go func() {
 		defer wg.Done()
 		for i := 0; ; i++ {
@@ -138,13 +141,14 @@ func TestCursorReplaceDigestRange_ConcurrentWritesAndFlushes(t *testing.T) {
 	min, max := []byte("key-050"), []byte("key-150")
 	for i := 0; i < 300; i++ {
 		got := drainWithin(b.CursorReplaceDigestReusableRange(bigPrefix, min, max), min, max)
+		prev := ""
 		for _, entry := range got {
-			require.GreaterOrEqual(t, entry, "key-050")
-			require.LessOrEqual(t, entry[:7], "key-150")
+			key, _, _ := strings.Cut(entry, "=")
+			require.GreaterOrEqual(t, key, "key-050")
+			require.Greater(t, key, prev)
+			prev = key
 		}
 	}
-	close(stop)
-	wg.Wait()
 }
 
 func toBound(s string) []byte {
@@ -179,18 +183,44 @@ func BenchmarkCursorReplaceDigestRange(b *testing.B) {
 	for i := 0; i < 50_000; i++ {
 		require.NoError(b, bk.Put([]byte(fmt.Sprintf("key-%06d", i)), []byte(fmt.Sprintf("value-%06d-padding", i))))
 	}
-	min, max := []byte("key-025000"), []byte("key-025032")
+	runLeg := func(name string, expected int, open func() *CursorReplace, min, max []byte) {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if got := drainCount(open(), min, max); got != expected {
+					b.Fatalf("drained %d keys, expected %d", got, expected)
+				}
+			}
+		})
+	}
 
-	b.Run("full-memtable-flatten", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			drainWithin(bk.CursorReplaceDigestReusable(1<<20), min, max)
+	narrowMin, narrowMax := []byte("key-025000"), []byte("key-025032")
+	fullMin, fullMax := []byte("key-000000"), []byte("key-049999")
+
+	runLeg("narrow-span/full-memtable-flatten", 33,
+		func() *CursorReplace { return bk.CursorReplaceDigestReusable(1 << 20) }, narrowMin, narrowMax)
+	runLeg("narrow-span/range-bounded", 33,
+		func() *CursorReplace { return bk.CursorReplaceDigestReusableRange(1<<20, narrowMin, narrowMax) }, narrowMin, narrowMax)
+	runLeg("full-span/full-memtable-flatten", 50_000,
+		func() *CursorReplace { return bk.CursorReplaceDigestReusable(1 << 20) }, fullMin, fullMax)
+	runLeg("full-span/range-bounded", 50_000,
+		func() *CursorReplace { return bk.CursorReplaceDigestReusableRange(1<<20, fullMin, fullMax) }, fullMin, fullMax)
+}
+
+func drainCount(c *CursorReplace, min, max []byte) int {
+	defer c.Close()
+	n := 0
+	var k []byte
+	if min == nil {
+		k, _ = c.First()
+	} else {
+		k, _ = c.Seek(min)
+	}
+	for ; k != nil; k, _ = c.Next() {
+		if max != nil && bytes.Compare(k, max) > 0 {
+			break
 		}
-	})
-	b.Run("range-bounded", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			drainWithin(bk.CursorReplaceDigestReusableRange(1<<20, min, max), min, max)
-		}
-	})
+		n++
+	}
+	return n
 }
