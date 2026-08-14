@@ -65,8 +65,8 @@ const (
 	// Caps the post-flush shutdown dump; dumpPublishGate blocks late publication.
 	hashtreeDumpTimeout = 30 * time.Second
 
-	minHashtreeHeight = 0
-	maxHashtreeHeight = hashtree.MaxHeight
+	minHashtreeHeight = entreplication.MinHashtreeHeight
+	maxHashtreeHeight = entreplication.MaxHashtreeHeight
 
 	// minFrequency is the smallest accepted value for `frequency` in both
 	// per-class API overrides and global runtime config. Below this, hashbeats
@@ -83,18 +83,21 @@ const (
 	// at hashbeat rate would flood logs in busy clusters.
 	minLoggingFrequency = 1 * time.Second
 
-	minDiffBatchSize = 1
-	maxDiffBatchSize = 10_000
+	minDiffBatchSize = entreplication.MinDiffBatchSize
+	maxDiffBatchSize = entreplication.MaxDiffBatchSize
 
-	minPropagationLimit = 1
-	maxPropagationLimit = 100_000
+	minPropagationLimit = entreplication.MinPropagationLimit
+	maxPropagationLimit = entreplication.MaxPropagationLimit
 
-	minPropagationConcurrency = 1
-	maxPropagationConcurrency = 20
+	minPropagationConcurrency = entreplication.MinPropagationConcurrency
+	maxPropagationConcurrency = entreplication.MaxPropagationConcurrency
 
-	minPropagationBatchSize = 1
-	maxPropagationBatchSize = 1_000
+	minPropagationBatchSize = entreplication.MinPropagationBatchSize
+	maxPropagationBatchSize = entreplication.MaxPropagationBatchSize
 )
+
+// Compile-time: the schema validator's height bound must track hashtree's deserialization bound.
+var _ = [1]struct{}{}[entreplication.MaxHashtreeHeight-hashtree.MaxHeight]
 
 // asyncReplicationClassOverrides holds per-class API values that take
 // precedence over both code defaults and global runtime config. A nil pointer

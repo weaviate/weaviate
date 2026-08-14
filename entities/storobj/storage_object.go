@@ -1587,27 +1587,27 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 	if err != nil {
 		return errors.Wrap(err, "read schema length")
 	}
-	schema, err := rw.CopyBytesFromBufferChecked(uint64(schemaLength), nil)
+	schema, err := rw.ReadBytesFromBufferChecked(uint64(schemaLength))
 	if err != nil {
-		return errors.Wrap(err, "Could not copy schema")
+		return errors.Wrap(err, "read schema")
 	}
 
 	metaLength, err := rw.ReadUint32Checked()
 	if err != nil {
 		return errors.Wrap(err, "read meta length")
 	}
-	meta, err := rw.CopyBytesFromBufferChecked(uint64(metaLength), nil)
+	meta, err := rw.ReadBytesFromBufferChecked(uint64(metaLength))
 	if err != nil {
-		return errors.Wrap(err, "Could not copy meta")
+		return errors.Wrap(err, "read meta")
 	}
 
 	vectorWeightsLength, err := rw.ReadUint32Checked()
 	if err != nil {
 		return errors.Wrap(err, "read vector weights length")
 	}
-	vectorWeights, err := rw.CopyBytesFromBufferChecked(uint64(vectorWeightsLength), nil)
+	vectorWeights, err := rw.ReadBytesFromBufferChecked(uint64(vectorWeightsLength))
 	if err != nil {
-		return errors.Wrap(err, "Could not copy vectorWeights")
+		return errors.Wrap(err, "read vector weights")
 	}
 
 	vectors, err := unmarshalTargetVectors(&rw)

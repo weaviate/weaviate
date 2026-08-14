@@ -31,8 +31,8 @@ typical journeys it unlocks:
 - Migrate a searchable index from WAND (Map) to BlockMax (Inverted):
   `change-algorithm`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable` (rebuild an existing BlockMax bucket in place),
+  `repair-rangeable`.
 - Cancel a migration while it is still running its units, before the
   cluster-wide coordination phase; the cluster cleans up the partial
   state and the property is back to its pre-submit on-disk shape —
@@ -93,15 +93,12 @@ body against current state and picks the migration:
 
 | Path + body | Effect | Migration type |
 |---|---|---|
-| `{"searchable":{"enabled":true,"tokenization":"word"}}` | `enable-searchable` | Creates a Blockmax bucket, flips `IndexSearchable=true` + `Tokenization` on completion. Requires `text`/`text[]`. |
-| `{"filterable":{"enabled":true}}` | `enable-filterable` | Creates a RoaringSet bucket, flips `IndexFilterable=true`. |
-| `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
-| `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
-| `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
-| `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
-| `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a `STARTED` task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled), 409 for every other in-flight status — a coordination phase (`PREPARING` / `SWAPPING`), or one this build does not recognize. See §12. |
+| `.../index/searchable` `{"tokenization":"word"}`, no searchable index yet | Creates a Blockmax bucket, flips `IndexSearchable=true` + `Tokenization`. `text`/`text[]` only; `tokenization` required. | `enable-searchable` |
+| `.../index/searchable` `{"tokenization":"trigram"}`, index exists | Rewrites BOTH the searchable and filterable buckets when both exist. | `change-tokenization` |
+| `.../index/searchable` `{"algorithm":"blockmax"}`, index on WAND | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` once every searchable property is blockmax. `wand` is rejected (deprecated); this is the only WAND → Blockmax path. | `change-algorithm` |
+| `.../index/filterable` `{}`, no filterable index yet | Creates a RoaringSet bucket, flips `IndexFilterable=true`. A supplied tokenization must equal the property's current one. | `enable-filterable` |
+| `.../index/filterable` `{"tokenization":"word"}`, index exists | Filterable-only retokenize (leaves the searchable bucket untouched). | `change-tokenization-filterable` |
+| `.../index/rangeFilters` `{}`, no range index yet | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). | `enable-rangeable` |
 
 A PUT whose desired config already matches current state AND has no reindex
 task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
@@ -129,9 +126,11 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 
 Cancel the in-flight task on `(class, property, indexType)`. No request
 body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
-STARTED task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when
+`STARTED` task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when
 nothing matches (already finished, never submitted, or already
-cancelled). Never `404` for "nothing to cancel".
+cancelled), `409` for every other in-flight status — a coordination phase
+(`PREPARING` / `SWAPPING`), or one this build does not recognize. See
+§12. Never `404` for "nothing to cancel".
 
 Query parameters (PUT and rebuild):
 
@@ -148,25 +147,32 @@ ignored. Cancel targets the task itself, which already carries the tenant
 set of the rebuild that submitted it, so `POST .../cancel` after
 `rebuild?tenants=t1,t2` stops only that work, leaving other tenants untouched.
 
-- `202 Accepted` — for submit, body contains the new task ID. For the
-  cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
-  + `taskId` when a `STARTED` task was cancelled, or `Status: NO_OP`
-  (no `taskId`) when nothing matched. The cancel verb is idempotent and
-  never returns 404 for "no task to cancel".
-- `400 Bad Request` — validation failure with a structured next-step
-  hint (e.g. "property X has no searchable index; use
-  `{filterable:{tokenization:...}}` to retokenize the filterable bucket").
+Response shapes (PUT / rebuild / cancel):
+
+- `200 OK` — PUT only: desired config already in place AND no task in
+  flight, so no task submitted (`{"status":"NO_OP"}`).
+- `202 Accepted` — a task is running for the requested configuration (PUT /
+  rebuild, `status: STARTED`, `taskId` naming that task), or cancel
+  processed; body is an `IndexUpdateResponse` (`taskId` + `status`).
+  `STARTED` asserts that the task is running, not that this call created it:
+  a PUT converging on an already-running migration joins it and receives that
+  task's ID.
+- `400 Bad Request` — validation failure with an actionable hint (e.g.
+  "property X has no searchable index; PUT
+  `/v1/schema/{className}/properties/X/index/searchable` with a
+  tokenization to add one first").
 - `404 Not Found` — class or property doesn't exist.
-- `409 Conflict` — two distinct meanings on this operation. On a submit,
-  an in-flight task already touches this property; the error names the
-  offending task ID and migration type. On the cancel verb, the target
-  task is in flight but not `STARTED`; the error names the task ID and
-  its status. Either it is in a coordination phase, past the point where
-  cancelling is safe, and the caller waits for a terminal state — or it
-  carries a status this build cannot classify, and it has to terminate on
-  the nodes that can (§12).
-- `429 / 503` — per-collection in-flight cap reached (default 32) or
-  cluster-service unavailable.
+- `409 Conflict` — two distinct meanings. On PUT / rebuild, an in-flight
+  task already touches this property; the error names the offending task
+  ID. On cancel, the target task is in flight but not `STARTED`; the
+  error names the task ID and its status. Either it is in a coordination
+  phase, past the point where cancelling is safe, and the caller waits
+  for a terminal state — or it carries a status this build cannot
+  classify, and it has to terminate on the nodes that can (§12).
+- `422 Unprocessable Entity` — `{indexType}` outside the enum.
+- `429 / 503` — per-collection in-flight cap reached (default 32), or the
+  cluster service is unavailable / an in-flight task's payload cannot be
+  parsed so conflict-freedom cannot be proven.
 
 ### `DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 

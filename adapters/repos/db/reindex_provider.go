@@ -1945,21 +1945,20 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 			"migration_type": payload.MigrationType,
 			"repair_command": strings.Join(repairCommands, " && "),
 		}).Errorf(
-			"reindex provider: %s on %s.%s %s; per-shard sub-tasks "+
-				"that committed their swap BEFORE it stopped left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+			"reindex provider: %s on %s.%s %s; per-shard sub-tasks that "+
+				"committed before it stopped may have left the canonical "+
+				"inverted bucket inconsistent with the schema (which reverted "+
+				"to the pre-migration state) — issue the repair_command above "+
+				"to recover the affected index(es)",
 			payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
 
 // repairCommandsForFailedMigration returns the operator command(s) to recover
-// propName after payload's migration FAILED. enable-*/change-algorithm never
-// flip their flag on failure, so /rebuild would 400 — those re-run via PUT
-// instead; retokenize migrations rebuild the pre-existing bucket.
+// propName after payload's migration stopped without succeeding (FAILED or
+// CANCELLED). enable-*/change-algorithm never flip their flag then, so
+// /rebuild would 400 — those re-run via PUT instead; retokenize migrations
+// rebuild the pre-existing bucket.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
 	c := payload.Collection
 	rebuild := func(indexType string) string {

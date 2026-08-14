@@ -15,7 +15,6 @@
 package reindex_backup_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -593,15 +592,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 
 	awaitIndexingState(t, restURI, className, propName)
 
-	cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	req, err := http.NewRequest(http.MethodPut, cancelURL,
-		bytes.NewReader([]byte(`{"searchable":{"cancel":true}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	cancelBody, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
+	cancelResp := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, "searchable")
 
 	// awaitIndexingState is best-effort, so the cancel lands at an
 	// unsynchronized moment and the task's phase decides the code: 202
@@ -613,27 +604,27 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	// regression to "the cancel is always refused" would still be green
 	// here; the per-status answer is pinned in
 	// TestCancelPreflight_WireResponsePerStatus.
-	switch resp.StatusCode {
+	switch cancelResp.StatusCode {
 	case http.StatusAccepted:
 		var result models.IndexUpdateResponse
-		require.NoErrorf(t, json.Unmarshal(cancelBody, &result),
-			"cancel response should decode as IndexUpdateResponse: %s", string(cancelBody))
+		require.NoErrorf(t, json.Unmarshal([]byte(cancelResp.Body), &result),
+			"cancel response should decode as IndexUpdateResponse: %s", cancelResp.Body)
 		switch result.Status {
 		case "CANCELLED":
 			require.Equalf(t, taskID, result.TaskID,
-				"cancel CANCELLED must name the cancelled task; body: %s", string(cancelBody))
+				"cancel CANCELLED must name the cancelled task; body: %s", cancelResp.Body)
 		case "NO_OP":
 			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
 		default:
 			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
-				result.Status, string(cancelBody))
+				result.Status, cancelResp.Body)
 		}
 	case http.StatusConflict:
-		require.Containsf(t, string(cancelBody), taskID,
-			"cancel 409 must name the task it refuses to cancel; body: %s", string(cancelBody))
+		require.Containsf(t, cancelResp.Body, taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", cancelResp.Body)
 		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
 	default:
-		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(cancelBody))
+		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", cancelResp.StatusCode, cancelResp.Body)
 	}
 
 	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)

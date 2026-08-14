@@ -137,7 +137,7 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
-			logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T"), tc.payload)
+			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, distributedtask.TaskStatusFailed)
 			require.Len(t, hook.Entries, 1)
 			got := hook.Entries[0].Data["repair_command"].(string)
 			require.Equal(t, tc.wantCommand, got)
@@ -147,7 +147,7 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 	}
 }
 
-func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
 	// Format-only migrations must not emit operator guidance.
@@ -330,7 +330,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	}
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
-		nil, logrus.New(), "n1", nil, ctx)
+		nil, nil, logrus.New(), "n1", nil, ctx)
 	return p, payload, trackerDir
 }
 
@@ -405,7 +405,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
-		nil, logger, "n1", nil, ctx)
+		nil, nil, logger, "n1", nil, ctx)
 
 	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
 		Namespace:      ReindexNamespace,

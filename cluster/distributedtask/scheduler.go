@@ -737,9 +737,7 @@ func (s *Scheduler) tick() {
 			s.runFinalizePhase(namespace, tasks, providerIsUnitAware)
 		}
 
-		// TTL-cleanup of finished tasks. IsActive() excludes PREPARING and
-		// SWAPPING explicitly — their FinishedAt is zero-time, so
-		// clock.Since(zero) would otherwise mis-classify them as expired.
+		// TTL-cleanup of finished tasks.
 		retainer, providerRetains := provider.(CompletedTaskRetainer)
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			if task.Status.IsActive() {

@@ -5979,7 +5979,7 @@ func init() {
             }
           },
           "202": {
-            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
+            "description": "A reindex task is running for the requested configuration; the body carries its ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"STARTED\"}` + "`" + `. A request converging on an already-running migration joins it and receives that task's ID.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -6000,13 +6000,25 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
+            "description": "Unknown collection or property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6097,7 +6109,7 @@ func init() {
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
       "post": {
-        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). A task that is in flight but no longer cancellable is refused with ` + "`" + `409` + "`" + `. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
         "tags": [
           "schema"
         ],
@@ -6134,7 +6146,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -6150,6 +6162,12 @@ func init() {
           },
           "404": {
             "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The target task is in flight but not STARTED, so the cancel is refused and nothing was cancelled. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18279,7 +18297,7 @@ func init() {
             }
           },
           "202": {
-            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
+            "description": "A reindex task is running for the requested configuration; the body carries its ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"STARTED\"}` + "`" + `. A request converging on an already-running migration joins it and receives that task's ID.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -18300,13 +18318,25 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
+            "description": "Unknown collection or property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18397,7 +18427,7 @@ func init() {
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
       "post": {
-        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). A task that is in flight but no longer cancellable is refused with ` + "`" + `409` + "`" + `. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
         "tags": [
           "schema"
         ],
@@ -18434,7 +18464,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -18450,6 +18480,12 @@ func init() {
           },
           "404": {
             "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The target task is in flight but not STARTED, so the cancel is refused and nothing was cancelled. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
