@@ -33,6 +33,7 @@ const (
 	AddRQ
 	AddBRQ
 	AddRQCentered
+	AddBRQCentered
 )
 
 func (t HnswCommitType) String() string {
@@ -71,6 +72,8 @@ func (t HnswCommitType) String() string {
 		return "AddBRQCompression"
 	case AddRQCentered:
 		return "AddRQCentered"
+	case AddBRQCentered:
+		return "AddBRQCentered"
 	}
 	return "unknown commit type"
 }

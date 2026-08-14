@@ -294,6 +294,8 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 		})
 	} else if len(data.Mean) > 0 {
 		return errors.New("rq centering is not supported for multivector indexes")
+	} else if len(data.Mean) > 0 {
+		return errors.New("brq centering is not supported for multivector indexes")
 	} else {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
@@ -334,7 +336,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				data.Rotation.Swaps,
 				data.Rotation.Signs,
 				data.Rounding,
-				nil,
+				data.Mean,
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,

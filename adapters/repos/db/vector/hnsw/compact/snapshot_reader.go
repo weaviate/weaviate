@@ -266,6 +266,8 @@ func (r *SnapshotReader) readCompressionData(reader io.Reader, res *ent.Deserial
 		return r.readBRQData(reader, res)
 	case SnapshotCompressionTypeRQCentered:
 		return r.readRQCenteredData(reader, res)
+	case SnapshotCompressionTypeBRQCentered:
+		return r.readBRQCenteredData(reader, res)
 	default:
 		return fmt.Errorf("unsupported compression type %d", compressionType)
 	}
@@ -513,6 +515,36 @@ func (r *SnapshotReader) readRQData(reader io.Reader, res *ent.DeserializationRe
 }
 
 // readBRQData reads Binary Rotational Quantization data from the reader.
+// readBRQCenteredData reads the centered layout flags, then a BRQ payload
+// followed by the centering mean — the 1-bit twin of readRQCenteredData.
+func (r *SnapshotReader) readBRQCenteredData(reader io.Reader, res *ent.DeserializationResult) error {
+	var flags uint8
+	if err := binary.Read(reader, binary.LittleEndian, &flags); err != nil {
+		return errors.Wrap(err, "read centered BRQ flags")
+	}
+	if err := r.readBRQData(reader, res); err != nil {
+		return err
+	}
+	if err := applyBRQCenteredFlags(res.CompressionBRQData(), flags); err != nil {
+		return err
+	}
+	var meanLen uint32
+	if err := binary.Read(reader, binary.LittleEndian, &meanLen); err != nil {
+		return errors.Wrap(err, "read BRQ mean length")
+	}
+	if inputDim := res.CompressionBRQData().InputDim; meanLen != inputDim {
+		return errors.Errorf("centered BRQ mean length %d does not match input dimension %d", meanLen, inputDim)
+	}
+	mean := make([]float32, meanLen)
+	for i := range mean {
+		if err := binary.Read(reader, binary.LittleEndian, &mean[i]); err != nil {
+			return errors.Wrap(err, "read BRQ mean")
+		}
+	}
+	res.CompressionBRQData().Mean = mean
+	return nil
+}
+
 func (r *SnapshotReader) readBRQData(reader io.Reader, res *ent.DeserializationResult) error {
 	var inputDim, outputDim, rounds uint32
 

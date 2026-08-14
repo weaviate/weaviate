@@ -53,3 +53,19 @@ func applyRQCenteredFlags(data *compression.RQData, flags byte) error {
 	}
 	return nil
 }
+
+// encodeBRQCenteredFlags and applyBRQCenteredFlags are the BRQ (1-bit)
+// twins of the RQ helpers above: same single flags byte after the record
+// type, same no-flags-defined-yet contract, same loud rejection of unknown
+// bits.
+func encodeBRQCenteredFlags(data *compression.BRQData) byte {
+	return 0
+}
+
+func applyBRQCenteredFlags(data *compression.BRQData, flags byte) error {
+	if unknown := flags &^ rqCenteredFlagsKnown; unknown != 0 {
+		return errors.Errorf("centered BRQ flags 0x%02x contain unknown bits 0x%02x, "+
+			"the index was written by a newer version", flags, unknown)
+	}
+	return nil
+}

@@ -233,6 +233,10 @@ func (w *WALWriter) WriteAddRQ(data *compression.RQData) error {
 }
 
 // WriteAddBRQ writes an AddBRQ commit.
+// WriteAddBRQ writes an AddBRQ commit, or an AddBRQCentered commit when the
+// data carries a centering mean — the same dispatch-in-the-writer split as
+// WriteAddRQ, so compaction, condensing and snapshot conversion round-trip
+// the mean and the centered layout flags without knowing about them.
 func (w *WALWriter) WriteAddBRQ(data *compression.BRQData) error {
 	// Calculate sizes: header (1 + 4 + 4 + 4 = 13 bytes)
 	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
@@ -242,11 +246,21 @@ func (w *WALWriter) WriteAddBRQ(data *compression.BRQData) error {
 	signSize := int(data.Rotation.Rounds * data.Rotation.OutputDim * 4)
 	roundingSize := int(data.Rotation.OutputDim * 4)
 	totalSize := 13 + swapSize + signSize + roundingSize
+	centered := len(data.Mean) > 0
+	if centered {
+		// Flags: 1 byte. Mean: 4-byte length + 4 bytes per float32.
+		totalSize += 1 + 4 + 4*len(data.Mean)
+	}
 
 	buf := make([]byte, totalSize)
 	rw := byteops.NewReadWriter(buf)
 
-	rw.WriteByte(byte(AddBRQ))
+	if centered {
+		rw.WriteByte(byte(AddBRQCentered))
+		rw.WriteByte(encodeBRQCenteredFlags(data))
+	} else {
+		rw.WriteByte(byte(AddBRQ))
+	}
 	rw.WriteUint32(data.InputDim)
 	rw.WriteUint32(data.Rotation.OutputDim)
 	rw.WriteUint32(data.Rotation.Rounds)
@@ -263,6 +277,11 @@ func (w *WALWriter) WriteAddBRQ(data *compression.BRQData) error {
 	}
 
 	_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(data.Rounding))
+
+	if centered {
+		rw.WriteUint32(uint32(len(data.Mean)))
+		_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(data.Mean))
+	}
 
 	_, err := w.w.Write(buf)
 	return err

@@ -1070,12 +1070,48 @@ func RestoreRQCompressor(
 	targetVector string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
-	if mean != nil && bits != 4 {
-		return nil, errors.New("RQ centering requires bits=4")
+	if mean != nil && bits != 4 && bits != 1 {
+		return nil, errors.New("RQ centering requires bits=4 or bits=1")
 	}
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
+		if mean != nil {
+			// centered 1-bit restore: rotation, rounding and mean all come
+			// from the AddBRQCentered record
+			quantizer, err := RestoreCenteredBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, mean, distance)
+			if err != nil {
+				return nil, err
+			}
+			rqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
+				quantizer:         quantizer,
+				compressedStore:   store,
+				storeId:           binary.BigEndian.PutUint64,
+				loadId:            binary.BigEndian.Uint64,
+				targetVector:      targetVector,
+				logger:            logger,
+				makeBucketOptions: makeBucketOptions,
+				vectorForID:       vectorForID,
+			}
+			if err := rqVectorsCompressor.initCompressedStore(); err != nil {
+				return nil, err
+			}
+			if cache.ArenaCacheSelected(logger) {
+				recordWords := oneBitFieldWords + outputDim/64
+				if c, err := cache.NewArenaUint64Cache(rqVectorsCompressor.getCompressedVectorForID,
+					recordWords, vectorCacheMaxObjects, 1, logger, 0, allocChecker); err == nil {
+					rqVectorsCompressor.cache = c
+					return rqVectorsCompressor, nil
+				} else {
+					logger.WithField("action", "vector_cache_impl").
+						Warnf("arena cache unavailable, using sharded: %v", err)
+				}
+			}
+			rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+				rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+				0, allocChecker)
+			return rqVectorsCompressor, nil
+		}
 		quantizer, err := RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
 		if err != nil {
 			return nil, err

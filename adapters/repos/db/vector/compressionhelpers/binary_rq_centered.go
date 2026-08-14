@@ -398,32 +398,58 @@ func (rq *CenteredBinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuff
 	return slice
 }
 
-// PersistCompression writes the centered RQ record (rotation + mean). KNOWN
-// LIMITATION, load-bearing: the AddRQ/AddRQCentered commit does not persist
-// RQData.Rounding, which the centered 1-bit query encoder needs, so a
-// restart cannot reconstruct this quantizer yet — the restore path rejects
-// centered bits=1 explicitly rather than restoring a quantizer that would
-// encode queries differently from the one that built the graph. Wiring the
-// rounding into the record (or dropping randomized rounding for centered
-// rq1) is a decision for the rq4c branch owners.
+// PersistCompression writes the centered 1-bit record via the BRQ family —
+// the record that already carries the query-encoder Rounding — extended
+// with the mean as AddBRQCentered, mirroring the AddRQ→AddRQCentered split.
+// InputDim is persisted as the ORIGINAL (pre-padding) dimension so the
+// record's mean-length validation holds; the restore path re-pads.
 func (rq *CenteredBinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddRQCompression(compression.RQData{
-		InputDim: rq.originalDim,
-		Bits:     1,
-		Rotation: *rq.rotation,
-		Rounding: rq.rounding,
-		Mean:     rq.mean,
-	})
+	logger.AddBRQCompression(rq.Data())
 }
 
-func (rq *CenteredBinaryRotationalQuantizer) Data() compression.RQData {
-	return compression.RQData{
+func (rq *CenteredBinaryRotationalQuantizer) Data() compression.BRQData {
+	return compression.BRQData{
 		InputDim: rq.originalDim,
-		Bits:     1,
 		Rotation: *rq.rotation,
 		Rounding: rq.rounding,
 		Mean:     rq.mean,
 	}
+}
+
+// RestoreCenteredBinaryRotationalQuantizer reconstructs the centered 1-bit
+// quantizer from a persisted AddBRQCentered record: rotation, rounding and
+// mean all come from the record, never re-derived from seeds.
+func RestoreCenteredBinaryRotationalQuantizer(inputDim, outputDim, rounds int,
+	swaps [][]compression.Swap, signs [][]float32, rounding, mean []float32,
+	distancer distancer.Provider,
+) (*CenteredBinaryRotationalQuantizer, error) {
+	if len(mean) != inputDim {
+		return nil, errors.Errorf("centering mean has %d dims, input has %d", len(mean), inputDim)
+	}
+	cos, l2, err := distancerIndicatorsAndError(distancer)
+	if err != nil {
+		return nil, err
+	}
+	originalDim := inputDim
+	if inputDim < minCodeBits {
+		inputDim = minCodeBits
+	}
+	var mu2 float32
+	for _, m := range mean {
+		mu2 += m * m
+	}
+	return &CenteredBinaryRotationalQuantizer{
+		inputDim:    uint32(inputDim),
+		originalDim: uint32(originalDim),
+		rotation:    RestoreFastRotation(outputDim, rounds, swaps, signs),
+		distancer:   distancer,
+		rounding:    rounding,
+		mean:        mean,
+		meanNorm2:   mu2,
+		cos:         cos,
+		l2:          l2,
+		dotFam:      1 - l2,
+	}, nil
 }
 
 func (rq *CenteredBinaryRotationalQuantizer) Stats() CompressionStats {

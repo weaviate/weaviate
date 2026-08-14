@@ -287,6 +287,8 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return w.readAddBRQ()
 	case AddRQCentered:
 		return w.readAddRQCentered()
+	case AddBRQCentered:
+		return w.readAddBRQCentered()
 	default:
 		return nil, errors.Errorf("unrecognized commit type %d", ct)
 	}
@@ -939,6 +941,41 @@ func (w *WALCommitReader) readAddBRQ() (Commit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return &AddBRQCommit{Data: data}, nil
+}
+
+// readAddBRQCentered reads the centered layout flags, a BRQ payload, then
+// the centering mean — the 1-bit twin of readAddRQCentered.
+func (w *WALCommitReader) readAddBRQCentered() (Commit, error) {
+	flags, err := readByte(w.r)
+	if err != nil {
+		return nil, err
+	}
+	data, err := readBRQData(w.r)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyBRQCenteredFlags(data, flags); err != nil {
+		return nil, err
+	}
+	meanLen, err := readUint32(w.r)
+	if err != nil {
+		return nil, err
+	}
+	// The mean always has exactly InputDim entries; validating before the
+	// allocation stops a corrupted record from requesting an arbitrarily
+	// large slice.
+	if meanLen != data.InputDim {
+		return nil, errors.Errorf("centered BRQ mean length %d does not match input dimension %d", meanLen, data.InputDim)
+	}
+	mean := make([]float32, meanLen)
+	for i := range mean {
+		mean[i], err = readFloat32(w.r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	data.Mean = mean
 	return &AddBRQCommit{Data: data}, nil
 }
 

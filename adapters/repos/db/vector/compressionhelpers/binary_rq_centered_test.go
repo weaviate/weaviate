@@ -268,15 +268,32 @@ func TestCenteredRQ1Validation(t *testing.T) {
 	assert.Error(t, err, "mean dimension mismatch must be rejected")
 }
 
-// TestRestoreRQCompressorRejectsCenteredBits1 pins the restore boundary: the
-// AddRQ/AddRQCentered record does not persist the query-encoder rounding
-// that centered rq1 needs, so restoring a centered bits=1 index must fail
-// loudly rather than reconstruct a quantizer whose query codes differ from
-// the ones the graph was built with. Companion of
-// compact.TestWALRoundTrip_AddRQCenteredBits1.
-func TestRestoreRQCompressorRejectsCenteredBits1(t *testing.T) {
-	_, err := RestoreRQCompressor(distancer.NewCosineDistanceProvider(), 1e6, nil,
-		4, 1, 256, 3, nil, nil, []float32{0.1}, []float32{0.5, 0.5, 0.5, 0.5},
-		nil, nil, nil, "", nil)
-	require.Error(t, err, "centered bits=1 restore must be rejected until rounding persists")
+// TestCenteredRQ1PersistRestoreRoundTrip: a quantizer restored from its
+// persisted BRQData must be byte-identical to the original — same codes,
+// same distances — which is what makes restart of a centered rq1 index
+// safe. Replaces the former rejection pin: the AddBRQCentered record now
+// carries rotation, rounding AND mean, so nothing is re-derived from seeds.
+func TestCenteredRQ1PersistRestoreRoundTrip(t *testing.T) {
+	for _, dim := range []int{64, 256, 768} {
+		vecs, mean := crqTestData(20, dim, 21)
+		cos := distancer.NewCosineDistanceProvider()
+		rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, cos)
+		require.NoError(t, err)
+
+		data := rq.Data()
+		assert.Equal(t, uint32(dim), data.InputDim, "persist the original dim so mean-length validation holds")
+		restored, err := RestoreCenteredBinaryRotationalQuantizer(
+			int(data.InputDim), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
+			data.Rotation.Swaps, data.Rotation.Signs, data.Rounding, data.Mean, cos)
+		require.NoError(t, err)
+
+		q, x := vecs[0], vecs[1]
+		cx := rq.Encode(x)
+		assert.Equal(t, cx, restored.Encode(x), "restored quantizer must produce identical codes")
+		want, err := rq.NewDistancer(q).Distance(cx)
+		require.NoError(t, err)
+		got, err := restored.NewDistancer(q).Distance(cx)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, "restored quantizer must produce identical distances")
+	}
 }

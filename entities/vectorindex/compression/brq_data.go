@@ -16,4 +16,7 @@ type BRQData struct {
 	InputDim uint32
 	Rotation FastRotation
 	Rounding []float32
+	// Mean is the centering mean (centered 1-bit RQ); empty for the
+	// uncentered quantizer. Persisted via the AddBRQCentered record.
+	Mean []float32
 }
