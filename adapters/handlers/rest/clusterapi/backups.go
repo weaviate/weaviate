@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -28,17 +29,54 @@ type backupManager interface {
 	OnStatus(ctx context.Context, req *backup.StatusRequest) *backup.StatusResponse
 }
 
-type backups struct {
-	manager backupManager
-	auth    auth
+type nodeActivityProber interface {
+	Activity() backup.NodeActivity
 }
 
-func NewBackups(manager backupManager, auth auth) *backups {
-	return &backups{manager: manager, auth: auth}
+type backups struct {
+	manager  backupManager
+	activity nodeActivityProber
+	auth     auth
+}
+
+func NewBackups(manager backupManager, activity nodeActivityProber, auth auth) *backups {
+	return &backups{manager: manager, activity: activity, auth: auth}
 }
 
 func (b *backups) CanCommit() http.Handler {
 	return b.auth.handleFunc(b.canCommitHandler())
+}
+
+func (b *backups) NodeActivity() http.Handler {
+	return b.auth.handleFunc(b.nodeActivityHandler())
+}
+
+func (b *backups) nodeActivityHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		if r.Method != http.MethodGet {
+			http.Error(w, clusterprobe.BackupNodeActivityPath+" only serves GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 503, not 404: 404 would tell the caller to give up and let this node pass.
+		if b.activity == nil {
+			http.Error(w, "backup activity probe not wired on this node, so it cannot say "+
+				"whether a backup is running", http.StatusServiceUnavailable)
+			return
+		}
+
+		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Activity()))
+		if err != nil {
+			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}
 }
 
 func (b *backups) canCommitHandler() http.HandlerFunc {

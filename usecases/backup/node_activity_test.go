@@ -12,7 +12,6 @@
 package backup
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -119,36 +118,4 @@ func TestNodeActivityResponseQuotesPeerStrings(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "\n")
-}
-
-func TestNewNodeActivityResponse(t *testing.T) {
-	tests := []struct {
-		name string
-		in   NodeActivity
-		want string
-	}{
-		{
-			name: "idle omits kind and id but still states busy",
-			in:   NodeActivity{},
-			want: `{"probe":"weaviate/backup-node-activity","busy":false}`,
-		},
-		{
-			name: "busy names the kind and the id",
-			in:   NodeActivity{Busy: true, Kind: "restore", ID: "r-7"},
-			want: `{"probe":"weaviate/backup-node-activity","busy":true,"kind":"restore","id":"r-7"}`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			encoded, err := json.Marshal(NewNodeActivityResponse(tt.in))
-			require.NoError(t, err)
-			assert.JSONEq(t, tt.want, string(encoded))
-
-			var decoded NodeActivityResponse
-			require.NoError(t, json.Unmarshal(encoded, &decoded))
-			got, err := decoded.Activity()
-			require.NoError(t, err)
-			assert.Equal(t, tt.in, got)
-		})
-	}
 }

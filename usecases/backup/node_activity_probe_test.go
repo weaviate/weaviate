@@ -1,0 +1,193 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/weaviate/weaviate/entities/backup"
+)
+
+// slots names the four operation slots a node can hold, so a case can set them
+// up through the same renew/reset/set calls the backup subsystem makes.
+type slots struct {
+	coordinatorBackup  *backupStat
+	coordinatorRestore *backupStat
+	participantBackup  *backupStat
+	participantRestore *backupStat
+}
+
+func newProbeFixture() (*NodeActivityProbe, slots) {
+	participant := &Handler{backupper: &backupper{}, restorer: &restorer{}}
+	scheduler := &Scheduler{backupper: &coordinator{}, restorer: &coordinator{}}
+	probe := NewNodeActivityProbe(participant)
+	probe.AttachScheduler(scheduler)
+	return probe, slots{
+		coordinatorBackup:  &scheduler.backupper.lastOp,
+		coordinatorRestore: &scheduler.restorer.lastOp,
+		participantBackup:  &participant.backupper.lastOp,
+		participantRestore: &participant.restorer.lastOp,
+	}
+}
+
+func hold(stat *backupStat, id string) {
+	stat.renew(id, "/somewhere", "bucket", "path")
+}
+
+func TestNodeActivityProbe(t *testing.T) {
+	tests := []struct {
+		name  string
+		setUp func(s slots)
+		want  NodeActivity
+	}{
+		{
+			name:  "nothing is running",
+			setUp: func(s slots) {},
+			want:  NodeActivity{},
+		},
+		{
+			name:  "this node participates in a backup",
+			setUp: func(s slots) { hold(s.participantBackup, "b1") },
+			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+		{
+			name:  "this node participates in a restore",
+			setUp: func(s slots) { hold(s.participantRestore, "r1") },
+			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+		},
+		{
+			name:  "this node coordinates a backup",
+			setUp: func(s slots) { hold(s.coordinatorBackup, "b2") },
+			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b2"},
+		},
+		{
+			name:  "this node coordinates a restore",
+			setUp: func(s slots) { hold(s.coordinatorRestore, "r2") },
+			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r2"},
+		},
+		{
+			name: "all four slots hold, the coordinator's backup is reported",
+			setUp: func(s slots) {
+				hold(s.coordinatorBackup, "b2")
+				hold(s.coordinatorRestore, "r2")
+				hold(s.participantBackup, "b1")
+				hold(s.participantRestore, "r1")
+			},
+			want: NodeActivity{Busy: true, Kind: "backup", ID: "b2"},
+		},
+		{
+			name: "a coordinated restore outranks a participated backup",
+			setUp: func(s slots) {
+				hold(s.coordinatorRestore, "r2")
+				hold(s.participantBackup, "b1")
+			},
+			want: NodeActivity{Busy: true, Kind: "restore", ID: "r2"},
+		},
+		{
+			name: "a participated backup outranks a participated restore",
+			setUp: func(s slots) {
+				hold(s.participantBackup, "b1")
+				hold(s.participantRestore, "r1")
+			},
+			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+		{
+			name: "a running backup that moved on from its first status",
+			setUp: func(s slots) {
+				hold(s.participantBackup, "b1")
+				s.participantBackup.set(backup.Transferring)
+			},
+			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+		{
+			name: "a cancelled backup still occupies its slot",
+			setUp: func(s slots) {
+				hold(s.participantBackup, "b1")
+				s.participantBackup.set(backup.Cancelled)
+			},
+			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+		{
+			// Scheduler.CancelRestore writes Cancelled to the coordinator slot
+			// whether or not it still holds one, and nothing ever clears a status.
+			// Reading the status as "held" would make this node report busy for
+			// the rest of its life.
+			name: "a released slot that a late cancel wrote a status to",
+			setUp: func(s slots) {
+				hold(s.coordinatorRestore, "r2")
+				s.coordinatorRestore.reset()
+				s.coordinatorRestore.set(backup.Cancelled)
+			},
+			want: NodeActivity{},
+		},
+		{
+			name: "a released slot that a late failure wrote a status to",
+			setUp: func(s slots) {
+				hold(s.participantBackup, "b1")
+				s.participantBackup.reset()
+				s.participantBackup.setFailed("the coordinator went away")
+			},
+			want: NodeActivity{},
+		},
+		{
+			name: "every slot released again",
+			setUp: func(s slots) {
+				hold(s.coordinatorBackup, "b2")
+				hold(s.participantRestore, "r1")
+				s.coordinatorBackup.reset()
+				s.participantRestore.reset()
+			},
+			want: NodeActivity{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe, s := newProbeFixture()
+			tt.setUp(s)
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
+
+// A probe can arrive before the Scheduler is built, which happens well after
+// the participant. Answering from the participant slots alone is right then,
+// since a node with no Scheduler cannot be coordinating anything.
+func TestNodeActivityProbeBeforeSchedulerAttached(t *testing.T) {
+	tests := []struct {
+		name  string
+		setUp func(participantBackup *backupStat)
+		want  NodeActivity
+	}{
+		{
+			name:  "nothing is running",
+			setUp: func(participantBackup *backupStat) {},
+			want:  NodeActivity{},
+		},
+		{
+			name:  "this node participates in a backup",
+			setUp: func(participantBackup *backupStat) { hold(participantBackup, "b1") },
+			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			participant := &Handler{backupper: &backupper{}, restorer: &restorer{}}
+			probe := NewNodeActivityProbe(participant)
+			tt.setUp(&participant.backupper.lastOp)
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
