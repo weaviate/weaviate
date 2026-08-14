@@ -645,17 +645,18 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 			continue // skip creating inactive shards
 		}
 
-		err := idx.initLocalShard(ctx, pl.Name)
+		err := idx.LoadLocalShardForTenantAdd(ctx, pl.Name)
 		ec.Add(err)
 	}
 	return ec.ToError()
 }
 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
-// that can be used to either commit or rollback the changes
+// that can be used to either commit or rollback the changes. A namespace being
+// deleted leaves an activated tenant's shard closed instead of failing the apply.
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
 	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
-		return idx.LoadLocalShard(ctx, name, implicitTenantActivation)
+		return idx.LoadLocalShardForTenantActivation(ctx, name, implicitTenantActivation)
 	})
 }
 

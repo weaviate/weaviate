@@ -1033,10 +1033,10 @@ func TestTenantProcessShardLoad(t *testing.T) {
 			}))
 	})
 
-	// The split that goes red if the report is ever routed back through the
-	// request path: the report opens the shard the same suspended namespace
-	// refuses to a tenant activation.
-	t.Run("a tenant activation is still refused on the same suspended shard", func(t *testing.T) {
+	// Both arrive as an apply whose schema half has committed, so both open the
+	// shard a suspended namespace holds. The row goes red if either is routed
+	// back through the request path, which would refuse instead.
+	t.Run("a tenant activation takes the same admission as the report", func(t *testing.T) {
 		db, idx, _ := dbForSkipTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 		updates := []*schemaUC.UpdateTenantPayload{{Name: "t1", Status: models.TenantActivityStatusHOT}}
 		migrator := NewMigrator(db, idx.logger, "node1")
@@ -1044,6 +1044,8 @@ func TestTenantProcessShardLoad(t *testing.T) {
 		require.ErrorIs(t, migrator.UpdateTenantsForProcess(ctx, &models.Class{Class: class}, updates),
 			errInjectedMemoryPressure)
 		require.ErrorIs(t, migrator.UpdateTenants(ctx, &models.Class{Class: class}, updates, true),
+			errInjectedMemoryPressure)
+		require.NotErrorIs(t, migrator.UpdateTenants(ctx, &models.Class{Class: class}, updates, true),
 			namespaces.ErrNamespaceSuspended)
 	})
 
@@ -1056,6 +1058,108 @@ func TestTenantProcessShardLoad(t *testing.T) {
 		require.NoError(t, idx.LoadLocalShardForTenantProcess(ctx, "t1"))
 		require.NotNil(t, idx.shards.Load("t1"), "the reported tenant must end up with a shard")
 	})
+}
+
+// The apply that turns a tenant HOT reaches the same shard load the offload
+// report does, and takes the same admission: its schema half has committed, so a
+// suspended namespace opens the shard rather than leaving the schema recording a
+// tenant HOT with nothing behind it. Only a namespace being deleted skips, and
+// that skip stays nil rather than failing the apply.
+//
+// The implicit arm is an activation a write on a cold tenant proposed, so it
+// arrives the same way and is admitted the same way.
+func TestTenantActivationShardLoad(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	for _, implicit := range []bool{false, true} {
+		name := "explicit"
+		if implicit {
+			name = "implicit"
+		}
+		t.Run(name, func(t *testing.T) {
+			assertSkipsWhenNamespaceClosed(t, class, appliedChangeStates(),
+				func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error) {
+					t.Helper()
+					db, idx, hook := dbForSkipTest(t, dbClass, e)
+					return hook, NewMigrator(db, idx.logger, "node1").UpdateTenants(ctx,
+						&models.Class{Class: callClass},
+						[]*schemaUC.UpdateTenantPayload{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+						implicit)
+				})
+		})
+	}
+}
+
+// The apply that adds a HOT tenant records the shard before it opens it, so it
+// takes the applied-change admission too. It registers the shard lazily, so a
+// state that admits it and one that skips it both come back nil. What that makes
+// this owe is the property the apply depends on: no namespace state fails the
+// create. TestTenantApplyShardLoadAdmission pins which states admit it.
+func TestTenantAddShardLoad(t *testing.T) {
+	const class = "alpha:Product"
+	ctx := context.Background()
+
+	addTenant := func(t *testing.T, e namespaces.Exister, status string) error {
+		t.Helper()
+		db, idx, _ := dbForSkipTest(t, class, e)
+		return NewMigrator(db, idx.logger, "node1").NewTenants(ctx, &models.Class{Class: class},
+			[]*schemaUC.CreateTenantPayload{{Name: "t1", Status: status}})
+	}
+
+	for _, tc := range appliedChangeStates() {
+		t.Run(tc.name+" does not fail the create", func(t *testing.T) {
+			require.NoError(t, addTenant(t, existerWithState(t, tc.state), models.TenantActivityStatusHOT))
+		})
+	}
+
+	t.Run("a cold tenant is skipped before the namespace is consulted", func(t *testing.T) {
+		require.NoError(t, addTenant(t, existerWithState(t, api.NamespaceStateDeleting),
+			models.TenantActivityStatusCOLD))
+	})
+
+	// An unreadable state is not a namespace keeping its shards closed, so the
+	// skip must not swallow it.
+	for _, tc := range namespaceLookupRefusals() {
+		t.Run(tc.name+" is an error, not a skipped load", func(t *testing.T) {
+			require.ErrorIs(t, addTenant(t, tc.exister(t), models.TenantActivityStatusHOT), tc.wantErr)
+		})
+	}
+}
+
+// Both tenant applies route to the applied-change admission rather than the
+// request path. That routing is what lets a suspended namespace open the shard
+// the apply just recorded, and it is not observable through the create, which
+// registers lazily and returns nil either way.
+func TestTenantApplyShardLoadAdmission(t *testing.T) {
+	const class = "alpha:Product"
+
+	callers := []struct {
+		name   string
+		caller shardLoadCaller
+	}{
+		{name: "tenant add", caller: callerTenantAdd},
+		{name: "tenant activation", caller: callerTenantActivation},
+	}
+
+	for _, c := range callers {
+		for _, tc := range appliedChangeStates() {
+			t.Run(c.name+"/"+tc.name, func(t *testing.T) {
+				idx, err := newIndexForNamespaceTest(t, class, existerWithState(t, tc.state))
+				require.NoError(t, err)
+
+				err = idx.requireNamespaceAllowsShardLoad(c.caller)
+				if tc.wantLoad {
+					require.NoError(t, err)
+					return
+				}
+				// errShardNamespaceClosed rather than a namespace sentinel is what
+				// says this went in as an applied change and not as a request.
+				require.ErrorIs(t, err, errShardNamespaceClosed)
+				require.NotErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+			})
+		}
+	}
 }
 
 // A movement begins by touching its source shard, and both ways in take the
@@ -2138,7 +2242,8 @@ func TestReopenShard(t *testing.T) {
 		idx.shards.Store("t1", NewMockShardLike(t))
 
 		require.NoError(t, db.ReopenShard(ctx, class, "t1"))
-		require.ErrorIs(t, idx.LoadLocalShard(ctx, "t1", false), namespaces.ErrNamespaceResuming)
+		_, _, err := idx.GetShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceResuming)
 	})
 
 	t.Run("a missing index is an error, not a silent success", func(t *testing.T) {

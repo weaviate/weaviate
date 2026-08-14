@@ -63,6 +63,11 @@ const (
 	callerReplicaAdd
 	// callerTenantProcess is the apply that records a finished offload or onload.
 	callerTenantProcess
+	// callerTenantAdd is the apply that records a new HOT tenant.
+	callerTenantAdd
+	// callerTenantActivation is the apply that records a tenant turning HOT,
+	// whether the user asked for it or a write on a cold tenant did.
+	callerTenantActivation
 	// callerReload is the reload replaying committed schema. It is decided by
 	// ShardsShouldBeOpen rather than RequireShardLoadable, so a resuming
 	// namespace's shards reopen instead of being refused.
@@ -192,8 +197,8 @@ func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 			return errShardNamespaceClosed
 		}
 		return nil
-	case callerReplicaAdd, callerTenantProcess:
-		// Both record a shard this node owns before they open it, so
+	case callerReplicaAdd, callerTenantProcess, callerTenantAdd, callerTenantActivation:
+		// Each records a shard this node owns before it opens it, so
 		// AppliedChangeMayOpenShard says why a suspended namespace opens it.
 		if !namespaces.AppliedChangeMayOpenShard(state) {
 			return errShardNamespaceClosed

@@ -89,13 +89,16 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
-// through. That is deliberate for the destructive commands, and matches the rule
-// that a suspend does not cancel work already accepted. Every node applies the
-// entry either way, so the outcome stays the same across the cluster.
+// through. That is deliberate, and matches the rule that a suspend does not
+// cancel work already accepted. Every node applies the entry either way, so the
+// outcome stays the same across the cluster.
 //
-// Commands that materialize shards are checked in Apply instead, not here: they
-// leave a schema entry with no shard behind it if they land while the namespace
-// keeps its shards closed, which a propose-time check cannot prevent.
+// A command that materializes a shard is checked here too. The flip it can race
+// leaves the schema entry standing with its shard still to open, which is the
+// state namespaces.AppliedChangeMayOpenShard already governs for every other
+// apply whose schema half has committed. An Apply-side check would not close
+// that window either: the DB half runs after the schema half commits, so a flip
+// landing in between produces the same state.
 func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
@@ -103,12 +106,20 @@ func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	return st.admitCreateLike(req)
 }
 
-// admitCreateLike refuses a create-like command outside the active state. It
-// covers only the commands with nothing to materialize, so a late one leaves no
-// half-built entity: the alias commands write schema and no store, and the RBAC
-// and user commands write neither.
+// admitCreateLike refuses a create-like command outside the active state. The
+// alias commands write schema and no store, and the RBAC and user commands write
+// neither, so a late one leaves nothing half-built. The class and tenant commands
+// do materialize a shard, and admitPropose says why a late one is still safe.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
+	case api.ApplyRequest_TYPE_ADD_CLASS,
+		api.ApplyRequest_TYPE_RESTORE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT,
+		api.ApplyRequest_TYPE_UPDATE_TENANT:
+		// These name their class outright, so the namespace comes off the
+		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		sub := &api.CreateAliasRequest{}
 		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
@@ -209,10 +220,8 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
 //
-// That determinism is why almost no arm below refuses a command for its
-// namespace state: [Store.admitPropose] does it before the entry is appended.
-// The four arms still calling RequireActive are the exception, and admitPropose
-// says why they are.
+// That determinism is why no arm below refuses a command for its namespace
+// state: [Store.admitPropose] does it before the entry is appended.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -316,19 +325,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -395,26 +396,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
-			// A namespace that is not active materializes no shard on the
-			// request path, and the schema commits before the DB does, so an
-			// ungated create leaves the tenant listed with nothing behind it.
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
-			// A namespace that is not active refuses the request-path shard load
-			// a tenant activation runs into, and the schema commits before the DB
-			// does, so an ungated activation leaves the tenant listed HOT with no
-			// shard behind it.
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 

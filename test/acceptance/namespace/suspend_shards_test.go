@@ -190,8 +190,8 @@ func requireTenantEventually(t *testing.T, qualifiedClass, tenant, status string
 }
 
 // A suspended namespace must materialize no further shards. Both tenant
-// commands are refused at RAFT apply, ahead of the schema commit, so neither
-// can leave a tenant listed with no shard behind it.
+// commands are refused before their entry is appended, so neither reaches the
+// schema and neither can leave a tenant listed with no shard behind it.
 func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)

@@ -3146,12 +3146,6 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
 }
 
-func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	// TODO: implicitShardLoading needs to be double checked if needed at all
-	// consalidate mustLoad and implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading, callerUserRequest)
-}
-
 // LoadLocalShardForReplication loads a shard on behalf of a replica movement.
 // Suspending or resuming the namespace mid-movement must not fail that load, so
 // it is exempt from the request-path namespace check. The exemption covers this
@@ -3167,7 +3161,26 @@ func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName stri
 // being deleted skips it, and that skip returns nil: the apply lands once and is
 // never re-sent, so erroring reports a failure nothing acts on.
 func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName string) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerReplicaAdd, "replica added")
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerReplicaAdd, "replica added")
+}
+
+// LoadLocalShardForTenantAdd loads a shard for the apply that records a new HOT
+// tenant. Only a namespace being deleted skips it, and that skip returns nil: the
+// schema half has already committed, so erroring would fail an apply the schema
+// stands behind either way. mustLoad stays false to keep the lazy registration a
+// tenant create did before.
+func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
+}
+
+// LoadLocalShardForTenantActivation loads a shard for the apply that records a
+// tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does.
+func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
+	implicitShardLoading bool,
+) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+		callerTenantActivation, "tenant activated")
 }
 
 // LoadLocalShardForTenantProcess loads a shard for the apply that records a
@@ -3175,7 +3188,7 @@ func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName strin
 // skip returns nil: the report arrives once and is never re-sent, so erroring
 // reports a failure nothing acts on.
 func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName string) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, callerTenantProcess, "tenant status applied")
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
 }
 
 // loadLocalShardForReload opens a shard for the reload replaying committed
@@ -3198,9 +3211,9 @@ func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, m
 // the shard is materialized by whatever next loads it. A state that cannot be read
 // still errors.
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
-	caller shardLoadCaller, change string,
+	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
 ) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, caller)
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
