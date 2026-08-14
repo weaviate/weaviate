@@ -39,7 +39,10 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 		// sentinels the tracker dir carries when the task terminalizes;
 		// nil means the task never got past STARTED on this node.
 		sentinels []string
-		status    distributedtask.TaskStatus
+		// coldTenant puts the evidence on a registered-but-unloaded tenant
+		// instead of the loaded shard.
+		coldTenant bool
+		status     distributedtask.TaskStatus
 		// migrationType defaults to change-tokenization when empty.
 		migrationType ReindexMigrationType
 		// properties defaults to the single propName when nil.
@@ -99,6 +102,38 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			wantRepairCommand: true,
 		},
 		{
+			// An unloaded tenant is where the order of the evidence check
+			// against the cleanup sweep decides the answer: the sweep loads
+			// the tenant to reclaim its disk, and the load finalizes the
+			// merged generation away, so a check running afterwards finds a
+			// clean node and says nothing about buckets that may be inverted.
+			name:              "cancelled after an unloaded tenant's generation merged",
+			sentinels:         []string{"started.mig", "merged.mig"},
+			coldTenant:        true,
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: true,
+		},
+		{
+			name:              "cancelled after an unloaded tenant's swap committed",
+			sentinels:         []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
+			coldTenant:        true,
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: true,
+		},
+		{
+			// The other direction: reading before the sweep must not turn
+			// every unloaded tenant into an alarm.
+			name:              "cancelled at STARTED, nothing on an unloaded tenant's disk",
+			sentinels:         nil,
+			coldTenant:        true,
+			status:            distributedtask.TaskStatusCancelled,
+			wantRepairCommand: false,
+			wantInLog: []string{
+				"this task left nothing for the next restart to promote here",
+			},
+			notInLog: []string{"canonical inverted bucket"},
+		},
+		{
 			// A unit died mid-work whatever the disk shows, so FAILED does
 			// not have to earn the message.
 			name:              "failed with nothing on disk",
@@ -131,12 +166,16 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			shard, idx := newReindexTestShard(t, "CancelGuidance", propName)
 			className := string(idx.Config.ClassName)
 
+			evidenceShard, evidenceLSM := shard.Name(), shard.pathLSM()
+			if tc.coldTenant {
+				evidenceShard, evidenceLSM = registerColdTenant(t, shard, idx, "cold-tenant")
+			}
 			if len(tc.sentinels) > 0 {
 				dir := tc.tracker
 				if dir == "" {
 					dir = tracker
 				}
-				mkTrackerDir(t, shard.pathLSM(), dir, tc.sentinels...)
+				mkTrackerDir(t, evidenceLSM, dir, tc.sentinels...)
 			}
 
 			logger, hook := logrustest.NewNullLogger()
@@ -157,7 +196,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 				MigrationType:      migrationType,
 				Properties:         properties,
 				TargetTokenization: "field",
-				UnitToShard:        map[string]string{"u1": shard.Name()},
+				UnitToShard:        map[string]string{"u1": evidenceShard},
 			})
 			require.NoError(t, err)
 
@@ -191,6 +230,24 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 				"a cancel that left nothing promotable must not claim the buckets are inverted")
 		})
 	}
+}
+
+// registerColdTenant adds a registered-but-unloaded tenant to sibling's
+// index — what a multi-tenant collection looks like for a tenant nobody has
+// read yet — and returns its shard name and LSM path.
+func registerColdTenant(t *testing.T, sibling *Shard, idx *Index, name string) (string, string) {
+	t.Helper()
+	ctx := testCtx()
+	cold := NewLazyLoadShard(ctx, nil, name, idx, sibling.class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(name, cold)
+	t.Cleanup(func() {
+		if cold.isLoaded() {
+			_ = cold.Shutdown(context.Background())
+		}
+	})
+	return name, shardPathLSM(idx.path(), name)
 }
 
 // Every condition under which the check cannot look answers yes: silence

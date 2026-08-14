@@ -1595,11 +1595,24 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// barrier may already have swapped shards. Three witnesses combine
 				// because each alone can under-report: the ack maps drop any ack
 				// arriving after the cancel applied, and the on-disk check only
-				// covers what this node holds. Cleanup (which drains the worker)
-				// runs first so the disk check isn't racing a write; a timed-out
-				// drain makes that answer untrustworthy, so it counts as evidence too.
-				drained := p.autoCleanupAfterTerminal(task, payload, logger)
-				if !IsSemanticMigration(payload.MigrationType) {
+				// covers what this node holds.
+				//
+				// The auto-cleanup's two halves go on either side of that disk
+				// check. The drain first, so the check isn't racing a write —
+				// and a timed-out drain makes the answer untrustworthy, so it
+				// counts as evidence too. The sweep last, because it destroys
+				// what the check reads: on an unloaded tenant the sweep loads
+				// the shard to reclaim it, and that load finalizes the merged
+				// generation away, so a check afterwards sees a clean node and
+				// stays silent about data that may be inverted.
+				semantic := IsSemanticMigration(payload.MigrationType)
+				drained := p.autoCleanupDrain(task, logger)
+				promotable := drained && semantic &&
+					p.promotableReindexStateOnThisNode(payload)
+				if drained {
+					p.autoCleanupSweep(payload, logger)
+				}
+				if !semantic {
 					// No repair guidance for a format-only cancel: even
 					// enable-rangeable's half-applied state is safe (shards
 					// without a rangeable bucket yet fall back to the
@@ -1612,7 +1625,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				}
 				if len(task.PostCompletionAcks) > 0 ||
 					len(task.PreparationCompletionAcks) > 0 || !drained ||
-					p.promotableReindexStateOnThisNode(payload) {
+					promotable {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				} else {
 					// No migration_type field on purpose: its presence is what
@@ -1679,10 +1692,44 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
-// reaches FAILED or CANCELLED. Drains any still-running local
-// goroutine, then wipes partial sidecar state per (property, indexType).
-// Errors are logged and swallowed; the next-restart audit catches anything
-// missed.
+// reaches FAILED or CANCELLED: [ReindexProvider.autoCleanupDrain] followed
+// by [ReindexProvider.autoCleanupSweep].
+//
+// Returns false when the drain timed out, which also means the sweep did not
+// run.
+//
+// A caller that has to read on-disk migration state of its own calls the two
+// halves itself and puts that read between them — see the CANCELLED arm of
+// [ReindexProvider.OnTaskCompleted].
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
+	if !p.autoCleanupDrain(task, logger) {
+		return false
+	}
+	p.autoCleanupSweep(payload, logger)
+	return true
+}
+
+// autoCleanupDrain waits for this node's task goroutine to stop, so that
+// neither the sweep that follows nor anything the caller reads from disk is
+// racing a worker that is still writing.
+//
+// Returns false when the drain timed out
+// ([reindexTerminalCleanupDrainTimeout]) — the cleanup is then skipped, and
+// callers must not trust tracker dirs read afterwards.
+func (p *ReindexProvider) autoCleanupDrain(task *distributedtask.Task, logger logrus.FieldLogger) bool {
+	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
+	defer drainCancel()
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		return false
+	}
+	return true
+}
+
+// autoCleanupSweep wipes this node's partial sidecar state per (property,
+// indexType). Errors are logged and swallowed; the next-restart audit catches
+// anything missed. Only safe once [ReindexProvider.autoCleanupDrain] has
+// returned true.
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
@@ -1694,23 +1741,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 //
-// Tracker generations a swap already merged or tidied survive this: they
-// are live deferred-finalize state, not the partial state it wipes. That is
-// what lets the CANCELLED caller read them after this has run.
-//
-// Returns false when the drain timed out ([reindexTerminalCleanupDrainTimeout])
-// — callers must not trust tracker dirs read afterwards, since the worker is
-// still writing them.
-func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) bool {
-	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
-	defer drainCancel()
-	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
-		return false
-	}
+// Destroys the on-disk record of a generation a swap already merged, so
+// anything that needs to read one reads it before calling this. A loaded
+// shard keeps that generation, since it is live deferred-finalize state
+// rather than the partial state the sweep wipes, but an unloaded tenant
+// holding one is loaded here to reclaim its disk, and the load finalizes the
+// generation away.
+func (p *ReindexProvider) autoCleanupSweep(payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	indexTypes := ReindexTargetIndexes(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return true
+		return
 	}
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
@@ -1745,7 +1785,6 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		})
 	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
 	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
-	return true
 }
 
 // sweepEachPropertyIndexType runs sweep once per (property, index type),
