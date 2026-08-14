@@ -46,8 +46,9 @@ func TestHasUntidiedTracker(t *testing.T) {
 		// corruptPayloads name trackers whose payload.mig exists but does
 		// not parse.
 		corruptPayloads []string
-		// unlistable removes read permission from .migrations, so listing it
-		// fails without the dir being absent.
+		// unlistable makes .migrations a file instead of a directory, so
+		// listing it fails without the dir being absent. Only meaningful
+		// with trackers empty (nothing a file substitution could hide).
 		unlistable bool
 		// classLevel uses change-algorithm's scope: one tracker dir the whole
 		// collection shares, with no property in its name.
@@ -248,11 +249,12 @@ func TestHasUntidiedTracker(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.unlistable && os.Geteuid() == 0 {
-				t.Skip("root reads a directory whatever its mode says")
-			}
 			tmp := t.TempDir()
-			if tc.trackers != nil {
+			if tc.unlistable {
+				// See unlistable above for why a file, not chmod.
+				require.NoError(t,
+					os.WriteFile(filepath.Join(tmp, ".migrations"), []byte("x"), 0o644))
+			} else if tc.trackers != nil {
 				migsDir := filepath.Join(tmp, ".migrations")
 				require.NoError(t, os.MkdirAll(migsDir, 0o755))
 				for trackerName, sentinels := range tc.trackers {
@@ -270,10 +272,6 @@ func TestHasUntidiedTracker(t *testing.T) {
 					require.NoError(t, os.WriteFile(
 						filepath.Join(migsDir, trackerName, reindexRecoveryPayloadFile),
 						[]byte("not a recovery record"), 0o644))
-				}
-				if tc.unlistable {
-					require.NoError(t, os.Chmod(migsDir, 0o000))
-					t.Cleanup(func() { _ = os.Chmod(migsDir, 0o755) })
 				}
 			}
 			indexType := tc.indexType

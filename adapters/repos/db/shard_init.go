@@ -277,7 +277,11 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		if fileExistsInDir(dirPath, "tidied.mig") {
 			continue
 		}
-		propNames, err := readRecoveryPropertyNames(dirPath)
+		// Unbounded on purpose, unlike the cleanup probes: refusing here would
+		// leave the property on the default-true readiness policy for the whole
+		// of a large migration, which is a query-side answer rather than an
+		// extra directory walk.
+		propNames, err := readRecoveryPropertyNames(dirPath, unboundedRecoveryPayload)
 		if err != nil {
 			continue
 		}
@@ -287,6 +291,23 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
+// maxRecoveryPayloadBytes bounds what [readTaskProps] parses. A payload names
+// every targeted tenant, so a large multi-tenant migration reaches megabytes,
+// and the cleanup probes that want one field from it run inside the RAFT
+// apply of a property DELETE, holding the FSM loop cluster-wide.
+//
+// A payload over the bound is refused, not parsed, and reads as
+// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers conclude.
+const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
+
+// unboundedRecoveryPayload parses a payload of any size.
+const unboundedRecoveryPayload = 0
+
+// errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
+// refused. Distinguishable from a payload that was opened and could not be
+// parsed, so a refusal is not counted as a read: it cost a stat.
+var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
+
 // readRecoveryPropertyNames extracts the `Properties` slice from a
 // migration tracker dir's payload.mig sentinel file (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
@@ -294,8 +315,22 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 // one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the task recorded
 // nothing", while the latter makes the unloaded-shard gate and the recovery
 // probe ([hasUntidiedTracker]) fail open.
-func readRecoveryPropertyNames(migDir string) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
+//
+// maxBytes refuses a larger payload before opening it;
+// [unboundedRecoveryPayload] reads any size.
+func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
+	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
+	if maxBytes > unboundedRecoveryPayload {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.Size() > maxBytes {
+			return nil, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
+		}
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

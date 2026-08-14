@@ -361,7 +361,10 @@ func TestHandlerSweepLinesFollowTheSharedTaxonomy(t *testing.T) {
 				// A dropped or clean sweep leaves no failure, so only the
 				// cancel handler's summary reports it.
 				if len(failures) == 0 && phase == sweepPhaseSubmit {
-					t.Skip("submit reports only what an operator must act on")
+					logStaleSweepFailures(logrus.NewEntry(logger), phase, failures)
+					require.Empty(t, hook.Entries,
+						"submit reports only what an operator must act on")
+					return
 				}
 				if len(failures) > 0 {
 					logStaleSweepFailures(logrus.NewEntry(logger), phase, failures)

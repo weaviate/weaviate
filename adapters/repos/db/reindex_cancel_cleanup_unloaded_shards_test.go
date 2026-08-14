@@ -307,6 +307,10 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
 		unreadable string
+		// unreadablePayloadTracker names a tracker whose payload.mig is a
+		// directory instead of a file — unreadable for any user, root
+		// included, unlike unreadable's chmod.
+		unreadablePayloadTracker string
 		// corruptPayload names a tracker whose payload.mig is written as
 		// garbage bytes instead of a recovery record.
 		corruptPayload string
@@ -526,14 +530,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		// A payload this sweep can't read could name this property; answering
 		// from the name alone would report a shard this sweep owns as clean.
 		{
-			name:       "a tracker payload the gate cannot read",
-			indexType:  "filterable",
-			unreadable: ".migrations/enable_filterable_category_other_1",
-			trackers:   map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
-			payloads: map[string][]string{
-				"enable_filterable_category_other_1": {"category", "other"},
-			},
-			wantStale: true,
+			name:                     "a tracker payload the gate cannot read",
+			indexType:                "filterable",
+			unreadablePayloadTracker: "enable_filterable_category_other_1",
+			trackers:                 map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			wantStale:                true,
 		},
 		{
 			name:           "a tracker payload the gate cannot parse",
@@ -593,8 +594,14 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				defer func() { require.NoError(t, os.Chmod(denied, 0o755)) }()
 				require.NoError(t, os.Chmod(denied, 0o000))
 			}
+			if tc.unreadablePayloadTracker != "" {
+				// See unreadablePayloadTracker above for why a dir, not chmod.
+				require.NoError(t, os.MkdirAll(filepath.Join(
+					lsm, ".migrations", tc.unreadablePayloadTracker, reindexRecoveryPayloadFile),
+					0o755))
+			}
 
-			stale, _, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil)
 			require.Equal(t, tc.wantStale, stale)
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
@@ -692,7 +699,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			stale, _, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil)
+			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			cleanSweep(t, ctx, shard, tc.propName, "filterable")
@@ -769,7 +776,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			gateHold, _, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
+			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			cleanSweep(t, ctx, shard, "a", "filterable")
@@ -827,7 +834,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 				mkSidecarDir(t, lsm, tc.liveSidecar)
 			}
 
-			stale, _, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil)
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil)
 			require.True(t, stale,
 				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
 
@@ -875,7 +882,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
 	require.True(t, err == nil || os.IsNotExist(err))
 	mkTrackerDir(t, lsm, tracker, "started.mig")
-	staleAfterArrival, _, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs)
+	staleAfterArrival, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs, dirs.trackerProps())
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 
@@ -1023,7 +1030,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 				require.NoError(t, lazy.Load(ctx))
 			}
 
-			gotSkip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil)
+			gotSkip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil, nil)
 			assert.Equal(t, tc.wantSkip, gotSkip)
 
 			require.True(t, lazy.mutex.TryLock(),

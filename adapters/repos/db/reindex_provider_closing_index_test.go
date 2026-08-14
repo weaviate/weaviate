@@ -52,11 +52,10 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 		sentinels []string
 		want      bool
 	}{
-		{
-			name:      "an open index whose swap started and never committed",
-			sentinels: []string{"started.mig"},
-			want:      false,
-		},
+		// The untidied, non-closing baseline is already pinned in
+		// TestLocalCallbacksDoneLeavesUnloadedShardsAlone; an untidied tracker
+		// answers false with or without closing (row below), so it wouldn't
+		// isolate what closing changes here.
 		{
 			name:      "an open index whose swap tidied",
 			sentinels: []string{"started.mig", "tidied.mig"},

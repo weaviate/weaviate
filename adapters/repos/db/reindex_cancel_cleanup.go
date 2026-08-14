@@ -287,7 +287,7 @@ func (i *Index) cleanStalePartialReindexState(
 			// Charged whichever way the gate answers: the reads are paid before
 			// it decides, so billing only the hydrating half reports zero exactly
 			// where a node full of cold tenants pays the most.
-			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs)
+			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs, dirs.trackerProps())
 			payloadReads += gateReads
 			// Unloaded and nothing on disk to sweep or reclaim: skip rather
 			// than hydrate.
@@ -378,21 +378,24 @@ func (i *Index) cleanStalePartialReindexState(
 // meaningful where the first return is false — a shard already being
 // hydrated finalizes them on the way in either way.
 //
-// The third return is the tracker-payload read count for the caller's log
-// line; payloads are memoized per call, not shared across shards, since no
-// two shards name the same path.
+// props memoizes the tracker payloads read on the way to that answer. Callers
+// running a grid of tuples over the same shards hand in one for the whole run
+// ([dirNamesCache.trackerProps]); a nil one is memoized for this call alone.
 func hasStalePartialReindexState(
-	lsmPath, propName, indexType string, dirs *dirNamesCache,
-) (stale, finalizable bool, payloadReads int) {
-	props := &taskPropsCache{}
+	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+) (stale, finalizable bool) {
+	if props == nil {
+		// No run-wide memo: keep the passes below sharing one of their own.
+		props = &taskPropsCache{}
+	}
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return true, false, props.count()
+		return true, false
 	}
 
 	names, err := dirs.listSidecarCandidates(lsmPath)
 	if err != nil {
-		return !os.IsNotExist(err), false, props.count()
+		return !os.IsNotExist(err), false
 	}
 	var sidecarSuffixes []string
 	for _, name := range names {
@@ -407,7 +410,7 @@ func hasStalePartialReindexState(
 		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
-				return true, false, props.count()
+				return true, false
 			}
 		}
 		// Every sidecar here backs a completed migration, so nothing but a
@@ -418,7 +421,7 @@ func hasStalePartialReindexState(
 	// Migration tracker dirs, minus the deferred-finalize generations.
 	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {
-		return !os.IsNotExist(err), false, props.count()
+		return !os.IsNotExist(err), false
 	}
 	var preservedGens map[int]bool
 	for _, name := range names {
@@ -426,7 +429,7 @@ func hasStalePartialReindexState(
 		if unreadablePayload {
 			// A payload this gate can't read could name this property; only
 			// hydrating and re-reading can tell, so this is not "clean".
-			return true, false, props.count()
+			return true, false
 		}
 		if !matched {
 			continue
@@ -438,9 +441,9 @@ func hasStalePartialReindexState(
 			finalizable = true
 			continue
 		}
-		return true, false, props.count()
+		return true, false
 	}
-	return false, finalizable, props.count()
+	return false, finalizable
 }
 
 // maxCachedDirNames bounds what one [dirNamesCache] holds, so a node with tens
@@ -468,6 +471,24 @@ type dirNamesCache struct {
 	// refused counts the listings the bound kept out, which the sweep reports
 	// so a cache that stopped caching is visible.
 	refused int
+	// props is the tracker-payload memo of the same run; see
+	// [dirNamesCache.trackerProps].
+	props taskPropsCache
+}
+
+// trackerProps is the payload memo sharing this cache's lifetime, so the two
+// can never drift apart: every tuple of one run asks the same unloaded shards,
+// and a payload costs orders of magnitude more to parse than a listing costs
+// to read.
+//
+// Safe across tuples in both directions: a skipped shard is unchanged, and a
+// hydrated one answers from [LazyLoadShard.loaded] before it consults the
+// memo again. A nil cache has no memo; its callers keep one per call instead.
+func (c *dirNamesCache) trackerProps() *taskPropsCache {
+	if c == nil {
+		return nil
+	}
+	return &c.props
 }
 
 // refusedListings reports how many listings [maxCachedDirNames] kept out. A nil

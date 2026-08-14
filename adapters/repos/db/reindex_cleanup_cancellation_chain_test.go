@@ -14,14 +14,10 @@ package db
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // [truncatedByCancellation] can only tell a cancelled run from a broken shard
@@ -91,44 +87,15 @@ func loadStoppedByACancelledContext(t *testing.T) error {
 }
 
 // sidecarShutdownStoppedByACancelledContext is the sweep's first side effect,
-// stopped by the context the bucket takes into its shutdown. The bucket is
-// deregistered before it drains its in-flight reads, so "gone from the store"
-// is where the sweep is known to be inside the shutdown; a read pin holds it
-// at that drain. The drain itself ignores the context — cancelling only takes
-// effect once the pin is released and the shutdown reaches its first wait.
+// stopped by the context the bucket takes into its shutdown. It is the shard's
+// own sweep rather than the index-level one, so nothing above the shard can
+// re-tag what the shutdown reported.
 func sidecarShutdownStoppedByACancelledContext(t *testing.T) error {
 	t.Helper()
-	ctx, cancel := context.WithCancel(testCtx())
-	t.Cleanup(cancel)
-
-	className := "CancelInShutdown" + uuid.NewString()[:8]
-	shd, _ := testShardWithSettings(t, testCtx(),
-		newTestClassWithProps(className, []string{"category"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(testCtx()) })
-
-	mkTrackerDir(t, shard.pathLSM(), "enable_filterable_category_2", "started.mig")
-	const sidecar = "property_category__enable_filterable_ingest_2"
-	require.NoError(t, shard.store.CreateOrLoadBucket(testCtx(), sidecar,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-
-	pinned, unpin := shard.store.AcquireBucketForRead(sidecar)
-	require.NotNil(t, pinned)
-
-	swept := make(chan error, 1)
-	go func() {
-		_, err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
-		swept <- err
-	}()
-
-	require.Eventually(t, func() bool {
-		_, stillRegistered := shard.store.GetBucketsByName()[sidecar]
-		return !stillRegistered
-	}, 30*time.Second, time.Millisecond,
-		"the sweep never reached the bucket shutdown, so the cancellation could not land in it")
-
-	cancel()
-	unpin()
-	return <-swept
+	_, err := sweepStoppedInABucketShutdown(t,
+		func(ctx context.Context, _ *Index, shard *Shard) error {
+			_, err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
+			return err
+		})
+	return err
 }

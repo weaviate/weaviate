@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -483,13 +484,13 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 	return answer.props, answer.ok, answer.unreadable
 }
 
-// taskPropsCache memoizes parsed tracker payloads for one cleanup pass
-// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]) or
-// one unloaded-shard gate call ([hasStalePartialReindexState]); a nil cache
-// reads every time. Not safe for concurrent use.
+// taskPropsCache memoizes parsed tracker payloads; a nil cache reads every
+// time. Not safe for concurrent use.
 //
-// Anything longer-lived would let a hydrated shard's sweep act on a stale
-// snapshot, which [DB.NewStalePartialReindexSweep] promises it never does.
+// Lives no longer than one cleanup pass, or one gate run over a tuple grid
+// ([dirNamesCache.trackerProps]): a hydrated shard stops consulting the memo,
+// so it never drives a sweep decision off a stale snapshot
+// ([DB.NewStalePartialReindexSweep]).
 type taskPropsCache struct {
 	byDir map[string]taskProps
 	reads int
@@ -540,18 +541,25 @@ func (c *taskPropsCache) count() int {
 // payload.mig costs megabytes per tracker on a large migration, inside a RAFT
 // apply that holds the FSM loop cluster-wide.
 //
+// A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
+// reads the same as one that could not be parsed: fail-open, never
+// fail-wrong. Deletion falls back to matching the dir's own name (removing
+// only what the name proves, else leaving it for the stale-sentinel check to
+// refuse loudly); preservation matches on a name token and so keeps more;
+// the unloaded-shard gate hydrates the shard instead of skipping it.
+//
 // readPayload reports whether payload.mig was opened, so the caller's read
-// counter keeps meaning what it says.
+// counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayload bool) {
 	if props, ok := propsFromSidecar(migDir, prefixes); ok {
 		return taskProps{props: props, ok: true}, false
 	}
-	props, err := readRecoveryPropertyNames(migDir)
+	props, err := readRecoveryPropertyNames(migDir, maxRecoveryPayloadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return taskProps{}, false
 		}
-		return taskProps{unreadable: true}, true
+		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
 	}
 	if len(props) == 0 {
 		return taskProps{}, true
