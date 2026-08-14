@@ -133,6 +133,29 @@ func renderSourceValue(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// asStringSlice normalizes a text[] value to []string: it can be []any after a JSON/RAFT
+// round-trip, and nil means empty. False means the shape is not a renderable text[].
+func asStringSlice(v any) ([]string, bool) {
+	switch val := v.(type) {
+	case nil:
+		return nil, true
+	case []string:
+		return val, true
+	case []any:
+		out := make([]string, len(val))
+		for i := range val {
+			s, ok := val[i].(string)
+			if !ok {
+				return nil, false
+			}
+			out[i] = s
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	cfg moduletools.ClassConfig,
 	mod modulecapabilities.Vectorizer[T],
@@ -277,20 +300,19 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if propStruct.IsArray {
-			// empty strings do not have type information saved with them - the new value can also come from disk if
-			// an update happens
-			if _, ok := valOld.([]any); ok && len(valOld.([]any)) == 0 {
-				valOld = []string{}
-			}
-			if _, ok := valNew.([]any); ok && len(valNew.([]any)) == 0 {
-				valNew = []string{}
-			}
-
-			if len(valOld.([]string)) != len(valNew.([]string)) {
+			// Either side can be []any after a JSON/RAFT round-trip; normalize instead
+			// of asserting []string, which panicked and surfaced as a 500.
+			oldArr, oldOK := asStringSlice(valOld)
+			newArr, newOK := asStringSlice(valNew)
+			if !oldOK || !newOK {
+				// Unknown shape: cannot prove the corpus text unchanged - re-vectorize.
 				return true, nil
 			}
-			for i, val := range valOld.([]string) {
-				if val != valNew.([]string)[i] {
+			if len(oldArr) != len(newArr) {
+				return true, nil
+			}
+			for i, val := range oldArr {
+				if val != newArr[i] {
 					return true, nil
 				}
 			}

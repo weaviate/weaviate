@@ -386,3 +386,47 @@ func TestCompareRevectorize_BlobHashMediaProperty(t *testing.T) {
 		{name: "media blobHash changed -> re-vectorize", oldProps: map[string]any{"image": hashA}, newProps: map[string]any{"image": "Qg=="}, different: true},
 	})
 }
+
+// TestCompareRevectorize_TextArrayAnyForms: a text[] can be []any after a JSON/RAFT
+// round-trip; the comparator must normalize, not assert []string (which panicked as a 500).
+func TestCompareRevectorize_TextArrayAnyForms(t *testing.T) {
+	textArrayProp := &models.Property{
+		Name:     "text_array",
+		DataType: []string{schema.DataTypeTextArray.String()},
+	}
+
+	cases := []sourcePropCase{
+		{name: "[]any old vs []string new, equal -> skip", oldProps: map[string]any{"text_array": []any{"a", "b"}}, newProps: map[string]any{"text_array": []string{"a", "b"}}, different: false},
+		{name: "[]string old vs []any new, equal -> skip", oldProps: map[string]any{"text_array": []string{"a", "b"}}, newProps: map[string]any{"text_array": []any{"a", "b"}}, different: false},
+		{name: "[]any both sides, equal -> skip", oldProps: map[string]any{"text_array": []any{"a", "b"}}, newProps: map[string]any{"text_array": []any{"a", "b"}}, different: false},
+		{name: "[]any old vs []string new, differing value -> re-vectorize", oldProps: map[string]any{"text_array": []any{"a", "b"}}, newProps: map[string]any{"text_array": []string{"a", "c"}}, different: true},
+		{name: "[]string old vs []any new, differing value -> re-vectorize", oldProps: map[string]any{"text_array": []string{"a", "b"}}, newProps: map[string]any{"text_array": []any{"a", "c"}}, different: true},
+		{name: "[]any old vs []string new, differing length -> re-vectorize", oldProps: map[string]any{"text_array": []any{"a"}}, newProps: map[string]any{"text_array": []string{"a", "b"}}, different: true},
+		{name: "empty []any vs empty []string -> skip", oldProps: map[string]any{"text_array": []any{}}, newProps: map[string]any{"text_array": []string{}}, different: false},
+		{name: "nil vs empty []string -> skip", oldProps: map[string]any{"text_array": nil}, newProps: map[string]any{"text_array": []string{}}, different: false},
+		// Not a text[] the corpus could render: we cannot prove the corpus text is
+		// unchanged, so re-vectorize rather than risk keeping a stale vector.
+		{name: "[]any holding a non-string -> re-vectorize", oldProps: map[string]any{"text_array": []any{1, 2}}, newProps: map[string]any{"text_array": []any{1, 2}}, different: true},
+		{name: "[]any holding a non-string vs []string -> re-vectorize", oldProps: map[string]any{"text_array": []any{"a", 2}}, newProps: map[string]any{"text_array": []string{"a", "2"}}, different: true},
+	}
+
+	t.Run("legacy class-level vectorizer", func(t *testing.T) {
+		class := &models.Class{
+			Class:      "MyClass",
+			Vectorizer: "my-module",
+			Properties: []*models.Property{textArrayProp},
+		}
+		// sourceProps stays nil on every case: this is the legacy, no-source-properties path.
+		runSourcePropCases(t, class, []string{"image", "video"}, cases)
+	})
+
+	t.Run("named vector with source properties", func(t *testing.T) {
+		class := newSourcePropClass(textArrayProp)
+		withSourceProps := make([]sourcePropCase, len(cases))
+		for i, c := range cases {
+			c.sourceProps = []string{"text_array"}
+			withSourceProps[i] = c
+		}
+		runSourcePropCases(t, class, []string{"image", "video"}, withSourceProps)
+	})
+}
