@@ -74,7 +74,7 @@ func TestSearchRepairsEntrypointDeletedInObjectStore(t *testing.T) {
 			AllocChecker: memwatch.NewDummyMonitor(),
 			RootPath:     dirName,
 			ID:           indexID,
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 				return NewCommitLogger(dirName, indexID, logger,
 					cyclemanager.NewCallbackGroupNoop())
 			},

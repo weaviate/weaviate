@@ -57,7 +57,6 @@ type node struct {
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
-	objectCount   int
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -114,6 +113,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
 		return n.schemaManager.ReadOnlyClass(className)
 	}).Maybe()
@@ -187,7 +187,16 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, strconv.Itoa(n.objectCount))
+		// Return the real per-shard count, mirroring the production handler. A
+		// hardcoded value only matches when every shard is counted over HTTP;
+		// once local replica calls are short-circuited in-process (true count),
+		// a fabricated remote count makes the aggregated total flaky.
+		count, err := n.repo.CountObjects(r.Context(), r.PathValue("collection"), r.PathValue("shard"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, strconv.Itoa(count))
 	})
 
 	srv := httptest.NewServer(mux)
@@ -290,7 +299,7 @@ func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenan
 	return res, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil

@@ -50,7 +50,20 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
-	DefaultReindexConcurrency                    = 2
+	// The interval caps are operational sanity bounds on fat-fingered
+	// overrides (a multi-year tick or TTL disables its subsystem in all but
+	// name). They also sit far below the ~292-year point where the
+	// int-to-duration multiply would overflow negative — a negative tick
+	// interval panics time.NewTicker after boot, and a negative TTL silently
+	// expires every completed task record.
+	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
+	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
+	// DefaultDropVectorReconcileInterval paces the drop-vector marker
+	// reconciliation loop; a safety net, so infrequent by default.
+	DefaultDropVectorReconcileInterval = 15 * time.Minute
+	// maxDropVectorReconcileIntervalSeconds caps the override at 7 days.
+	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
+	DefaultReindexConcurrency             = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
@@ -552,38 +565,28 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
-	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
-		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
-	}
-
-	if err := parseNonNegativeInt(
+	//
+	// These variables were meaningful back when HNSW snapshots were an
+	// optional add-on layered on top of the commit log. In the compactv2
+	// world the compactor owns the full on-disk lifecycle — snapshots are
+	// first-class, not an optional speedup — and there is no safe or useful
+	// interpretation for "disable snapshots" or for the interval / delta
+	// thresholds that used to throttle their creation.
+	//
+	// The environment variables are still recognized so existing deployments
+	// parse without error. If any is set we emit a one-line warning so the
+	// operator is not silently misled into thinking their setting has an
+	// effect. Unset means no warning. See RFC / commit message for context.
+	for _, envVar := range []string{
+		"PERSISTENCE_HNSW_DISABLE_SNAPSHOTS",
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
-		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
-		DefaultHNSWSnapshotIntervalSeconds,
-	); err != nil {
-		return err
-	}
-
-	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
-	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
-		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
-	}
-
-	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP",
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
-		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
-		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
-	); err != nil {
-		return err
-	}
-
-	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
-		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
-		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
-	); err != nil {
-		return err
+	} {
+		if _, set := os.LookupEnv(envVar); set {
+			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+		}
 	}
 	// ---- HNSW snapshots ----
 
@@ -1376,18 +1379,32 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
-	if err = parsePositiveInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
-		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDistributedTasksSchedulerTickIntervalSeconds),
 	); err != nil {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		validateIntRange(0, maxDistributedTasksCompletedTaskTTLHours),
+	); err != nil {
+		return err
+	}
+
+	if err = parseIntVerify(
+		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+		int(DefaultDropVectorReconcileInterval.Seconds()),
+		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDropVectorReconcileIntervalSeconds),
 	); err != nil {
 		return err
 	}
@@ -1785,6 +1802,16 @@ func parsePositiveIntOrZero(envName string, cb func(val int)) error {
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
+}
+
+// validateIntRange builds a parseIntVerify verifier enforcing min <= val <= max.
+func validateIntRange(min, max int) func(val int, envName string) error {
+	return func(val int, envName string) error {
+		if val < min || val > max {
+			return fmt.Errorf("%s must be between %d and %d, got %d", envName, min, max, val)
+		}
+		return nil
+	}
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {

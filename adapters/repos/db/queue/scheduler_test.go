@@ -609,3 +609,15 @@ func (m *mockTask) Key() uint64 {
 func (m *mockTask) Execute(ctx context.Context) error {
 	return m.execFn(ctx)
 }
+
+// TestCloseUnstartedSchedulerRunsOnClose: Close on a never-started scheduler must still fire OnClose exactly once — owners count it in a shutdown WaitGroup, and a skipped call pins their Wait forever.
+func TestCloseUnstartedSchedulerRunsOnClose(t *testing.T) {
+	calls := 0
+	s := NewScheduler(SchedulerOptions{OnClose: func() { calls++ }})
+
+	require.NoError(t, s.Close(context.Background()))
+	require.Equal(t, 1, calls, "OnClose must run for an unstarted scheduler")
+
+	require.NoError(t, s.Close(context.Background()))
+	require.Equal(t, 1, calls, "a second Close must not run OnClose again")
+}

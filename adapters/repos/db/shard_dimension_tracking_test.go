@@ -65,6 +65,7 @@ func Benchmark_Migration(b *testing.B) {
 			}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
 			mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -146,6 +147,7 @@ func Test_Migration(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -245,6 +247,7 @@ func Test_DimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -498,6 +501,7 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -657,6 +661,16 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			},
 
 			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
+			name: "named_with_rq_4bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 4
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 2) * objectCount,
 		},
 		{
 			name: "named_with_rq_1bit",
@@ -847,6 +861,18 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedCategory: DimensionCategoryRQ,
 			expectedSegments: 0,
 			expectedBits:     1,
+		},
+		{
+			name: "HNSW with RQ-4 enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: true, Bits: 4},
+			},
+			expectedCategory: DimensionCategoryRQ,
+			expectedSegments: 0,
+			expectedBits:     4,
 		},
 		{
 			name: "HNSW with RQ-8 enabled",

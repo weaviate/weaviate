@@ -61,7 +61,7 @@ func TestTerminalCleanupRanksATupleFailureLikeTheSweepDoes(t *testing.T) {
 			logger.SetLevel(logrus.DebugLevel)
 			p := NewReindexProvider(
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-				nil, logger, "n1", nil, context.Background())
+				nil, nil, logger, "n1", nil, context.Background())
 
 			p.autoCleanupAfterTerminal(&distributedtask.Task{
 				Namespace:      ReindexNamespace,

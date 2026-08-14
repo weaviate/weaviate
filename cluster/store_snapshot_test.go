@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -60,6 +62,125 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	assert.NoError(t, err)
 
 	verifySchemaRestoration(t, source, target)
+}
+
+// TestSnapshotCapturesStateAtSnapshotTime pins the FSM snapshot cut: raft
+// calls Snapshot() apply-thread-serialized but runs Persist concurrently with
+// later applies, so state committed after Snapshot() must NOT leak into the
+// persisted bytes. A snapshot newer than its raft index (and torn across
+// sub-FSMs, each captured at a different instant) makes replayed entries hit
+// state they already assume — and the DTM-reading apply verdicts (drop-vector
+// marker purge-refusal, removal gate) then reject on the restoring node what
+// its peers accepted: silent per-node schema divergence.
+func TestSnapshotCapturesStateAtSnapshotTime(t *testing.T) {
+	source := NewMockStore(t, "cut-source-node", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+
+	// Committed after Snapshot(), i.e. "while Persist runs".
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Product"})
+	require.NoError(t, err)
+	lateTask := raft.Log{
+		Data: cmdAsBytes("", cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&cmd.AddDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "committed-after-snapshot",
+				Payload:               payloadBytes,
+				SubmittedAtUnixMillis: 1,
+				UnitIds:               []string{"u-1"},
+			}, nil),
+	}
+	if resp, ok := source.store.Apply(&lateTask).(Response); !ok || resp.Error != nil {
+		t.Fatalf("apply late task: ok=%v err=%v", ok, resp.Error)
+	}
+
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+
+	// The DTM section of the snapshot is nested as base64-encoded bytes, so a
+	// substring probe on the raw sink can never fail — restore the persisted
+	// bytes into a fresh store and check the actual post-restore state.
+	target := NewMockStore(t, "cut-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
+	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+	restored, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	for _, task := range restored["test-namespace"] {
+		require.NotEqual(t, "committed-after-snapshot", task.ID,
+			"state committed after Snapshot() leaked into the persisted snapshot")
+	}
+}
+
+// TestSnapshotRestore_DistributedTaskStateRoundTrip pins that DTM state — the
+// records the drop-vector purge-refusal and removal-gate verdicts read —
+// survives an actual Persist→Restore round trip, and that Restore REPLACES
+// the target's DTM state rather than merging: a pre-existing task on the
+// restoring node that the snapshot's producer never had must be gone, or this
+// node alone would refuse applies its peers accept.
+func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
+	source := NewMockStore(t, "dtm-source-node", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Product"})
+	require.NoError(t, err)
+	applyDTM := func(ms MockStore, typ cmd.ApplyRequest_Type, sub any) {
+		t.Helper()
+		log := raft.Log{Data: cmdAsBytes("", typ, sub, nil)}
+		resp, ok := ms.store.Apply(&log).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error)
+	}
+
+	// One task with two units, one unit completed — the exact per-unit shape
+	// coverage inheritance keys off.
+	applyDTM(source, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		&cmd.AddDistributedTaskRequest{
+			Namespace: "test-namespace", Id: "drop-a", Payload: payloadBytes,
+			SubmittedAtUnixMillis: 1, UnitIds: []string{"s1", "s2"},
+		})
+	applyDTM(source, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED,
+		&cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "test-namespace", Id: "drop-a",
+			NodeId: "dtm-source-node", UnitId: "s1", FinishedAtUnixMillis: 2,
+		})
+
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+
+	target := NewMockStore(t, "dtm-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
+	// Pre-existing task the snapshot producer never had: must NOT survive.
+	applyDTM(target, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		&cmd.AddDistributedTaskRequest{
+			Namespace: "test-namespace", Id: "pre-existing", Payload: payloadBytes,
+			SubmittedAtUnixMillis: 1, UnitIds: []string{"u-1"},
+		})
+
+	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+	tasks, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks["test-namespace"], 1, "post-Restore state must equal the snapshot, not pre-state ∪ snapshot")
+	restored := tasks["test-namespace"][0]
+	require.Equal(t, "drop-a", restored.ID)
+	require.Equal(t, distributedtask.UnitStatusCompleted, restored.Units["s1"].Status,
+		"per-unit completion state must survive the round trip")
+	require.Equal(t, distributedtask.UnitStatusPending, restored.Units["s2"].Status)
 }
 
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store
@@ -173,8 +294,11 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 				sink := &mocks.SnapshotSink{
 					Buffer: &bytes.Buffer{},
 				}
-				err := source.store.Persist(sink)
-				assert.NoError(t, err)
+				snapshot, err := source.store.Snapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				assert.NoError(t, snapshot.Persist(sink))
 				time.Sleep(time.Microsecond)
 			}
 		}()
@@ -189,7 +313,11 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 				sink := &mocks.SnapshotSink{
 					Buffer: &bytes.Buffer{},
 				}
-				err := source.store.Persist(sink)
+				snapshot, err := source.store.Snapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				err = snapshot.Persist(sink)
 				assert.NoError(t, err)
 
 				target.parser.On("ParseClass", mock.Anything).Return(nil)

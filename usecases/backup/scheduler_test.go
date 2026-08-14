@@ -541,7 +541,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		}
 		assert.Equal(t, resp, want1)
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			time.Sleep(time.Millisecond * 50)
 			if i > 0 && s.backupper.lastOp.get().Status == "" {
 				break
@@ -691,7 +691,7 @@ func TestSchedulerRestoration(t *testing.T) {
 				Path:    path,
 			}
 			assert.Equal(t, resp, want1)
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				time.Sleep(time.Millisecond * 60)
 				if i > 0 && s.restorer.lastOp.get().Status == "" {
 					break
@@ -827,7 +827,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Equal(t, resp, want1)
 
 		// Wait for restore to complete
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			time.Sleep(time.Millisecond * 60)
 			if i > 0 && s.restorer.lastOp.get().Status == "" {
 				break

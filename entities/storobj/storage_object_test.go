@@ -1284,15 +1284,15 @@ func TestMultiVectorFromBinary(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	outVector1, err := MultiVectorFromBinary(asBinary, nil, "vector1")
+	outVector1, err := MultiVectorFromBinary(asBinary, "vector1")
 	require.Nil(t, err)
 	assert.Equal(t, vector1, outVector1)
 
-	outVector2, err := MultiVectorFromBinary(asBinary, nil, "vector2")
+	outVector2, err := MultiVectorFromBinary(asBinary, "vector2")
 	require.Nil(t, err)
 	assert.Equal(t, vector2, outVector2)
 
-	outVector3, err := MultiVectorFromBinary(asBinary, nil, "vector3")
+	outVector3, err := MultiVectorFromBinary(asBinary, "vector3")
 	require.Nil(t, err)
 	assert.Equal(t, vector3, outVector3)
 
@@ -2152,4 +2152,128 @@ func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
 		ids[i] = start + uint64(rand.Intn(int(end-start)))
 	}
 	return ids
+}
+
+func TestStorageObjectRemoveTargetVector(t *testing.T) {
+	tests := []struct {
+		name             string
+		vectors          map[string][]float32
+		multiVectors     map[string][][]float32
+		targetVector     string
+		wantChanged      bool
+		wantVectors      []string
+		wantMultiVectors []string
+	}{
+		{
+			name:             "removes a regular vector",
+			vectors:          map[string][]float32{"foo": {1, 2}, "bar": {3, 4}},
+			targetVector:     "foo",
+			wantChanged:      true,
+			wantVectors:      []string{"bar"},
+			wantMultiVectors: []string{},
+		},
+		{
+			name:             "removes a multi vector",
+			multiVectors:     map[string][][]float32{"mv": {{1, 2}}, "keep": {{3, 4}}},
+			targetVector:     "mv",
+			wantChanged:      true,
+			wantVectors:      []string{},
+			wantMultiVectors: []string{"keep"},
+		},
+		{
+			name:             "absent name is a no-op",
+			vectors:          map[string][]float32{"foo": {1}},
+			multiVectors:     map[string][][]float32{"mv": {{2}}},
+			targetVector:     "missing",
+			wantChanged:      false,
+			wantVectors:      []string{"foo"},
+			wantMultiVectors: []string{"mv"},
+		},
+		{
+			name:             "nil maps are a no-op",
+			targetVector:     "foo",
+			wantChanged:      false,
+			wantVectors:      []string{},
+			wantMultiVectors: []string{},
+		},
+	}
+
+	vectorKeys := func(m map[string][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+	multiVectorKeys := func(m map[string][][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Object{Vectors: tt.vectors, MultiVectors: tt.multiVectors}
+
+			assert.Equal(t, tt.wantChanged, o.RemoveTargetVector(tt.targetVector))
+			assert.ElementsMatch(t, tt.wantVectors, vectorKeys(o.Vectors))
+			assert.ElementsMatch(t, tt.wantMultiVectors, multiVectorKeys(o.MultiVectors))
+
+			assert.False(t, o.RemoveTargetVector(tt.targetVector))
+		})
+	}
+}
+
+func TestStorageObjectRemoveTargetVectorRoundTrip(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class: "DropClass",
+			ID:    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		},
+		nil,
+		map[string][]float32{"keep": {1, 2, 3}, "drop": {4, 5, 6}},
+		map[string][][]float32{"mvkeep": {{7, 8}}, "mvdrop": {{9, 10}}},
+	)
+	before.DocID = 1
+
+	asBinary, err := before.MarshalBinary()
+	require.NoError(t, err)
+
+	obj, err := FromBinaryDisk(asBinary, "DropClass")
+	require.NoError(t, err)
+
+	require.True(t, obj.RemoveTargetVector("drop"))
+	require.True(t, obj.RemoveTargetVector("mvdrop"))
+	require.False(t, obj.RemoveTargetVector("drop"))
+
+	stripped, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	after, err := FromBinaryDisk(stripped, "DropClass")
+	require.NoError(t, err)
+
+	vectorKeys := func(m map[string][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+	multiVectorKeys := func(m map[string][][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+
+	assert.ElementsMatch(t, []string{"keep"}, vectorKeys(after.Vectors))
+	assert.ElementsMatch(t, []string{"mvkeep"}, multiVectorKeys(after.MultiVectors))
+	assert.ElementsMatch(t, after.Vectors["keep"], []float32{1, 2, 3})
+	assert.ElementsMatch(t, after.MultiVectors["mvkeep"], [][]float32{{7, 8}})
+
+	assert.False(t, after.RemoveTargetVector("drop"))
+	assert.False(t, after.RemoveTargetVector("mvdrop"))
 }

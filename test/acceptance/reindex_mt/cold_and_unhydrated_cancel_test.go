@@ -12,7 +12,6 @@
 package reindex_mt
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -184,8 +183,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// so the shards loaded across this call are the ones it decided to hydrate.
 	probeStart := time.Now()
 	loadedBefore := loadedShardsOfClass(ctx, t, container, coldCancelClass)
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, coldCancelClass, coldCancelProp,
-		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(hotNames))
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, coldCancelClass, coldCancelProp,
+		"rangeable", `{}`, reindexhelpers.WithTenants(hotNames))
 	loadedAfter := loadedShardsOfClass(ctx, t, container, coldCancelClass)
 	probeWindow := time.Since(probeStart)
 
@@ -267,8 +266,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// (d) The COLD tenants' state is deferred, not lost: reactivate them and
 	// the next submit in the same sweep scope drains them.
 	setTenantStatus(t, coldNames, models.TenantActivityStatusHOT)
-	drainTaskID := reindexhelpers.SubmitIndexUpdate(t, restURI, coldCancelClass, coldCancelProp,
-		`{"filterable":{"rebuild":true}}`, reindexhelpers.WithTenants(coldNames))
+	drainTaskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
+		"filterable", reindexhelpers.WithTenants(coldNames))
 	t.Logf("reactivated-tenant filterable rebuild task: %s", drainTaskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, drainTaskID)
 
@@ -312,8 +311,8 @@ func importColdCancelCorpus(t *testing.T, tenants []sweepTenant) {
 func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
 	t.Helper()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, coldCancelClass, coldCancelProp,
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, coldCancelClass, coldCancelProp,
+		"rangeable", `{}`)
 	t.Logf("submitted enable-rangeable %s to cancel in flight", taskID)
 
 	live := false
@@ -336,25 +335,17 @@ func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, coldCancelClass, coldCancelProp)
-	req, err := http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"rangeable":{"cancel":true}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	resp := reindexhelpers.CancelIndexRaw(t, restURI, coldCancelClass, coldCancelProp, "rangeable")
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result map[string]string
-		require.NoError(t, json.Unmarshal(respBody, &result))
+		require.NoError(t, json.Unmarshal([]byte(resp.Body), &result))
 		t.Logf("cancel of %s returned %s", taskID, result["status"])
 	case http.StatusConflict:
-		t.Logf("cancel raced the completion of %s: %s", taskID, string(respBody))
+		t.Logf("cancel raced the completion of %s: %s", taskID, resp.Body)
 	default:
-		t.Fatalf("unexpected status %d cancelling task %s: %s", resp.StatusCode, taskID, string(respBody))
+		t.Fatalf("unexpected status %d cancelling task %s: %s", resp.StatusCode, taskID, resp.Body)
 	}
 	awaitTerminalTask(t, restURI, taskID)
 }

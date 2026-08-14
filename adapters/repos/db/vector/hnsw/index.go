@@ -181,9 +181,6 @@ type hnsw struct {
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
 
-	disableSnapshots  bool
-	snapshotOnStartup bool
-
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
@@ -263,16 +260,20 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
 	AddRQCompression(compression.RQData) error
 	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
-
-	CreateSnapshot() (bool, int64, error)
-	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
-	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -281,7 +282,7 @@ type BufferedLinksLogger interface {
 	Close() error // Close should Flush and Close
 }
 
-type MakeCommitLogger func() (CommitLogger, error)
+type MakeCommitLogger func(opts ...CommitlogOption) (CommitLogger, error)
 
 type HNSW = hnsw
 
@@ -345,8 +346,6 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		disableSnapshots:      cfg.DisableSnapshots,
-		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -735,7 +734,7 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+	return h.entryPointID >= uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
 }
 
 // callers must hold h.RLock and all sharded node locks
@@ -765,9 +764,11 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// Drop stops the index exactly as Shutdown does, then removes the commit log's
+// files. Dropping before stopping would leave the maintenance cycles and the
+// tombstone cleanup running against state being torn down underneath them.
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
+	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
@@ -972,6 +973,26 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecForInsert normalizes vec for cosine indexes, using a pooled
+// buffer when the vector's lifetime allows it. The normalized vector is only
+// retained beyond the insert by the uncompressed float vector cache; once
+// the index is compressed — a one-way transition — Preload merely encodes
+// the vector, so the buffer can be reused. The returned release func (nil
+// when no pooled buffer was taken) must be called once the insert no longer
+// references the vector.
+func (h *hnsw) normalizeVecForInsert(vec []float32) ([]float32, func()) {
+	if h.distancerProvider.Type() != "cosine-dot" {
+		return vec, nil
+	}
+	if !h.compressed.Load() {
+		return distancer.Normalize(vec), nil
+	}
+	bufPtr := h.pools.normalizeBufs.Get().(*[]float32)
+	normalized := distancer.NormalizeInto(*bufPtr, vec)
+	*bufPtr = normalized
+	return normalized, func() { h.pools.normalizeBufs.Put(bufPtr) }
 }
 
 // normalizeVecInPlace normalizes the vector in-place without allocating.

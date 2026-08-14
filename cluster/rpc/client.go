@@ -23,6 +23,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -355,14 +356,27 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrNamespaceResuming)
 		case strings.Contains(msg, namespaces.ErrStateChangedConcurrently.Error()):
 			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
+		case strings.Contains(msg, clusterSchema.ErrMTDisabled.Error()):
+			return errors.Join(err, clusterSchema.ErrMTDisabled)
 		}
 	case codes.AlreadyExists:
 		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
 			return errors.Join(err, namespaces.ErrAlreadyExists)
 		}
+	case codes.Aborted:
+		if strings.Contains(msg, clusterSchema.ErrClassVersionConflict.Error()) {
+			return errors.Join(err, clusterSchema.ErrClassVersionConflict)
+		}
 	case codes.InvalidArgument:
 		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {
-			return errors.Join(err, namespaces.ErrBadRequest)
+			// namespaces.ErrBadRequest and clusterSchema.ErrBadRequest share the
+			// exact "bad request" message, so the wire cannot discriminate —
+			// rebuild both; every downstream errors.Is check classifies its own
+			// sentinel to a 4xx either way. Any NEW bad-request-style sentinel
+			// mapped to InvalidArgument in toRPCError must be added to this
+			// join AND to TestFromRPCError_SentinelRoundTrip, or its errors.Is
+			// classification silently breaks across the hop.
+			return errors.Join(err, namespaces.ErrBadRequest, clusterSchema.ErrBadRequest)
 		}
 	default:
 		// All other codes pass through unchanged.

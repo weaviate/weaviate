@@ -271,6 +271,104 @@ func TestListInactiveShardFiles(t *testing.T) {
 	assert.Equal(t, expected, files)
 }
 
+func TestIsImmutableFile(t *testing.T) {
+	tests := []struct {
+		relPath string
+		want    bool
+		desc    string
+	}{
+		// Immutable files (safe to hardlink):
+		{"myclass/shard1/lsm/objects/segment-0001.db", true, "LSM segment (immutable)"},
+		{"myclass/shard1/main.hnsw.commitlog.d/1709203456.condensed", true, "condensed HNSW commitlog (immutable)"},
+		{"myclass/shard1/main.hnsw.snapshot.d/1709203456.snapshot", true, "HNSW snapshot (immutable)"},
+
+		// Mutable files (must be copied):
+		{"myclass/shard1/lsm/objects/segment-123.wal", false, "LSM WAL"},
+		{"myclass/shard1/main/meta.db", false, "flat index BoltDB (single vector)"},
+		{"myclass/shard1/main_custom/meta_custom.db", false, "flat index BoltDB (multi-vector)"},
+		{"myclass/shard1/main.hnsw.commitlog.d/1709203456", false, "non-condensed HNSW commitlog"},
+		{"myclass/shard1/main.queue.d/chunk-1709203456000000.bin", false, "async indexing queue chunk"},
+		{"myclass/shard1/index.db", false, "dynamic vector index BoltDB"},
+
+		// Unknown files default to mutable (safe — will be copied):
+		{"myclass/shard1/lsm/.migrations/m1", false, "migration file (unknown, copied)"},
+		{"myclass/shard1/lsm/objects/segment.db.tmp", false, "tmp file (unknown, copied)"},
+		{"myclass/shard1/hashtree_uuid/hashtree-abc.ht", false, "hashtree (unknown, copied)"},
+		{"myclass/shard1/some-new-file.bin", false, "unknown file type (copied by default)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := backup.IsImmutableFile(tc.relPath)
+			assert.Equal(t, tc.want, got, "isImmutableFile(%q)", tc.relPath)
+		})
+	}
+}
+
+// TestIsImmutableFile_CompactV2 audits isImmutableFile coverage for the file
+// types the compact-v2 commit-log subsystem produces.
+//
+// Filename patterns are sourced from
+// adapters/repos/db/vector/hnsw/compact/file_discovery.go:BuildMergedFilename
+// and adapters/repos/db/vector/hnsw/compact/file_info.go:FileType.Suffix.
+// Snapshot location is sourced from compact/compactor.go:writeSnapshot, which
+// writes into c.config.Dir — the commit log directory — *not* the legacy
+// .hnsw.snapshot.d sibling directory.
+//
+// isImmutableFile is consulted only on the inactive-shard backup path
+// (backupInactiveShardWithHardlinks). A miss here is a *performance*
+// regression, not a correctness bug: missing files fall back to copyFile
+// (full byte copy + fsync) instead of os.Link (instant hardlink). Compact-v2
+// makes .sorted the dominant post-compaction format, so a missing classifier
+// makes inactive-tenant backups noticeably slower than legacy.
+func TestIsImmutableFile_CompactV2(t *testing.T) {
+	tests := []struct {
+		name    string
+		relPath string
+		want    bool
+		why     string
+	}{
+		{
+			name:    "compact-v2 sorted file (single-source name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456.sorted",
+			want:    true,
+			why:     "produced by compact.SortedWriter via SafeFileWriter; atomically renamed in on commit, never reopened for writes",
+		},
+		{
+			name:    "compact-v2 sorted file (range-merged name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456_1709204000.sorted",
+			want:    true,
+			why:     "n-way merge of two or more sorted files; atomic write via SafeFileWriter",
+		},
+		{
+			name:    "compact-v2 snapshot lives in commitlog dir (single-source name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456.snapshot",
+			want:    true,
+			why:     "compact-v2 writes snapshots into the commitlog dir (compactor.writeSnapshot uses c.config.Dir), not the legacy .hnsw.snapshot.d sibling",
+		},
+		{
+			name:    "compact-v2 snapshot lives in commitlog dir (range-merged name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456_1709204000.snapshot",
+			want:    true,
+			why:     "n-way merge of snapshot + sorted files, atomic write",
+		},
+		{
+			name:    "compact-v2 sorted file under a named target vector",
+			relPath: "myclass/shard1/customVec.hnsw.commitlog.d/1709203456.sorted",
+			want:    true,
+			why:     "named target vectors get their own commitlog dir; classification is by extension and applies regardless of dir",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := backup.IsImmutableFile(tc.relPath)
+			if got != tc.want {
+				t.Errorf("isImmutableFile(%q) = %v, want %v\n\twhy it should be %v: %s",
+					tc.relPath, got, tc.want, tc.want, tc.why)
+			}
+		})
+	}
+}
+
 func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	rootDir := t.TempDir()
 	indexID := "myclass"

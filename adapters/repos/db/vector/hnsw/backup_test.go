@@ -54,8 +54,8 @@ func TestBackup_PrepareForBackup(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.NoError(t, err)
@@ -87,8 +87,8 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -138,8 +138,8 @@ func TestBackup_HFreshListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -183,8 +183,8 @@ func TestBackup_ListFilesWalkRootRemoved(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)

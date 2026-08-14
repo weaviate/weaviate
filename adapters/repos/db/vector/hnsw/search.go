@@ -246,15 +246,27 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
-	if h.compressed.Load() {
+	compressed := h.compressed.Load()
+	var batchDistancer compressionhelpers.BatchCompressorDistancer
+	if compressed {
 		if compressorDistancer == nil {
 			var returnFn compressionhelpers.ReturnDistancerFn
 			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
 			defer returnFn()
 		}
+		batchDistancer = compressorDistancer
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
+		fbd := h.pools.floatBatchDistancers.Get().(*floatBatchDistancer)
+		fbd.h, fbd.distancer = h, floatDistancer
+		defer func() {
+			fbd.distancer = nil
+			h.pools.floatBatchDistancers.Put(fbd)
+		}()
+		batchDistancer = fbd
 	}
+	distSlice := h.pools.tempVectors.Get(8 * h.maximumConnectionsLayerZero)
+	defer h.pools.tempVectors.Put(distSlice)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
@@ -262,7 +274,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
 	var err error
-	if h.compressed.Load() {
+	if compressed {
 		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, compressorDistancer)
 	} else {
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
@@ -387,7 +399,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								}
 							} else {
 								var docID uint64
-								if h.compressed.Load() {
+								if compressed {
 									docID, _ = h.compressor.GetKeys(nodeId)
 								} else {
 									docID, _ = h.cache.GetKeys(nodeId)
@@ -433,7 +445,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								}
 							} else {
 								var docID uint64
-								if h.compressed.Load() {
+								if compressed {
 									docID, _ = h.compressor.GetKeys(expId)
 								} else {
 									docID, _ = h.cache.GetKeys(expId)
@@ -456,16 +468,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		candidateNode.Unlock()
 
+		unvisited := connectionsReusable[:0]
 		for _, neighborID := range connectionsReusable {
 			if visited.CheckAndVisit(neighborID) {
-				// skip if we've already visited this neighbor
 				continue
 			}
-
 			if strategy == RRE && level == 0 {
 				if isMultivec {
 					var docID uint64
-					if h.compressed.Load() {
+					if compressed {
 						docID, _ = h.compressor.GetKeys(neighborID)
 					} else {
 						docID, _ = h.cache.GetKeys(neighborID)
@@ -477,12 +488,21 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				}
 			}
-			var distance float32
+			unvisited = append(unvisited, neighborID)
+		}
+
+		if cap(distSlice.Slice) < len(unvisited) {
+			distSlice.Mem = make([]float32, len(unvisited))
+			distSlice.Slice = distSlice.Mem
+		}
+		neighborDists := distSlice.Slice[:len(unvisited)]
+		neighborErrs := batchDistancer.DistancesToNodes(unvisited, neighborDists)
+
+		for i, neighborID := range unvisited {
+			distance := neighborDists[i]
 			var err error
-			if h.compressed.Load() {
-				distance, err = compressorDistancer.DistanceToNode(neighborID)
-			} else {
-				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
+			if neighborErrs != nil {
+				err = neighborErrs[i]
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -505,7 +525,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// ignore items not on the list
 					if isMultivec {
 						var docID uint64
-						if h.compressed.Load() {
+						if compressed {
 							docID, _ = h.compressor.GetKeys(neighborID)
 						} else {
 							docID, _ = h.cache.GetKeys(neighborID)
@@ -523,12 +543,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 
 				results.Insert(neighborID, distance)
-
-				if h.compressed.Load() {
-					h.compressor.Prefetch(candidates.Top().ID)
-				} else {
-					h.cache.Prefetch(candidates.Top().ID)
-				}
 
 				// +1 because we have added one node size calculating the len
 				if results.Len() > ef {
@@ -696,6 +710,44 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 	return dist, nil
 }
 
+const floatPrefetchAhead = 4
+
+type floatBatchDistancer struct {
+	h         *hnsw
+	distancer distancer.Distancer
+	vecs      [][]float32
+}
+
+func (b *floatBatchDistancer) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(b.vecs) < len(ids) {
+		b.vecs = make([][]float32, len(ids))
+	}
+	vecs := b.vecs[:len(ids)]
+	for i := range min(floatPrefetchAhead, len(ids)) {
+		vecs[i] = b.h.cache.PrefetchGet(ids[i])
+	}
+	var errs []error
+	for i, id := range ids {
+		if next := i + floatPrefetchAhead; next < len(ids) {
+			vecs[next] = b.h.cache.PrefetchGet(ids[next])
+		}
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = b.h.distanceToFloatNode(b.distancer, id)
+		} else {
+			dists[i], err = b.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
+}
+
 // the underlying object seems to have been deleted, to recover from
 // this situation let's add a tombstone to the deleted object, so it
 // will be cleaned up and skip this candidate in the current search
@@ -834,8 +886,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	// stop at layer 1, not 0!
+	eps := priorityqueue.NewMin[any](10)
 	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[any](10)
+		eps.Reset()
 		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
@@ -879,7 +932,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin[any](10)
+	eps.Reset()
 	eps.Insert(entryPointID, entryPointDistance)
 	var strategy FilterStrategy
 	h.shardedNodeLocks.RLock(entryPointID)

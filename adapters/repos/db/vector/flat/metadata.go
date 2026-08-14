@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	bolt "go.etcd.io/bbolt"
 )
@@ -156,7 +157,9 @@ func (index *flat) openMetadata() error {
 	}
 
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed shard teardown holds the flock;
+	// without it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}

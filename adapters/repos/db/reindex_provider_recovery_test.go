@@ -480,7 +480,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			p := NewReindexProvider(
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-				nil, logger, node, nil, ctx)
+				nil, nil, logger, node, nil, ctx)
 
 			got := p.LocalCallbacksDone(&distributedtask.Task{
 				Namespace:      ReindexNamespace,
@@ -524,7 +524,7 @@ func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *test
 	logger, _ := logrustest.NewNullLogger()
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-		nil, logger, "n1", nil, ctx)
+		nil, nil, logger, "n1", nil, ctx)
 
 	require.True(t, p.LocalCallbacksDone(&distributedtask.Task{
 		Namespace:      ReindexNamespace,

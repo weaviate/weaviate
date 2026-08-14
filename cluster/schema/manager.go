@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -69,12 +71,21 @@ type MutationGuard interface {
 	// conflict — callers must filter via
 	// [tenantsTransitioningAwayFromActive] before invoking.
 	CheckTenantMutation(className string, tenants []string) error
+
+	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
+	// entries: only the completing cleanup task's in-flight (SWAPPING)
+	// finalize vouches, and only when it covers every shard in shards —
+	// the collection's shard set from the FSM state being applied (the
+	// coverage baseline; FINISHED records never vouch). Returns non-nil to
+	// reject.
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
 // depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
+	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 }
 
 type SchemaManager struct {
@@ -214,7 +225,9 @@ func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
-	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	// Raft runs Persist concurrently with Apply, so the alias map must be
+	// copied under the schema read lock.
+	err := json.NewEncoder(&buf).Encode(s.schema.cloneAliases())
 	return buf.Bytes(), err
 }
 
@@ -458,6 +471,87 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
+		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
+		// sharding state is the coverage baseline: a shard neither in the vouching
+		// task's units nor its inherited cleaned-shard set has not been cleaned,
+		// and removing the marker would strand its data.
+		if s.mutationGuard != nil {
+			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
+				shards := make([]string, 0, len(meta.Sharding.Physical))
+				for name := range meta.Sharding.Physical {
+					shards = append(shards, name)
+				}
+				sort.Strings(shards)
+				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
+					return fmt.Errorf("%w: %w", ErrBadRequest, err)
+				}
+			}
+		}
+
+		// A NEWLY introduced drop marker purges the previous drop's task records
+		// for the same (collection, target) in this same apply — atomically and
+		// RAFT-deterministically. A re-created then re-dropped name therefore
+		// starts with a clean record slate: stale records must not exist next to
+		// a marker they don't belong to, or coverage inheritance and removal
+		// vouching could misattribute them to the new drop. An introduction next
+		// to a still-ACTIVE previous task (SWAPPING for a moment after its
+		// finalize) is refused instead — deterministic and, normally, promptly
+		// retryable; but a node that dies before delivering its post-completion
+		// ack holds SWAPPING indefinitely, and then only DeleteClass clears the
+		// refusal (finalize waits for every node, CancelTask accepts only
+		// STARTED, the TTL pruner skips active tasks).
+		//
+		// LAST reject path — nothing between here and the meta assignments may
+		// fail the apply: purging is a mutation, and this closure edits the live
+		// metaClass with no rollback, so a later reject would strand a purge
+		// from an update that never applied. (Moving the purge below the
+		// assignments is no safer: the refusal above must not fire after the
+		// meta was already mutated.)
+		//
+		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
+		// a deterministic apply, so a mixed-version cluster diverges on this
+		// very log entry — a node without this code neither purges nor refuses,
+		// and the two FSMs stay disagreeing after the upgrade completes. The
+		// AddTask apply has the same exposure (CheckConflict's claim re-check
+		// rejects on new binaries, accepts on old). An in-apply version check
+		// cannot fix it: reading node-local version state during apply is
+		// itself non-deterministic, so any fence has to sit proposal-side.
+		// Accepted while the endpoint is experimental
+		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
+		// before the feature is promoted to a supported release.
+		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+			if s.distributedTaskManager == nil {
+				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
+				// with no task manager wired leaves the previous drop's
+				// records un-purged — visible, not silent.
+				s.log.WithField("class", meta.Class.Class).
+					Warnf("drop-vector marker introduced for %v with no distributed task manager wired; previous task records not purged", introduced)
+			} else {
+				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargetVectors(meta.Class.Class, introduced)
+				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargetVectors) {
+					// Operator signal: normally a ms-scale SWAPPING window, but a
+					// node that died holding its post-completion ack wedges the
+					// task (and this refusal) until DeleteClass — repeated lines
+					// here for the same class are that wedge, not retry noise.
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						Warnf("drop-vector marker introduction refused; previous drop still completing: %v", err)
+					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry: %w",
+						ErrBadRequest, introduced, meta.Class.Class, err)
+				} else if err != nil {
+					// Not the retryable refusal — surface as internal, not 4xx.
+					return fmt.Errorf("purge previous drop's task records for %v on %q: %w",
+						introduced, meta.Class.Class, err)
+				}
+				if len(removed) > 0 {
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						WithField("removed_count", len(removed)).
+						Info("purged previous drop's task records on new drop-vector marker")
+				}
+			}
+		}
+
 		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
@@ -490,6 +584,40 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// introducedDroppedVectorConfigs returns the names of VectorConfig entries that
+// are dropped ("none") in next but were live or absent in prev — i.e. markers
+// this update introduces.
+func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var introduced []string
+	for name, cfg := range next.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if prevCfg, ok := prev.VectorConfig[name]; ok && modelsext.IsVectorIndexDropped(prevCfg) {
+			continue
+		}
+		introduced = append(introduced, name)
+	}
+	sort.Strings(introduced)
+	return introduced
+}
+
+// removedDroppedVectorConfigs returns the names of dropped ("none") VectorConfig
+// entries in prev that are absent from next. Only "none" entries: removing a live
+// entry is already rejected by the parser.
+func removedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var removed []string
+	for name, cfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if _, ok := next.VectorConfig[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	return removed
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {

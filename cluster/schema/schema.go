@@ -32,12 +32,16 @@ import (
 )
 
 var (
-	ErrClassExists               = errors.New("class already exists")
-	ErrClassNotFound             = errors.New("class not found")
-	ErrShardNotFound             = errors.New("shard not found")
-	ErrAliasExists               = errors.New("alias already exists")
-	ErrAliasNotFound             = errors.New("alias not found")
-	ErrMTDisabled                = errors.New("multi-tenancy is not enabled")
+	ErrClassExists   = errors.New("class already exists")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
+	ErrAliasExists   = errors.New("alias already exists")
+	ErrAliasNotFound = errors.New("alias not found")
+	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	// ErrClassVersionConflict rejects an UpdateClass apply whose
+	// ExpectedClassVersion no longer matches — the proposer read stale state
+	// and must retry from a fresh read.
+	ErrClassVersionConflict      = errors.New("class changed concurrently")
 	ErrTenantTransitionalState   = errors.New("tenant is in a transitional state")
 	ErrReplicaMovementInProgress = errors.New("replica movement in progress")
 )
@@ -81,7 +85,7 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 
-	// mu protects the `classes`
+	// mu protects `classes` and `aliases`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
 	aliases map[string]string // key: canonical form all in TitleCase.
@@ -833,6 +837,14 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 	}
 	// if asked for spefic class or alias return nil, meaning not found.
 	return nil
+}
+
+// cloneAliases returns a copy of the whole alias map, safe to hand to callers
+// that read it while the FSM keeps applying alias commands.
+func (s *schema) cloneAliases() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.aliases)
 }
 
 func (s *schema) ResolveAlias(alias string) string {

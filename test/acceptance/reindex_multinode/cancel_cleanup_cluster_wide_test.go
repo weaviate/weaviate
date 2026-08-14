@@ -135,8 +135,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		// filterable trackers per (shard, replica).
 		target := nextTokenization[current]
 		submittedAt := time.Now()
-		taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, propName,
-			fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, target))
+		taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, propName, "searchable",
+			fmt.Sprintf(`{"tokenization":%q}`, target))
 		t.Logf("attempt %d: submitted change-tokenization task to %q: %s", attempt, target, taskID)
 
 		// One /v1/tasks read answers both halves of the gate — the task is
@@ -314,26 +314,20 @@ func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Durati
 	}
 }
 
-// cancelReindexProperty sends {<indexType>: {cancel: true}} to
-// PUT /v1/schema/<class>/indexes/<prop> and checks the cancel contract
-// for taskID. Reports whether the cancel actually landed, and which of
-// the three legal arms answered: all three are legal outcomes of the
-// race, but only one of them leaves the caller's post-cancel assertions
-// cancel-driven rather than completion-driven, and a caller that fails
-// on the other two has to name the one it got.
+// cancelReindexProperty POSTs .../index/{indexType}/cancel and checks the
+// cancel contract for taskID. Reports whether the cancel actually landed,
+// and which of the three legal arms answered: all three are legal outcomes
+// of the race, but only one of them leaves the caller's post-cancel
+// assertions cancel-driven rather than completion-driven, and a caller that
+// fails on the other two has to name the one it got.
 func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType, taskID string) (bool, string) {
 	t.Helper()
+	if indexType == "rangeable" {
+		indexType = "rangeFilters"
+	}
 	cancelled := false
 	arm := ""
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBody, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
+	resp := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, indexType)
 
 	// The task can outrun the STARTED poll and the pre-cancel disk scan, so
 	// its phase decides the code: 202 CANCELLED (still STARTED), 409 (every
@@ -343,26 +337,26 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result models.IndexUpdateResponse
-		require.NoErrorf(t, json.Unmarshal(respBody, &result),
-			"cancel response should decode as IndexUpdateResponse: %s", string(respBody))
+		require.NoErrorf(t, json.Unmarshal([]byte(resp.Body), &result),
+			"cancel response should decode as IndexUpdateResponse: %s", resp.Body)
 		switch result.Status {
 		case "CANCELLED":
 			require.Equalf(t, taskID, result.TaskID,
-				"cancel CANCELLED must name the cancelled task; body: %s", string(respBody))
+				"cancel CANCELLED must name the cancelled task; body: %s", resp.Body)
 			cancelled = true
 			arm = "202 CANCELLED"
 		case "NO_OP":
 			arm = "202 NO_OP (task was already terminal)"
 		default:
 			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
-				result.Status, string(respBody))
+				result.Status, resp.Body)
 		}
 	case http.StatusConflict:
-		require.Containsf(t, string(respBody), taskID,
-			"cancel 409 must name the task it refuses to cancel; body: %s", string(respBody))
+		require.Containsf(t, resp.Body, taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", resp.Body)
 		arm = "409 (task is past its units, cluster-wide swap under way)"
 	default:
-		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, string(respBody))
+		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", resp.StatusCode, resp.Body)
 	}
 	return cancelled, arm
 }

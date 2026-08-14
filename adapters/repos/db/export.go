@@ -162,11 +162,10 @@ func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames [
 	}
 	defer idx.dropIndex.RUnlock()
 
-	idx.closeLock.RLock()
-	defer idx.closeLock.RUnlock()
-	if idx.closed {
-		return nil, errAlreadyShutdown
+	if err := idx.enterRead(); err != nil {
+		return nil, err
 	}
+	defer idx.exitRead()
 	return idx.snapshotShardsForExport(ctx, shardNames, exportID)
 }
 

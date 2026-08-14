@@ -70,10 +70,7 @@ func (r *restorer) restore(
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
-	expiration := req.Duration
-	if expiration > _TimeoutShardCommit {
-		expiration = _TimeoutShardCommit
-	}
+	expiration := min(req.Duration, _TimeoutShardCommit)
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,

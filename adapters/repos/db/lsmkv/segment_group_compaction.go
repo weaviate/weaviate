@@ -437,6 +437,9 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
+	// set by the StrategyReplace case; consumed by the bookkeeping after the switch.
+	var builtOps []ActiveOp
+
 	// aborted=true tells the caller to bail without reporting an error
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
@@ -453,9 +456,18 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
+		// Replace is the only strategy that consumes a transformer.
+		var transformer valueTransformer
+		if sg.editOps != nil {
+			transformer, builtOps, err = sg.editOps.BuildCurrentTransformer()
+			if err != nil {
+				return false, err
+			}
+		}
+
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, transformer)
 		// recycle the cursor read buffers on every exit, including a panic in do()
 		defer func() {
 			c.c1.releaseReader()
@@ -585,10 +597,58 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
 
+	if strategy == segmentindex.StrategyReplace && sg.editOps != nil {
+		if err := sg.recordCompactionEditOps(segmentID(leftPath), segmentID(rightPath), builtOps); err != nil {
+			return false, err
+		}
+	}
+
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
 
 	return true, nil
+}
+
+const (
+	// compactionBookkeepingAttempts bounds retries of the edit-ops bookkeeping
+	// transaction; compactionBookkeepingBackoff spaces them.
+	compactionBookkeepingAttempts = 3
+	compactionBookkeepingBackoff  = 50 * time.Millisecond
+)
+
+// recordCompactionEditOps commits the compaction's edit-ops bookkeeping, with a
+// retry and a fallback repair.
+//
+// It matters because the segments are ALREADY swapped by the time this runs: a
+// failure leaves the sidecar describing a layout that no longer exists, with
+// the left input's row naming a deleted file. Nothing on a running node prunes
+// such a row — the cleanup pass deliberately skips it rather than mark it done,
+// and Reconcile only runs at shard load — so it would block this drop's
+// finalize and this shard's replica movement until something reloads the shard.
+// Retrying costs a few milliseconds and clears a transient bolt error; the
+// repair then covers the case where only the smaller write gets through.
+func (sg *SegmentGroup) recordCompactionEditOps(leftID, rightID string, builtOps []ActiveOp) error {
+	var err error
+	for attempt := range compactionBookkeepingAttempts {
+		if err = sg.editOps.RecordCompaction(leftID, rightID, builtOps); err == nil {
+			return nil
+		}
+		if attempt+1 < compactionBookkeepingAttempts {
+			time.Sleep(compactionBookkeepingBackoff)
+		}
+	}
+
+	if repairErr := sg.editOps.RepairCompactionRows(leftID, rightID); repairErr == nil {
+		sg.logger.WithField("action", "lsm_compaction").WithField("path", sg.dir).
+			Warnf("segment edit ops compaction bookkeeping failed (%v); repaired the affected rows so the merged output stays covered", err)
+		return nil
+	} else {
+		sg.logger.WithField("action", "lsm_compaction").WithField("path", sg.dir).
+			Errorf("segment edit ops compaction bookkeeping failed (%v) and the repair failed too (%v); "+
+				"segment %q is gone but still recorded as owed, which blocks this collection's drop-vector finalize "+
+				"and this shard's replica movement until the shard is reloaded", err, repairErr, leftID)
+	}
+	return fmt.Errorf("segment edit ops compaction bookkeeping: %w", err)
 }
 
 func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int) (*segment, error) {

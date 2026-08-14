@@ -73,8 +73,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		overallShardState := multiShardState(numberOfNodes)
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
-				name:        fmt.Sprintf("node-%d", i),
-				objectCount: numberOfObjects / len(overallShardState.Physical),
+				name: fmt.Sprintf("node-%d", i),
 			}
 
 			nodes = append(nodes, node)
@@ -369,9 +368,6 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		logger, _ := test.NewNullLogger()
-		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
-		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
 			Groups: []aggregation.Group{
@@ -381,7 +377,13 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			},
 		}
 
-		assert.Equal(t, expectedResult, res)
+		// Aggregate from every node so each shard is counted both in-process
+		// (the aggregating node's own shard) and over the network (every other).
+		for i := range nodes {
+			res, err := nodes[i].repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
+			require.Nil(t, err)
+			assert.Equal(t, expectedResult, res, "aggregate count from %s", nodes[i].name)
+		}
 	})
 
 	t.Run("modify an object using patch", func(t *testing.T) {

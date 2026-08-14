@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // gateWithTasks builds the schema handler with just enough wiring for
@@ -35,6 +36,8 @@ import (
 func gateWithTasks(tasks ...*distributedtask.Task) *schemaHandlers {
 	return &schemaHandlers{
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
+		// allow-all authorizer: these tests are about the conflict gate, not authz
+		authorizer: &authorization.DummyAuthorizer{},
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 			db.ReindexNamespace: tasks,
 		}},

@@ -14,6 +14,7 @@ package cache
 import (
 	"context"
 	"math/bits"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,6 +42,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	logger                 logrus.FieldLogger
 	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
+	prefetchBytes          int
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -133,6 +135,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 		maintenanceLock:        sync.RWMutex{},
 		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
+		prefetchBytes:          floatPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -154,6 +157,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
+		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -175,6 +179,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
+		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
 
 	vc.watchForDeletion()
@@ -351,9 +356,43 @@ func (s *shardedLockCache[T]) PageSize() uint64 {
 	return s.shardedLocks.PageSize
 }
 
+// prefetchFunc hints a single cache line at addr; superseded by prefetchNFunc
+// on the hot path but kept for future use.
+//
+//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
-	// this function will be overridden for amd64
+	// this function will be overridden for amd64 and arm64
+}
+
+// prefetchNFunc hints n bytes (ceil(n/64) cache lines) starting at addr with
+// a single call, so hot paths don't pay one assembly CALL per cache line.
+// n must be > 0.
+var prefetchNFunc func(addr uintptr, n int) = func(addr uintptr, n int) {
+	// do nothing on default arch
+	// this function will be overridden for amd64 and arm64
+}
+
+const (
+	// compressedPrefetchMaxBytes covers whole compressed codes at realistic
+	// dimensions (e.g. 8-bit RQ up to ~2000d, 4-bit RQ up to ~4000d).
+	compressedPrefetchMaxBytes = 2048
+	floatPrefetchMaxBytes      = 256
+)
+
+// prefetchVector issues cache-line prefetch hints for up to maxBytes of vec.
+// Prefetching the data requires having read the slice header first: the
+// header's data pointer is a dependent load the CPU cannot follow on its
+// own, so hinting only the header address would leave the expensive DRAM
+// miss — the vector bytes — unhinted.
+func prefetchVector[T any](vec []T, maxBytes int) {
+	if len(vec) == 0 {
+		return
+	}
+	var zero T
+	n := min(len(vec)*int(unsafe.Sizeof(zero)), maxBytes)
+	prefetchNFunc(uintptr(unsafe.Pointer(&vec[0])), n)
+	runtime.KeepAlive(vec)
 }
 
 func (s *shardedLockCache[T]) LockAll() {
@@ -366,14 +405,28 @@ func (s *shardedLockCache[T]) UnlockAll() {
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
-
 	// the cache is allocated lazily, it may not cover id yet
 	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
 		return
 	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec, s.prefetchBytes)
+}
+
+func (s *shardedLockCache[T]) PrefetchGet(id uint64) []T {
+	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
+
+	prefetchVector(vec, s.prefetchBytes)
+	return vec
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
@@ -573,6 +626,10 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	vectorDocID            []CacheKeys
 	// Only used by multi vector caches
 	fetchByNodeID bool
+	// prefetchBytes caps how much of a vector Prefetch/PrefetchGet hint; set
+	// per element type by the constructors (full compressed codes, float
+	// vector prefixes).
+	prefetchBytes int
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -613,6 +670,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
 		vectorDocID:            make([]CacheKeys, InitialSize),
+		prefetchBytes:          floatPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -647,6 +705,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
+		prefetchBytes:       compressedPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -681,6 +740,7 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
+		prefetchBytes:       compressedPrefetchMaxBytes,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -836,9 +896,27 @@ func (s *shardedMultipleLockCache[T]) UnlockAll() {
 
 func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec, s.prefetchBytes)
+}
+
+func (s *shardedMultipleLockCache[T]) PrefetchGet(id uint64) []T {
+	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil
+	}
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
+
+	prefetchVector(vec, s.prefetchBytes)
+	return vec
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {

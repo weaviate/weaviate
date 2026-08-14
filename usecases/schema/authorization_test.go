@@ -87,16 +87,21 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
+			// Symmetric with PUT/rebuild/cancel: dropping a per-property index
+			// rewrites indexed data, so it demands Collections (data+metadata),
+			// not metadata-only.
 			methodName:        "DeleteClassPropertyIndex",
 			additionalArgs:    []any{"classname", "someprop", "someindex"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.Collections("classname"),
 		},
 		{
+			// Collections (data+metadata), matching DeleteClassPropertyIndex:
+			// dropping a vector index irreversibly rewrites every object.
 			methodName:        "DeleteClassVectorIndex",
 			additionalArgs:    []any{"classname", "somevector"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("classname"),
+			expectedResources: authorization.Collections("classname"),
 		},
 		{
 			methodName:        "UpdateShardStatus",
