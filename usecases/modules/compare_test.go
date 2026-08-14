@@ -430,3 +430,135 @@ func TestCompareRevectorize_TextArrayAnyForms(t *testing.T) {
 		runSourcePropCases(t, class, []string{"image", "video"}, withSourceProps)
 	})
 }
+
+// TestCompareRevectorize_ScalarUncomparableValues: the scalar branch used a bare ==, which
+// panics (a 500) when both sides hold the same uncomparable dynamic type (slice/map).
+func TestCompareRevectorize_ScalarUncomparableValues(t *testing.T) {
+	textProp := &models.Property{Name: "text", DataType: []string{schema.DataTypeText.String()}}
+
+	cases := []sourcePropCase{
+		// Same uncomparable dynamic type on both sides: these panicked before the fix.
+		{name: "[]string both sides, equal -> skip", oldProps: map[string]any{"text": []string{"a", "b"}}, newProps: map[string]any{"text": []string{"a", "b"}}, different: false},
+		{name: "[]string both sides, differing value -> re-vectorize", oldProps: map[string]any{"text": []string{"a", "b"}}, newProps: map[string]any{"text": []string{"a", "c"}}, different: true},
+		{name: "[]string both sides, differing length -> re-vectorize", oldProps: map[string]any{"text": []string{"a"}}, newProps: map[string]any{"text": []string{"a", "b"}}, different: true},
+		{name: "[]string both sides, differing order -> re-vectorize", oldProps: map[string]any{"text": []string{"a", "b"}}, newProps: map[string]any{"text": []string{"b", "a"}}, different: true},
+		{name: "nil []string both sides -> skip", oldProps: map[string]any{"text": []string(nil)}, newProps: map[string]any{"text": []string(nil)}, different: false},
+		{name: "empty []string both sides -> skip", oldProps: map[string]any{"text": []string{}}, newProps: map[string]any{"text": []string{}}, different: false},
+		{name: "map[string]any both sides, equal -> skip", oldProps: map[string]any{"text": map[string]any{"a": "b"}}, newProps: map[string]any{"text": map[string]any{"a": "b"}}, different: false},
+		{name: "map[string]any both sides, differing value -> re-vectorize", oldProps: map[string]any{"text": map[string]any{"a": "b"}}, newProps: map[string]any{"text": map[string]any{"a": "c"}}, different: true},
+		{name: "map[string]any both sides, differing key -> re-vectorize", oldProps: map[string]any{"text": map[string]any{"a": "b"}}, newProps: map[string]any{"text": map[string]any{"z": "b"}}, different: true},
+		{name: "map[string]any both sides, key order irrelevant -> skip", oldProps: map[string]any{"text": map[string]any{"a": "1", "z": "2"}}, newProps: map[string]any{"text": map[string]any{"z": "2", "a": "1"}}, different: false},
+		{name: "[]any both sides, equal -> skip", oldProps: map[string]any{"text": []any{"a", 1.0}}, newProps: map[string]any{"text": []any{"a", 1.0}}, different: false},
+		{name: "[]any both sides, differing value -> re-vectorize", oldProps: map[string]any{"text": []any{"a", 1.0}}, newProps: map[string]any{"text": []any{"a", 2.0}}, different: true},
+		{name: "[]map[string]any both sides, equal -> skip", oldProps: map[string]any{"text": []map[string]any{{"a": "b"}}}, newProps: map[string]any{"text": []map[string]any{{"a": "b"}}}, different: false},
+		{name: "[]map[string]any both sides, differing value -> re-vectorize", oldProps: map[string]any{"text": []map[string]any{{"a": "b"}}}, newProps: map[string]any{"text": []map[string]any{{"a": "c"}}}, different: true},
+
+		// Mixed dynamic types stay unequal, exactly as == had them: two shapes of the
+		// "same" text[] do not necessarily render the same corpus, so re-vectorize.
+		{name: "[]string old vs []any new -> re-vectorize", oldProps: map[string]any{"text": []string{"a"}}, newProps: map[string]any{"text": []any{"a"}}, different: true},
+		{name: "[]any old vs []string new -> re-vectorize", oldProps: map[string]any{"text": []any{"a"}}, newProps: map[string]any{"text": []string{"a"}}, different: true},
+		{name: "[]string old vs map new -> re-vectorize", oldProps: map[string]any{"text": []string{"a"}}, newProps: map[string]any{"text": map[string]any{"a": "b"}}, different: true},
+		{name: "string old vs []string new -> re-vectorize", oldProps: map[string]any{"text": "a"}, newProps: map[string]any{"text": []string{"a"}}, different: true},
+		{name: "[]string old vs string new -> re-vectorize", oldProps: map[string]any{"text": []string{"a"}}, newProps: map[string]any{"text": "a"}, different: true},
+
+		// A nil interface on one side against an uncomparable value on the other: == is
+		// safe here too, and the values are genuinely different.
+		{name: "nil old vs []string new -> re-vectorize", oldProps: map[string]any{"text": nil}, newProps: map[string]any{"text": []string{"a"}}, different: true},
+		{name: "[]string old vs nil new -> re-vectorize", oldProps: map[string]any{"text": []string{"a"}}, newProps: map[string]any{"text": nil}, different: true},
+		{name: "nil old vs map new -> re-vectorize", oldProps: map[string]any{"text": nil}, newProps: map[string]any{"text": map[string]any{"a": "b"}}, different: true},
+		{name: "nil both sides -> skip", oldProps: map[string]any{"text": nil}, newProps: map[string]any{"text": nil}, different: false},
+
+		// The ordinary string traffic this branch actually carries must be untouched.
+		{name: "string both sides, equal -> skip", oldProps: map[string]any{"text": "a"}, newProps: map[string]any{"text": "a"}, different: false},
+		{name: "string both sides, differing -> re-vectorize", oldProps: map[string]any{"text": "a"}, newProps: map[string]any{"text": "b"}, different: true},
+	}
+
+	t.Run("legacy class-level vectorizer", func(t *testing.T) {
+		class := &models.Class{
+			Class:      "MyClass",
+			Vectorizer: "my-module",
+			Properties: []*models.Property{textProp},
+		}
+		runSourcePropCases(t, class, []string{"image", "video"}, cases)
+	})
+
+	t.Run("named vector with source properties", func(t *testing.T) {
+		class := newSourcePropClass(textProp)
+		withSourceProps := make([]sourcePropCase, len(cases))
+		for i, c := range cases {
+			c.sourceProps = []string{"text"}
+			withSourceProps[i] = c
+		}
+		runSourcePropCases(t, class, []string{"image", "video"}, withSourceProps)
+	})
+}
+
+// TestCompareRevectorize_ObjectMediaPropertyUncomparable: object/object[] media properties
+// reach the scalar comparison holding a map or slice (IsArrayDataType covers neither).
+func TestCompareRevectorize_ObjectMediaPropertyUncomparable(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{Name: "image", DataType: []string{schema.DataTypeObject.String()}},
+		&models.Property{Name: "video", DataType: []string{schema.DataTypeObjectArray.String()}},
+	)
+
+	runSourcePropCases(t, class, []string{"image", "video"}, []sourcePropCase{
+		{name: "object media prop unchanged -> skip", oldProps: map[string]any{"image": map[string]any{"a": "b"}}, newProps: map[string]any{"image": map[string]any{"a": "b"}}, different: false},
+		{name: "object media prop changed -> re-vectorize", oldProps: map[string]any{"image": map[string]any{"a": "b"}}, newProps: map[string]any{"image": map[string]any{"a": "c"}}, different: true},
+		{name: "object[] media prop unchanged -> skip", oldProps: map[string]any{"video": []any{map[string]any{"a": "b"}}}, newProps: map[string]any{"video": []any{map[string]any{"a": "b"}}}, different: false},
+		{name: "object[] media prop changed -> re-vectorize", oldProps: map[string]any{"video": []any{map[string]any{"a": "b"}}}, newProps: map[string]any{"video": []any{map[string]any{"a": "c"}}}, different: true},
+	})
+}
+
+// TestSourceValuesEqual exercises the helper directly, including shapes a class schema
+// cannot produce. Every case must return without panicking.
+func TestSourceValuesEqual(t *testing.T) {
+	cases := []struct {
+		name  string
+		a, b  any
+		equal bool
+	}{
+		// Comparable fast paths.
+		{name: "string equal", a: "x", b: "x", equal: true},
+		{name: "string differing", a: "x", b: "y", equal: false},
+		{name: "string vs nil", a: "x", b: nil, equal: false},
+		{name: "nil vs nil", a: nil, b: nil, equal: true},
+		{name: "float64 equal", a: 1.5, b: 1.5, equal: true},
+		{name: "float64 differing", a: 1.5, b: 2.5, equal: false},
+		{name: "bool equal", a: true, b: true, equal: true},
+		// A comparable type not on the fast-path list still has to work: the list is a
+		// performance hint, not the correctness boundary.
+		{name: "array type equal", a: [2]string{"a", "b"}, b: [2]string{"a", "b"}, equal: true},
+		{name: "array type differing", a: [2]string{"a", "b"}, b: [2]string{"a", "c"}, equal: false},
+		{name: "time.Time equal", a: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), b: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), equal: true},
+
+		// Same uncomparable dynamic type: bare == panics on every one of these.
+		{name: "[]string equal", a: []string{"a"}, b: []string{"a"}, equal: true},
+		{name: "[]string differing", a: []string{"a"}, b: []string{"b"}, equal: false},
+		{name: "[]string nil vs nil", a: []string(nil), b: []string(nil), equal: true},
+		// nil renders as JSON null, empty as []: unequal, but only in the wasteful
+		// direction (an extra re-vectorization), so not worth a nil-normalization.
+		{name: "[]string nil vs empty", a: []string(nil), b: []string{}, equal: false},
+		{name: "map equal", a: map[string]any{"a": "b"}, b: map[string]any{"a": "b"}, equal: true},
+		{name: "map differing", a: map[string]any{"a": "b"}, b: map[string]any{"a": "c"}, equal: false},
+		{name: "map nil vs nil", a: map[string]any(nil), b: map[string]any(nil), equal: true},
+		{name: "[]byte equal", a: []byte("ab"), b: []byte("ab"), equal: true},
+		{name: "[]byte differing", a: []byte("ab"), b: []byte("ac"), equal: false},
+		{name: "[]float32 equal", a: []float32{1, 2}, b: []float32{1, 2}, equal: true},
+		{name: "[]float32 differing", a: []float32{1, 2}, b: []float32{1, 3}, equal: false},
+
+		// Mixed dynamic types are never equal, matching what == already did.
+		{name: "[]string vs []any", a: []string{"a"}, b: []any{"a"}, equal: false},
+		{name: "[]string vs map", a: []string{"a"}, b: map[string]any{"a": "b"}, equal: false},
+		{name: "[]string vs nil interface", a: []string{"a"}, b: nil, equal: false},
+		{name: "nil interface vs map", a: nil, b: map[string]any{"a": "b"}, equal: false},
+		{name: "[]byte vs []string", a: []byte("a"), b: []string{"a"}, equal: false},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NotPanics(t, func() { sourceValuesEqual(tt.a, tt.b) })
+			require.Equal(t, tt.equal, sourceValuesEqual(tt.a, tt.b))
+			require.Equal(t, tt.equal, sourceValuesEqual(tt.b, tt.a), "must be symmetric")
+		})
+	}
+}

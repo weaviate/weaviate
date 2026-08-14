@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -154,6 +155,39 @@ func asStringSlice(v any) ([]string, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// hasComparableDynamicType reports whether v holds a dynamic type == compares without
+// panicking. The list is a fast path, not the correctness boundary.
+func hasComparableDynamicType(v any) bool {
+	switch v.(type) {
+	case nil, string, bool, int, int32, int64, float32, float64, json.Number, time.Time:
+		return true
+	default:
+		return false
+	}
+}
+
+// sourceValuesEqual compares scalar values without the panic a bare == raises when both
+// interfaces hold the same uncomparable type (slice/map), as object/object[] media
+// properties reaching this branch can. Tiers: type-switch fast path, reflect only when
+// both sides are slice/map-shaped, same-type uncomparable pairs by renderSourceValue key.
+func sourceValuesEqual(a, b any) bool {
+	if hasComparableDynamicType(a) || hasComparableDynamicType(b) {
+		// At least one dynamic type is comparable, so the two are either identical and
+		// comparable or simply different types: == cannot panic either way.
+		return a == b
+	}
+	// Both sides are uncomparable-suspect; == panics only when the dynamic types are
+	// identical and uncomparable, so establish that first.
+	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
+	if ta != tb {
+		return false
+	}
+	if ta.Comparable() {
+		return a == b
+	}
+	return renderSourceValue(a) == renderSourceValue(b)
 }
 
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
@@ -327,7 +361,7 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 					}
 				}
 			}
-			if valOld != valNew {
+			if !sourceValuesEqual(valOld, valNew) {
 				return true, nil
 			}
 		}
