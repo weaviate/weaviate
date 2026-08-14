@@ -24,7 +24,7 @@ import (
 )
 
 type ReindexOverlapVerdict struct {
-	Spanned      bool
+	Overlapped   bool
 	Undetermined bool
 
 	Collection string
@@ -33,17 +33,18 @@ type ReindexOverlapVerdict struct {
 	Detail string
 }
 
-func (v ReindexOverlapVerdict) clean() bool { return !v.Spanned && !v.Undetermined }
+func (v ReindexOverlapVerdict) allowsBackup() bool { return !v.Overlapped && !v.Undetermined }
 
-// A backup naming no class captured nothing and cannot have been spanned,
-// the opposite of how the restore gate reads an empty list.
+// ReindexOverlapLookup reports whether a migration rewrote any of classes at
+// or after since. An empty classes list captured nothing, so nothing overlaps it.
 type ReindexOverlapLookup func(classes []string, since time.Time) ReindexOverlapVerdict
 
 type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
 
-// Overlap, not liveness: one that ran inside the window is already invisible.
+// A migration can start and finish inside the capture window, so liveness
+// answers nothing here; this asks whether one overlapped the capture.
 func NewReindexOverlapLookup(
 	tasks []*distributedtask.Task,
 	completedTaskTTL time.Duration,
@@ -77,7 +78,7 @@ func NewReindexOverlapLookup(
 					continue
 				}
 			}
-			if verdict := judgeReindexOverlap(task.task, since, hasLocalWorker); !verdict.clean() {
+			if verdict := decideReindexOverlap(task.task, since, hasLocalWorker); !verdict.allowsBackup() {
 				verdict.Collection = task.Collection
 				verdict.TaskID = task.task.ID
 				return verdict
@@ -87,13 +88,13 @@ func NewReindexOverlapLookup(
 	}
 }
 
-func judgeReindexOverlap(
+func decideReindexOverlap(
 	task *distributedtask.Task,
 	since time.Time,
 	hasLocalWorker ReindexWorkerLookup,
 ) ReindexOverlapVerdict {
 	if IsLiveReindexTaskStatus(task.Status) {
-		return ReindexOverlapVerdict{Spanned: true}
+		return ReindexOverlapVerdict{Overlapped: true}
 	}
 	if task.FinishedAt.IsZero() {
 		return ReindexOverlapVerdict{
@@ -105,15 +106,15 @@ func judgeReindexOverlap(
 		return ReindexOverlapVerdict{}
 	}
 	if task.Status != distributedtask.TaskStatusCancelled {
-		return ReindexOverlapVerdict{Spanned: true}
+		return ReindexOverlapVerdict{Overlapped: true}
 	}
-	return judgeCancelledReindexOverlap(task, hasLocalWorker)
+	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
 // A cancel before any unit left PENDING wrote nothing, which is what a
 // submission losing a race to a backup produces. Everything else refuses: an
 // empty unit list is unknown, and a worker registers before a unit moves.
-func judgeCancelledReindexOverlap(
+func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
 ) ReindexOverlapVerdict {
@@ -131,11 +132,11 @@ func judgeCancelledReindexOverlap(
 			}
 		}
 		if unit.Status != distributedtask.UnitStatusPending {
-			return ReindexOverlapVerdict{Spanned: true}
+			return ReindexOverlapVerdict{Overlapped: true}
 		}
 	}
 	if hasLocalWorker(task.TaskDescriptor) {
-		return ReindexOverlapVerdict{Spanned: true}
+		return ReindexOverlapVerdict{Overlapped: true}
 	}
 	return ReindexOverlapVerdict{}
 }
@@ -146,10 +147,9 @@ func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {
 	db.reindexOverlapLookupBuilder = builder
 }
 
-// Known limitation: the capture start and FinishedAt are stamped by
-// different nodes, so a proposer clock far enough behind reads a migration
-// that finished inside the window as finishing before it. Closing this means
-// putting backup state in RAFT.
+// Known limitation: the capture start and FinishedAt come from different
+// nodes' clocks, so enough skew hides a migration that finished inside the
+// window. Closing this means putting backup state in RAFT.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		return nil
@@ -164,7 +164,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 		return nil
 	}
 	verdict := builder(ctx)(classes, since)
-	if verdict.clean() {
+	if verdict.allowsBackup() {
 		return nil
 	}
 	db.warnOverlapRefusal(classes, verdict)
@@ -186,8 +186,8 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 		})
 }
 
-// One sentinel per arm, never both: matching the observed one on an
-// undetermined answer reports a torn backup as a known one.
+// Two errors, never both: an undetermined answer must not match the
+// observed-overlap error, or a check that saw nothing reads as one that did.
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict) error {
 	if verdict.Undetermined {
 		return fmt.Errorf("%w: %s",
@@ -199,5 +199,5 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict) error {
 	}
 	return fmt.Errorf("%w: %s was migrated while this backup was being captured; "+
 		"take a new backup once the migration has finished",
-		entitiesbackup.ErrBackupSpannedReindex, named)
+		entitiesbackup.ErrReindexOverlappedBackup, named)
 }

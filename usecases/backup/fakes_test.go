@@ -53,8 +53,9 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 	return []modulecapabilities.BackupBackend{bsp.backend}
 }
 
-// The zero value admits, so tests that do not exercise a gate need set
-// nothing.
+// reindexGateStub answers both reindex questions for whichever fake embeds
+// it: the restore gate and the commit-time overlap check. The zero value
+// admits, so tests that do not exercise either need set nothing.
 type reindexGateStub struct {
 	mu              sync.Mutex
 	refusal         error

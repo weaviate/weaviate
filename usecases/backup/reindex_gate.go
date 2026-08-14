@@ -48,7 +48,7 @@ func refusalRank(err error) int {
 // re-postable over it. Every other refusal loses to the abort, because the
 // operation context is the abort signal itself.
 func publishAsCancelled(err, ctxErr error) bool {
-	if errors.Is(err, backup.ErrBackupSpannedReindex) ||
+	if errors.Is(err, backup.ErrReindexOverlappedBackup) ||
 		errors.Is(err, backup.ErrReindexOverlapUndetermined) {
 		return false
 	}

@@ -120,12 +120,12 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	t.Run("a refusal stops the capture from ever reading as transferred", func(t *testing.T) {
 		u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
 		refusal := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-			backup.ErrBackupSpannedReindex, class)
+			backup.ErrReindexOverlappedBackup, class)
 		sourcer.setOverlapRefusal(refusal)
 
 		err := u.all(context.Background(), []string{class}, desc, nil, "", "")
 
-		require.ErrorIs(t, err, backup.ErrBackupSpannedReindex)
+		require.ErrorIs(t, err, backup.ErrReindexOverlappedBackup)
 		assert.False(t, slot.saw(backup.Transferred),
 			"a backup a migration spanned must never be offered for commit")
 		assert.False(t, slot.saw(backup.Success))
@@ -141,12 +141,9 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	})
 }
 
-// TestCommitTimeOverlapRefusalIsNotAnOperatorAbort pins that a refusal
-// ends the backup FAILED even when its own cause wraps a cancellation.
-// The check reaches the cluster task manager over RAFT, and a
-// cancellation from that client is not somebody stopping the backup —
-// publishing it as CANCELLED hides a torn capture behind a status that
-// reads as deliberate.
+// TestCommitTimeOverlapRefusalIsNotAnOperatorAbort pins the "Never an
+// operator abort" rule in uploader.all: a refusal ends the backup FAILED
+// even when its own cause wraps a cancellation.
 func TestCommitTimeOverlapRefusalIsNotAnOperatorAbort(t *testing.T) {
 	const class = "Article"
 	u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)

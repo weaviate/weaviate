@@ -56,21 +56,21 @@ func TestReindexOverlapRules(t *testing.T) {
 		task             *distributedtask.Task
 		classes          []string
 		hasLocalWorker   bool
-		wantSpanned      bool
+		wantOverlapped   bool
 		wantUndetermined bool
 		wantDetail       string
 	}{
 		{
-			name:        "a task still running at commit spanned the capture",
-			task:        overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
-			classes:     []string{"Movies"},
-			wantSpanned: true,
+			name:           "a task still running at commit overlapped the capture",
+			task:           overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
+			classes:        []string{"Movies"},
+			wantOverlapped: true,
 		},
 		{
-			name:        "a task that finished inside the window spanned it",
-			task:        overlapTask(distributedtask.TaskStatusFinished, captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
-			classes:     []string{"Movies"},
-			wantSpanned: true,
+			name:           "a task that finished inside the window overlapped it",
+			task:           overlapTask(distributedtask.TaskStatusFinished, captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
+			classes:        []string{"Movies"},
+			wantOverlapped: true,
 		},
 		{
 			name:    "a task that finished before the capture began is clear",
@@ -80,10 +80,10 @@ func TestReindexOverlapRules(t *testing.T) {
 		{
 			// Inclusive: a task recorded as finishing at the same instant
 			// the capture began may have been mid-write when it started.
-			name:        "the boundary counts as an overlap",
-			task:        overlapTask(distributedtask.TaskStatusFinished, captureStart, units(distributedtask.UnitStatusCompleted)),
-			classes:     []string{"Movies"},
-			wantSpanned: true,
+			name:           "the boundary counts as an overlap",
+			task:           overlapTask(distributedtask.TaskStatusFinished, captureStart, units(distributedtask.UnitStatusCompleted)),
+			classes:        []string{"Movies"},
+			wantOverlapped: true,
 		},
 		{
 			name:             "a terminal task with no finish time cannot be judged",
@@ -93,8 +93,8 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantDetail:       "without recording when it finished",
 		},
 		{
-			// What journey 1's post-commit rollback produces: the cancel
-			// landed before any unit was claimed, so nothing was written.
+			// What a submission that lost the race to a backup produces: the
+			// cancel landed before any unit was claimed, so nothing was written.
 			name:    "a cancelled task that never left PENDING wrote nothing",
 			task:    overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusPending)),
 			classes: []string{"Movies"},
@@ -102,16 +102,16 @@ func TestReindexOverlapRules(t *testing.T) {
 		{
 			// A cancel that landed after a worker claimed a unit did not
 			// arrive before the writes it was meant to prevent.
-			name:        "a cancelled task with a claimed unit still spanned",
-			task:        overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusInProgress)),
-			classes:     []string{"Movies"},
-			wantSpanned: true,
+			name:           "a cancelled task with a claimed unit still overlapped",
+			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusInProgress)),
+			classes:        []string{"Movies"},
+			wantOverlapped: true,
 		},
 		{
-			name:        "a cancelled task with a completed unit still spanned",
-			task:        overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
-			classes:     []string{"Movies"},
-			wantSpanned: true,
+			name:           "a cancelled task with a completed unit still overlapped",
+			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
+			classes:        []string{"Movies"},
+			wantOverlapped: true,
 		},
 		{
 			name:             "a cancelled task with no units is unknown, not untouched",
@@ -139,11 +139,11 @@ func TestReindexOverlapRules(t *testing.T) {
 			// A worker registers before its first progress report flips a
 			// unit out of PENDING, so all-PENDING units and a live worker
 			// is not the same state as all-PENDING and nothing running.
-			name:           "a live local worker vetoes the waiver",
+			name:           "a live local worker means all-PENDING is not proof nothing was written",
 			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending)),
 			classes:        []string{"Movies"},
 			hasLocalWorker: true,
-			wantSpanned:    true,
+			wantOverlapped: true,
 		},
 		{
 			name:    "a migration on a collection this backup did not capture",
@@ -153,16 +153,15 @@ func TestReindexOverlapRules(t *testing.T) {
 		{
 			// The opposite of the restore gate's empty list: a backup that
 			// captured nothing has nothing that could have been rewritten.
-			name:    "a backup that captured no class cannot be spanned",
+			name:    "a backup that captured no class cannot be overlapped",
 			task:    overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
 			classes: nil,
 		},
 		{
-			name:    "collection matching ignores case",
-			task:    overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
-			classes: []string{"MOVIES"},
-
-			wantSpanned: true,
+			name:           "collection matching ignores case",
+			task:           overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
+			classes:        []string{"MOVIES"},
+			wantOverlapped: true,
 		},
 	}
 
@@ -174,7 +173,7 @@ func TestReindexOverlapRules(t *testing.T) {
 
 			verdict := lookup(tt.classes, captureStart)
 
-			assert.Equal(t, tt.wantSpanned, verdict.Spanned)
+			assert.Equal(t, tt.wantOverlapped, verdict.Overlapped)
 			assert.Equal(t, tt.wantUndetermined, verdict.Undetermined)
 			if tt.wantDetail != "" {
 				assert.Contains(t, verdict.Detail, tt.wantDetail)
@@ -192,8 +191,8 @@ func TestReindexOverlapUnattributableTask(t *testing.T) {
 	lookup := NewReindexOverlapLookup([]*distributedtask.Task{task},
 		24*time.Hour, noLocalWorker, func() time.Time { return commitTime })
 
-	assert.True(t, lookup([]string{"Shows"}, captureStart).Spanned)
-	assert.True(t, lookup(nil, captureStart).clean(),
+	assert.True(t, lookup([]string{"Shows"}, captureStart).Overlapped)
+	assert.True(t, lookup(nil, captureStart).allowsBackup(),
 		"a backup that captured nothing has nothing a migration could have rewritten")
 }
 
@@ -215,7 +214,7 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 	verdict := lookup(ttl)
 	assert.Contains(t, verdict.Detail, "longer than the")
 
-	assert.False(t, verdict.Spanned, "an unanswerable check observed no overlap")
+	assert.False(t, verdict.Overlapped, "an unanswerable check observed no overlap")
 }
 
 // TestReindexOverlapNamesTheSameTask pins that two nodes committing the
@@ -230,7 +229,7 @@ func TestReindexOverlapNamesTheSameTask(t *testing.T) {
 	for _, tasks := range [][]*distributedtask.Task{ascending, descending} {
 		verdict := NewReindexOverlapLookup(tasks, time.Hour, noLocalWorker,
 			func() time.Time { return commitTime })([]string{"Movies"}, captureStart)
-		require.True(t, verdict.Spanned)
+		require.True(t, verdict.Overlapped)
 		require.Equal(t, "task-a", verdict.TaskID)
 	}
 }
@@ -241,9 +240,9 @@ func TestReindexOverlapNamesTheSameTask(t *testing.T) {
 // judge as one a migration is known to have torn.
 func TestReindexOverlapRefusalWording(t *testing.T) {
 	t.Run("observed", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Spanned: true, Collection: "Movies"})
+		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"})
 
-		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex)
+		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
 		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
 		assert.Contains(t, err.Error(), `collection "Movies"`)
 		assert.Contains(t, err.Error(), "was migrated while this backup was being captured")
@@ -256,7 +255,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 		})
 
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
-		require.NotErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex,
+		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup,
 			"the check observed no overlap, so it must not claim one")
 		assert.NotContains(t, err.Error(), "overlapped this backup")
 		assert.NotContains(t, err.Error(), "in flight",
@@ -265,24 +264,24 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 	})
 
 	t.Run("observed but unattributable", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Spanned: true})
+		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true})
 
-		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex)
+		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
 		assert.Contains(t, err.Error(), "a collection this backup captured")
 	})
 }
 
 func TestRefuseIfReindexOverlapped(t *testing.T) {
-	spanning := []*distributedtask.Task{
+	overlappingTasks := []*distributedtask.Task{
 		overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
 	}
 
 	t.Run("fails the backup and keeps the task id out of it", func(t *testing.T) {
-		db, hook, built := gatedDB(t, gateFixtures{overlap: spanning})
+		db, hook, built := gatedDB(t, gateFixtures{overlap: overlappingTasks})
 
 		err := db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart)
 		require.Error(t, err)
-		require.ErrorIs(t, err, entitiesbackup.ErrBackupSpannedReindex)
+		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
 		assert.NotContains(t, err.Error(), "t1")
 		assert.NotContains(t, err.Error(), "node-7")
 		assert.Equal(t, 1, built.overlap, "the check runs once per commit")
@@ -293,14 +292,14 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 
 	t.Run("passes a backup nothing rewrote", func(t *testing.T) {
-		db, hook, _ := gatedDB(t, gateFixtures{overlap: spanning})
+		db, hook, _ := gatedDB(t, gateFixtures{overlap: overlappingTasks})
 
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Shows"}, captureStart))
 		require.Empty(t, hook.AllEntries())
 	})
 
 	t.Run("the feature flag skips the check", func(t *testing.T) {
-		db, _, built := gatedDB(t, gateFixtures{overlap: spanning})
+		db, _, built := gatedDB(t, gateFixtures{overlap: overlappingTasks})
 		db.config.RuntimeReindexDisabled = true
 
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
@@ -323,7 +322,7 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 			classes = append(classes, "Class"+string(rune('A'+i%26)))
 		}
 		classes = append(classes, "Movies")
-		db, hook, _ := gatedDB(t, gateFixtures{overlap: spanning})
+		db, hook, _ := gatedDB(t, gateFixtures{overlap: overlappingTasks})
 
 		require.Error(t, db.RefuseIfReindexOverlapped(context.Background(), classes, captureStart))
 		require.Len(t, hook.AllEntries(), 1)
@@ -332,12 +331,10 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 }
 
-// TestGateAndBackstopAgree pins the rule that keeps the two from
-// contradicting each other in both directions: what the per-shard gate
-// admits at the start of a capture, the commit-time check does not then
-// fail for a reason the gate could have seen, and what the gate refuses
-// the check would have refused too.
-func TestGateAndBackstopAgree(t *testing.T) {
+// TestGateAndCommitCheckAgree pins that the per-shard gate and the
+// commit-time check refuse the same tasks, so a capture the gate admits is
+// never failed later for something the gate could already have seen.
+func TestGateAndCommitCheckAgree(t *testing.T) {
 	tests := []struct {
 		name        string
 		payload     string
@@ -374,12 +371,12 @@ func TestGateAndBackstopAgree(t *testing.T) {
 			_, live := NewAnyReindexActivityLookup([]*distributedtask.Task{task})([]string{"Movies"})
 			gateRefuses := decoded.Scope == ReindexPayloadScopeCluster || live
 
-			backstop := NewReindexOverlapLookup([]*distributedtask.Task{task},
+			commitCheck := NewReindexOverlapLookup([]*distributedtask.Task{task},
 				24*time.Hour, noLocalWorker, func() time.Time { return commitTime })
-			backstopRefuses := backstop([]string{"Movies"}, captureStart).Spanned
+			commitCheckRefuses := commitCheck([]string{"Movies"}, captureStart).Overlapped
 
 			assert.Equal(t, tt.wantRefused, gateRefuses, "gate")
-			assert.Equal(t, tt.wantRefused, backstopRefuses, "backstop")
+			assert.Equal(t, tt.wantRefused, commitCheckRefuses, "commit-time check")
 		})
 	}
 }
