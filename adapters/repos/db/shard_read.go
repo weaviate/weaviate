@@ -417,7 +417,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -484,7 +484,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {

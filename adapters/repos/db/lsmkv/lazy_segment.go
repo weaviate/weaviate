@@ -309,6 +309,21 @@ func (s *lazySegment) quantileKeys(q int) [][]byte {
 	return s.segment.quantileKeys(q)
 }
 
+func (s *lazySegment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
+	s.mustLoad()
+	return s.segment.scanIndexNodes(from, to, fn)
+}
+
+func (s *lazySegment) indexNodeSplits(parts int) [][2]int {
+	s.mustLoad()
+	return s.segment.indexNodeSplits(parts)
+}
+
+func (s *lazySegment) readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error) {
+	s.mustLoad()
+	return s.segment.readRange(offset, operation, buf)
+}
+
 func (s *lazySegment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	s.mustLoad()
 	return s.segment.ReadOnlyTombstones()
@@ -420,11 +435,11 @@ func (s *lazySegment) getCountNetAdditions() int {
 	return s.segment.getCountNetAdditions()
 }
 
-func (s *lazySegment) existsKey(key []byte) (bool, error) {
+func (s *lazySegment) indexContainsKey(key []byte) (bool, error) {
 	if err := s.load(); err != nil {
-		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
+		return false, fmt.Errorf("lazySegment::indexContainsKey: %w", err)
 	}
-	return s.segment.existsKey(key)
+	return s.segment.indexContainsKey(key)
 }
 
 func (s *lazySegment) exists(key []byte) error {

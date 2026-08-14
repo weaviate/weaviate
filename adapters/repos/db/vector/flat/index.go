@@ -1034,8 +1034,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 	}
 
 	// Grow cache just once. Growing before LockAll also sizes the cache's
-	// lock stripes to the actual tenant size; SetSizeAndGrowNoLock below then
-	// only records the count.
+	// lock stripes to the actual tenant size.
 	index.cache.Grow(maxID)
 	index.cache.LockAll()
 	defer index.cache.UnlockAll()
