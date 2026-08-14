@@ -192,10 +192,12 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 		expected, hits)
 }
 
-// cancelInFlightOrSkip submits an upsert, waits for pending/indexing, then
-// POSTs the GA cancel sub-resource. indexType is the test-local label
-// ("rangeable" maps to the GA "rangeFilters" segment); a raced completion
-// (NO_OP) falls through to the retry submit.
+// cancelInFlightOrSkip submits an index update, polls /indexes until the
+// task shows pending/indexing, then issues cancel. If the cancel races
+// with task completion (409, or 202 NO_OP), the sub-test is logged as
+// fast-completed and the caller falls through to the retry submit — which
+// still exercises a useful adjacent path (re-submit after a same-shape
+// FINISHED task) even though it's not the bug we're after.
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.
@@ -285,7 +287,12 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 				}
 			}
 			return false
-		}, 60*time.Second, 50*time.Millisecond, "race-completed first task not terminal")
+		}, 60*time.Second, 50*time.Millisecond)
+	case http.StatusConflict:
+		require.Contains(t, string(respBody), taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", string(respBody))
+		t.Logf("cancel raced with completion of task %s; it is past its units", taskID)
+		awaitTerminal(t, restURI, taskID)
 		return false
 
 	default:

@@ -76,18 +76,6 @@ func (o *SchemaObjectsIndexUpsertReader) ReadResponse(response runtime.ClientRes
 			return nil, err
 		}
 		return nil, result
-	case 422:
-		result := NewSchemaObjectsIndexUpsertUnprocessableEntity()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-	case 429:
-		result := NewSchemaObjectsIndexUpsertTooManyRequests()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	case 500:
 		result := NewSchemaObjectsIndexUpsertInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -181,7 +169,7 @@ func NewSchemaObjectsIndexUpsertAccepted() *SchemaObjectsIndexUpsertAccepted {
 /*
 SchemaObjectsIndexUpsertAccepted describes a response with status code 202, with default header values.
 
-A reindex task is running for the requested configuration; the body carries its `taskId` with `{"status":"STARTED"}`. A request converging on an already-running migration joins it and receives that task's ID.
+Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.
 */
 type SchemaObjectsIndexUpsertAccepted struct {
 	Payload *models.IndexUpdateResponse
@@ -441,7 +429,7 @@ func NewSchemaObjectsIndexUpsertNotFound() *SchemaObjectsIndexUpsertNotFound {
 /*
 SchemaObjectsIndexUpsertNotFound describes a response with status code 404, with default header values.
 
-Unknown collection or property.
+Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.
 */
 type SchemaObjectsIndexUpsertNotFound struct {
 	Payload *models.ErrorResponse
@@ -509,7 +497,7 @@ func NewSchemaObjectsIndexUpsertConflict() *SchemaObjectsIndexUpsertConflict {
 /*
 SchemaObjectsIndexUpsertConflict describes a response with status code 409, with default header values.
 
-Conflicting in-flight reindex task; the message names the offending task ID.
+Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
 */
 type SchemaObjectsIndexUpsertConflict struct {
 	Payload *models.ErrorResponse
@@ -558,142 +546,6 @@ func (o *SchemaObjectsIndexUpsertConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsIndexUpsertConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSchemaObjectsIndexUpsertUnprocessableEntity creates a SchemaObjectsIndexUpsertUnprocessableEntity with default headers values
-func NewSchemaObjectsIndexUpsertUnprocessableEntity() *SchemaObjectsIndexUpsertUnprocessableEntity {
-	return &SchemaObjectsIndexUpsertUnprocessableEntity{}
-}
-
-/*
-SchemaObjectsIndexUpsertUnprocessableEntity describes a response with status code 422, with default header values.
-
-Invalid `indexName` path value.
-*/
-type SchemaObjectsIndexUpsertUnprocessableEntity struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this schema objects index upsert unprocessable entity response has a 2xx status code
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this schema objects index upsert unprocessable entity response has a 3xx status code
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this schema objects index upsert unprocessable entity response has a 4xx status code
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) IsClientError() bool {
-	return true
-}
-
-// IsServerError returns true when this schema objects index upsert unprocessable entity response has a 5xx status code
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) IsServerError() bool {
-	return false
-}
-
-// IsCode returns true when this schema objects index upsert unprocessable entity response a status code equal to that given
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) IsCode(code int) bool {
-	return code == 422
-}
-
-// Code gets the status code for the schema objects index upsert unprocessable entity response
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) Code() int {
-	return 422
-}
-
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertUnprocessableEntity  %+v", 422, o.Payload)
-}
-
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertUnprocessableEntity  %+v", 422, o.Payload)
-}
-
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSchemaObjectsIndexUpsertTooManyRequests creates a SchemaObjectsIndexUpsertTooManyRequests with default headers values
-func NewSchemaObjectsIndexUpsertTooManyRequests() *SchemaObjectsIndexUpsertTooManyRequests {
-	return &SchemaObjectsIndexUpsertTooManyRequests{}
-}
-
-/*
-SchemaObjectsIndexUpsertTooManyRequests describes a response with status code 429, with default header values.
-
-Per-collection cap of concurrent active reindex tasks reached.
-*/
-type SchemaObjectsIndexUpsertTooManyRequests struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this schema objects index upsert too many requests response has a 2xx status code
-func (o *SchemaObjectsIndexUpsertTooManyRequests) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this schema objects index upsert too many requests response has a 3xx status code
-func (o *SchemaObjectsIndexUpsertTooManyRequests) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this schema objects index upsert too many requests response has a 4xx status code
-func (o *SchemaObjectsIndexUpsertTooManyRequests) IsClientError() bool {
-	return true
-}
-
-// IsServerError returns true when this schema objects index upsert too many requests response has a 5xx status code
-func (o *SchemaObjectsIndexUpsertTooManyRequests) IsServerError() bool {
-	return false
-}
-
-// IsCode returns true when this schema objects index upsert too many requests response a status code equal to that given
-func (o *SchemaObjectsIndexUpsertTooManyRequests) IsCode(code int) bool {
-	return code == 429
-}
-
-// Code gets the status code for the schema objects index upsert too many requests response
-func (o *SchemaObjectsIndexUpsertTooManyRequests) Code() int {
-	return 429
-}
-
-func (o *SchemaObjectsIndexUpsertTooManyRequests) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertTooManyRequests  %+v", 429, o.Payload)
-}
-
-func (o *SchemaObjectsIndexUpsertTooManyRequests) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertTooManyRequests  %+v", 429, o.Payload)
-}
-
-func (o *SchemaObjectsIndexUpsertTooManyRequests) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SchemaObjectsIndexUpsertTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

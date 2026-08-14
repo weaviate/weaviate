@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -85,18 +84,15 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the quantizer cache below reads
+	// cfg.Logger again and has no fallback of its own
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
-		logger:               logger,
+		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
 		metadataLock:         &sync.RWMutex{},
 		rescore:              extractCompressionRescore(uc),
@@ -1034,8 +1030,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 	}
 
 	// Grow cache just once. Growing before LockAll also sizes the cache's
-	// lock stripes to the actual tenant size; SetSizeAndGrowNoLock below then
-	// only records the count.
+	// lock stripes to the actual tenant size.
 	index.cache.Grow(maxID)
 	index.cache.LockAll()
 	defer index.cache.UnlockAll()

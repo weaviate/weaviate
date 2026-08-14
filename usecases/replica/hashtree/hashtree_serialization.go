@@ -22,11 +22,38 @@ import (
 
 const (
 	hashTreeMagicNumber uint32 = 0xD1D1D1D1
-	hashTreeVersion     byte   = 1
+
+	hashTreeVersion byte = 1
 
 	// magicnumber version height root checksum
 	hashTreeHeaderLength int = 4 + 1 + 4 + DigestLength + DigestLength
 )
+
+// headerChecksum is the murmur3-128 of the header bytes preceding the checksum field.
+func headerChecksum(hdr []byte) [DigestLength]byte {
+	h1, h2 := murmur3.Sum128(hdr)
+	var cs [DigestLength]byte
+	binary.BigEndian.PutUint64(cs[:8], h1)
+	binary.BigEndian.PutUint64(cs[8:], h2)
+	return cs
+}
+
+// legacyHeaderChecksum reproduces the pre-fix stored value (hash.Sum appended, so the copy took the header's own leading bytes, zero-padded); accepted on read so pre-fix files stay loadable.
+func legacyHeaderChecksum(hdr []byte) [DigestLength]byte {
+	var legacy [DigestLength]byte
+	copy(legacy[:], hdr)
+	return legacy
+}
+
+// validHeaderChecksum accepts the real murmur3-128 or the legacy pre-fix value.
+func validHeaderChecksum(stored, hdr []byte) bool {
+	expected := headerChecksum(hdr)
+	if bytes.Equal(stored, expected[:]) {
+		return true
+	}
+	legacy := legacyHeaderChecksum(hdr)
+	return bytes.Equal(stored, legacy[:])
+}
 
 func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	ht.mux.Lock()
@@ -53,8 +80,8 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	copy(hdr[hdrOff:hdrOff+DigestLength], rootBs)
 	hdrOff += DigestLength
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
+	checksum := headerChecksum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum[:])
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -98,7 +125,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	hdrOff += 4
 
 	if hdr[hdrOff] != hashTreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], hashTreeVersion)
+		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], hashTreeVersion)
 	}
 	hdrOff++
 
@@ -109,8 +136,8 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
 	hdrOff += DigestLength
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	if bytes.Equal(hdr[:hdrOff], checksum) {
+	// The checksum catches bit-rot; NewHashTree's MaxHeight bound catches crafted heights — both before allocation.
+	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}
 

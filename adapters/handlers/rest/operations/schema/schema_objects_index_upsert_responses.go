@@ -73,7 +73,7 @@ func (o *SchemaObjectsIndexUpsertOK) WriteResponse(rw http.ResponseWriter, produ
 const SchemaObjectsIndexUpsertAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexUpsertAccepted A reindex task is running for the requested configuration; the body carries its `taskId` with `{"status":"STARTED"}`. A request converging on an already-running migration joins it and receives that task's ID.
+SchemaObjectsIndexUpsertAccepted Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.
 
 swagger:response schemaObjectsIndexUpsertAccepted
 */
@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexUpsertForbidden) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexUpsertNotFoundCode int = 404
 
 /*
-SchemaObjectsIndexUpsertNotFound Unknown collection or property.
+SchemaObjectsIndexUpsertNotFound Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.
 
 swagger:response schemaObjectsIndexUpsertNotFound
 */
@@ -278,7 +278,7 @@ func (o *SchemaObjectsIndexUpsertNotFound) WriteResponse(rw http.ResponseWriter,
 const SchemaObjectsIndexUpsertConflictCode int = 409
 
 /*
-SchemaObjectsIndexUpsertConflict Conflicting in-flight reindex task; the message names the offending task ID.
+SchemaObjectsIndexUpsertConflict Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
 
 swagger:response schemaObjectsIndexUpsertConflict
 */
@@ -311,96 +311,6 @@ func (o *SchemaObjectsIndexUpsertConflict) SetPayload(payload *models.ErrorRespo
 func (o *SchemaObjectsIndexUpsertConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(409)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// SchemaObjectsIndexUpsertUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsIndexUpsertUnprocessableEntity
-const SchemaObjectsIndexUpsertUnprocessableEntityCode int = 422
-
-/*
-SchemaObjectsIndexUpsertUnprocessableEntity Invalid `indexName` path value.
-
-swagger:response schemaObjectsIndexUpsertUnprocessableEntity
-*/
-type SchemaObjectsIndexUpsertUnprocessableEntity struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewSchemaObjectsIndexUpsertUnprocessableEntity creates SchemaObjectsIndexUpsertUnprocessableEntity with default headers values
-func NewSchemaObjectsIndexUpsertUnprocessableEntity() *SchemaObjectsIndexUpsertUnprocessableEntity {
-
-	return &SchemaObjectsIndexUpsertUnprocessableEntity{}
-}
-
-// WithPayload adds the payload to the schema objects index upsert unprocessable entity response
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexUpsertUnprocessableEntity {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the schema objects index upsert unprocessable entity response
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *SchemaObjectsIndexUpsertUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(422)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// SchemaObjectsIndexUpsertTooManyRequestsCode is the HTTP code returned for type SchemaObjectsIndexUpsertTooManyRequests
-const SchemaObjectsIndexUpsertTooManyRequestsCode int = 429
-
-/*
-SchemaObjectsIndexUpsertTooManyRequests Per-collection cap of concurrent active reindex tasks reached.
-
-swagger:response schemaObjectsIndexUpsertTooManyRequests
-*/
-type SchemaObjectsIndexUpsertTooManyRequests struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewSchemaObjectsIndexUpsertTooManyRequests creates SchemaObjectsIndexUpsertTooManyRequests with default headers values
-func NewSchemaObjectsIndexUpsertTooManyRequests() *SchemaObjectsIndexUpsertTooManyRequests {
-
-	return &SchemaObjectsIndexUpsertTooManyRequests{}
-}
-
-// WithPayload adds the payload to the schema objects index upsert too many requests response
-func (o *SchemaObjectsIndexUpsertTooManyRequests) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexUpsertTooManyRequests {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the schema objects index upsert too many requests response
-func (o *SchemaObjectsIndexUpsertTooManyRequests) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *SchemaObjectsIndexUpsertTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

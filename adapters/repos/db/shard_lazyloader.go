@@ -319,8 +319,9 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load (init applies config at load); isLoaded takes l.mutex, so callers must not hold replicationConfigLock.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.enableAsyncReplication(ctx, config)
 }
@@ -351,14 +352,15 @@ func (l *LazyLoadShard) removePersistedHashtree() error {
 	loaded := l.loaded
 	l.mutex.Unlock()
 	if !loaded {
-		return nil // not loaded: a stale .ht is discarded on next load
+		return nil // unloaded shards take no writes, so a persisted .ht stays valid; init scrubs it when async is off
 	}
 	return l.shard.removePersistedHashtree()
 }
 
 func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load: matches resumeAfterAbortedOffload's no-op-when-unloaded contract.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }
@@ -367,16 +369,14 @@ func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOve
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
-	return nil
+	return l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
-	return nil
+	return l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeAllTargetNodeOverrides(ctx context.Context) error {
@@ -1033,6 +1033,16 @@ func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context
 func (l *LazyLoadShard) hasGeoIndex() bool {
 	l.mustLoad()
 	return l.shard.hasGeoIndex()
+}
+
+// A cold shard reports false rather than loading: the only caller reaches this
+// through ForEachLoadedShard, and the addProperty that false triggers skips cold
+// shards too.
+func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
+	if !l.isLoaded() {
+		return false
+	}
+	return l.shard.hasGeoIndexForProp(propName)
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {

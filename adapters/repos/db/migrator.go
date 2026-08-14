@@ -517,8 +517,7 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		errMissingProp := errors.New("missing prop")
 		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
 		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
-			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if !shardHasProperty(shard, prop) {
 				return errMissingProp
 			}
 			return nil
@@ -530,6 +529,16 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		}
 	}
 	return nil
+}
+
+// shardHasProperty reports whether prop's value index exists on this shard. Geo
+// props get a property-specific index and no filterable bucket, so probing that
+// bucket would report them missing forever.
+func shardHasProperty(shard ShardLike, prop *models.Property) bool {
+	if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+		return shard.hasGeoIndexForProp(prop.Name)
+	}
+	return shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)) != nil
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {

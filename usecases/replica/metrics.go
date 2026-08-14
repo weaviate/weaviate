@@ -48,6 +48,8 @@ type Metrics struct {
 	writeDuration      prometheus.Histogram
 	readDuration       prometheus.Histogram
 	readRepairDuration prometheus.Histogram
+
+	asyncReplicationTargetSkips *prometheus.CounterVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
@@ -127,7 +129,39 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
 		return nil, err
 	}
 
+	m.asyncReplicationTargetSkips, err = newCounterVec(prom.Registerer,
+		"async_replication_target_skip_count", "Count of async replication targets skipped as retry-later, by reason", []string{"reason"})
+	if err != nil {
+		return nil, err
+	}
+
 	return m, nil
+}
+
+// IncAsyncReplicationTargetSkip counts a retry-later target skip by reason.
+func (m *Metrics) IncAsyncReplicationTargetSkip(err error) {
+	if m != nil && m.monitoring {
+		m.asyncReplicationTargetSkips.WithLabelValues(AsyncReplicationSkipReason(err)).Inc()
+	}
+}
+
+func newCounterVec(reg prometheus.Registerer, name, help string, labels []string) (*prometheus.CounterVec, error) {
+	c := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "weaviate",
+		Name:      name,
+		Help:      help,
+	}, labels)
+	if err := reg.Register(c); err != nil {
+		var e prometheus.AlreadyRegisteredError
+		if errors.As(err, &e) {
+			if vec, ok := e.ExistingCollector.(*prometheus.CounterVec); ok {
+				return vec, nil
+			}
+			return nil, fmt.Errorf("metric %s already registered but not as a CounterVec", name)
+		}
+		return nil, err
+	}
+	return c, nil
 }
 
 func newCounter(reg prometheus.Registerer, name, help string) (prometheus.Counter, error) {

@@ -36,6 +36,12 @@ func (s *Shard) ConvertQueue(targetVector string) error {
 		return nil
 	}
 
+	// No store, no checkpoint to convert from. This runs on a goroutine, where
+	// a nil dereference takes down the process.
+	if s.indexCheckpoints == nil {
+		return nil
+	}
+
 	// load non-indexed vectors and add them to the queue
 	checkpoint, exists, err := s.indexCheckpoints.Get(s.ID(), targetVector)
 	if err != nil {
