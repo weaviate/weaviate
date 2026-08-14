@@ -808,6 +808,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	hnswPQ := "hnswpq"
 	hnswRQ := "hnswrq"
 	hnswSQ := "hnswsq"
+	flatBQ := "flatbq"
+	flatRQ := "flatrq"
 	dimensions := 1024
 	// the quantizer vectors below only have to prove the ratio each quantizer
 	// reports, and no quantizer derives that from the width, so they stay narrow
@@ -838,6 +840,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		hnswPQ:      quantizerDimensions,
 		hnswRQ:      quantizerDimensions,
 		hnswSQ:      quantizerDimensions,
+		flatBQ:      quantizerDimensions,
+		flatRQ:      quantizerDimensions,
 	}
 
 	dynamicVectorIndexConfig := map[string]any{
@@ -993,6 +997,30 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 						},
 					},
 				},
+				// a flat index reaches its quantizer through neither the hnsw
+				// nor the dynamic config, so it has to be covered on its own
+				flatBQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: flat,
+					VectorIndexConfig: map[string]any{
+						bq: map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+				flatRQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: flat,
+					VectorIndexConfig: map[string]any{
+						"rq": map[string]any{
+							"enabled": true,
+						},
+					},
+				},
 			},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
@@ -1008,6 +1036,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			hnswPQ:      generateRandomVector(targetVectorDimensions[hnswPQ]),
 			hnswRQ:      generateRandomVector(targetVectorDimensions[hnswRQ]),
 			hnswSQ:      generateRandomVector(targetVectorDimensions[hnswSQ]),
+			flatBQ:      generateRandomVector(targetVectorDimensions[flatBQ]),
+			flatRQ:      generateRandomVector(targetVectorDimensions[flatRQ]),
 		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
@@ -1028,8 +1058,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.Len(t, colHot.Shards, 1)
 		shardHot := colHot.Shards[0]
 		require.Equal(t, int64(objectCount1), shardHot.ObjectsCount)
-		require.Len(t, shardHot.NamedVectors, 5)
-		hotVectors := namedVectors(t, shardHot, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ)
+		require.Len(t, shardHot.NamedVectors, 7)
+		hotVectors := namedVectors(t, shardHot, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ, flatBQ, flatRQ)
 		require.Equal(t, flat, hotVectors[dynamic1024].VectorIndexType)
 		require.Equal(t, bq, hotVectors[dynamic1024].Compression)
 		require.True(t, hotVectors[dynamic1024].IsDynamic)
@@ -1049,6 +1079,14 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.InDelta(t, rq8QuantizerRatio, hotVectors[hnswRQ].VectorCompressionRatio, 0.001)
 		require.Equal(t, "sq", hotVectors[hnswSQ].Compression)
 		require.Equal(t, sqCompressionRatio, hotVectors[hnswSQ].VectorCompressionRatio)
+		require.Equal(t, flat, hotVectors[flatBQ].VectorIndexType)
+		require.Equal(t, bq, hotVectors[flatBQ].Compression)
+		require.False(t, hotVectors[flatBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, hotVectors[flatBQ].VectorCompressionRatio)
+		require.Equal(t, flat, hotVectors[flatRQ].VectorIndexType)
+		require.Equal(t, "rq", hotVectors[flatRQ].Compression)
+		require.Equal(t, int16(8), hotVectors[flatRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, hotVectors[flatRQ].VectorCompressionRatio, 0.001)
 
 		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
 
@@ -1058,8 +1096,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colCold.Shards, 1)
 		shardCold := colCold.Shards[0]
-		require.Len(t, shardCold.NamedVectors, 5)
-		coldVectors := namedVectors(t, shardCold, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ)
+		require.Len(t, shardCold.NamedVectors, 7)
+		coldVectors := namedVectors(t, shardCold, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ, flatBQ, flatRQ)
 		// a cold tenant reports what it reported while hot: the dynamic index
 		// is read as the flat one it has not upgraded away from, and both
 		// compression ratios follow from the config plus the quantized vectors
@@ -1084,6 +1122,14 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		// sq trained while hot, so its quantized vectors are on disk to bill for
 		require.Equal(t, "sq", coldVectors[hnswSQ].Compression)
 		require.Equal(t, sqCompressionRatio, coldVectors[hnswSQ].VectorCompressionRatio)
+		require.Equal(t, flat, coldVectors[flatBQ].VectorIndexType)
+		require.Equal(t, bq, coldVectors[flatBQ].Compression)
+		require.False(t, coldVectors[flatBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, coldVectors[flatBQ].VectorCompressionRatio)
+		require.Equal(t, flat, coldVectors[flatRQ].VectorIndexType)
+		require.Equal(t, "rq", coldVectors[flatRQ].Compression)
+		require.Equal(t, int16(8), coldVectors[flatRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, coldVectors[flatRQ].VectorCompressionRatio, 0.001)
 
 		// the first cold report saves itself to disk, and every later one is
 		// served from that file rather than recomputed
@@ -1530,9 +1576,9 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-		flatRQ := "flat_rq"
+		singleFlatRQ := "flat_rq"
 		targetVectorDimensions := map[string]int{
-			flatRQ: 1024,
+			singleFlatRQ: 1024,
 		}
 
 		class := &models.Class{
@@ -1546,7 +1592,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
-				flatRQ: {
+				singleFlatRQ: {
 					Vectorizer: map[string]any{
 						"none": map[string]any{},
 					},
@@ -1563,7 +1609,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
-			flatRQ: generateRandomVector(targetVectorDimensions[flatRQ]),
+			singleFlatRQ: generateRandomVector(targetVectorDimensions[singleFlatRQ]),
 		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
@@ -1575,7 +1621,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		shard := colUsage.Shards[0]
 		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, flatRQ, shard.NamedVectors[0].Name)
+		require.Equal(t, singleFlatRQ, shard.NamedVectors[0].Name)
 		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
 		require.Equal(t, "rq", shard.NamedVectors[0].Compression)
 		require.NotNil(t, shard.NamedVectors[0].Bits)
