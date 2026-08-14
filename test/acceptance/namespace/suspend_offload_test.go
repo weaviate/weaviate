@@ -16,7 +16,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -121,14 +123,23 @@ func TestNamespaces_SuspendDuringOffloadAbort(t *testing.T) {
 
 	// A tenant the report put back to HOT has to be usable again once the namespace
 	// is back, off the files the abort left behind.
+	//
+	// Retried: the resume is confirmed by reading the namespace back, which is
+	// answered by the leader, while a namespaced key is authenticated against the
+	// serving node's own copy of the state. A follower that has not applied the
+	// resume yet still rejects the key with a 401, so the first write after a
+	// resume can fail on a namespace the API already reports as active. The id is
+	// left to the server, so a retry writes another object rather than colliding.
 	t.Run("the tenant takes writes again after the resume", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns1, adminKey)
 
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
-			Class:      class,
-			Tenant:     tenant,
-			Properties: map[string]any{"title": "written after the resume"},
-		}, user1Key)
-		require.NoError(t, err)
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+				Class:      class,
+				Tenant:     tenant,
+				Properties: map[string]any{"title": "written after the resume"},
+			}, user1Key)
+			assert.NoError(c, err)
+		}, 30*time.Second, 250*time.Millisecond, "the tenant never took a write after the resume")
 	})
 }

@@ -413,10 +413,16 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		return err
 	}
 
-	// Someone suspended this on purpose, so the write is turned away with a 422
-	// rather than a 500. These run as the operator, who sees the full message;
-	// the shorter one a namespaced user gets is out of reach here, because
-	// their key stops working while the namespace is suspended.
+	// Someone suspended this on purpose, so the write should be turned away with
+	// a 422. It answers 500 instead: the object endpoints map only invalid-input
+	// and multi-tenancy errors to 422, so a namespace refusal falls through to
+	// the default arm the way the alias handlers used to. What is pinned here is
+	// that the write is refused and still says why; swap the type for
+	// ObjectsCreateUnprocessableEntity once the object endpoints gain the arm.
+	//
+	// These run as the operator, who sees the full message; the shorter one a
+	// namespaced user gets is out of reach here, because their key stops working
+	// while the namespace is suspended.
 	//
 	// Both nodes are asked because the answer must not depend on which one the
 	// client reached. A write checks its local shard before forwarding, so each
@@ -431,7 +437,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 			// The responder renders its payload as a pointer, so the message has
 			// to be read off the typed error rather than its Error() string.
-			var refused *objects.ObjectsCreateUnprocessableEntity
+			var refused *objects.ObjectsCreateInternalServerError
 			require.ErrorAs(t, err, &refused)
 			require.NotEmpty(t, refused.Payload.Error)
 			assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
@@ -439,9 +445,10 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	}
 
 	// A batch delete answers with one status for the whole request, on a ladder
-	// of its own, so the 422 the single-object endpoints give does not cover it.
-	// (A batch create cannot stand in here: it reports per-object failures
-	// inside a 200 and never reaches that ladder.)
+	// of its own, so the status the single-object endpoints give does not cover
+	// it. (A batch create cannot stand in here: it reports per-object failures
+	// inside a 200 and never reaches that ladder.) Its ladder has the same gap,
+	// and inverts with the one above.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })
@@ -459,7 +466,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 			}), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 
-		var refused *batch.BatchObjectsDeleteUnprocessableEntity
+		var refused *batch.BatchObjectsDeleteInternalServerError
 		require.ErrorAs(t, err, &refused)
 		require.NotEmpty(t, refused.Payload.Error)
 		assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
