@@ -809,6 +809,10 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	hnswRQ := "hnswrq"
 	hnswSQ := "hnswsq"
 	dimensions := 1024
+	// the quantizer vectors below only have to prove the ratio each quantizer
+	// reports, and no quantizer derives that from the width, so they stay narrow
+	// to keep their shared tenant cheap to insert and index
+	quantizerDimensions := 128
 	flat := "flat"
 	bq := "bq"
 	hnsw := "hnsw"
@@ -820,6 +824,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	sqCompressionRatio := float64(4)
 	// rq on 8 bits stores one byte per dimension, plus 16 bytes of metadata
 	rq8CompressionRatio := float64(dimensions*4) / float64(16+dimensions)
+	rq8QuantizerRatio := float64(quantizerDimensions*4) / float64(16+quantizerDimensions)
 	// hfresh always quantizes with rq on 1 bit: one packed byte per 8
 	// dimensions, plus 8 bytes of metadata
 	rq1CompressionRatio := float64(dimensions*4) / float64(8+dimensions/8)
@@ -829,10 +834,10 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 	targetVectorDimensions := map[string]int{
 		dynamic1024: dimensions,
-		hnswBQ:      dimensions,
-		hnswPQ:      dimensions,
-		hnswRQ:      dimensions,
-		hnswSQ:      dimensions,
+		hnswBQ:      quantizerDimensions,
+		hnswPQ:      quantizerDimensions,
+		hnswRQ:      quantizerDimensions,
+		hnswSQ:      quantizerDimensions,
 	}
 
 	dynamicVectorIndexConfig := map[string]any{
@@ -1041,7 +1046,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			"pq compresses nothing before it trains")
 		require.Equal(t, "rq", hotVectors[hnswRQ].Compression)
 		require.Equal(t, int16(8), hotVectors[hnswRQ].Bits)
-		require.InDelta(t, rq8CompressionRatio, hotVectors[hnswRQ].VectorCompressionRatio, 0.001)
+		require.InDelta(t, rq8QuantizerRatio, hotVectors[hnswRQ].VectorCompressionRatio, 0.001)
 		require.Equal(t, "sq", hotVectors[hnswSQ].Compression)
 		require.Equal(t, sqCompressionRatio, hotVectors[hnswSQ].VectorCompressionRatio)
 
@@ -1075,7 +1080,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			"the config asks for pq, but no quantized vectors exist to bill for")
 		require.Equal(t, "rq", coldVectors[hnswRQ].Compression)
 		require.Equal(t, int16(8), coldVectors[hnswRQ].Bits)
-		require.InDelta(t, rq8CompressionRatio, coldVectors[hnswRQ].VectorCompressionRatio, 0.001)
+		require.InDelta(t, rq8QuantizerRatio, coldVectors[hnswRQ].VectorCompressionRatio, 0.001)
 		// sq trained while hot, so its quantized vectors are on disk to bill for
 		require.Equal(t, "sq", coldVectors[hnswSQ].Compression)
 		require.Equal(t, sqCompressionRatio, coldVectors[hnswSQ].VectorCompressionRatio)
@@ -1095,6 +1100,24 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
+		// pq trains one centroid per cluster and needs at least as many vectors
+		// as it has centroids, 256 by default. The shared config trains on 100,
+		// too few to fit, which leaves its index uncompressed.
+		upgradingVectorIndexConfig := map[string]any{
+			"threshold": 1001,
+			hnsw: map[string]any{
+				pq: map[string]any{
+					"enabled":       true,
+					"trainingLimit": float64(512),
+				},
+			},
+			flat: map[string]any{
+				bq: map[string]any{
+					"enabled": true,
+				},
+			},
+		}
+
 		class := &models.Class{
 			Class: className,
 			VectorConfig: map[string]models.VectorConfig{
@@ -1103,7 +1126,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 						"none": map[string]any{},
 					},
 					VectorIndexType:   "dynamic",
-					VectorIndexConfig: dynamicVectorIndexConfig,
+					VectorIndexConfig: upgradingVectorIndexConfig,
 				},
 			},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
