@@ -508,12 +508,16 @@ func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
 	require.NotNil(t, queue, "the retry must produce the queue the first attempt failed on")
 }
 
-// TestInitGeoPropConcurrent pins that racing callers converge on one usable
-// index. It runs under -race; it does not distinguish which of the racing
-// indexes survived.
+// TestInitGeoPropConcurrent pins that racing callers build exactly one index.
+// A second index on the same commit log directory brings its own condensor,
+// which deletes files the first one is still replaying.
 func TestInitGeoPropConcurrent(t *testing.T) {
 	ctx := context.Background()
 	s := testGeoPropShard(t, ctx)
+
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
 
 	const callers = 8
 	var wg sync.WaitGroup
@@ -530,6 +534,15 @@ func TestInitGeoPropConcurrent(t *testing.T) {
 	for i, err := range errs {
 		require.NoError(t, err, "caller %d", i)
 	}
+
+	restores := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "restore_from_disk" &&
+			entry.Data["index_id"] == geoPropID("office") {
+			restores++
+		}
+	}
+	require.Equal(t, 1, restores, "every caller but one must reuse the built index")
 
 	idx, _ := geoIndexAndQueue(t, s, "office")
 	require.NotNil(t, idx)

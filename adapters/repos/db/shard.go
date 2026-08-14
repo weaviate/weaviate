@@ -268,6 +268,10 @@ type Shard struct {
 
 	geoQueues map[string]*VectorIndexQueue
 
+	// serializes initGeoProp: building two indexes for one prop would put two
+	// commit loggers and condensors on the same commit log directory
+	geoPropInitLock sync.Mutex
+
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
 	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides

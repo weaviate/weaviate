@@ -28,6 +28,12 @@ import (
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
+	// concurrent callers must not build an index each: every constructor opens
+	// the same commit log directory and registers a condensor on it, so one
+	// caller's cycle deletes the file another is still replaying
+	s.geoPropInitLock.Lock()
+	defer s.geoPropInitLock.Unlock()
+
 	// replacing a live index would leave its commit logger and queue registered,
 	// putting two writers on the same files
 	if s.hasGeoIndexForProp(prop.Name) {
@@ -61,12 +67,6 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 
 	s.propertyIndicesLock.Lock()
-	if _, ok := s.propertyIndices[prop.Name]; ok {
-		s.propertyIndicesLock.Unlock()
-		// another caller claimed the prop while this index was built; unregister
-		// the cycle callbacks its constructor added
-		return idx.Shutdown(s.shutCtx)
-	}
 	s.propertyIndices[prop.Name] = propertyspecific.Index{
 		Type:     schema.DataTypeGeoCoordinates,
 		GeoIndex: idx,
