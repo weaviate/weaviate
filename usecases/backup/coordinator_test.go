@@ -604,6 +604,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+	reindexGateStub
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -940,8 +941,13 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		name            string
 		refusalResp     *CanCommitResponse
 		expectInFlight  bool
+		expectRestore   bool
 		expectCanCommit bool
 		expectContain   string
+		// wantNodeNamed is false for a reindex refusal: a migration is a
+		// cluster fact, and the node that reported it is placement the
+		// caller has no other way to learn.
+		wantNodeNamed bool
 	}{
 		{
 			name: "ErrKind=in_flight_reindex maps to typed sentinel",
@@ -955,6 +961,17 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
 		},
 		{
+			name: "ErrKind=restore_blocked_by_reindex maps to the restore sentinel",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "restore blocked: " + backup.ErrReindexInFlight.Error() + `: collection "Class-A" has an active runtime-reindex task`,
+				ErrKind: CanCommitErrRestoreBlockedByReindex,
+			},
+			expectRestore: true,
+			expectContain: backup.ErrReindexInFlight.Error(),
+		},
+		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
@@ -964,6 +981,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectCanCommit: true,
 			expectContain:   "some other refusal",
+			wantNodeNamed:   true,
 		},
 		{
 			name: "empty ErrKind (older node) falls back to errCannotCommit",
@@ -975,6 +993,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// returning a zero-value response.
 			},
 			expectCanCommit: true,
+			wantNodeNamed:   true,
 		},
 	}
 
@@ -1012,17 +1031,34 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
 			}
+			if tc.expectRestore {
+				assert.True(t, errors.Is(err, backup.ErrReindexInFlight),
+					"expected errors.Is(err, backup.ErrReindexInFlight), got: %v", err)
+				// The two reindex chains stay separable: a caller mapping
+				// one to a status must not match the other.
+				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"restore refusal must not match the backup sentinel, got: %v", err)
+				assert.False(t, errors.Is(err, errCannotCommit),
+					"restore refusal must not also match errCannotCommit, got: %v", err)
+			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),
 					"expected errors.Is(err, errCannotCommit), got: %v", err)
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
+				assert.False(t, errors.Is(err, backup.ErrReindexInFlight),
+					"generic refusal must not match the restore sentinel, got: %v", err)
 			}
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
-			// Surface the offending node so the operator knows where to look.
-			assert.Contains(t, err.Error(), nodes[1])
+			if tc.wantNodeNamed {
+				// Surface the offending node so the operator knows where to look.
+				assert.Contains(t, err.Error(), nodes[1])
+			} else {
+				assert.NotContains(t, err.Error(), nodes[1],
+					"a reindex refusal must not name the node that reported it")
+			}
 		})
 	}
 }
@@ -1052,7 +1088,7 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	// Shared symbol must be non-nil and carry the expected operator text.
 	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
 	require.Equal(t,
-		"backup blocked: runtime-reindex in flight on this shard",
+		"backup blocked: runtime-reindex in flight",
 		backup.ErrBackupBlockedByInFlightReindex.Error(),
 		"operator-visible sentinel text is part of the contract; do not edit lightly",
 	)
@@ -1066,11 +1102,16 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 		Err:     "Node-2/Class-A: shard \"sa\" has 1 active tracker(s)",
 		ErrKind: CanCommitErrInFlightReindex,
 	}
-	err := canCommitErrFromResponse(resp)
+	err := canCommitErrFromResponse(resp, []string{"Class-A"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+	// Rebuilt from the request: an older participant's node and shard must
+	// not ride out on the coordinator's error.
+	assert.NotContains(t, err.Error(), "Node-2")
+	assert.NotContains(t, err.Error(), `shard "`)
+	assert.Contains(t, err.Error(), `"Class-A"`)
 }
 
 // TestCommitAllManyFailures verifies commitAll does not deadlock when the number

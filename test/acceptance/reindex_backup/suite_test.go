@@ -32,6 +32,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -181,7 +182,7 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.NotEmpty(t, refusal.Payload.Error, "422 ErrorResponse must surface the refusal reason")
 	errMsg := errorResponseMessage(refusal.Payload)
 
-	require.Contains(t, errMsg, "backup blocked: runtime-reindex in flight on this shard",
+	require.Contains(t, errMsg, "backup blocked: runtime-reindex in flight",
 		"error body must name the blocking condition; got: %s", errMsg)
 	require.Contains(t, errMsg, className,
 		"error body must name the affected collection; got: %s", errMsg)
@@ -195,6 +196,17 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	// task is past STARTED at a cancel that answers 409.
 	require.Contains(t, errMsg, "accepted only while the task is STARTED",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
+
+	// The shard and the node are placement the caller has no other way to
+	// learn; they reach the operator through the WARN instead.
+	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
+	require.NotContains(t, errMsg, `shard "`, "got: %s", errMsg)
+	require.NotContains(t, errMsg, shardName, "got: %s", errMsg)
+	nodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+	require.NoError(t, err)
+	for _, node := range nodes.Payload.Nodes {
+		require.NotContains(t, errMsg, node.Name, "got: %s", errMsg)
+	}
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
 	// "Status != Cancelled"). The 422 fires before any write so none exists;

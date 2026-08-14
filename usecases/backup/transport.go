@@ -92,6 +92,11 @@ const (
 	// ErrBackupBlockedByInFlightReindex on receipt.
 	CanCommitErrInFlightReindex CanCommitErrorKind = "in_flight_reindex"
 
+	// An older coordinator cannot read this kind, so the refusal falls through
+	// to 500 there until every node is upgraded. An older participant has no
+	// restore gate and sends no kind at all, which the default arm handles.
+	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
+
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the
 	// classified kinds above.

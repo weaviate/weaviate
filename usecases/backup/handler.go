@@ -312,6 +312,12 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
+		// Before the descriptor is read: validate() fetches from the backend.
+		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
+			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrRestoreBlockedByReindex
+			return ret
+		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()

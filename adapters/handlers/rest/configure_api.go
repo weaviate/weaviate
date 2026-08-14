@@ -1015,6 +1015,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	installReindexGateLookups(appState, repo, serverShutdownCtx)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1091,30 +1092,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// Install the audit deps so the post-restore-class-dir hook
 		// (wired into RestoreClassDir above) can run the audit.
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
-
-		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
-			}
-			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 	}, appState.Logger)
 
 	return appState
@@ -1126,12 +1103,34 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-// initReindexAndDistributedTasks builds the reindex provider, registers it in
-// the distributedtask providers map, constructs the scheduler, and wires the
-// cross-FSM conflict + schema-mutation detectors on the cluster service.
-// Mutates appState (ReindexProvider, DistributedTaskScheduler) and the
-// providers map. The scheduler is NOT started — caller gates Start() on RAFT
-// readiness.
+// Before the HTTP server serves; a call that lands early gets a list failure.
+func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context) {
+	// A list failure refuses every backup: admitting one races a migration.
+	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
+		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)
+		if err != nil {
+			appState.Logger.WithField("action", "backup_reindex_gate").
+				Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			return func(string, string) bool { return true }
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+	})
+
+	repo.SetAnyReindexActivityLookup(func(ctx context.Context) db.AnyReindexActivityLookup {
+		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+		if err != nil {
+			appState.Logger.WithField("action", "restore_reindex_gate").
+				Warnf("restore-reindex gate: cannot list DTM tasks; refusing all restores until DTM is reachable: %v", err)
+			return func([]string) (db.ReindexActivity, bool) {
+				return db.ReindexActivity{Unreadable: true}, true
+			}
+		}
+		return db.NewAnyReindexActivityLookup(tasksByNamespace[db.ReindexNamespace])
+	})
+
+	repo.SetReindexHoldLookup(appState.ReindexProvider.ReindexHoldLookupBuilder())
+}
+
 func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,

@@ -207,7 +207,7 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 
 // TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
 // the local sourcer (DB.Backupable) refuses with the
-// "backup blocked: runtime-reindex in flight on this shard" sentinel
+// "backup blocked: runtime-reindex in flight" sentinel
 // message, OnCanCommit stamps CanCommitErrInFlightReindex on the response so
 // the coordinator can promote it back to a typed error. Other refusal
 // reasons must keep falling back to CanCommitErrCannotCommit.
@@ -223,10 +223,12 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 	}{
 		{
 			name: "in-flight reindex sentinel surfaces as CanCommitErrInFlightReindex",
-			// Shape this exactly like reindexInFlightError() in
-			// adapters/repos/db/reindex_inflight.go: wrap the shared
-			// backup.ErrBackupBlockedByInFlightReindex sentinel so the
-			// errors.Is-based classifier in classifyCanCommitErr matches.
+			// The classifier reads the chain, not the words, so the
+			// wording here need not track the gate's. What it does have
+			// to share is the wrap: the gate's arms in
+			// adapters/repos/db/reindex_inflight.go all carry the shared
+			// backup.ErrBackupBlockedByInFlightReindex sentinel, and
+			// classifyCanCommitErr finds it with errors.Is.
 			backupErr: fmt.Errorf("Node-1/MyClass: %w: shard %q has 1 active tracker(s): ...; retry after the migration finishes",
 				backup.ErrBackupBlockedByInFlightReindex, "shard-a"),
 			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),

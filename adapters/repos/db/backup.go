@@ -81,10 +81,9 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
 			continue
 		}
-		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
-			}
+		if err := idx.refuseIfAnyShardReindexInFlight(shards); err != nil {
+			// No node prefix: placement reaches the operator via the WARN.
+			errs = append(errs, err)
 		}
 	}
 	if len(errs) > 0 {

@@ -292,7 +292,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		desc.Error = nonEmptyErrMsg(err)
 
 		// Handle error cases
-		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		cancelled := publishAsCancelled(err, ctx.Err())
 		if cancelled {
 			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled

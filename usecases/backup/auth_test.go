@@ -189,6 +189,7 @@ func Test_Authorization(t *testing.T) {
 				selector.On("Shards", mock.Anything, test.classes[0]).Return([]string{"node-0"}, nil).Maybe()
 				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
+				selector.On("RefuseIfAnyReindexInFlight", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, logger)
 				require.NotNil(t, s)

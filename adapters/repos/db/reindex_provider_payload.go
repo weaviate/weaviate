@@ -16,18 +16,59 @@ import "encoding/json"
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
 
-// ExtractReindexTaskCollection decodes the class name a reindex task is
-// bound to. Registered on startup via
-// [Raft.RegisterDistributedTaskCollectionExtractor] so that DELETE_CLASS
-// cascades into reindex task GC (weaviate/0-weaviate-issues#231). Lives
-// next to [ReindexTaskPayload] so the payload format and its
-// scoping-decoder evolve together.
+// The collection field alone, so a task a newer node wrote with a field
+// this build cannot type stays attributable. A JSON decode and never a scan
+// of the raw bytes: a truncated payload must scope nothing.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
-	var p ReindexTaskPayload
+	var p struct {
+		Collection string `json:"collection"`
+	}
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return "", false
 	}
 	return p.Collection, p.Collection != ""
+}
+
+type ReindexPayloadScope int
+
+const (
+	ReindexPayloadScopeShards ReindexPayloadScope = iota
+	ReindexPayloadScopeCollection
+	ReindexPayloadScopeCluster
+)
+
+type DecodedReindexTask struct {
+	Scope      ReindexPayloadScope
+	Collection string
+	Shards     []string
+}
+
+func DecodeReindexTaskPayload(payload []byte) DecodedReindexTask {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		if collection, ok := ExtractReindexTaskCollection(payload); ok {
+			return DecodedReindexTask{
+				Scope:      ReindexPayloadScopeCollection,
+				Collection: collection,
+			}
+		}
+		return DecodedReindexTask{Scope: ReindexPayloadScopeCluster}
+	}
+	if p.Collection == "" {
+		return DecodedReindexTask{Scope: ReindexPayloadScopeCluster}
+	}
+	shards := uniqueShardsFromPayload(&p)
+	if len(shards) == 0 {
+		return DecodedReindexTask{
+			Scope:      ReindexPayloadScopeCollection,
+			Collection: p.Collection,
+		}
+	}
+	return DecodedReindexTask{
+		Scope:      ReindexPayloadScopeShards,
+		Collection: p.Collection,
+		Shards:     shards,
+	}
 }
 
 // ReindexMigrationType identifies which migration strategy a reindex task uses.

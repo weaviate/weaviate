@@ -62,4 +62,14 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "Foo", got)
 	})
+
+	t.Run("payload a newer node retyped still yields its collection", func(t *testing.T) {
+		// Decoding the whole struct fails here. The DELETE_CLASS cascade
+		// and the two-tier gate scope both need the collection anyway, so
+		// the probe reads that field alone.
+		got, ok := ExtractReindexTaskCollection([]byte(
+			`{"collection":"Foo","unitToShard":"shardA"}`))
+		assert.True(t, ok)
+		assert.Equal(t, "Foo", got)
+	})
 }

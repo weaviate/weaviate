@@ -2072,13 +2072,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration request. Check requirements and request body.",
+            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14268,13 +14268,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration request. Check requirements and request body.",
+            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

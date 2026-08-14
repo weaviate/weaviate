@@ -61,10 +61,9 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
 // precheck to obtain a fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex" with a one-time
-// WARN: production HTTP gates on bootstrap completion (the lookup is
-// wired by configure_api.go's post-bootstrap goroutine), so an external
-// backup request cannot land before this builder is installed. The WARN
+// Calls before installation default to "no live reindex", reported at most
+// once an hour per gate. Production installs this before the server serves,
+// so an external backup request cannot land before it. The WARN
 // is the operator-facing signal if startup ordering ever breaks the
 // wiring; the prior conservative-refuse default broke every module-test
 // fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].

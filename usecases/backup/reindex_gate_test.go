@@ -1,0 +1,340 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+)
+
+// reindexRefusal is what the gate hands back, shaped like the storage
+// layer's: the sentinel plus a collection, no node and no shard.
+func reindexRefusal(collection string) error {
+	return fmt.Errorf("restore blocked: %w: collection %q has an active runtime-reindex task",
+		backup.ErrReindexInFlight, collection)
+}
+
+// TestQuoteClassList pins the cap. A restore can cover every collection
+// in the cluster, and the refusal is the same one whichever is blocked.
+func TestQuoteClassList(t *testing.T) {
+	tests := []struct {
+		name    string
+		classes []string
+		want    string
+	}{
+		{name: "none", want: "the collections being restored"},
+		{name: "one", classes: []string{"Movies"}, want: `"Movies"`},
+		{name: "at the cap", classes: []string{"A", "B", "C", "D", "E"}, want: `"A", "B", "C", "D", "E"`},
+		{
+			name:    "over the cap",
+			classes: []string{"A", "B", "C", "D", "E", "F", "G"},
+			want:    `"A", "B", "C", "D", "E" and 2 more`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, quoteClassList(tt.classes))
+		})
+	}
+}
+
+// TestRestoreRefusedByParticipant pins that the coordinator rebuilds the
+// refusal instead of forwarding it. An older participant words its
+// refusal in terms of its own shards and node name, neither of which the
+// caller asked about or can act on.
+func TestRestoreRefusedByParticipant(t *testing.T) {
+	err := restoreRefusedByParticipant([]string{"Movies", "Shows"})
+	require.ErrorIs(t, err, backup.ErrReindexInFlight)
+	assert.Contains(t, err.Error(), `"Movies"`)
+	assert.Contains(t, err.Error(), `"Shows"`)
+	assert.Contains(t, err.Error(), "retry after the migration finishes")
+
+	// The sentinel is stated once even though a participant's own message
+	// already opens with it.
+	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
+}
+
+// TestIsReindexRefusal pins that both chains are recognized and nothing
+// else is. One call site sees both: canCommit carries a backup refusal
+// and a restore refusal through the same fan-out.
+func TestIsReindexRefusal(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil},
+		{name: "unrelated", err: errors.New("raft: leader unreachable")},
+		{name: "restore sentinel", err: reindexRefusal("Movies"), want: true},
+		{name: "backup sentinel", err: fmt.Errorf("canCommit: %w", backup.ErrBackupBlockedByInFlightReindex), want: true},
+		{
+			name: "restore sentinel behind a join",
+			err:  errors.Join(errors.New("other"), reindexRefusal("Movies")),
+			want: true,
+		},
+		{name: "the generic canCommit failure", err: errCannotCommit},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isReindexRefusal(tt.err))
+		})
+	}
+}
+
+// TestRestoreGateOrdering pins where the gate sits on both arms of
+// Scheduler.Restore, which is the whole of its contract: what it is asked
+// about, and what it is asked before.
+func TestRestoreGateOrdering(t *testing.T) {
+	const (
+		cls         = "MyClass"
+		backendName = "s3"
+		id          = "1234"
+	)
+	ctx := context.Background()
+	t.Run("a mistyped id is refused before it is reported missing", func(t *testing.T) {
+		// Deliberate: a caller who cannot restore right now should be
+		// told that, not sent to fix an id that was never the problem.
+		fs := newFakeScheduler(nil)
+		fs.selector.setReindexGate(reindexRefusal(cls))
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{cls},
+		}, false)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+			"the gate's 422 must win over the 404")
+		require.NotErrorAs(t, err, &backup.ErrNotFound{})
+		assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
+		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls(),
+			"the gate is asked once, about the caller's own literal include")
+	})
+	t.Run("a mistyped id still 404s when nothing is migrating", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{cls},
+		}, false)
+		require.ErrorAs(t, err, &backup.ErrNotFound{})
+	})
+	t.Run("a wildcard include widens the question instead of narrowing it to nothing", func(t *testing.T) {
+		// There is no descriptor to expand the pattern against. Passing
+		// it through would ask the gate about a collection that does not
+		// exist, and the restore would be admitted on that answer.
+		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{"MyCl*"},
+		}, false)
+		require.Error(t, err)
+		require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
+			"an unresolvable pattern must be asked cluster-wide, never as a literal name")
+	})
+	t.Run("a known id is gated on the resolved class list", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.setReindexGate(reindexRefusal(cls))
+		meta := backup.DistributedBackupDescriptor{
+			ID: id, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{cls}}},
+		}
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{cls},
+		}, false)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &backup.ErrUnprocessable{})
+		assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
+		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls(),
+			"asked once, about the resolved class names")
+		// Refused before the backup's own schema is read: the gate's
+		// answer does not depend on it.
+		fs.backend.AssertNotCalled(t, "GetObject", ctx, id, BackupFile)
+	})
+	t.Run("a wildcard include on a known id is gated on what it resolved to", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.setReindexGate(reindexRefusal(cls))
+		meta := backup.DistributedBackupDescriptor{
+			ID: id, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{cls}}},
+		}
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{"MyCl*"},
+		}, false)
+		require.Error(t, err)
+		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls(),
+			"the descriptor resolved the pattern, so the gate gets the class name")
+	})
+}
+
+// TestRestoreGateAuthorizationPrecedesDisclosure pins that a caller
+// without cluster-wide backup permission cannot learn from a mistyped id
+// that a migration is running somewhere it cannot see. It gets the same
+// 404 it got before the gate existed.
+func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
+	const (
+		backendName = "s3"
+		id          = "1234"
+	)
+	ctx := context.Background()
+	auth := mocks.NewMockAuthorizer()
+	auth.SetErr(errors.New("forbidden"))
+	fs := newFakeScheduler(nil)
+	fs.auth = auth
+	fs.selector.setReindexGate(reindexRefusal("SomeoneElsesClass"))
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+		Backend: backendName, ID: id,
+	}, false)
+	require.ErrorAs(t, err, &backup.ErrNotFound{})
+	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
+	assert.Empty(t, fs.selector.gateCalls(),
+		"an unauthorized caller must not reach the gate at all")
+}
+
+// TestParticipantRestoreGate pins the participant half: refused before
+// the descriptor is read, with the kind the coordinator maps to 422 and
+// no promise of a timeout.
+func TestParticipantRestoreGate(t *testing.T) {
+	ctx := context.Background()
+	req := &Request{Method: OpRestore, ID: "1", Backend: "s3", Classes: []string{"MyClass"}}
+	t.Run("refuses before it reads the backup", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(reindexRefusal("MyClass"))
+		backend := newFakeBackend()
+		m := createManager(sourcer, nil, backend, nil)
+		resp := m.OnCanCommit(ctx, req)
+		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+		assert.Contains(t, resp.Err, "restore blocked")
+		assert.Zero(t, resp.Timeout, "a refused participant promises nothing")
+		require.Equal(t, [][]string{{"MyClass"}}, sourcer.gateCalls())
+		backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
+	})
+	t.Run("the refusal names no node and no shard", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(reindexRefusal("MyClass"))
+		m := createManager(sourcer, nil, newFakeBackend(), nil)
+		resp := m.OnCanCommit(ctx, req)
+		assert.NotContains(t, resp.Err, nodeName)
+		assert.NotContains(t, resp.Err, `shard "`)
+	})
+}
+
+// TestPublishAsCancelled pins that a gate refusal ends the backup FAILED even
+// when its cause wraps a cancellation. The gate reaches the cluster over RAFT,
+// and a cancellation from that client is not somebody stopping the backup;
+// CANCELLED would hide a refused capture behind a deliberate-looking status.
+func TestPublishAsCancelled(t *testing.T) {
+	tests := []struct {
+		name        string
+		err, ctxErr error
+		want        bool
+	}{
+		{
+			name: "a refusal whose cause was cancelled",
+			err:  fmt.Errorf("%w: %w", backup.ErrBackupBlockedByInFlightReindex, context.Canceled),
+		},
+		{name: "a restore refusal whose cause was cancelled", err: fmt.Errorf("%w: %w", backup.ErrReindexInFlight, context.Canceled)},
+		{name: "a plain cancellation", err: context.Canceled, want: true},
+		{name: "a cancelled operation context", ctxErr: context.Canceled, want: true},
+		{name: "an unrelated failure", err: errors.New("no space left on device")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, publishAsCancelled(tt.err, tt.ctxErr))
+		})
+	}
+}
+
+// TestRestoreDropsNodesNarrowedToNothing pins that a node whose classes RBAC
+// filtered out entirely leaves the descriptor. Left in, it is asked to commit
+// with an empty class list, which the participant gate reads as the widest
+// question and refuses over collections nothing is migrating.
+func TestRestoreDropsNodesNarrowedToNothing(t *testing.T) {
+	const (
+		backendName = "s3"
+		id          = "1234"
+		allowedCls  = "Movies"
+		deniedCls   = "Shows"
+		node1       = "node1"
+		node2       = "node2"
+	)
+	ctx := context.Background()
+	auth := authorization.NewMockAuthorizer(t)
+	auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything,
+		"backups/collections/"+deniedCls).
+		Return(authzerrors.NewForbidden(&models.Principal{}, "create")).Maybe()
+	auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil).Maybe()
+	meta := backup.DistributedBackupDescriptor{
+		ID: id, StartedAt: time.Now().UTC(), Version: Version,
+		ServerVersion: "1.23", Status: backup.Success, Leader: node1,
+		Nodes: map[string]*backup.NodeDescriptor{
+			node1: {Classes: []string{allowedCls}},
+			node2: {Classes: []string{deniedCls}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID: id, Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{Name: allowedCls}},
+	}
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
+	fs.auth = auth
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Maybe()
+	// Refusing at canCommit stops the restore right after the fan-out, which
+	// is the only thing this pins.
+	fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
+		Return(&CanCommitResponse{Method: OpRestore, ID: id}, nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	_, _ = fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+		Backend: backendName, ID: id,
+	}, false)
+
+	var fannedOut int
+	for _, call := range fs.client.Calls {
+		if call.Method != "CanCommit" {
+			continue
+		}
+		fannedOut++
+		assert.NotEmptyf(t, call.Arguments.Get(2).(*Request).Classes,
+			"node %q was asked to commit with no classes; the participant gate reads "+
+				"that as every collection", call.Arguments.Get(1))
+	}
+	require.NotZero(t, fannedOut, "the fan-out must have run")
+}

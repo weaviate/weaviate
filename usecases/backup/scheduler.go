@@ -238,6 +238,12 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
+			// The gate answers before existence does, deliberately.
+			if gateClasses, mayAsk := s.reindexGateScopeForUnknownID(ctx, pr, req.Include); mayAsk {
+				if gateErr := s.refuseRestoreDuringReindex(ctx, gateClasses); gateErr != nil {
+					return nil, backup.NewErrUnprocessable(gateErr)
+				}
+			}
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
@@ -248,7 +254,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err != nil {
 			return nil, err
 		}
+		// Kept, a node narrowed to nothing commits with an empty class list.
 		meta.Include(allowed)
+		meta.RemoveEmpty()
+	}
+
+	if gateErr := s.refuseRestoreDuringReindex(ctx, meta.Classes()); gateErr != nil {
+		return nil, backup.NewErrUnprocessable(gateErr)
 	}
 
 	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -284,11 +296,39 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
+		if isReindexRefusal(err) {
+			return nil, backup.NewErrUnprocessable(restoreRefusedByParticipant(rReq.Classes))
+		}
 		return nil, err
 	}
 
 	data.Status = &status
 	return data, nil
+}
+
+// A caller that named literal classes was already authorized on those;
+// answering anything wider without cluster-wide permission discloses a
+// migration the caller cannot see.
+func (s *Scheduler) reindexGateScopeForUnknownID(ctx context.Context, pr *models.Principal, include []string) ([]string, bool) {
+	// No descriptor here to expand a pattern against, so "Mov*" would ask a
+	// name-matching gate about nothing.
+	literal := len(include) > 0
+	for _, pattern := range include {
+		if strings.ContainsAny(pattern, "*?") {
+			literal = false
+		}
+	}
+	if literal {
+		return append([]string(nil), include...), true
+	}
+	if err := s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, authorization.Backups()...); err != nil {
+		return nil, false
+	}
+	return nil, true
+}
+
+func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
+	return s.restorer.selector.RefuseIfAnyReindexInFlight(ctx, collections)
 }
 
 // filterBackupableClasses returns the subset of classes the caller may act on

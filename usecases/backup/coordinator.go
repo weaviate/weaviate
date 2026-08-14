@@ -74,6 +74,8 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	RefuseIfAnyReindexInFlight(_ context.Context, classes []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified
@@ -511,13 +513,17 @@ func isFinalStatus(st backup.Status) bool {
 // [CanCommitErrCannotCommit] kinds (including responses from older nodes
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
 // existing callers and tests continue to match.
-func canCommitErrFromResponse(resp *CanCommitResponse) error {
+//
+// A reindex refusal is rebuilt from classes, never forwarded.
+func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
 	}
 	switch resp.ErrKind {
 	case CanCommitErrInFlightReindex:
-		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+		return backupRefusedByParticipant(classes)
+	case CanCommitErrRestoreBlockedByReindex:
+		return restoreRefusedByParticipant(classes)
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}
@@ -584,9 +590,13 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
-				err = canCommitErrFromResponse(resp)
+				err = canCommitErrFromResponse(resp, req.Classes)
 			}
 			if err != nil {
+				if isReindexRefusal(err) {
+					// A migration is a cluster fact, not a property of the node.
+					return err
+				}
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
