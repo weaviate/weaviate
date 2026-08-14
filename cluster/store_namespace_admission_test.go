@@ -164,7 +164,7 @@ func TestApplyTypeNamespaceGateClassification(t *testing.T) {
 			}
 		}
 		assert.Len(t, found, 1,
-			"apply type %s must appear in exactly one bucket in store_apply_namespace_active_test.go, found %v",
+			"apply type %s must appear in exactly one bucket in store_namespace_admission_test.go, found %v",
 			applyType, found)
 	}
 }
@@ -243,23 +243,36 @@ type destructiveGateCase struct {
 	wantErr error // nil means the check must admit the command
 }
 
-func destructiveGateCases() []destructiveGateCase {
-	alphaAt := func(state api.NamespaceState) func(*testing.T, *namespaces.Controller) {
-		return func(t *testing.T, c *namespaces.Controller) { seedNamespaceInState(t, c, "alpha", state) }
-	}
+func alphaAt(state api.NamespaceState) func(*testing.T, *namespaces.Controller) {
+	return func(t *testing.T, c *namespaces.Controller) { seedNamespaceInState(t, c, "alpha", state) }
+}
+
+// destructiveGateOutcomes are the three answers AdmitDestructiveApply gives that
+// differ from one another. Every command is driven through all three, so one
+// resolving the wrong name cannot pass on a state that admits everything.
+func destructiveGateOutcomes() []destructiveGateCase {
 	return []destructiveGateCase{
 		{name: "active is applied", seed: alphaAt(api.NamespaceStateActive), target: "alpha:Foo"},
 		{
 			name: "suspended is refused", seed: alphaAt(api.NamespaceStateSuspended),
 			target: "alpha:Foo", wantErr: namespaces.ErrNamespaceSuspended,
 		},
+		// Refusing this one would stall the cleanup cascade, which issues these
+		// same commands while the namespace sits in deleting.
+		{name: "deleting is applied", seed: alphaAt(api.NamespaceStateDeleting), target: "alpha:Foo"},
+	}
+}
+
+// destructiveGateNameCases pin which namespace the verdict is read off. They run
+// against one command only: the remaining state answers are
+// namespaces.AdmitDestructiveApply's own table, and the name a command carries
+// is what the cases below vary.
+func destructiveGateNameCases() []destructiveGateCase {
+	return []destructiveGateCase{
 		{
 			name: "resuming is refused", seed: alphaAt(api.NamespaceStateResuming),
 			target: "alpha:Foo", wantErr: namespaces.ErrNamespaceResuming,
 		},
-		// Refusing this one would stall the cleanup cascade, which issues these
-		// same commands while the namespace sits in deleting.
-		{name: "deleting is applied", seed: alphaAt(api.NamespaceStateDeleting), target: "alpha:Foo"},
 		{name: "missing namespace is applied", seed: func(*testing.T, *namespaces.Controller) {}, target: "alpha:Foo"},
 		{
 			name: "a suspension elsewhere does not refuse",
@@ -511,6 +524,20 @@ func shardMaterializingCommands() []gatedCommand {
 	}
 }
 
+// commandOfType returns the one command of cmdType, so a case that runs against
+// a single representative names it rather than indexing into the slice.
+func commandOfType(t *testing.T, commands []gatedCommand, cmdType api.ApplyRequest_Type) gatedCommand {
+	t.Helper()
+
+	for _, c := range commands {
+		if c.cmdType == cmdType {
+			return c
+		}
+	}
+	t.Fatalf("no command of type %s", cmdType)
+	return gatedCommand{}
+}
+
 // gatedCommands is every gated command this mock store can drive through Apply.
 func gatedCommands() []gatedCommand {
 	var all []gatedCommand
@@ -530,23 +557,37 @@ func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
 }
 
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands
-// through the propose-time check against every namespace state, plus two cases
-// that name a namespace other than the suspended one.
+// through the propose-time check.
 func TestExecuteGate_DestructiveApplyTypes(t *testing.T) {
-	for _, tt := range destructiveCommands() {
-		for _, c := range destructiveGateCases() {
-			t.Run(tt.name()+"/"+c.name, func(t *testing.T) {
-				ms, _ := setupApplyTest(t)
-				c.seed(t, ms.cfg.NamespacesController)
+	assertAdmitDestructive := func(t *testing.T, c destructiveGateCase, cmd gatedCommand) {
+		t.Helper()
 
-				err := ms.store.admitDestructive(tt.build(c.target))
-				if c.wantErr != nil {
-					require.ErrorIs(t, err, c.wantErr)
-					return
-				}
-				require.NoError(t, err)
+		ms, _ := setupApplyTest(t)
+		c.seed(t, ms.cfg.NamespacesController)
+
+		err := ms.store.admitDestructive(cmd.build(c.target))
+		if c.wantErr != nil {
+			require.ErrorIs(t, err, c.wantErr)
+			return
+		}
+		require.NoError(t, err)
+	}
+
+	for _, tt := range destructiveCommands() {
+		for _, c := range destructiveGateOutcomes() {
+			t.Run(tt.name()+"/"+c.name, func(t *testing.T) {
+				assertAdmitDestructive(t, c, tt)
 			})
 		}
+	}
+
+	// Driven through the alias delete, the one destructive command whose
+	// namespace comes off a subcommand field rather than the request's class.
+	aliasDelete := commandOfType(t, destructiveCommands(), api.ApplyRequest_TYPE_DELETE_ALIAS)
+	for _, c := range destructiveGateNameCases() {
+		t.Run(aliasDelete.name()+"/"+c.name, func(t *testing.T) {
+			assertAdmitDestructive(t, c, aliasDelete)
+		})
 	}
 }
 
@@ -574,9 +615,6 @@ type applyState struct {
 }
 
 func applyStates() []applyState {
-	alphaAt := func(state api.NamespaceState) func(*testing.T, *namespaces.Controller) {
-		return func(t *testing.T, c *namespaces.Controller) { seedNamespaceInState(t, c, "alpha", state) }
-	}
 	return []applyState{
 		{name: "active", seed: alphaAt(api.NamespaceStateActive)},
 		{name: "suspended", seed: alphaAt(api.NamespaceStateSuspended)},
@@ -584,6 +622,20 @@ func applyStates() []applyState {
 		{name: "deleting", seed: alphaAt(api.NamespaceStateDeleting)},
 		{name: "missing", seed: func(*testing.T, *namespaces.Controller) {}},
 	}
+}
+
+// applyStateNamed returns the one state called name, so a case running against a
+// single state names it rather than indexing into the table.
+func applyStateNamed(t *testing.T, name string) applyState {
+	t.Helper()
+
+	for _, s := range applyStates() {
+		if s.name == name {
+			return s
+		}
+	}
+	t.Fatalf("no apply state named %q", name)
+	return applyState{}
 }
 
 // TestApplyGate_GatedTypesIgnoreNamespaceState is the guard that keeps every
@@ -597,25 +649,44 @@ func applyStates() []applyState {
 // exception, and they no longer are.
 func TestApplyGate_GatedTypesIgnoreNamespaceState(t *testing.T) {
 	const target = "alpha:Foo"
+
+	assertApplies := func(t *testing.T, tt gatedCommand, s applyState) {
+		t.Helper()
+
+		ms, log := setupApplyTest(t)
+		s.seed(t, ms.cfg.NamespacesController)
+		tt.seedEntity(t, &ms, target)
+		tt.expectApplied(t, &ms, target)
+
+		data, err := gproto.Marshal(tt.build(target))
+		require.NoError(t, err)
+		log.Data = data
+
+		resp, ok := ms.store.Apply(log).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error)
+		require.True(t, tt.landed(&ms, target),
+			"a committed entry must apply regardless of namespace state")
+	}
+
+	// Suspended per command: it is the one state every check this branch adds
+	// refuses, whichever of them a gate re-added to an arm would reuse, so it
+	// catches the regression without re-crossing the state axis per command.
+	suspended := applyStateNamed(t, "suspended")
 	for _, tt := range gatedCommands() {
-		for _, s := range applyStates() {
-			t.Run(tt.name()+"/"+s.name, func(t *testing.T) {
-				ms, log := setupApplyTest(t)
-				s.seed(t, ms.cfg.NamespacesController)
-				tt.seedEntity(t, &ms, target)
-				tt.expectApplied(t, &ms, target)
+		t.Run(tt.name(), func(t *testing.T) {
+			assertApplies(t, tt, suspended)
+		})
+	}
 
-				data, err := gproto.Marshal(tt.build(target))
-				require.NoError(t, err)
-				log.Data = data
-
-				resp, ok := ms.store.Apply(log).(Response)
-				require.True(t, ok)
-				require.NoError(t, resp.Error)
-				require.True(t, tt.landed(&ms, target),
-					"a committed entry must apply regardless of namespace state")
-			})
-		}
+	// The remaining states run against the class delete, the arm a gate did the
+	// most damage on: its entry is committed and its data already gone, so a
+	// refusal on replay resurrects a class.
+	deleteClass := commandOfType(t, gatedCommands(), api.ApplyRequest_TYPE_DELETE_CLASS)
+	for _, s := range applyStates() {
+		t.Run(deleteClass.name()+"/"+s.name, func(t *testing.T) {
+			assertApplies(t, deleteClass, s)
+		})
 	}
 }
 
@@ -706,58 +777,85 @@ func TestSubjectNamespace(t *testing.T) {
 	}
 }
 
-// inactiveNamespaceCases seeds alpha in each state that refuses a create-like
-// command, with the sentinel that state answers with.
-func inactiveNamespaceCases(t *testing.T) []struct {
+// inactiveNamespaceCase is one state that refuses a create-like command, with
+// the sentinel that state answers with.
+type inactiveNamespaceCase struct {
 	name    string
-	seed    func(*namespaces.Controller)
+	seed    func(*testing.T, *namespaces.Controller)
 	wantErr error
-} {
-	return []struct {
-		name    string
-		seed    func(*namespaces.Controller)
-		wantErr error
-	}{
+}
+
+// inactiveNamespaceCases seeds alpha in each state that refuses a create-like
+// command. Every command is driven through the suspended one, and one command
+// through all four: the rest of the mapping is namespaces.RequireActive's own
+// table, and what differs per command is only the name it resolves.
+func inactiveNamespaceCases() []inactiveNamespaceCase {
+	return []inactiveNamespaceCase{
 		{
-			name: "deleting namespace rejected with ErrNamespaceDeleting",
-			seed: func(c *namespaces.Controller) {
-				seedNamespaceInState(t, c, "alpha", api.NamespaceStateDeleting)
-			},
+			name:    "deleting namespace rejected with ErrNamespaceDeleting",
+			seed:    alphaAt(api.NamespaceStateDeleting),
 			wantErr: namespaces.ErrNamespaceDeleting,
 		},
 		{
-			name: "suspended namespace rejected with ErrNamespaceSuspended",
-			seed: func(c *namespaces.Controller) {
-				seedNamespaceInState(t, c, "alpha", api.NamespaceStateSuspended)
-			},
+			name:    "suspended namespace rejected with ErrNamespaceSuspended",
+			seed:    alphaAt(api.NamespaceStateSuspended),
 			wantErr: namespaces.ErrNamespaceSuspended,
 		},
 		{
-			name: "resuming namespace rejected with ErrNamespaceResuming",
-			seed: func(c *namespaces.Controller) {
-				seedNamespaceInState(t, c, "alpha", api.NamespaceStateResuming)
-			},
+			name:    "resuming namespace rejected with ErrNamespaceResuming",
+			seed:    alphaAt(api.NamespaceStateResuming),
 			wantErr: namespaces.ErrNamespaceResuming,
 		},
 		{
 			name:    "missing namespace rejected with ErrNamespaceGone",
-			seed:    func(*namespaces.Controller) {},
+			seed:    func(*testing.T, *namespaces.Controller) {},
 			wantErr: namespaces.ErrNamespaceGone,
 		},
 	}
+}
+
+// suspendedNamespaceCase is the case every gated command is driven through: a
+// command resolving the wrong name looks up a namespace that is not suspended
+// and is admitted, so this one row pins the resolution per command.
+func suspendedNamespaceCase() inactiveNamespaceCase {
+	return inactiveNamespaceCase{
+		name:    "suspended namespace rejected",
+		seed:    alphaAt(api.NamespaceStateSuspended),
+		wantErr: namespaces.ErrNamespaceSuspended,
+	}
+}
+
+// proposeCommand is one command the propose-time check gates, named for a target
+// in namespace alpha.
+type proposeCommand struct {
+	name      string
+	cmdType   api.ApplyRequest_Type
+	className string
+	jsonSub   any
+	rpcSub    protoreflect.ProtoMessage
+}
+
+// assertProposeRefuses drives cmd through the propose-time check with alpha
+// seeded by the case, and requires the sentinel that case names.
+func assertProposeRefuses(t *testing.T, cmd proposeCommand, c inactiveNamespaceCase) {
+	t.Helper()
+
+	ms, _ := setupApplyTest(t)
+	c.seed(t, ms.cfg.NamespacesController)
+
+	err := admitProposeBytes(t, &ms, cmdAsBytes(cmd.className, cmd.cmdType, cmd.jsonSub, cmd.rpcSub))
+	require.ErrorIs(t, err, c.wantErr)
 }
 
 // TestExecuteGate_RejectsCreateLikeApplyTypes drives the create-like commands
 // with nothing to materialize through the propose-time check. They are gated
 // there rather than in the apply switch, so a committed one applies on every
 // binary; see Store.admitPropose.
+//
+// Each carries its namespace in a different place — two subcommand fields and a
+// namespace of its own — which is what one suspended row per command pins.
 func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
-	tests := []struct {
-		name    string
-		cmdType api.ApplyRequest_Type
-		jsonSub any
-		rpcSub  protoreflect.ProtoMessage
-	}{
+	tests := []proposeCommand{
 		{
 			name:    "TYPE_CREATE_ALIAS",
 			cmdType: api.ApplyRequest_TYPE_CREATE_ALIAS,
@@ -776,15 +874,9 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		for _, c := range inactiveNamespaceCases(t) {
-			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ms, _ := setupApplyTest(t)
-				c.seed(ms.cfg.NamespacesController)
-
-				err := admitProposeBytes(t, &ms, cmdAsBytes("", tt.cmdType, tt.jsonSub, tt.rpcSub))
-				require.ErrorIs(t, err, c.wantErr)
-			})
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			assertProposeRefuses(t, tt, suspendedNamespaceCase())
+		})
 	}
 }
 
@@ -803,27 +895,25 @@ func TestExecuteGate_RejectsShardMaterializingApplyTypes(t *testing.T) {
 		"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
 	}}
 
-	tests := []struct {
-		name    string
-		cmdType api.ApplyRequest_Type
-		jsonSub any
-		rpcSub  protoreflect.ProtoMessage
-	}{
+	tests := []proposeCommand{
 		{
-			name:    "TYPE_ADD_CLASS",
-			cmdType: api.ApplyRequest_TYPE_ADD_CLASS,
-			jsonSub: api.AddClassRequest{Class: cls("alpha:Foo"), State: ss},
+			name:      "TYPE_ADD_CLASS",
+			cmdType:   api.ApplyRequest_TYPE_ADD_CLASS,
+			className: "alpha:Foo",
+			jsonSub:   api.AddClassRequest{Class: cls("alpha:Foo"), State: ss},
 		},
 		{
-			name:    "TYPE_RESTORE_CLASS",
-			cmdType: api.ApplyRequest_TYPE_RESTORE_CLASS,
-			jsonSub: api.AddClassRequest{Class: cls("alpha:Foo"), State: ss},
+			name:      "TYPE_RESTORE_CLASS",
+			cmdType:   api.ApplyRequest_TYPE_RESTORE_CLASS,
+			className: "alpha:Foo",
+			jsonSub:   api.AddClassRequest{Class: cls("alpha:Foo"), State: ss},
 		},
 		{
 			// The schema commits before the DB refuses the shard, so an ungated
 			// create leaves the tenant listed with nothing behind it.
-			name:    "TYPE_ADD_TENANT",
-			cmdType: api.ApplyRequest_TYPE_ADD_TENANT,
+			name:      "TYPE_ADD_TENANT",
+			cmdType:   api.ApplyRequest_TYPE_ADD_TENANT,
+			className: "alpha:Foo",
 			rpcSub: &api.AddTenantsRequest{
 				Tenants:      []*api.Tenant{{Name: "T2", Status: models.TenantActivityStatusHOT}},
 				ClusterNodes: []string{"Node-1"},
@@ -832,8 +922,9 @@ func TestExecuteGate_RejectsShardMaterializingApplyTypes(t *testing.T) {
 		{
 			// A freeze started here would abort against a status no node can
 			// read back, silently activating or deactivating the tenant.
-			name:    "TYPE_UPDATE_TENANT",
-			cmdType: api.ApplyRequest_TYPE_UPDATE_TENANT,
+			name:      "TYPE_UPDATE_TENANT",
+			cmdType:   api.ApplyRequest_TYPE_UPDATE_TENANT,
+			className: "alpha:Foo",
 			rpcSub: &api.UpdateTenantsRequest{
 				Tenants:      []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusFROZEN}},
 				ClusterNodes: []string{"Node-1"},
@@ -841,58 +932,19 @@ func TestExecuteGate_RejectsShardMaterializingApplyTypes(t *testing.T) {
 		},
 	}
 
-	cases := []struct {
-		name      string
-		seed      func(*namespaces.Controller)
-		wantErr   error
-		className string
-	}{
-		{
-			name:      "deleting namespace rejected with ErrNamespaceDeleting",
-			className: "alpha:Foo",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
-			wantErr: namespaces.ErrNamespaceDeleting,
-		},
-		{
-			name:      "suspended namespace rejected with ErrNamespaceSuspended",
-			className: "alpha:Foo",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
-			wantErr: namespaces.ErrNamespaceSuspended,
-		},
-		{
-			name:      "resuming namespace rejected with ErrNamespaceResuming",
-			className: "alpha:Foo",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateResuming, namespaces.StateChange{AppliedIndex: 2}))
-			},
-			wantErr: namespaces.ErrNamespaceResuming,
-		},
-		{
-			name:      "missing namespace rejected with ErrNamespaceGone",
-			className: "alpha:Foo",
-			seed:      func(c *namespaces.Controller) {},
-			wantErr:   namespaces.ErrNamespaceGone,
-		},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertProposeRefuses(t, tt, suspendedNamespaceCase())
+		})
 	}
 
-	for _, tt := range tests {
-		for _, c := range cases {
-			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ms, _ := setupApplyTest(t)
-				c.seed(ms.cfg.NamespacesController)
-
-				err := admitProposeBytes(t, &ms, cmdAsBytes(c.className, tt.cmdType, tt.jsonSub, tt.rpcSub))
-				require.ErrorIs(t, err, c.wantErr)
-			})
-		}
+	// Every state that refuses a create-like command, run once: the mapping is
+	// the same whichever command carries the name.
+	addClass := tests[0]
+	for _, c := range inactiveNamespaceCases() {
+		t.Run(addClass.name+"/"+c.name, func(t *testing.T) {
+			assertProposeRefuses(t, addClass, c)
+		})
 	}
 }
 
@@ -912,79 +964,52 @@ func TestExecuteGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		seed     func(*namespaces.Controller)
+		seed     func(*testing.T, *namespaces.Controller)
 		role     string
 		creation bool
 		wantErr  error
 	}{
 		{
-			name: "create into deleting namespace rejected",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
+			name:     "create into deleting namespace rejected",
+			seed:     alphaAt(api.NamespaceStateDeleting),
 			role:     "alpha:editor",
 			creation: true,
 			wantErr:  namespaces.ErrNamespaceDeleting,
 		},
 		{
 			name:     "create into missing namespace rejected",
-			seed:     func(c *namespaces.Controller) {},
+			seed:     func(*testing.T, *namespaces.Controller) {},
 			role:     "alpha:editor",
 			creation: true,
 			wantErr:  namespaces.ErrNamespaceGone,
 		},
 		{
-			name: "create into active namespace passes gate",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-			},
+			name:     "create into active namespace passes gate",
+			seed:     alphaAt(api.NamespaceStateActive),
 			role:     "alpha:editor",
 			creation: true,
 		},
 		{
 			name:     "global role create passes gate",
-			seed:     func(c *namespaces.Controller) {},
+			seed:     func(*testing.T, *namespaces.Controller) {},
 			role:     "editor",
 			creation: true,
 		},
 		{
-			name: "non-creation upsert into deleting namespace rejected",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
+			// The gate never reads RoleCreation, and this is the row that says
+			// so: a permission-only upsert re-mints the role row too.
+			name:     "non-creation upsert into deleting namespace rejected",
+			seed:     alphaAt(api.NamespaceStateDeleting),
 			role:     "alpha:editor",
 			creation: false,
 			wantErr:  namespaces.ErrNamespaceDeleting,
-		},
-		{
-			name:     "non-creation upsert into missing namespace rejected",
-			seed:     func(c *namespaces.Controller) {},
-			role:     "alpha:editor",
-			creation: false,
-			wantErr:  namespaces.ErrNamespaceGone,
-		},
-		{
-			name: "non-creation upsert into active namespace passes gate",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-			},
-			role:     "alpha:editor",
-			creation: false,
-		},
-		{
-			name:     "global non-creation upsert passes gate",
-			seed:     func(c *namespaces.Controller) {},
-			role:     "editor",
-			creation: false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ms, _ := setupApplyTest(t)
-			tc.seed(ms.cfg.NamespacesController)
+			tc.seed(t, ms.cfg.NamespacesController)
 
 			err := admitProposeBytes(t, &ms, roleCmd(tc.role, tc.creation))
 			if tc.wantErr != nil {
@@ -1001,8 +1026,7 @@ func TestExecuteGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 // name rejects the whole batch even when other names are global or active.
 func TestExecuteGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
 	ms, _ := setupApplyTest(t)
-	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
+	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateDeleting)
 
 	err := admitProposeBytes(t, &ms, cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
 		api.CreateRolesRequest{
@@ -1027,46 +1051,35 @@ func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 			api.AddRolesForUsersRequest{User: user, Roles: []string{"editor"}}, nil)
 	}
 
+	// One refusing state per subject shape: which state answers with which
+	// sentinel is namespaces.RequireActive's own table, and the subject the
+	// namespace is read off is what these vary.
 	tests := []struct {
 		name    string
-		seed    func(*namespaces.Controller)
+		seed    func(*testing.T, *namespaces.Controller)
 		user    string
 		wantErr error
 	}{
 		{
-			name: "assign into deleting namespace rejected",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
+			name:    "assign into deleting namespace rejected",
+			seed:    alphaAt(api.NamespaceStateDeleting),
 			user:    "db:alpha:bob",
 			wantErr: namespaces.ErrNamespaceDeleting,
 		},
 		{
-			name:    "assign into missing namespace rejected",
-			seed:    func(c *namespaces.Controller) {},
-			user:    "db:alpha:bob",
-			wantErr: namespaces.ErrNamespaceGone,
-		},
-		{
-			name: "assign to oidc subject in deleting namespace rejected",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
-			},
+			name:    "assign to oidc subject in deleting namespace rejected",
+			seed:    alphaAt(api.NamespaceStateDeleting),
 			user:    "oidc:alpha:carol",
 			wantErr: namespaces.ErrNamespaceDeleting,
 		},
 		{
 			name: "assign into active namespace passes gate",
-			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
-			},
+			seed: alphaAt(api.NamespaceStateActive),
 			user: "db:alpha:bob",
 		},
 		{
 			name: "global subject passes gate",
-			seed: func(c *namespaces.Controller) {},
+			seed: func(*testing.T, *namespaces.Controller) {},
 			user: "db:bob",
 		},
 	}
@@ -1074,7 +1087,7 @@ func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ms, _ := setupApplyTest(t)
-			tc.seed(ms.cfg.NamespacesController)
+			tc.seed(t, ms.cfg.NamespacesController)
 
 			err := admitProposeBytes(t, &ms, assignCmd(tc.user))
 			if tc.wantErr != nil {

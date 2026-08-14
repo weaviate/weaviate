@@ -1716,6 +1716,11 @@ func TestIsReversibleRefusal(t *testing.T) {
 // on its own would otherwise auto-cancel a movement that only had to wait.
 // Strict mocks enforce the skipped RegisterError; the failed-op callback and the
 // deferral log enforce the rest.
+//
+// Which refusals defer is TestIsReversibleRefusal's table, so the rows below
+// vary where the refusal comes from rather than re-crossing that with the
+// states: the source node's shard calls, and the leader's tenant activation,
+// which hands back the sentinel itself.
 func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
 	const (
 		opID       = uint64(42)
@@ -1774,16 +1779,6 @@ func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
 				copier.On("CopyReplicaFiles", mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
 					Run(run).
 					Return(fromSourceNode(codes.FailedPrecondition, namespaces.ErrNamespaceSuspended)).
-					Once()
-			},
-			deferred: true,
-		},
-		{
-			name: "a resuming namespace at the change-capture open",
-			refuse: func(copier *types.MockReplicaCopier, _ *types.MockFSMUpdater, run func(mock.Arguments)) {
-				copier.On("StartChangeCapture", mock.Anything, "node1", collection, shardName, mock.Anything, mock.Anything).
-					Run(run).
-					Return(fromSourceNode(codes.FailedPrecondition, namespaces.ErrNamespaceResuming)).
 					Once()
 			},
 			deferred: true,

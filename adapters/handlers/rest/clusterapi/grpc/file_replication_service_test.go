@@ -223,7 +223,9 @@ func TestStartChangeCapture_UnknownIndex(t *testing.T) {
 // against the budget and auto-cancels the movement at 50.
 //
 // Every method the service has is listed, so one whose shard call starts taking
-// the namespace check already answers with the code the movement reads.
+// the namespace check already answers with the code the movement reads. Which
+// refusals defer is replication.IsReversibleRefusal's own table, so each method
+// is driven with one of each kind rather than the whole list.
 func TestShardCallErrorCode(t *testing.T) {
 	const (
 		indexName = "MyClass"
@@ -336,24 +338,9 @@ func TestShardCallErrorCode(t *testing.T) {
 		want    codes.Code
 	}{
 		{
-			name:    "a structural vector op on the shard",
-			refusal: fmt.Errorf("halt shard: %w", enterrors.ErrShardBusyStructuralOp),
-			want:    codes.FailedPrecondition,
-		},
-		{
-			name:    "a suspended namespace",
+			name:    "a refusal that can be undone",
 			refusal: fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceSuspended),
 			want:    codes.FailedPrecondition,
-		},
-		{
-			name:    "a resuming namespace",
-			refusal: fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceResuming),
-			want:    codes.FailedPrecondition,
-		},
-		{
-			name:    "a deleting namespace",
-			refusal: fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceDeleting),
-			want:    codes.Internal,
 		},
 		{
 			name:    "an unrelated failure",
@@ -362,21 +349,50 @@ func TestShardCallErrorCode(t *testing.T) {
 		},
 	}
 
+	assertCode := func(t *testing.T, ep func(*FileReplicationService) error, svc *FileReplicationService,
+		refusal error, want codes.Code,
+	) {
+		t.Helper()
+
+		err := ep(svc)
+		require.Error(t, err)
+		require.Equal(t, want, status.Code(err))
+		// The consumer matches the sentinel on the message, so dropping it from
+		// the wrapping cancels the movement just as a wrong code does.
+		require.Contains(t, status.Convert(err).Message(), refusal.Error())
+	}
+
 	for _, ep := range entryPoints {
 		for _, tc := range refusals {
 			t.Run(ep.name+" refused by "+tc.name, func(t *testing.T) {
 				svc := newService(t, map[string]*fakeIndex{indexName: ep.index(tc.refusal)})
 
-				err := ep.call(svc)
-				require.Error(t, err)
-				require.Equal(t, tc.want, status.Code(err))
-				// The consumer matches the sentinel on the message, so dropping
-				// it from the wrapping cancels the movement just as a wrong code
-				// does.
-				require.Contains(t, status.Convert(err).Message(), tc.refusal.Error())
+				assertCode(t, ep.call, svc, tc.refusal, tc.want)
 			})
 		}
 	}
+
+	// The one refusal that carries a namespace sentinel and still must not defer:
+	// a deleting namespace never becomes active again, so a movement waiting for
+	// it would never end. Driven through one entry point, since the code the
+	// helper returns does not vary by method.
+	t.Run("a deleting namespace does not defer", func(t *testing.T) {
+		refusal := fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceDeleting)
+		ep := entryPoints[0]
+		svc := newService(t, map[string]*fakeIndex{indexName: ep.index(refusal)})
+
+		assertCode(t, ep.call, svc, refusal, codes.Internal)
+	})
+
+	// The refusal the file service had before namespaces, kept so a rewrite of
+	// the shared list cannot drop it.
+	t.Run("a structural vector op defers", func(t *testing.T) {
+		refusal := fmt.Errorf("halt shard: %w", enterrors.ErrShardBusyStructuralOp)
+		ep := entryPoints[0]
+		svc := newService(t, map[string]*fakeIndex{indexName: ep.index(refusal)})
+
+		assertCode(t, ep.call, svc, refusal, codes.FailedPrecondition)
+	})
 }
 
 // StartChangeCapture must wait for the source to apply the op's HOT-activation

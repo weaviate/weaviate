@@ -252,9 +252,9 @@ func TestExecutor(t *testing.T) {
 	// whose shard load a namespace keeping its shards closed may skip. Routing it to
 	// UpdateTenants instead panics on the unexpected call.
 	//
-	// Only the tenant's name and status are read, so the table walks the statuses the
-	// schema can report rather than the offload and onload actions, which converge on
-	// the same payload here.
+	// The status is copied through rather than branched on, so one report stands
+	// for every status the schema can report — and for both the offload and the
+	// onload action, which converge on the same payload here.
 	t.Run("UpdateTenantsProcess", func(t *testing.T) {
 		cases := []struct {
 			name string
@@ -262,22 +262,14 @@ func TestExecutor(t *testing.T) {
 			want []*UpdateTenantPayload
 		}{
 			{
-				name: "an unfreeze to HOT, and an aborted freeze of a HOT tenant",
+				name: "a reported status is carried through",
 				req:  report(models.TenantActivityStatusHOT),
 				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusHOT}},
 			},
 			{
-				name: "an unfreeze to COLD, and an aborted freeze of a COLD tenant",
-				req:  report(models.TenantActivityStatusCOLD),
-				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusCOLD}},
-			},
-			{
-				name: "a completed freeze",
-				req:  report(models.TenantActivityStatusFROZEN),
-				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusFROZEN}},
-			},
-			{
-				// An unfreeze every node aborted leaves no status behind to read back.
+				// An unfreeze every node aborted leaves no status behind to read
+				// back, and the empty one must reach the migrator as it stands:
+				// the shard load behind it is what decides on the namespace.
 				name: "an unfreeze with no status to report",
 				req:  report(""),
 				want: []*UpdateTenantPayload{{Name: "T1", Status: ""}},

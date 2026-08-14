@@ -38,10 +38,11 @@ type fixedNodeResolver string
 
 func (r fixedNodeResolver) NodeHostname(string) (string, bool) { return string(r), true }
 
+// The sweep skips a collection whose namespace is not active. Which states are
+// not active is namespaces.RequireActive's own table, so suspended stands for
+// all of them here and the rows vary what the sweep does with the verdict.
 func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 	suspended := []cmd.NamespaceState{cmd.NamespaceStateSuspended}
-	resuming := []cmd.NamespaceState{cmd.NamespaceStateSuspended, cmd.NamespaceStateResuming}
-	deleting := []cmd.NamespaceState{cmd.NamespaceStateDeleting}
 
 	type namespaceSetup struct {
 		name string
@@ -69,16 +70,6 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 		{
 			name:       "suspended namespace is skipped",
 			namespaces: []namespaceSetup{{name: "customer1", steps: suspended}},
-			classes:    []string{"customer1:Foo"},
-		},
-		{
-			name:       "resuming namespace is skipped",
-			namespaces: []namespaceSetup{{name: "customer1", steps: resuming}},
-			classes:    []string{"customer1:Foo"},
-		},
-		{
-			name:       "deleting namespace is skipped",
-			namespaces: []namespaceSetup{{name: "customer1", steps: deleting}},
 			classes:    []string{"customer1:Foo"},
 		},
 		{

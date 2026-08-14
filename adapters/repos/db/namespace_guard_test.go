@@ -51,6 +51,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// The two class shapes every shard decision is driven for: one owned by
+// namespace alpha, and one on a cluster running with namespaces off, which
+// reaches no lookup at all.
+const (
+	namespacedClass  = "alpha:Product"
+	unqualifiedClass = "Product"
+)
+
 // indexForNamespace builds the minimum Index the guard adapters read: the
 // qualified class name they parse the namespace out of, plus the exister they
 // look the state up in.
@@ -112,16 +120,19 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 }
 
 func TestNamespaceGuard(t *testing.T) {
-	t.Run("the owning namespace's state reaches the load check", func(t *testing.T) {
+	// Which sentinel each state answers with is namespaces.RequireShardLoadable's
+	// own table. What is left to this one is the routing: that a user request is
+	// decided by that function and not by one of the three others. Suspended is
+	// what discriminates them — the two shard-opening decisions admit it, and
+	// neither answers with this sentinel.
+	t.Run("a user request is decided by the request-path check", func(t *testing.T) {
 		tests := []struct {
-			name        string
-			state       api.NamespaceState
-			loadableErr error
+			name    string
+			state   api.NamespaceState
+			wantErr error
 		}{
-			{name: "active", state: api.NamespaceStateActive},
-			{name: "suspended", state: api.NamespaceStateSuspended, loadableErr: namespaces.ErrNamespaceSuspended},
-			{name: "resuming", state: api.NamespaceStateResuming, loadableErr: namespaces.ErrNamespaceResuming},
-			{name: "deleting", state: api.NamespaceStateDeleting, loadableErr: namespaces.ErrNamespaceDeleting},
+			{name: "suspended refuses", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
+			{name: "active admits", state: api.NamespaceStateActive},
 		}
 
 		for _, tc := range tests {
@@ -132,8 +143,8 @@ func TestNamespaceGuard(t *testing.T) {
 
 				idx, _ := indexForNamespace(t, "alpha:Product", e)
 
-				if tc.loadableErr != nil {
-					require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), tc.loadableErr)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), tc.wantErr)
 				} else {
 					require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 				}
@@ -318,46 +329,49 @@ func coldPhysical(name string) sharding.Physical {
 func TestDesiredOpenLocalShardCount(t *testing.T) {
 	const class = "alpha:Product"
 
-	tests := []struct {
-		name       string
-		className  string
-		state      api.NamespaceState
-		namespaced bool
-		shards     map[string]sharding.Physical
-		// want names the shards, not just how many, so a swapped inclusion
-		// cannot pass on an unchanged total.
-		want    []string
-		wantErr error
+	// assertDesiredOpen drives both entry points: the count, and the walk the
+	// count is built on. want names the shards, not just how many, so a swapped
+	// inclusion cannot pass on an unchanged total.
+	assertDesiredOpen := func(t *testing.T, db *DB, className string, want []string) {
+		t.Helper()
+
+		got, err := db.DesiredOpenLocalShardCount(className)
+		require.NoError(t, err)
+		assert.Equal(t, len(want), got)
+
+		var walked []string
+		require.NoError(t, db.forEachDesiredOpenLocalShard(className,
+			func(name string) { walked = append(walked, name) }))
+		sort.Strings(walked)
+		assert.Equal(t, want, walked)
+	}
+
+	// Which shards an admitting namespace yields. The namespace axis is the
+	// shared table below, so every row here holds it active.
+	shapes := []struct {
+		name   string
+		shards map[string]sharding.Physical
+		want   []string
 	}{
 		{
-			name: "a class with no shards at all yields nothing", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
+			name:   "a class with no shards at all yields nothing",
 			shards: map[string]sharding.Physical{},
 		},
 		{
-			name: "no local shards yields an empty set", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
+			name:   "no local shards yields an empty set",
 			shards: map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"other"}}},
 		},
 		{
 			// A replica list that never got populated must not read as local, or
 			// every node would count the shard toward its own startup progress.
-			name: "a shard with no replicas is left out", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
+			name:   "a shard with no replicas is left out",
 			shards: map[string]sharding.Physical{"s1": {Name: "s1"}},
-		},
-		{
-			name: "one HOT shard yields that shard", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
-			shards: map[string]sharding.Physical{"s1": localPhysical("s1")},
-			want:   []string{"s1"},
 		},
 		{
 			// The fixture leaves PartitioningEnabled unset, so this also pins that a
 			// non-HOT status closes a single-tenant shard. One is not producible, but
-			// the startup load would skip it too.
-			name: "an active class yields only its HOT shards", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
+			// the startup load would skip it too. An empty status counts as HOT.
+			name: "only the HOT shards are yielded",
 			shards: map[string]sharding.Physical{
 				"hot1": localPhysical("hot1"), "hot2": localPhysical("hot2"), "cold1": coldPhysical("cold1"),
 			},
@@ -368,85 +382,50 @@ func TestDesiredOpenLocalShardCount(t *testing.T) {
 			// merge: cold1 should be closed, while other1 is simply not this
 			// node's to decide. Reading the whole complement as unloadable would
 			// take out a shard the answer was never about.
-			name: "a shard this node is not a replica of is left out", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
+			name: "a shard this node is not a replica of is left out",
 			shards: map[string]sharding.Physical{
 				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
 				"other1": {Name: "other1", BelongsToNodes: []string{"node2"}},
 			},
 			want: []string{"hot1"},
 		},
-		{
-			name: "a suspended class yields nothing", className: class,
-			state: api.NamespaceStateSuspended, namespaced: true,
-			shards: map[string]sharding.Physical{
-				"hot1": localPhysical("hot1"), "hot2": localPhysical("hot2"),
-			},
-		},
-		{
-			// Not the empty set: the shards must reopen for the resume to finish.
-			name: "a resuming class yields its HOT shards", className: class,
-			state: api.NamespaceStateResuming, namespaced: true,
-			shards: map[string]sharding.Physical{
-				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
-			},
-			want: []string{"hot1"},
-		},
-		{
-			name: "a deleting class yields nothing", className: class,
-			state: api.NamespaceStateDeleting, namespaced: true,
-			shards: map[string]sharding.Physical{"hot1": localPhysical("hot1")},
-		},
-		{
-			// A state this binary has no case for, which a newer node can write.
-			// It must close the shards rather than fall through as active.
-			name: "a class in an unrecognized state yields nothing", className: class,
-			state: api.NamespaceState("bogus"), namespaced: true,
-			shards: map[string]sharding.Physical{"hot1": localPhysical("hot1")},
-		},
-		{
-			name: "an unqualified class yields its HOT shards", className: "Product",
-			shards: map[string]sharding.Physical{
-				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
-			},
-			want: []string{"hot1"},
-		},
-		{
-			// Not an empty set, which a caller would read as "unload everything".
-			name: "a lookup miss returns the error", className: class,
-			namespaced: true,
-			shards:     map[string]sharding.Physical{"hot1": localPhysical("hot1")},
-			wantErr:    errNamespaceUnknownLocally,
-		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range shapes {
 		t.Run(tc.name, func(t *testing.T) {
-			var e namespaces.Exister
-			if tc.namespaced {
-				me := namespaces.NewMockExister(t)
-				me.EXPECT().GetNamespace("alpha").
-					Return(api.Namespace{Name: "alpha", State: tc.state}, tc.state != "").Maybe()
-				e = me
-			}
-			db := dbForDesiredOpen(t, tc.className, e, tc.shards)
+			db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateActive), tc.shards)
 
-			got, err := db.DesiredOpenLocalShardCount(tc.className)
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-				assert.Zero(t, got)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, len(tc.want), got)
-
-			var walked []string
-			require.NoError(t, db.forEachDesiredOpenLocalShard(tc.className,
-				func(name string) { walked = append(walked, name) }))
-			sort.Strings(walked)
-			assert.Equal(t, tc.want, walked)
+			assertDesiredOpen(t, db, class, tc.want)
 		})
 	}
+
+	// Not the empty set for a resuming namespace: its shards must reopen for the
+	// resume to finish.
+	mixed := map[string]sharding.Physical{
+		"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
+	}
+	for _, tc := range shardsShouldBeOpenStates() {
+		t.Run(tc.name, func(t *testing.T) {
+			var want []string
+			if tc.wantLoad {
+				want = []string{"hot1"}
+			}
+			db := dbForDesiredOpen(t, tc.className, tc.exister(t), mixed)
+
+			assertDesiredOpen(t, db, tc.className, want)
+		})
+	}
+
+	// Not an empty set, which a caller would read as "unload everything".
+	t.Run("a lookup miss returns the error", func(t *testing.T) {
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
+		db := dbForDesiredOpen(t, class, e, mixed)
+
+		got, err := db.DesiredOpenLocalShardCount(class)
+		require.ErrorIs(t, err, errNamespaceUnknownLocally)
+		assert.Zero(t, got)
+	})
 
 	// Registering no Read expectation asserts the shards are never enumerated:
 	// when nothing may be open the answer is zero whatever the shards are, and a
@@ -614,36 +593,29 @@ func TestGuardLoadPath(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
+	// One refusing state is enough per shape: which states refuse a request load
+	// is TestNamespaceGuard's, and the shape is what this one varies.
 	tests := []struct {
 		name     string
-		state    api.NamespaceState
 		resident bool
-		wantErr  error
 	}{
-		{name: "suspended refuses", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
-		{name: "deleting refuses", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
-		{name: "resuming refuses a request load", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
+		{name: "suspended refuses"},
 		{
 			// Red if the guard is placed beside the initShard call: a resident
 			// shard returns before ever reaching it.
-			name: "suspended refuses a resident shard", state: api.NamespaceStateSuspended,
-			resident: true, wantErr: namespaces.ErrNamespaceSuspended,
-		},
-		{
-			name: "deleting refuses a resident shard", state: api.NamespaceStateDeleting,
-			resident: true, wantErr: namespaces.ErrNamespaceDeleting,
+			name: "suspended refuses a resident shard", resident: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
+			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 			if tc.resident {
 				idx.shards.Store("t1", &LazyLoadShard{})
 			}
 
 			err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
-			require.ErrorIs(t, err, tc.wantErr)
+			require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 		})
 	}
 
@@ -824,24 +796,44 @@ func dbForSkipTest(t *testing.T, className string, e namespaces.Exister) (*DB, *
 // call itself so a case can point it at an index that is not there.
 type skipLoad func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error)
 
-// namespaceLoadState is one namespace state and whether an entry point deciding
-// on it enters the shard load.
+// namespaceLoadState is one class-and-state a shard decision is driven for, and
+// whether the entry point deciding on it enters the shard load.
 type namespaceLoadState struct {
-	name     string
-	state    api.NamespaceState
-	wantLoad bool
+	name      string
+	className string
+	state     api.NamespaceState
+	wantLoad  bool
+}
+
+// exister returns the lookup this row's decision reads. The unqualified row gets
+// none at all, so an entry point that consulted one there would fail on the nil
+// interface rather than pass.
+func (s namespaceLoadState) exister(t *testing.T) namespaces.Exister {
+	t.Helper()
+
+	if s.className == unqualifiedClass {
+		return nil
+	}
+	return existerWithState(t, s.state)
 }
 
 // shardsShouldBeOpenStates is the state space of the check that decides whether
-// a load is entered at all: two states open shards, three open none. Every
-// entry point deciding on that check owes the same five answers.
+// a load is entered at all: two states open shards, three open none, and a class
+// in no namespace — every class on a cluster running with namespaces off — always
+// does. Every entry point deciding on that check owes the same six answers, so
+// each of them walks this one table rather than restating it.
 func shardsShouldBeOpenStates() []namespaceLoadState {
 	return []namespaceLoadState{
-		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
-		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
-		{name: "a suspended namespace loads nothing", state: api.NamespaceStateSuspended},
-		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
-		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
+		{name: "an active namespace", className: namespacedClass, state: api.NamespaceStateActive, wantLoad: true},
+		// Red for an entry point filtering on the request-path check, which
+		// rejects resuming: nothing would reopen and a resume could never finish.
+		{name: "a resuming namespace", className: namespacedClass, state: api.NamespaceStateResuming, wantLoad: true},
+		{name: "a suspended namespace", className: namespacedClass, state: api.NamespaceStateSuspended},
+		{name: "a deleting namespace", className: namespacedClass, state: api.NamespaceStateDeleting},
+		// A state this binary has no case for, which a newer node can write. It
+		// must close the shards rather than fall through as active.
+		{name: "a state this binary does not know", className: namespacedClass, state: api.NamespaceState("gone")},
+		{name: "an unqualified class", className: unqualifiedClass, wantLoad: true},
 	}
 }
 
@@ -851,26 +843,27 @@ func shardsShouldBeOpenStates() []namespaceLoadState {
 // this node does not hold.
 func appliedChangeStates() []namespaceLoadState {
 	return []namespaceLoadState{
-		{name: "an active namespace loads", state: api.NamespaceStateActive, wantLoad: true},
-		{name: "a resuming namespace loads", state: api.NamespaceStateResuming, wantLoad: true},
-		{name: "a suspended namespace loads", state: api.NamespaceStateSuspended, wantLoad: true},
-		{name: "a deleting namespace loads nothing", state: api.NamespaceStateDeleting},
-		{name: "an unknown state loads nothing", state: api.NamespaceState("gone")},
+		{name: "an active namespace", className: namespacedClass, state: api.NamespaceStateActive, wantLoad: true},
+		{name: "a resuming namespace", className: namespacedClass, state: api.NamespaceStateResuming, wantLoad: true},
+		{name: "a suspended namespace", className: namespacedClass, state: api.NamespaceStateSuspended, wantLoad: true},
+		{name: "a deleting namespace", className: namespacedClass, state: api.NamespaceStateDeleting},
+		{name: "a state this binary does not know", className: namespacedClass, state: api.NamespaceState("gone")},
+		{name: "an unqualified class", className: unqualifiedClass, wantLoad: true},
 	}
 }
 
-// firstSkippedState returns the state the given table expects to skip the load,
-// so the log assertion below drives a skip whichever table it is handed.
-func firstSkippedState(t *testing.T, states []namespaceLoadState) api.NamespaceState {
+// firstSkippedRow returns the row the given table expects to skip the load, so
+// the log assertion below drives a skip whichever table it is handed.
+func firstSkippedRow(t *testing.T, states []namespaceLoadState) namespaceLoadState {
 	t.Helper()
 
 	for _, tc := range states {
 		if !tc.wantLoad {
-			return tc.state
+			return tc
 		}
 	}
 	t.Fatal("no state in the table skips the load")
-	return ""
+	return namespaceLoadState{}
 }
 
 // assertSkipsWhenNamespaceClosed drives the checks every entry point owes whose
@@ -886,7 +879,7 @@ func assertSkipsWhenNamespaceClosed(t *testing.T, class string, states []namespa
 
 	for _, tc := range states {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := load(t, class, class, existerWithState(t, tc.state))
+			_, err := load(t, tc.className, tc.className, tc.exister(t))
 			if tc.wantLoad {
 				require.ErrorIs(t, err, errInjectedMemoryPressure)
 				return
@@ -895,14 +888,10 @@ func assertSkipsWhenNamespaceClosed(t *testing.T, class string, states []namespa
 		})
 	}
 
-	t.Run("an unqualified class name loads", func(t *testing.T) {
-		_, err := load(t, "Product", "Product", nil)
-		require.ErrorIs(t, err, errInjectedMemoryPressure)
-	})
-
 	// Nothing else records that the schema change landed without a shard.
 	t.Run("a skipped load is logged", func(t *testing.T) {
-		hook, err := load(t, class, class, existerWithState(t, firstSkippedState(t, states)))
+		skipped := firstSkippedRow(t, states)
+		hook, err := load(t, skipped.className, skipped.className, skipped.exister(t))
 		require.NoError(t, err)
 
 		entry := hook.LastEntry()
@@ -1100,21 +1089,21 @@ func TestTenantAddShardLoad(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	addTenant := func(t *testing.T, e namespaces.Exister, status string) error {
+	addTenant := func(t *testing.T, className string, e namespaces.Exister, status string) error {
 		t.Helper()
-		db, idx, _ := dbForSkipTest(t, class, e)
-		return NewMigrator(db, idx.logger, "node1").NewTenants(ctx, &models.Class{Class: class},
+		db, idx, _ := dbForSkipTest(t, className, e)
+		return NewMigrator(db, idx.logger, "node1").NewTenants(ctx, &models.Class{Class: className},
 			[]*schemaUC.CreateTenantPayload{{Name: "t1", Status: status}})
 	}
 
 	for _, tc := range appliedChangeStates() {
 		t.Run(tc.name+" does not fail the create", func(t *testing.T) {
-			require.NoError(t, addTenant(t, existerWithState(t, tc.state), models.TenantActivityStatusHOT))
+			require.NoError(t, addTenant(t, tc.className, tc.exister(t), models.TenantActivityStatusHOT))
 		})
 	}
 
 	t.Run("a cold tenant is skipped before the namespace is consulted", func(t *testing.T) {
-		require.NoError(t, addTenant(t, existerWithState(t, api.NamespaceStateDeleting),
+		require.NoError(t, addTenant(t, class, existerWithState(t, api.NamespaceStateDeleting),
 			models.TenantActivityStatusCOLD))
 	})
 
@@ -1122,7 +1111,7 @@ func TestTenantAddShardLoad(t *testing.T) {
 	// skip must not swallow it.
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" is an error, not a skipped load", func(t *testing.T) {
-			require.ErrorIs(t, addTenant(t, tc.exister(t), models.TenantActivityStatusHOT), tc.wantErr)
+			require.ErrorIs(t, addTenant(t, class, tc.exister(t), models.TenantActivityStatusHOT), tc.wantErr)
 		})
 	}
 }
@@ -1132,8 +1121,6 @@ func TestTenantAddShardLoad(t *testing.T) {
 // the apply just recorded, and it is not observable through the create, which
 // registers lazily and returns nil either way.
 func TestTenantApplyShardLoadAdmission(t *testing.T) {
-	const class = "alpha:Product"
-
 	callers := []struct {
 		name   string
 		caller shardLoadCaller
@@ -1145,7 +1132,7 @@ func TestTenantApplyShardLoadAdmission(t *testing.T) {
 	for _, c := range callers {
 		for _, tc := range appliedChangeStates() {
 			t.Run(c.name+"/"+tc.name, func(t *testing.T) {
-				idx, err := newIndexForNamespaceTest(t, class, existerWithState(t, tc.state))
+				idx, err := newIndexForNamespaceTest(t, tc.className, tc.exister(t))
 				require.NoError(t, err)
 
 				err = idx.requireNamespaceAllowsShardLoad(c.caller)
@@ -1198,26 +1185,16 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 		},
 	}
 
-	refused := []struct {
-		name    string
-		state   api.NamespaceState
-		wantErr error
-	}{
-		{name: "suspended", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
-		{name: "resuming", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
-		{name: "deleting", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
-	}
-
 	for _, ep := range entryPoints {
-		for _, tc := range refused {
-			t.Run(ep.name+" is refused while "+tc.name, func(t *testing.T) {
-				idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
-				// Resident, so a refusal cannot be mistaken for an absent shard.
-				idx.shards.Store("t1", NewMockShardLike(t))
+		// Driven with one refusing state: which states the request path refuses
+		// is TestNamespaceGuard's, and the entry point is what this one varies.
+		t.Run(ep.name+" is refused while suspended", func(t *testing.T) {
+			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+			// Resident, so a refusal cannot be mistaken for an absent shard.
+			idx.shards.Store("t1", NewMockShardLike(t))
 
-				require.ErrorIs(t, ep.call(idx), tc.wantErr)
-			})
-		}
+			require.ErrorIs(t, ep.call(idx), namespaces.ErrNamespaceSuspended)
+		})
 
 		// Without this, an entry point that refused every state would still pass
 		// every row above.
@@ -1247,45 +1224,35 @@ func TestGuardRequestPath(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	refused := []struct {
-		name    string
-		state   api.NamespaceState
-		wantErr error
-	}{
-		{name: "suspended", state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
-		{name: "deleting", state: api.NamespaceStateDeleting, wantErr: namespaces.ErrNamespaceDeleting},
-		{name: "resuming", state: api.NamespaceStateResuming, wantErr: namespaces.ErrNamespaceResuming},
-	}
+	// Driven with one refusing state: which states refuse a request load is
+	// TestNamespaceGuard's, and the load point is what this one varies.
+	t.Run("a read refuses with no resident shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 
-	for _, tc := range refused {
-		t.Run("a read refuses "+tc.name+" with no resident shard", func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
+		shard, release, err := idx.GetShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		assert.Nil(t, shard)
+		require.NotNil(t, release, "a nil release panics in a caller that defers it")
+	})
 
-			shard, release, err := idx.GetShard(ctx, "t1")
-			require.ErrorIs(t, err, tc.wantErr)
-			assert.Nil(t, shard)
-			require.NotNil(t, release, "a nil release panics in a caller that defers it")
-		})
+	t.Run("a read refuses holding a resident lazy shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		lazy := &LazyLoadShard{}
+		idx.shards.Store("t1", lazy)
 
-		t.Run("a read refuses "+tc.name+" holding a resident lazy shard", func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
-			lazy := &LazyLoadShard{}
-			idx.shards.Store("t1", lazy)
+		shard, release, err := idx.GetShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		assert.Nil(t, shard)
+		require.NotNil(t, release)
+		assert.False(t, lazy.loaded, "the resident shard must not have been loaded")
+	})
 
-			shard, release, err := idx.GetShard(ctx, "t1")
-			require.ErrorIs(t, err, tc.wantErr)
-			assert.Nil(t, shard)
-			require.NotNil(t, release)
-			assert.False(t, lazy.loaded, "the resident shard must not have been loaded")
-		})
+	t.Run("a write refuses", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 
-		t.Run("a write refuses "+tc.name, func(t *testing.T) {
-			idx := indexForGuardTest(t, class, existerWithState(t, tc.state))
-
-			_, _, err := idx.getOrInitShard(ctx, "t1")
-			require.ErrorIs(t, err, tc.wantErr)
-		})
-	}
+		_, _, err := idx.getOrInitShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
 
 	t.Run("a lookup miss refuses", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
@@ -1652,51 +1619,20 @@ func TestGuardBoot(t *testing.T) {
 		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
 	}
 
-	tests := []struct {
-		name       string
-		className  string
-		state      api.NamespaceState
-		namespaced bool
-		want       []string
-	}{
-		{
-			name: "a suspended class registers nothing", className: class,
-			state: api.NamespaceStateSuspended, namespaced: true,
-		},
-		{
-			name: "a deleting class registers nothing", className: class,
-			state: api.NamespaceStateDeleting, namespaced: true,
-		},
-		{
-			// Red if the filter is the request-path check, which rejects resuming.
-			name: "a resuming class keeps its HOT shards", className: class,
-			state: api.NamespaceStateResuming, namespaced: true,
-			want: []string{"empty1", "hot1"},
-		},
-		{
-			name: "an active class keeps its HOT shards", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
-			want: []string{"empty1", "hot1"},
-		},
-		{
-			name: "an unqualified class keeps its HOT shards", className: "Product",
-			want: []string{"empty1", "hot1"},
-		},
-	}
-
-	for _, tc := range tests {
+	// Red if the filter is the request-path check, which rejects resuming.
+	for _, tc := range shardsShouldBeOpenStates() {
 		t.Run(tc.name, func(t *testing.T) {
-			var e namespaces.Exister
-			if tc.namespaced {
-				e = existerWithState(t, tc.state)
+			var want []string
+			if tc.wantLoad {
+				want = []string{"empty1", "hot1"}
 			}
-			idx, _ := indexForBootTest(t, tc.className, e,
+			idx, _ := indexForBootTest(t, tc.className, tc.exister(t),
 				readerForShards(t, tc.className, mixed))
 
 			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: tc.className}, nil))
-			assert.Equal(t, tc.want, registeredShards(t, idx))
+			assert.Equal(t, want, registeredShards(t, idx))
 
-			if len(tc.want) == 0 {
+			if !tc.wantLoad {
 				// An index with nothing to load is ready. Left false, it would stop
 				// the node-wide object count for every other index too.
 				assert.True(t, idx.allShardsReady.Load(),
@@ -1708,28 +1644,7 @@ func TestGuardBoot(t *testing.T) {
 	// A state that cannot be read is not a namespace keeping its shards closed:
 	// the class may hold data on disk, so boot must refuse rather than register
 	// nothing and report the class ready.
-	refusals := []struct {
-		name    string
-		exister func(*testing.T) namespaces.Exister
-		wantErr error
-	}{
-		{
-			name:    "a missing lookup",
-			exister: func(*testing.T) namespaces.Exister { return nil },
-			wantErr: errNoNamespaceLookup,
-		},
-		{
-			name: "a lookup miss",
-			exister: func(t *testing.T) namespaces.Exister {
-				e := namespaces.NewMockExister(t)
-				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-				return e
-			},
-			wantErr: errNamespaceUnknownLocally,
-		},
-	}
-
-	for _, tc := range refusals {
+	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" returns an error instead of reporting the class ready", func(t *testing.T) {
 			idx, hook := indexForBootTest(t, class, tc.exister(t), readerForShards(t, class, mixed))
 
@@ -1766,46 +1681,10 @@ func TestGuardBoot(t *testing.T) {
 func TestGuardBackgroundLoad(t *testing.T) {
 	const class = "alpha:Product"
 
-	tests := []struct {
-		name       string
-		className  string
-		state      api.NamespaceState
-		namespaced bool
-		wantLoad   bool
-	}{
-		{
-			name: "an active namespace loads", className: class,
-			state: api.NamespaceStateActive, namespaced: true, wantLoad: true,
-		},
-		{
-			// Red if the filter is the request-path check, which rejects resuming.
-			name: "a resuming namespace loads", className: class,
-			state: api.NamespaceStateResuming, namespaced: true, wantLoad: true,
-		},
-		{
-			name: "a namespace suspended after boot loads nothing", className: class,
-			state: api.NamespaceStateSuspended, namespaced: true,
-		},
-		{
-			name: "a deleting namespace loads nothing", className: class,
-			state: api.NamespaceStateDeleting, namespaced: true,
-		},
-		{
-			name: "an unknown state loads nothing", className: class,
-			state: api.NamespaceState("gone"), namespaced: true,
-		},
-		{
-			name: "an unqualified class loads", className: "Product", wantLoad: true,
-		},
-	}
-
-	for _, tc := range tests {
+	// Red if the filter is the request-path check, which rejects resuming.
+	for _, tc := range shardsShouldBeOpenStates() {
 		t.Run(tc.name, func(t *testing.T) {
-			var e namespaces.Exister
-			if tc.namespaced {
-				e = existerWithState(t, tc.state)
-			}
-			idx := indexForGuardTest(t, tc.className, e)
+			idx := indexForGuardTest(t, tc.className, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			err := idx.loadLocalShardIfActive("t1")
@@ -1831,25 +1710,7 @@ func TestGuardBackgroundLoad(t *testing.T) {
 	// A state that cannot be read refuses the load like a closed namespace does,
 	// and returns nil for the same reason: one unreadable read must not stop the
 	// shards behind it from being tried.
-	refusals := []struct {
-		name    string
-		exister func(*testing.T) namespaces.Exister
-	}{
-		{
-			name:    "a missing lookup",
-			exister: func(*testing.T) namespaces.Exister { return nil },
-		},
-		{
-			name: "a lookup miss",
-			exister: func(t *testing.T) namespaces.Exister {
-				e := namespaces.NewMockExister(t)
-				e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-				return e
-			},
-		},
-	}
-
-	for _, tc := range refusals {
+	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" loads nothing", func(t *testing.T) {
 			idx := indexForGuardTest(t, class, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
@@ -1983,56 +1844,12 @@ func TestGuardReload(t *testing.T) {
 	// Active is the control the refusing states are read against: dropping the
 	// tenants the schema no longer lists, unloading the ones turned COLD, and
 	// adding the class's new property are owed whatever the state. Only which
-	// shards end up open turns on it, so that is the one column per row.
-	states := []struct {
-		name             string
-		className        string
-		state            api.NamespaceState
-		namespaced       bool
-		wantSingleTenant []string
-	}{
-		{
-			name: "an active namespace", className: class,
-			state: api.NamespaceStateActive, namespaced: true,
-			wantSingleTenant: []string{"s1", "s2", "s3"},
-		},
-		{
-			// Not {"s1"}: a resuming namespace's shards do reopen.
-			name: "a resuming namespace", className: class,
-			state: api.NamespaceStateResuming, namespaced: true,
-			wantSingleTenant: []string{"s1", "s2", "s3"},
-		},
-		{
-			name: "a suspended namespace", className: class,
-			state: api.NamespaceStateSuspended, namespaced: true,
-			wantSingleTenant: []string{"s1"},
-		},
-		{
-			name: "a deleting namespace", className: class,
-			state: api.NamespaceStateDeleting, namespaced: true,
-			wantSingleTenant: []string{"s1"},
-		},
-		{
-			name: "an unknown state", className: class,
-			state: api.NamespaceState("gone"), namespaced: true,
-			wantSingleTenant: []string{"s1"},
-		},
-		{
-			// Every class on a cluster running with namespaces off, so this is
-			// the row that says the reload is unchanged there. The rows above
-			// cannot show it: each one goes through the lookup.
-			name: "an unqualified class", className: "Product",
-			wantSingleTenant: []string{"s1", "s2", "s3"},
-		},
-	}
-
-	for _, tc := range states {
-		exister := func(t *testing.T) namespaces.Exister {
-			t.Helper()
-			if !tc.namespaced {
-				return nil
-			}
-			return existerWithState(t, tc.state)
+	// shards end up open turns on it, and that is the shared table's wantLoad.
+	for _, tc := range shardsShouldBeOpenStates() {
+		// Not {"s1"} for a resuming namespace: its shards do reopen.
+		wantSingleTenant := []string{"s1"}
+		if tc.wantLoad {
+			wantSingleTenant = []string{"s1", "s2", "s3"}
 		}
 
 		// open1 is HOT and already resident, the shape a movement's target shard
@@ -2041,7 +1858,7 @@ func TestGuardReload(t *testing.T) {
 		// of each kind, because one leaves "the rest of the loop ran" resting on
 		// the order the map happened to yield.
 		t.Run(tc.name+" finishes the multi-tenant reload", func(t *testing.T) {
-			m, idx := migratorForReload(t, tc.className, exister(t))
+			m, idx := migratorForReload(t, tc.className, tc.exister(t))
 			seedShardMissingProperty(t, idx, "open1")
 
 			for _, name := range []string{"cold1", "cold2"} {
@@ -2067,7 +1884,7 @@ func TestGuardReload(t *testing.T) {
 		// s2 and s3 are listed for this node and not resident, so the reload
 		// creates them. The property step sits behind that creation.
 		t.Run(tc.name+" finishes the single-tenant reload", func(t *testing.T) {
-			m, idx := migratorForReload(t, tc.className, exister(t))
+			m, idx := migratorForReload(t, tc.className, tc.exister(t))
 			seedShardMissingProperty(t, idx, "s1")
 
 			state := reloadState(false, map[string]sharding.Physical{
@@ -2075,30 +1892,25 @@ func TestGuardReload(t *testing.T) {
 			})
 
 			require.NoError(t, m.UpdateIndex(ctx, reloadClass(tc.className), state))
-			assert.Equal(t, tc.wantSingleTenant, registeredShards(t, idx))
+			assert.Equal(t, wantSingleTenant, registeredShards(t, idx))
+		})
+
+		// Which tenants a reload opens is decided by the check boot uses rather
+		// than the request-path one, so the multi-tenant arm walks the same table.
+		t.Run(tc.name+" opens the tenants that stay open", func(t *testing.T) {
+			m, idx := migratorForReload(t, tc.className, tc.exister(t))
+			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
+
+			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
+
+			err := m.UpdateIndex(ctx, reloadClass(tc.className), state)
+			if tc.wantLoad {
+				require.ErrorIs(t, err, errInjectedMemoryPressure)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
-
-	// Which tenants a reload opens is decided by the check boot uses rather than
-	// the request-path one: a resuming namespace's shards have to reopen for the
-	// resume to finish.
-	t.Run("which tenants the reload opens", func(t *testing.T) {
-		for _, tc := range shardsShouldBeOpenStates() {
-			t.Run(tc.name, func(t *testing.T) {
-				m, idx := migratorForReload(t, class, existerWithState(t, tc.state))
-				idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
-
-				state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
-
-				err := m.UpdateIndex(ctx, reloadClass(class), state)
-				if tc.wantLoad {
-					require.ErrorIs(t, err, errInjectedMemoryPressure)
-					return
-				}
-				require.NoError(t, err)
-			})
-		}
-	})
 
 	// A state that cannot be read is not a namespace keeping its shards closed:
 	// the class may hold data on disk, so the reload must fail rather than carry
@@ -2106,7 +1918,9 @@ func TestGuardReload(t *testing.T) {
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" fails the reload", func(t *testing.T) {
 			m, idx := migratorForReload(t, class, tc.exister(t))
-			idx.shards.Store("t1", NewMockShardLike(t))
+			// Seeded with the property step's expectations, which the reload
+			// runs whatever the tenant reconcile answered.
+			seedShardMissingProperty(t, idx, "t1")
 
 			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
 
@@ -2117,6 +1931,10 @@ func TestGuardReload(t *testing.T) {
 
 // A class whose shards no loading path will open must not count toward startup
 // progress: nothing ever loads them, so the gauge would never complete.
+//
+// localShardsToLoad only converts what DesiredOpenLocalShardCount answers, so
+// what it owes on top of that test's table is the conversion of both answers:
+// a count, and an error that must read as zero rather than propagate.
 func TestLocalShardsToLoad(t *testing.T) {
 	const class = "alpha:Product"
 
@@ -2124,35 +1942,19 @@ func TestLocalShardsToLoad(t *testing.T) {
 		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
 	}
 
-	tests := []struct {
-		name       string
-		className  string
-		state      api.NamespaceState
-		namespaced bool
-		want       int64
-	}{
-		{name: "an active class counts its HOT shards", className: class, state: api.NamespaceStateActive, namespaced: true, want: 2},
-		{name: "a suspended class counts none", className: class, state: api.NamespaceStateSuspended, namespaced: true},
-		{name: "a deleting class counts none", className: class, state: api.NamespaceStateDeleting, namespaced: true},
-		{
-			// Not 0: a resuming namespace's shards do reopen, so they still count.
-			name: "a resuming class counts its HOT shards", className: class,
-			state: api.NamespaceStateResuming, namespaced: true, want: 2,
-		},
-		{name: "an unqualified class counts its HOT shards", className: "Product", want: 2},
-	}
+	t.Run("an active class counts its HOT shards", func(t *testing.T) {
+		db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateActive), mixed)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var e namespaces.Exister
-			if tc.namespaced {
-				e = existerWithState(t, tc.state)
-			}
-			db := dbForDesiredOpen(t, tc.className, e, mixed)
+		assert.Equal(t, int64(2), db.localShardsToLoad(class))
+	})
 
-			assert.Equal(t, tc.want, db.localShardsToLoad(tc.className))
-		})
-	}
+	// The namespace filter has to reach through the wrapper, or a suspended
+	// class would be counted and never loaded.
+	t.Run("a suspended class counts none", func(t *testing.T) {
+		db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateSuspended), mixed)
+
+		assert.Zero(t, db.localShardsToLoad(class))
+	})
 
 	t.Run("a lookup miss counts none and logs", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
@@ -2195,31 +1997,20 @@ func TestReopenShard(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		state   api.NamespaceState
-		wantErr error
-	}{
-		{name: "resuming is reopened", state: api.NamespaceStateResuming},
-		{name: "active is reopened", state: api.NamespaceStateActive},
-		{name: "suspended is refused", state: api.NamespaceStateSuspended, wantErr: errShardNamespaceClosed},
-		{name: "deleting is refused", state: api.NamespaceStateDeleting, wantErr: errShardNamespaceClosed},
-	}
-
-	for _, tc := range tests {
+	for _, tc := range shardsShouldBeOpenStates() {
 		t.Run(tc.name, func(t *testing.T) {
-			db, idx := dbForReopen(t, class, existerWithState(t, tc.state))
+			db, idx := dbForReopen(t, tc.className, tc.exister(t))
 			idx.shards.Store("t1", NewMockShardLike(t))
 
-			err := db.ReopenShard(ctx, class, "t1")
-			if tc.wantErr != nil {
-				// errShardNamespaceClosed rather than ErrNamespaceSuspended is what
-				// says this went in as a resume and not as a request.
-				require.ErrorIs(t, err, tc.wantErr)
-				require.NotErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+			err := db.ReopenShard(ctx, tc.className, "t1")
+			if tc.wantLoad {
+				require.NoError(t, err)
 				return
 			}
-			require.NoError(t, err)
+			// errShardNamespaceClosed rather than ErrNamespaceSuspended is what
+			// says this went in as a resume and not as a request.
+			require.ErrorIs(t, err, errShardNamespaceClosed)
+			require.NotErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 		})
 	}
 
