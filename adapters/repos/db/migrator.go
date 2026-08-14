@@ -109,7 +109,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
+	asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
 		return fmt.Errorf("async replication config: %w", err)
 	}
@@ -378,25 +378,24 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		}
 	}
 
+	// the property add runs even when the shard reconcile fails: it is the only
+	// thing that gives an already loaded shard the class's new properties, and a
+	// shard that failed to load or unload does not stop the others from needing them
+	ec := errorcompounder.New()
+
 	{ // add/remove missing shards
 		if incomingSS.PartitioningEnabled {
-			if err := m.updateIndexTenants(ctx, idx, incomingSS); err != nil {
-				return err
-			}
+			ec.Add(m.updateIndexTenants(ctx, idx, incomingSS))
 		} else {
-			if err := m.updateIndexShards(ctx, idx, incomingSS); err != nil {
-				return err
-			}
+			ec.Add(m.updateIndexShards(ctx, idx, incomingSS))
 		}
 	}
 
 	{ // add missing properties
-		if err := m.updateIndexAddMissingProperties(ctx, idx, incomingClass); err != nil {
-			return err
-		}
+		ec.Add(m.updateIndexAddMissingProperties(ctx, idx, incomingClass))
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
@@ -484,26 +483,27 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
 	}
 
+	// every shard is attempted and every failure reported: a swallowed unload
+	// reports a partial reconcile as a success, and stopping at the first failed
+	// load leaves every shard behind it unreconciled
+	ec := errorcompounder.New()
+
 	// Initialize missing shards and shutdown unneeded ones
 	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				// TODO: an error should be returned but keeping the old behavior for now
-				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
-				continue
-			}
+			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
+				"shutdown shard %s during update index", shardName)
 		}
 	}
 
 	for _, shardName := range requestedShards {
 		if _, exists := existingShards[shardName]; !exists {
-			if err := idx.initLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.initLocalShard(ctx, shardName),
+				"add missing shard %s during update index", shardName)
 		}
 	}
 
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Index,
@@ -517,8 +517,7 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		errMissingProp := errors.New("missing prop")
 		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
 		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
-			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if !shardHasProperty(shard, prop) {
 				return errMissingProp
 			}
 			return nil
@@ -530,6 +529,16 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		}
 	}
 	return nil
+}
+
+// shardHasProperty reports whether prop's value index exists on this shard. Geo
+// props get a property-specific index and no filterable bucket, so probing that
+// bucket would report them missing forever.
+func shardHasProperty(shard ShardLike, prop *models.Property) bool {
+	if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+		return shard.hasGeoIndexForProp(prop.Name)
+	}
+	return shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)) != nil
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {

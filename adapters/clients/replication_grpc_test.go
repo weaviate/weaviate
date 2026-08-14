@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -66,6 +67,10 @@ type fakeGRPCReplicationServer struct {
 
 	// commitPayload is the JSON payload returned by Commit on success.
 	commitPayload []byte
+
+	// hashTreeLevelErr/compareDigestsErr, when set, are returned verbatim.
+	hashTreeLevelErr  error
+	compareDigestsErr error
 }
 
 func newFakeGRPCReplicationServer(t *testing.T) *fakeGRPCReplicationServer {
@@ -100,6 +105,20 @@ func (f *fakeGRPCReplicationServer) dispatchWrite(requestID, index, shard string
 	default:
 		return &pb.SimpleReplicaResponse{}, nil
 	}
+}
+
+func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, _ *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {
+	if f.hashTreeLevelErr != nil {
+		return nil, f.hashTreeLevelErr
+	}
+	return &pb.HashTreeLevelResponse{DigestsData: []byte("[]")}, nil
+}
+
+func (f *fakeGRPCReplicationServer) CompareDigests(_ context.Context, _ *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
+	if f.compareDigestsErr != nil {
+		return nil, f.compareDigestsErr
+	}
+	return &pb.CompareDigestsResponse{}, nil
 }
 
 func (f *fakeGRPCReplicationServer) PutObject(_ context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
@@ -798,6 +817,57 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 	})
 }
 
+func TestGRPCReplicationHashTreeLevelNotReady(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
+	discriminant.Set(0)
+
+	t.Run("FailedPreconditionMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.FailedPrecondition, "async replication is not active on this shard")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"FailedPrecondition on HashTreeLevel means replica not ready and must map to the typed sentinel")
+	})
+
+	t.Run("CompareDigestsFailedPreconditionMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.compareDigestsErr = status.Error(codes.FailedPrecondition, "shard not loaded on this node")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.CompareDigests(ctx, "passthrough:bufnet", "C1", "S1",
+			[]types.RepairResponse{{ID: UUID1.String(), UpdateTime: 1}})
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+	})
+
+	t.Run("UnavailableMapsToSentinel", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.Unavailable, "node not ready")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+	})
+
+	t.Run("InternalStaysHardFailure", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.hashTreeLevelErr = status.Error(codes.Internal, "boom")
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.HashTreeLevel(ctx, "passthrough:bufnet", "C1", "S1", 3, discriminant)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+	})
+}
+
 func TestGRPCReplicationOverwriteObjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -936,4 +1006,33 @@ type permanentErrorServer struct {
 
 func (p *permanentErrorServer) PutObject(context.Context, *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "bad request")
+}
+
+func TestAsyncNotReadyGRPCErrorMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		sentinel bool
+		reasonIs error
+	}{
+		{name: "failed precondition", err: status.Error(codes.FailedPrecondition, "async replication is not active"), sentinel: true},
+		{name: "failed precondition maintenance", err: status.Error(codes.FailedPrecondition, "server is in maintenance mode"), sentinel: true, reasonIs: replica.ErrReplicaMaintenance},
+		{name: "unavailable node boot gate", err: status.Error(codes.Unavailable, replica.NodeNotReadyMsg), sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "unavailable local index gate", err: status.Error(codes.Unavailable, replica.LocalIndexNotReadyMsg+": shard x"), sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "unavailable dead peer", err: status.Error(codes.Unavailable, `connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:1: connect: connection refused"`), sentinel: false},
+		{name: "internal", err: status.Error(codes.Internal, "boom"), sentinel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := asyncNotReadyGRPCError(tt.err)
+			if !tt.sentinel {
+				require.Nil(t, got)
+				return
+			}
+			require.ErrorIs(t, got, replica.ErrAsyncReplicationNotActive)
+			if tt.reasonIs != nil {
+				require.ErrorIs(t, got, tt.reasonIs)
+			}
+		})
+	}
 }

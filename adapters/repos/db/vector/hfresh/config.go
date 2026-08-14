@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"io"
 	"math"
 
 	"github.com/pkg/errors"
@@ -69,11 +68,7 @@ const (
 )
 
 func (c *Config) Validate() error {
-	if c.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		c.Logger = logger
-	}
+	c.Logger = common.LoggerOrDiscard(c.Logger)
 
 	if c.InternalPostingCandidates <= 0 {
 		c.InternalPostingCandidates = DefaultInternalPostingCandidates
