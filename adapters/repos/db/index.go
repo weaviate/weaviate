@@ -3146,21 +3146,21 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
 }
 
-// LoadLocalShardForReplication loads a shard on behalf of a replica movement.
+// LoadLocalShardForMovement loads a shard on behalf of a replica movement.
 // Suspending or resuming the namespace mid-movement must not fail that load, so
 // it is exempt from the request-path namespace check. The exemption covers this
 // node's target shard, not the movement: a movement still reading its source is
 // refused at IncomingStartChangeCapture and waits for the namespace, while one
 // past that drains its source through getLoadedShard and finishes.
-func (i *Index) LoadLocalShardForReplication(ctx context.Context, shardName string) error {
+func (i *Index) LoadLocalShardForMovement(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
 }
 
-// LoadLocalShardForReplicaAdd loads a shard for the apply that records this node
+// LoadLocalShardForNewReplica loads a shard for the apply that records this node
 // as a replica of it, with no replica movement to keep going. Only a namespace
 // being deleted skips it, and that skip returns nil: the apply lands once and is
 // never re-sent, so erroring reports a failure nothing acts on.
-func (i *Index) LoadLocalShardForReplicaAdd(ctx context.Context, shardName string) error {
+func (i *Index) LoadLocalShardForNewReplica(ctx context.Context, shardName string) error {
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerReplicaAdd, "replica added")
 }
 
@@ -3329,7 +3329,7 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 }
 
 // getOrInitShardForReplication exempts a replica movement's write to its target
-// shard from the request-path namespace check, as LoadLocalShardForReplication
+// shard from the request-path namespace check, as LoadLocalShardForMovement
 // does for the load.
 func (i *Index) getOrInitShardForReplication(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,

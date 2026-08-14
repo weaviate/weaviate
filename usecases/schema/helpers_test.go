@@ -320,12 +320,12 @@ func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, pro
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) LoadShardForReplication(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) LoadShardForMovement(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) LoadShardForReplicaAdd(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) LoadShardForNewReplica(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }

@@ -41,8 +41,8 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string, hasFrozen bool) error
 	// UpdateClass(ctx context.Context, className string,newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
-	LoadShardForReplication(ctx context.Context, class, shard string) error
-	LoadShardForReplicaAdd(ctx context.Context, class, shard string) error
+	LoadShardForMovement(ctx context.Context, class, shard string) error
+	LoadShardForNewReplica(ctx context.Context, class, shard string) error
 	DropShard(ctx context.Context, class, shard string) error
 	ShutdownShard(ctx context.Context, class, shard string) error
 	ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error

@@ -112,7 +112,7 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 	if err := e.requireShardReplica(class, shard, targetNode); err != nil {
 		return err
 	}
-	return e.migrator.LoadShardForReplicaAdd(context.Background(), class, shard)
+	return e.migrator.LoadShardForNewReplica(context.Background(), class, shard)
 }
 
 // AddReplicaToShardForMovement loads the target shard of a replica movement.
@@ -120,7 +120,7 @@ func (e *executor) AddReplicaToShardForMovement(class string, shard string, targ
 	if err := e.requireShardReplica(class, shard, targetNode); err != nil {
 		return err
 	}
-	return e.migrator.LoadShardForReplication(context.Background(), class, shard)
+	return e.migrator.LoadShardForMovement(context.Background(), class, shard)
 }
 
 // requireShardReplica fails unless the schema already lists targetNode among the
@@ -152,7 +152,7 @@ func (e *executor) ReconcileAsyncReplicationForShard(class string, shard string)
 
 func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
-	if err := e.migrator.LoadShardForReplicaAdd(ctx, class, shard); err != nil {
+	if err := e.migrator.LoadShardForNewReplica(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "load_shard",
 			"class":  class,

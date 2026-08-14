@@ -683,7 +683,7 @@ func TestGuardLoadPath(t *testing.T) {
 //
 // Each row drives the entry point itself rather than the guard adapter, so
 // routing any of them back through the request path turns it red.
-func TestReplicationExempt(t *testing.T) {
+func TestMovementExempt(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
@@ -721,7 +721,7 @@ func TestReplicationExempt(t *testing.T) {
 			_, idx := dbForReopen(t, class, existerWithState(t, tc.state))
 			seedShard(t, idx, tc.wantErr == nil, false)
 
-			err := idx.LoadLocalShardForReplication(ctx, "t1")
+			err := idx.LoadLocalShardForMovement(ctx, "t1")
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -745,7 +745,7 @@ func TestReplicationExempt(t *testing.T) {
 			db, idx := dbForReopen(t, class, existerWithState(t, tc.state))
 			seedShard(t, idx, tc.wantErr == nil, false)
 
-			err := NewMigrator(db, idx.logger, "node1").LoadShardForReplication(ctx, class, "t1")
+			err := NewMigrator(db, idx.logger, "node1").LoadShardForMovement(ctx, class, "t1")
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -759,7 +759,7 @@ func TestReplicationExempt(t *testing.T) {
 			_, idx := dbForReopen(t, class, tc.exister(t))
 			seedShard(t, idx, false, false)
 
-			require.ErrorIs(t, idx.LoadLocalShardForReplication(ctx, "t1"), tc.wantErr)
+			require.ErrorIs(t, idx.LoadLocalShardForMovement(ctx, "t1"), tc.wantErr)
 		})
 
 		t.Run(tc.name+" is refused at the change-log replay", func(t *testing.T) {
@@ -773,7 +773,7 @@ func TestReplicationExempt(t *testing.T) {
 			db, idx := dbForReopen(t, class, tc.exister(t))
 			seedShard(t, idx, false, false)
 
-			err := NewMigrator(db, idx.logger, "node1").LoadShardForReplication(ctx, class, "t1")
+			err := NewMigrator(db, idx.logger, "node1").LoadShardForMovement(ctx, class, "t1")
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -939,7 +939,7 @@ func TestReplicaAddWithoutMovement(t *testing.T) {
 		func(t *testing.T, dbClass, callClass string, e namespaces.Exister) (*logrustest.Hook, error) {
 			t.Helper()
 			db, idx, hook := dbForSkipTest(t, dbClass, e)
-			return hook, NewMigrator(db, idx.logger, "node1").LoadShardForReplicaAdd(ctx, callClass, "t1")
+			return hook, NewMigrator(db, idx.logger, "node1").LoadShardForNewReplica(ctx, callClass, "t1")
 		})
 
 	// The two admissions agree everywhere but here, so deleting is the only state
@@ -948,8 +948,8 @@ func TestReplicaAddWithoutMovement(t *testing.T) {
 		db, idx, _ := dbForSkipTest(t, class, existerWithState(t, api.NamespaceStateDeleting))
 		migrator := NewMigrator(db, idx.logger, "node1")
 
-		require.NoError(t, migrator.LoadShardForReplicaAdd(ctx, class, "t1"))
-		require.ErrorIs(t, migrator.LoadShardForReplication(ctx, class, "t1"), namespaces.ErrNamespaceDeleting)
+		require.NoError(t, migrator.LoadShardForNewReplica(ctx, class, "t1"))
+		require.ErrorIs(t, migrator.LoadShardForMovement(ctx, class, "t1"), namespaces.ErrNamespaceDeleting)
 	})
 }
 

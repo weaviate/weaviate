@@ -134,12 +134,12 @@ func TestExecutor(t *testing.T) {
 		{
 			name:       "a plain replica add",
 			call:       func(x *executor) error { return x.AddReplicaToShard("A", "S", "N") },
-			wantLoader: "LoadShardForReplicaAdd",
+			wantLoader: "LoadShardForNewReplica",
 		},
 		{
 			name:       "a replica movement",
 			call:       func(x *executor) error { return x.AddReplicaToShardForMovement("A", "S", "N") },
-			wantLoader: "LoadShardForReplication",
+			wantLoader: "LoadShardForMovement",
 		},
 	}
 
