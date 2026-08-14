@@ -207,7 +207,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			StartupShards:                       &m.db.startupShards,
 			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
+			NamespacesExister:                   m.db.namespacesExister,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
@@ -400,16 +402,23 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
-		return err
-	}
-	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
+	// the delete runs even when the status update fails: the status update only
+	// touches tenants incomingSS lists and the delete only tenants it omits, and
+	// skipping the delete leaves a tenant dropped from the schema on disk
+	ec := errorcompounder.New()
+	ec.Add(m.updateIndexTenantsStatus(ctx, idx, incomingSS))
+	ec.Add(m.updateIndexDeleteTenants(ctx, idx, incomingSS))
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	nodeName := m.db.schemaGetter.NodeName()
+
+	// one tenant's failure must not skip the rest: Physical iterates in map
+	// order, so which tenants were reconciled would otherwise vary per run
+	ec := errorcompounder.New()
 	for shardName, phys := range incomingSS.Physical {
 		if !phys.IsLocalShard(nodeName) {
 			continue
@@ -417,17 +426,15 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
-				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false),
+				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
+				"shutdown tenant shard %s during update index", shardName)
 		}
 	}
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
@@ -642,7 +649,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
-	freezing := make([]string, 0, len(updates))
+	// freeze needs each tenant's pre-freeze status, so it keeps the whole payload
+	freezing := make([]*schemaUC.UpdateTenantPayload, 0, len(updates))
 	frozen := make([]string, 0, len(updates))
 	unfreezing := make([]string, 0, len(updates))
 
@@ -656,7 +664,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			frozen = append(frozen, tenant.Name)
 
 		case types.TenantActivityStatusFREEZING: // never arrives from user
-			freezing = append(freezing, tenant.Name)
+			freezing = append(freezing, tenant)
 		case types.TenantActivityStatusUNFREEZING: // never arrives from user
 			unfreezing = append(unfreezing, tenant.Name)
 		}
@@ -736,7 +744,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	if len(freezing) > 0 {
-		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
+		m.logger.WithField("action", "tenants_to_freezing").Debug(tenantNames(freezing))
 		m.freeze(ctx, idx, class.Class, freezing, ec)
 	}
 
@@ -746,6 +754,14 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	return ec.ToError()
+}
+
+func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
+	names := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		names[i] = tenant.Name
+	}
+	return names
 }
 
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant

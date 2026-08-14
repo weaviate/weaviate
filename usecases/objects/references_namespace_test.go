@@ -114,11 +114,23 @@ func multiTargetNSSchema(qualify bool) []*models.Class {
 	}
 }
 
+// withAutoSchema turns auto-schema on and lets AddClassProperty fail with err,
+// so a write carrying an unknown property can be steered. A nil err accepts
+// the extension.
+func withAutoSchema(err error) func(*config.WeaviateConfig, *fakeSchemaManager) {
+	return func(cfg *config.WeaviateConfig, sm *fakeSchemaManager) {
+		cfg.Config.AutoSchema.Enabled = runtime.NewDynamicValue(true)
+		sm.AddClassPropertyErr = err
+	}
+}
+
 // newNSManagers returns a Manager + BatchManager wired against the same
 // in-memory fakes, with namespaces toggled by nsEnabled. Both managers share
 // the schema, repo and authorizer so a test can exercise single-ref and
 // batch-ref paths through the same world.
-func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool) (*Manager, *BatchManager, *fakeVectorRepo, *fakeModulesProvider, *mocks.FakeAuthorizer) {
+func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
+	opts ...func(*config.WeaviateConfig, *fakeSchemaManager),
+) (*Manager, *BatchManager, *fakeVectorRepo, *fakeModulesProvider, *mocks.FakeAuthorizer) {
 	t.Helper()
 	sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
 	vectorRepo := &fakeVectorRepo{}
@@ -129,6 +141,9 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool) (*Mana
 		},
 	}
 	schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+	for _, opt := range opts {
+		opt(cfg, schemaManager)
+	}
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()

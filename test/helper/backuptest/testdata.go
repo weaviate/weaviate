@@ -22,6 +22,36 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+// geoPropName is the geo property every generated class carries.
+const geoPropName = "location"
+
+// Generated objects sit at one of two points a continent apart, so a range
+// query around geoInRange selects exactly the objects placed there. Both
+// coordinates are exact in float32, so they come back unchanged from the JSON
+// round trip that the data-integrity check compares.
+var (
+	geoInRange = &models.GeoCoordinates{Latitude: geoDegrees(52.5), Longitude: geoDegrees(13.5)}
+	geoFarOff  = &models.GeoCoordinates{Latitude: geoDegrees(37.75), Longitude: geoDegrees(-122.5)}
+)
+
+// geoRangeDistance in metres, wide enough to reach every object at geoInRange.
+const geoRangeDistance = 100000
+
+func geoDegrees(d float32) *float32 { return &d }
+
+// inGeoRange reports whether a range query around geoInRange has to return obj.
+func inGeoRange(obj *models.Object) bool {
+	props, ok := obj.Properties.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	coordinates, ok := props[geoPropName].(*models.GeoCoordinates)
+	return ok &&
+		*coordinates.Latitude == *geoInRange.Latitude &&
+		*coordinates.Longitude == *geoInRange.Longitude
+}
+
 // TestDataConfig contains configuration for generating test data.
 type TestDataConfig struct {
 	// ClassName is the name of the class to create.
@@ -61,6 +91,9 @@ func DefaultTestDataConfig() *TestDataConfig {
 type TestDataGenerator struct {
 	config *TestDataConfig
 	rng    *rand.Rand
+	// generated counts the objects handed out so far, so their locations can
+	// alternate rather than being drawn at random.
+	generated int
 }
 
 // NewTestDataGenerator creates a new TestDataGenerator with the given config.
@@ -110,6 +143,10 @@ func (g *TestDataGenerator) GenerateClass() *models.Class {
 			{
 				Name:     "tags",
 				DataType: schema.DataTypeTextArray.PropString(),
+			},
+			{
+				Name:     geoPropName,
+				DataType: schema.DataTypeGeoCoordinates.PropString(),
 			},
 		},
 	}
@@ -167,16 +204,26 @@ func (g *TestDataGenerator) GenerateTenantModels() []*models.Tenant {
 
 // GenerateObject creates a single test object with random data.
 func (g *TestDataGenerator) GenerateObject(tenantName string) *models.Object {
+	// alternating rather than picking at random means any batch of two or more
+	// objects has some inside the range and some outside, so a range query can
+	// never match all of them or none of them by chance
+	location := geoInRange
+	if g.generated%2 == 1 {
+		location = geoFarOff
+	}
+	g.generated++
+
 	obj := &models.Object{
 		Class: g.config.ClassName,
 		ID:    strfmt.UUID(uuid.New().String()),
 		Properties: map[string]interface{}{
-			"title":   g.randomTitle(),
-			"content": g.randomContent(),
-			"count":   g.rng.Intn(1000),
-			"score":   g.rng.Float64() * 100,
-			"active":  g.rng.Intn(2) == 1,
-			"tags":    g.randomTags(),
+			"title":     g.randomTitle(),
+			"content":   g.randomContent(),
+			"count":     g.rng.Intn(1000),
+			"score":     g.rng.Float64() * 100,
+			"active":    g.rng.Intn(2) == 1,
+			"tags":      g.randomTags(),
+			geoPropName: location,
 		},
 	}
 

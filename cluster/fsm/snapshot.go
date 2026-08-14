@@ -40,9 +40,3 @@ type Snapshot struct {
 	// ClusterID is the stable UUID committed once per cluster lifetime.
 	ClusterID string `json:"cluster_id,omitempty"`
 }
-
-// Snapshotter is used to snapshot and restore any (FSM) state
-type Snapshotter interface {
-	Snapshot() ([]byte, error)
-	Restore([]byte) error
-}

@@ -56,7 +56,25 @@ together into a small REST surface rooted at
 
 ## 2. REST surface
 
-### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
+> **Runtime reindex is off by default.** Set
+> `RUNTIME_REINDEX_ENABLED=true` to enable it. While it is off, submitting
+> a migration returns `400 Bad Request` with
+> `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
+> The cancel verb and `GET .../indexes` keep working, so a task that was
+> already running stays observable and stoppable. Everything below
+> describes behavior with the flag on.
+>
+> **With the flag off, a replica move can kill a running migration.** The
+> backup path's reindex check is skipped, so a replica move — or any other
+> operation that closes the shard — is admitted even while a migration is
+> still writing to that shard. Closing the shard takes the storage away from
+> the migration, and the migration fails loudly: the task ends in `FAILED`,
+> the schema stays at its pre-migration value, and the copy itself completes
+> normally. Nothing is corrupted, but the migration is lost and has to be
+> resubmitted once the flag is back on. With the flag on, the move is refused
+> and the replication engine retries it until the migration finishes.
+
+### `PUT /v1/schema/{class}/indexes/{property}`
 
 Declaratively upsert one inverted index. `{indexType}` is one of
 `filterable`, `searchable`, `rangeFilters` (`rangeable`, the former Preview

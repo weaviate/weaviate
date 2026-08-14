@@ -1521,6 +1521,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		// network descent, but still honor a pending height-change rebuild.
 		needsRebuild = s.asyncRepNeedsRebuild.CompareAndSwap(true, false)
 		sched.metrics.incRootPrefilterSkips()
+		s.recordRootPrefilterNoDiff(ctx)
 		return
 	}
 

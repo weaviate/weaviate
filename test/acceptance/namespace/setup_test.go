@@ -93,6 +93,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithApiKey().
 		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).

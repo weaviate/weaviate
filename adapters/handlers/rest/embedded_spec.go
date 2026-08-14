@@ -7563,12 +7563,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -7640,6 +7642,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -19289,12 +19298,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -19366,6 +19377,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
