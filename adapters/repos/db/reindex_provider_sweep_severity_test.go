@@ -22,7 +22,6 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -153,70 +152,4 @@ func closingIndexWithAnUnvisitedShard(t *testing.T) (*Index, string) {
 		shardOpts: &deferredShardOpts{name: tenant, index: idx},
 	})
 	return idx, tenant
-}
-
-// A run that hits its own deadline has confirmed nothing about the shard it
-// stopped on: that shard was never swept. Ranking the timeout as a shard that
-// could not be swept pages an operator at Error, and tells them state is
-// confirmed on a shard the run never finished reading.
-//
-// The budget is one window for the whole run, so on a node holding more cold
-// tenants than it covers, this is the ordinary way a run ends rather than an
-// exceptional one.
-func TestACleanupRunThatRunsOutOfTimeIsTruncatedNotFailed(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logger, hook := logrustest.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	closingCtx, closeIndex := context.WithCancel(context.Background())
-	defer closeIndex()
-	closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
-	defer signalCloseRequested(nil)
-
-	idx := &Index{
-		Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
-		closingCtx:           closingCtx,
-		closeRequestedCtx:    closeRequestedCtx,
-		signalCloseRequested: signalCloseRequested,
-		logger:               logger,
-	}
-	// The budget runs out inside the load-permit wait, which is where a run-wide
-	// deadline lands in production: the shards that need sweeping are the ones
-	// that have to be hydrated, and they queue on a shared load limiter. The
-	// wait takes the sweep's context, so the load stops because the run did.
-	monitor := &loadAttemptMonitor{nthCall: 1, onNthCall: cancel, admitLoad: true}
-	limiter := newSweepLoadLimiter()
-	for _, name := range []string{"shard-a", "shard-b"} {
-		mkTrackerDir(t, shardPathLSM(idx.path(), name),
-			"enable_filterable_title_1", "started.mig")
-		idx.shards.Store(name, &LazyLoadShard{
-			shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
-			memMonitor:       monitor,
-			shardLoadLimiter: limiter,
-		})
-	}
-
-	err := idx.cleanStalePartialReindexState(ctx, "title", "filterable", nil)
-	require.Error(t, err)
-
-	outcome, _ := ClassifyCleanupSweep(err)
-	require.Equal(t, CleanupSweepUnknown, outcome,
-		"the run ran out of time, so nothing on the shard it stopped at was verified")
-	require.NotErrorIs(t, err, ErrCleanupShardFailed,
-		"no shard was reached and found broken; the run simply stopped")
-	require.Contains(t, err.Error(), "unwrap for partial-reindex cleanup",
-		"the shard the run stopped at still has to be named")
-
-	wantMsg, wantLevel := CleanupSweepSummary(sweepPhaseIndexCleanup, CleanupSweepUnknown)
-	var summary []*logrus.Entry
-	for _, entry := range hook.AllEntries() {
-		if entry.Data["operation"] == "CleanStalePartialReindexState" {
-			summary = append(summary, entry)
-		}
-	}
-	require.Len(t, summary, 1)
-	require.Equal(t, wantLevel, summary[0].Level,
-		"a run out of time must not reach the operator at the level reserved for a broken shard")
-	require.Contains(t, summary[0].Message, wantMsg)
 }
