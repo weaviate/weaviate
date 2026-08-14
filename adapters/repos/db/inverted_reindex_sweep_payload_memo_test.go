@@ -133,10 +133,13 @@ func disabledFilterableProp() *models.Property {
 	}
 }
 
-// TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes pins that one property
+// TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads pins that one property
 // DELETE parses each tracker payload once per shard, not once per disabled
-// index type. The parse costs megabytes per tracker, inside the RAFT apply.
-func TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes(t *testing.T) {
+// index type, and that what it read reaches the operator once per class, summed
+// over shards. The parse costs megabytes per tracker, inside the RAFT apply.
+//
+// Two shards, so no single shard's count can pass for the aggregate.
+func TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads(t *testing.T) {
 	ctx := testCtx()
 	className := "DeleteSweepMemo_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"cat", "dog"})
@@ -145,20 +148,34 @@ func TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes(t *testing.T) {
 		enthnsw.UserConfig{Skip: true}, false, false, false,
 		func(i *Index) { i.logger = hookLogger })
 	defer shd.Shutdown(ctx)
-	writeSweepMemoFixturesAt(t, shd.(*Shard).pathLSM())
 
+	second, err := idx.initShard(ctx, "shard2", class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store("shard2", second)
+	defer second.Shutdown(ctx)
+
+	var shards int64
+	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
+		shards++
+		writeSweepMemoFixturesAt(t, s.(*Shard).pathLSM())
+		return nil
+	}))
+	require.EqualValues(t, 2, shards)
+
+	// Text has no rangeable index, so disabling filterable also sweeps rangeable.
 	prop := disabledFilterableProp()
 	indexTypes := disabledIndexTypes(prop)
 	require.Equal(t, []string{"filterable", "rangeable"}, indexTypes)
 
-	// One memo per index type is what the DELETE cost before they shared one.
+	// One memo per index type is what one shard's DELETE cost before they
+	// shared one, against the one memo it sweeps with now.
 	logger, _ := test.NewNullLogger()
 	unsharedLSM := writeSweepMemoFixtures(t)
 	unshared := 0
 	for _, indexType := range indexTypes {
-		props := &taskPropsCache{}
-		cleanStaleMigrationDirsAt(unsharedLSM, prop.Name, indexType, logger, props)
-		unshared += props.count()
+		perIndexType := &taskPropsCache{}
+		cleanStaleMigrationDirsAt(unsharedLSM, prop.Name, indexType, logger, perIndexType)
+		unshared += perIndexType.count()
 	}
 
 	sharedLSM := writeSweepMemoFixtures(t)
@@ -175,66 +192,20 @@ func TestDeleteSweepSharesOnePayloadMemoAcrossIndexTypes(t *testing.T) {
 	require.NoError(t, idx.updateProperty(ctx, prop))
 
 	lines := sweepCompletionLines(hook)
-	require.Len(t, lines, 1)
-	require.EqualValues(t, shared.count(), lines[0].Data["payload_reads"],
-		"the DELETE reads each tracker payload once, whatever index types it disables")
-	require.Equal(t, survivingTrackerDirs(t, unsharedLSM),
-		survivingTrackerDirs(t, shd.(*Shard).pathLSM()),
-		"the memo is memoization only: sharing it across index types must not move a dir")
-}
-
-// TestDeleteSweepReportsItsPayloadReads pins that the DELETE path's read count
-// reaches the operator once per class, summed over shards, not once per shard.
-func TestDeleteSweepReportsItsPayloadReads(t *testing.T) {
-	ctx := testCtx()
-	className := "DeleteSweepReads_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"cat", "dog"})
-	hookLogger, hook := test.NewNullLogger()
-	shd, idx := testShardWithSettings(t, ctx, class,
-		enthnsw.UserConfig{Skip: true}, false, false, false,
-		func(i *Index) { i.logger = hookLogger })
-	defer shd.Shutdown(ctx)
-
-	// A second shard, so no single shard's count can pass for the aggregate.
-	second, err := idx.initShard(ctx, "shard2", class, nil, true, true)
-	require.NoError(t, err)
-	idx.shards.Store("shard2", second)
-	defer second.Shutdown(ctx)
-
-	var shards int64
-	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
-		shards++
-		for _, f := range sweepMemoFixtures {
-			mkTrackerDir(t, s.(*Shard).pathLSM(), f.dir, f.sentinels...)
-			mkRecoveryPayload(t, s.(*Shard).pathLSM(), f.dir, f.props...)
-		}
-		return nil
-	}))
-	require.EqualValues(t, 2, shards)
-
-	// Text has no rangeable index, so disabling filterable also sweeps rangeable.
-	disableFilterable := disabledFilterableProp()
-	require.Equal(t, []string{"filterable", "rangeable"}, disabledIndexTypes(disableFilterable))
-
-	// One memo for both index types, the same way one shard's DELETE sweeps.
-	logger, _ := test.NewNullLogger()
-	refLSM := writeSweepMemoFixtures(t)
-	props := &taskPropsCache{}
-	for _, indexType := range disabledIndexTypes(disableFilterable) {
-		cleanStaleMigrationDirsAt(refLSM, "cat", indexType, logger, props)
-	}
-	perShard := int64(props.count())
-	require.Positive(t, perShard, "fixtures must cost the sweep something to report")
-
-	hook.Reset()
-	require.NoError(t, idx.updateProperty(ctx, disableFilterable))
-
-	lines := sweepCompletionLines(hook)
 	require.Len(t, lines, 1, "one completion line per sweep, whatever the shard count")
-	require.Equal(t, shards*perShard, lines[0].Data["payload_reads"],
-		"the reported count sums every shard and every swept index type")
+	require.Equal(t, shards*int64(shared.count()), lines[0].Data["payload_reads"],
+		"the reported count sums every shard, and each shard reads a tracker payload "+
+			"once whatever index types the DELETE disables")
 	require.Equal(t, "cat", lines[0].Data["property"])
 	require.Equal(t, []string{"filterable", "rangeable"}, lines[0].Data["index_types"])
+
+	require.NoError(t, idx.ForEachShard(func(name string, s ShardLike) error {
+		require.Equal(t, survivingTrackerDirs(t, unsharedLSM),
+			survivingTrackerDirs(t, s.(*Shard).pathLSM()),
+			"the memo is memoization only: sharing it across index types must not "+
+				"move a dir on shard %q", name)
+		return nil
+	}))
 }
 
 // sweepCompletionLine is the one line per operator action the DELETE sweep
