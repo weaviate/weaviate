@@ -422,15 +422,14 @@ type unloadedVectorState struct {
 }
 
 // unloadedVectorState reads the state of one target vector of an unloaded shard.
-func (i *Index) unloadedVectorState(shardName, lsmPath, targetVector string,
-	vectorConfig models.VectorConfig,
-) (unloadedVectorState, error) {
-	quantized, err := shardusage.QuantizedVectorsExist(lsmPath, targetVector)
-	if err != nil {
-		return unloadedVectorState{}, fmt.Errorf("quantized vectors of %q: %w", targetVector, err)
+// Whether quantized vectors exist is taken from the vector metrics rather than read
+// again, as the walk that produced them already sized the compressed bucket.
+func (i *Index) unloadedVectorState(shardName, targetVector string,
+	vectorConfig models.VectorConfig, vectorMetrics shardusage.VectorsMetrics,
+) unloadedVectorState {
+	state := unloadedVectorState{
+		quantizedVectorsExist: vectorMetrics.QuantizedVectorsExist(targetVector),
 	}
-
-	state := unloadedVectorState{quantizedVectorsExist: quantized}
 	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
 		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
 			vectorIndexID(targetVector), targetVector)
@@ -443,7 +442,7 @@ func (i *Index) unloadedVectorState(shardName, lsmPath, targetVector string,
 		}
 		state.dynamicUpgraded = upgraded
 	}
-	return state, nil
+	return state
 }
 
 // unloadedVectorUsage builds the usage entry of one target vector of an unloaded
@@ -509,7 +508,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
+	vectorMetrics, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -541,10 +540,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		dimensionality := dimensionalitiesAll[targetVector]
 		uncompressedVectorSize += uint64(dimensionality.Count) * uint64(dimensionality.Dimensions) * 4
 
-		state, err := i.unloadedVectorState(shardName, lsmPath, targetVector, vectorConfig)
-		if err != nil {
-			return nil, err
-		}
+		state := i.unloadedVectorState(shardName, targetVector, vectorConfig, vectorMetrics)
 		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, dimensionality, state)
 		if err != nil {
 			return nil, err
@@ -562,9 +558,9 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
 		ObjectsStorageBytes:   objectsWithoutVectors,
-		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize,
+		VectorStorageBytes:    uint64(vectorMetrics.StorageBytes) + vectorsInObjects + vectorCommitLogsStorageSize,
 		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
 	}
 	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {
