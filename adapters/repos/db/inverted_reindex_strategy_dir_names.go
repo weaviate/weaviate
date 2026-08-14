@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -539,18 +540,27 @@ func (c *taskPropsCache) count() int {
 // payload.mig costs megabytes per tracker on a large migration, inside a RAFT
 // apply that holds the FSM loop cluster-wide.
 //
+// A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
+// reads the same as one that could not be parsed. That answer costs a
+// hydration and a tracker dir left on disk, never a wrong one: deletion drops
+// back to matching the dir's own name, which removes a tracker only where the
+// name proves it names this property alone and otherwise leaves it for the
+// stale-sentinel check to refuse loudly; preservation matches on a name token,
+// so it keeps more; and the unloaded-shard gate hydrates the shard instead of
+// skipping it.
+//
 // readPayload reports whether payload.mig was opened, so the caller's read
-// counter keeps meaning what it says.
+// counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayload bool) {
 	if props, ok := propsFromSidecar(migDir, prefixes); ok {
 		return taskProps{props: props, ok: true}, false
 	}
-	props, err := readRecoveryPropertyNames(migDir)
+	props, err := readRecoveryPropertyNames(migDir, maxRecoveryPayloadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return taskProps{}, false
 		}
-		return taskProps{unreadable: true}, true
+		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
 	}
 	if len(props) == 0 {
 		return taskProps{}, true

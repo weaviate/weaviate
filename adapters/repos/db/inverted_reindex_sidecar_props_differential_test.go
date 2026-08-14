@@ -35,7 +35,7 @@ import (
 // headTaskProps is [readTaskProps] as it stood before properties.mig could
 // answer: payload.mig decides, or nothing does.
 func headTaskProps(migDir string) taskProps {
-	props, err := readRecoveryPropertyNames(migDir)
+	props, err := readRecoveryPropertyNames(migDir, maxRecoveryPayloadBytes)
 	if err != nil {
 		return taskProps{unreadable: !os.IsNotExist(err)}
 	}
@@ -356,11 +356,12 @@ func TestSidecarPropsSweepLeavesTheSameDirsBehind(t *testing.T) {
 					for _, propName := range sweepPropNames {
 						headLSM, fixtures := writeSidecarTree(t, indexType, payloadMode, propsMode, completed)
 						require.NoError(t, cleanStaleMigrationDirsIn(
+							t.Context(),
 							headScoped(migrationDirsOf(headLSM, nil, propName, indexType), fixtures),
 							logger))
 
 						lsm, _ := writeSidecarTree(t, indexType, payloadMode, propsMode, completed)
-						cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
+						cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, logger, nil)
 
 						require.Equal(t,
 							survivingTrackerDirs(t, headLSM), survivingTrackerDirs(t, lsm),
@@ -391,12 +392,12 @@ func TestSidecarAnswersAsAnIntactPayloadWouldWhereTheStoredPayloadIsUnusable(t *
 				for _, propName := range sweepPropNames {
 					// The sidecar carries the true list; the payload does not.
 					lsm, fixtures := writeSidecarTree(t, indexType, payloadMode, sidecarValid, completed)
-					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
+					cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, logger, nil)
 
 					// The same trackers, with the payload the writer meant to
 					// leave behind.
 					intactLSM, _ := writeSidecarTree(t, indexType, payloadValid, sidecarAbsent, completed)
-					cleanStaleMigrationDirsAt(intactLSM, propName, indexType, logger, nil)
+					cleanStaleMigrationDirsAt(t.Context(), intactLSM, propName, indexType, logger, nil)
 
 					require.Equal(t,
 						survivingTrackerDirs(t, intactLSM), survivingTrackerDirs(t, lsm),

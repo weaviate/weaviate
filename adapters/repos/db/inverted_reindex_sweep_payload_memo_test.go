@@ -115,7 +115,7 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 		"unshared memos read every payload twice")
 
 	sweep := &taskPropsCache{}
-	cleanStaleMigrationDirsAt(lsm, "cat", "filterable", logger, sweep)
+	cleanStaleMigrationDirsAt(t.Context(), lsm, "cat", "filterable", logger, sweep)
 	require.Equal(t, payloadReadingFixtures, sweep.count(),
 		"one sweep reads each payload once")
 }
@@ -174,14 +174,14 @@ func TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads(t *testing.T) {
 	unshared := 0
 	for _, indexType := range indexTypes {
 		perIndexType := &taskPropsCache{}
-		cleanStaleMigrationDirsAt(unsharedLSM, prop.Name, indexType, logger, perIndexType)
+		cleanStaleMigrationDirsAt(t.Context(), unsharedLSM, prop.Name, indexType, logger, perIndexType)
 		unshared += perIndexType.count()
 	}
 
 	sharedLSM := writeSweepMemoFixtures(t)
 	shared := &taskPropsCache{}
 	for _, indexType := range indexTypes {
-		cleanStaleMigrationDirsAt(sharedLSM, prop.Name, indexType, logger, shared)
+		cleanStaleMigrationDirsAt(t.Context(), sharedLSM, prop.Name, indexType, logger, shared)
 	}
 	require.Equal(t, payloadReadingFixtures, shared.count(),
 		"the rangeable pass owns no tracker the filterable pass has not already read")
@@ -314,7 +314,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
-			cleanStaleMigrationDirsAt(lsm, tc.propName, tc.idxType, logger, nil)
+			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, tc.idxType, logger, nil)
 			require.Equal(t, want, survivingTrackerDirs(t, lsm))
 		})
 	}

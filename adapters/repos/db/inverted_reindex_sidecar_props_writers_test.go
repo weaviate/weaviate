@@ -262,7 +262,7 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 			// one reads every payload again while counting nothing, which would
 			// make the assertion below hold no matter what the sweep read.
 			props := &taskPropsCache{}
-			cleanStaleMigrationDirsAt(lsm, tc.sweptProp, tc.sweptIndexType, logger, props)
+			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.sweptProp, tc.sweptIndexType, logger, props)
 			require.Zero(t, props.count(),
 				"every swept tracker was answerable from its sidecar")
 			// Without this the zero above would also hold for a sweep that
@@ -475,14 +475,14 @@ func TestAmbiguousSweepReadsNoPayloadWhenTheSidecarsAreThere(t *testing.T) {
 
 	lsm := writeAmbiguousSweepTree(t, true)
 	withSidecars := &taskPropsCache{}
-	cleanStaleMigrationDirsAt(lsm, "a_b", "filterable", logger, withSidecars)
+	cleanStaleMigrationDirsAt(t.Context(), lsm, "a_b", "filterable", logger, withSidecars)
 	require.Zero(t, withSidecars.count(), "every tracker was answerable from its sidecar")
 
 	// Without sidecars the same sweep has to open every payload, which is what
 	// pins the count above as a property of the sidecars and not of the names.
 	bare := writeAmbiguousSweepTree(t, false)
 	noSidecars := &taskPropsCache{}
-	cleanStaleMigrationDirsAt(bare, "a_b", "filterable", logger, noSidecars)
+	cleanStaleMigrationDirsAt(t.Context(), bare, "a_b", "filterable", logger, noSidecars)
 	require.Equal(t, ambiguousSweepDirs, noSidecars.count(),
 		"without a sidecar there is nothing to answer from")
 

@@ -174,6 +174,12 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		props := &taskPropsCache{}
 		defer func() { payloadReads.Add(int64(props.count())) }()
 		for _, indexType := range disabledIndexTypes(prop) {
+			// The whole loop runs inside the RAFT apply, once per shard. Every
+			// shard still queued for it drops out here rather than walking its
+			// own .migrations for an apply that is already failing.
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
+			}
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
@@ -181,7 +187,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(prop.Name, indexType, props)
+			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
@@ -220,8 +226,8 @@ func disabledIndexTypes(prop *models.Property) []string {
 // The read count accrues into the caller's memo instead of being logged per
 // call, since a 10k-tenant class would otherwise emit 30k lines inside one RAFT
 // FSM apply.
-func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, props *taskPropsCache) {
-	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger, props)
+func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType string, props *taskPropsCache) {
+	cleanStaleMigrationDirsAt(ctx, s.pathLSM(), propName, indexType, s.index.logger, props)
 }
 
 // cleanStaleMigrationDirsAt is the pure-function form of
@@ -247,14 +253,18 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string, props *taskP
 // they share the caller's payload memo, and so does every index type of the
 // same DELETE. props holds how many payloads that came to, for the caller's log
 // line; a nil memo reads every payload again and counts nothing.
-func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string,
+func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType string,
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
-	if err := cleanStaleMigrationDirsIn(scope, logger); err != nil {
+	if err := cleanStaleMigrationDirsIn(ctx, scope, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
 		// removed the bucket, and the next re-enable fails loudly on the stale
 		// sentinel. The sweep path propagates it instead.
+		//
+		// A run the context stopped is not logged at all: the apply it serves
+		// already fails with that same cause, and a line per shard would follow
+		// the tenant count.
 		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
 			Errorf("stale-state cleanup after index DELETE: %v", err)
 	}
@@ -266,8 +276,10 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string,
 // A listing it cannot read is returned, not logged: this helper removed
 // nothing, so a caller that reports its own outcome would otherwise call a
 // sweep finished on a directory it never read. Removal failures stay logged,
-// since those leave the rest of the sweep done.
-func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogger) error {
+// since those leave the rest of the sweep done. A cancelled ctx is returned
+// too, for the same reason and so the sweep path can report it as a run that
+// stopped rather than a shard that failed ([truncatedByCancellation]).
+func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope, logger logrus.FieldLogger) error {
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
 	if err != nil {
@@ -276,8 +288,17 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 		}
 		return fmt.Errorf("read migrations dir for stale-state cleanup: %w", err)
 	}
+	// Asked before the preserve pass rather than only inside the loop: that
+	// pass opens a tracker payload per dir whose name leaves the property
+	// open, and nothing interrupts it once it starts.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", migrationsRoot, err)
+	}
 	preserved := completedMigrationGens(scope)
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("stale-state cleanup stopped partway through %s: %w", migrationsRoot, err)
+		}
 		if !entry.IsDir() {
 			continue
 		}
@@ -404,7 +425,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// per-directory removal failures rather than fail; preserved suffixes
 	// survive.
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars)
-	if err := cleanStaleMigrationDirsIn(scope, s.index.logger); err != nil {
+	if err := cleanStaleMigrationDirsIn(ctx, scope, s.index.logger); err != nil {
 		return props.count(), err
 	}
 	logger.WithField("payload_reads", props.count()).

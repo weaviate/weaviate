@@ -37,7 +37,7 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	hookLogger, hook := test.NewNullLogger()
 	hookLogger.SetLevel(logrus.DebugLevel)
 
-	cleanStaleMigrationDirsAt(lsm, propName, indexType, hookLogger, nil)
+	cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, hookLogger, nil)
 
 	var infoCount, debugCount int
 	for _, e := range hook.AllEntries() {

@@ -315,7 +315,7 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 						func(name string) bool { return narrowMatches(refScope, name) })
 
 					lsm, _ := writeDiffTree(t, payloadMode, completed)
-					cleanStaleMigrationDirsAt(lsm, propName, indexType, logger, nil)
+					cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, logger, nil)
 
 					require.Equal(t, want, survivingTrackerDirs(t, lsm),
 						"payload %s completed %v prop %q index %q",
