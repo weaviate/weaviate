@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -55,9 +56,18 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 // The zero value admits, so tests that do not exercise a gate need set
 // nothing.
 type reindexGateStub struct {
-	mu       sync.Mutex
-	refusal  error
-	askedFor [][]string
+	mu              sync.Mutex
+	refusal         error
+	askedFor        [][]string
+	overlapRefusal  error
+	overlapAskedFor []overlapQuestion
+}
+
+// overlapQuestion is one call to the commit-time check, so a test can assert
+// what it was asked about and from when.
+type overlapQuestion struct {
+	classes []string
+	since   time.Time
 }
 
 func (g *reindexGateStub) RefuseIfAnyReindexInFlight(ctx context.Context, classes []string) error {
@@ -65,6 +75,27 @@ func (g *reindexGateStub) RefuseIfAnyReindexInFlight(ctx context.Context, classe
 	defer g.mu.Unlock()
 	g.askedFor = append(g.askedFor, classes)
 	return g.refusal
+}
+
+func (g *reindexGateStub) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.overlapAskedFor = append(g.overlapAskedFor, overlapQuestion{classes: classes, since: since})
+	return g.overlapRefusal
+}
+
+// setOverlapRefusal makes the commit-time check fail with err (nil passes).
+func (g *reindexGateStub) setOverlapRefusal(err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.overlapRefusal = err
+}
+
+// overlapCalls returns what the commit-time check was asked, in order.
+func (g *reindexGateStub) overlapCalls() []overlapQuestion {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]overlapQuestion(nil), g.overlapAskedFor...)
 }
 
 func (g *reindexGateStub) setReindexGate(err error) {

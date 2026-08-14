@@ -24,8 +24,9 @@ import (
 const reindexGateWarnInterval = time.Hour
 
 var (
-	shardGateWarnBudget   reindexGateWarnBudget
-	restoreGateWarnBudget reindexGateWarnBudget
+	shardGateWarnBudget    reindexGateWarnBudget
+	restoreGateWarnBudget  reindexGateWarnBudget
+	overlapCheckWarnBudget reindexGateWarnBudget
 )
 
 type reindexGateWarnBudget struct {

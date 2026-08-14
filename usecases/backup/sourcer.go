@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -28,6 +29,8 @@ type Sourcer interface { // implemented by the index
 	Backupable(_ context.Context, classes []string) error
 
 	RefuseIfAnyReindexInFlight(_ context.Context, classes []string) error
+
+	RefuseIfReindexOverlapped(_ context.Context, classes []string, since time.Time) error
 
 	// BackupDescriptors returns a channel of class descriptors.
 	// Class descriptor records everything needed to restore a class

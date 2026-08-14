@@ -296,6 +296,13 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// A worker registers before its first report moves a unit out of PENDING.
+func (p *ReindexProvider) HasActiveWorker(desc distributedtask.TaskDescriptor) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.activeWorkers[desc]) > 0 || p.runningHandles[desc] != nil
+}
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

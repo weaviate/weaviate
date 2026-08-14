@@ -1135,6 +1135,23 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 		}
 		return db.NewAnyReindexActivityLookup(tasksByNamespace[db.ReindexNamespace])
 	})
+
+	completedTaskTTL := appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL
+	repo.SetReindexOverlapLookup(func(ctx context.Context) db.ReindexOverlapLookup {
+		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+		if err != nil {
+			appState.Logger.WithField("action", "backup_reindex_overlap").
+				Warnf("commit-time overlap check: cannot list DTM tasks; the check cannot answer: %v", err)
+			return func([]string, time.Time) db.ReindexOverlapVerdict {
+				return db.ReindexOverlapVerdict{
+					Undetermined: true,
+					Detail:       "the cluster task manager could not be listed at commit time",
+				}
+			}
+		}
+		return db.NewReindexOverlapLookup(tasksByNamespace[db.ReindexNamespace],
+			completedTaskTTL, appState.ReindexProvider.HasActiveWorker, time.Now)
+	})
 }
 
 // initReindexAndDistributedTasks builds the reindex provider, registers it in

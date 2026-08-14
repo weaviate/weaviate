@@ -289,7 +289,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = nonEmptyErrMsg(err)
+		desc.Error = publishableFailure(err, nil)
 
 		// Handle error cases
 		cancelled := publishAsCancelled(err, ctx.Err())
@@ -302,17 +302,18 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
+		metaFault := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
+		if metaFault != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
-			err = fmt.Errorf("upload %w: %w", err, metaErr)
+			err = fmt.Errorf("upload %w: %w", err, metaFault)
 		}
 		// After the meta write, which has to carry the reason by the time a
 		// poll can see FAILED. err is published rather than desc.Error, which
 		// was fixed before the write and so says nothing when the write is
 		// what failed.
 		if !cancelled {
-			u.slot.setFailed(err.Error())
+			u.slot.setFailed(publishableFailure(err, metaFault))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -379,6 +380,10 @@ Loop:
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
+	if err := u.sourcer.RefuseIfReindexOverlapped(ctx, classes, desc.StartedAt); err != nil {
+		return err
+	}
+
 	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
@@ -393,6 +398,18 @@ func nonEmptyErrMsg(err error) string {
 		return msg
 	}
 	return failureWithoutReason
+}
+
+// The gate's own redacted text, with the write fault beside the refusal.
+func publishableFailure(err, metaFault error) string {
+	var blocked backup.ReindexBlockedError
+	if !errors.As(err, &blocked) || blocked.Msg == "" {
+		return nonEmptyErrMsg(err)
+	}
+	if metaFault != nil {
+		return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", blocked.Msg, metaFault)
+	}
+	return blocked.Msg
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {

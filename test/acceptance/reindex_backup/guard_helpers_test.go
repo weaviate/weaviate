@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/nodes"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -127,4 +128,33 @@ func liveReindexStatus(status string) bool {
 	default:
 		return true
 	}
+}
+
+// slowBackupConfig widens the in-flight window of a backup so a test can land
+// a submission inside it.
+func slowBackupConfig() *models.BackupConfig {
+	return &models.BackupConfig{
+		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
+		CPUPercentage:    1,
+	}
+}
+
+// awaitBackupTerminal polls a backup until it stops moving, returning the
+// terminal status and the reason recorded with it.
+func awaitBackupTerminal(t *testing.T, backend, backupID string, deadline time.Duration) (string, string) {
+	t.Helper()
+	var status, reason string
+	require.Eventually(t, func() bool {
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
+		if err != nil || resp == nil || resp.Payload == nil || resp.Payload.Status == nil {
+			return false
+		}
+		status = string(*resp.Payload.Status)
+		reason = resp.Payload.Error
+		return status == string(entitiesbackup.Success) ||
+			status == string(entitiesbackup.Failed) ||
+			status == string(entitiesbackup.Cancelled)
+	}, deadline, 200*time.Millisecond,
+		"backup %s never reached a terminal status (last=%q reason=%q)", backupID, status, reason)
+	return status, reason
 }

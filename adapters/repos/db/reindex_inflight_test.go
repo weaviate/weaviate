@@ -42,12 +42,13 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 // on the DB's own registry, which production folds case on the way in and on
 // the way out of.
 type gateFixtures struct {
-	live  map[[2]string]bool
-	holds map[string]ReindexHold
-	tasks []*distributedtask.Task
+	live    map[[2]string]bool
+	holds   map[string]ReindexHold
+	tasks   []*distributedtask.Task
+	overlap []*distributedtask.Task
 }
 
-type gateCounters struct{ activity int }
+type gateCounters struct{ activity, overlap int }
 
 func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters) {
 	t.Helper()
@@ -65,6 +66,13 @@ func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			built.activity++
 			return NewAnyReindexActivityLookup(f.tasks)
+		})
+	}
+	if f.overlap != nil {
+		db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
+			built.overlap++
+			return NewReindexOverlapLookup(f.overlap, 24*time.Hour, noLocalWorker,
+				func() time.Time { return commitTime })
 		})
 	}
 	return db, hook, &built

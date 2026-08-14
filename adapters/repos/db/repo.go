@@ -134,6 +134,7 @@ type DB struct {
 	reindexAuditDeferredRequests      int
 	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
 	anyReindexActivityLookupBuilder   AnyReindexActivityLookupBuilder
+	reindexOverlapLookupBuilder       ReindexOverlapLookupBuilder
 
 	// Carries its own lock. Here, not on [ReindexProvider], because most of
 	// what raises it are DB methods the provider never sees.
