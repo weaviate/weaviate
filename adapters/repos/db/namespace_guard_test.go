@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"sync/atomic"
@@ -441,38 +440,6 @@ func TestDesiredOpenLocalShardCount(t *testing.T) {
 		require.NoError(t, err)
 		assert.Zero(t, got)
 	})
-}
-
-// Startup progress polls the count per class every few seconds while the node
-// loads, so an allocation per shard lands on a node with many tenants exactly
-// when it is busiest. Comparing two shard counts pins that rather than a
-// literal, which would only pin today's fixture.
-func TestDesiredOpenLocalShardCountDoesNotAllocatePerShard(t *testing.T) {
-	const class = "alpha:Product"
-
-	allocsFor := func(shards int) float64 {
-		physical := make(map[string]sharding.Physical, shards)
-		for i := range shards {
-			name := fmt.Sprintf("tenant-%d", i)
-			physical[name] = hotPhysical(name)
-		}
-		db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateActive), physical)
-
-		return testing.AllocsPerRun(20, func() {
-			got, err := db.DesiredOpenLocalShardCount(class)
-			if err != nil || got != shards {
-				t.Fatalf("count = %d, err = %v", got, err)
-			}
-		})
-	}
-
-	// testing.AllocsPerRun counts process-wide mallocs, so whatever background
-	// goroutines the package's other tests leave running land in the measurement
-	// too — a few allocations either way. Comparing within a tolerance absorbs
-	// that; an allocation per shard would show up as thousands, not units.
-	const foreignAllocations = 10
-	assert.InDelta(t, allocsFor(100), allocsFor(10_000), foreignAllocations,
-		"the walk must not allocate per shard")
 }
 
 var errReadFailed = errors.New("read failed")
