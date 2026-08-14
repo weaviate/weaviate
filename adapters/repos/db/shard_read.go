@@ -278,8 +278,8 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 // tombstones), so the source resolves any tombstone collision later via the
 // post-Overwrite resolveObjectConflict path.
 //
-// sourceDigests must be in strict lex UUID order; out-of-order input is rejected
-// rather than silently mis-joined.
+// sourceDigests must be in strict lex order of the parsed UUID bytes;
+// enforced mid-join, not up front.
 func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	if len(sourceDigests) == 0 {
 		return nil, nil
