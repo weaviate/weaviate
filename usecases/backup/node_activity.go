@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
@@ -76,4 +77,59 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 			clusterprobe.Loggable(r.Kind), clusterprobe.Loggable(r.ID))
 	}
 	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
+}
+
+type NodeActivityProbe struct {
+	participant *Handler
+
+	mu        sync.RWMutex
+	scheduler *Scheduler
+}
+
+func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
+	return &NodeActivityProbe{participant: participant}
+}
+
+// AttachScheduler adds the coordinator slots. It must run before the Scheduler
+// can hold one, i.e. before the Scheduler is reachable by any request: a
+// Scheduler that exists but is not attached makes this node report itself idle
+// while it coordinates a backup.
+func (p *NodeActivityProbe) AttachScheduler(scheduler *Scheduler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scheduler = scheduler
+}
+
+type activitySlot struct {
+	stat *backupStat
+	kind string
+}
+
+// Activity reads the four slots under four separate locks and is stale by the
+// time it returns, so it is a backstop against a backup already running and
+// never a reservation against one about to start.
+func (p *NodeActivityProbe) Activity() NodeActivity {
+	p.mu.RLock()
+	scheduler := p.scheduler
+	p.mu.RUnlock()
+
+	slots := make([]activitySlot, 0, 4)
+	if scheduler != nil {
+		slots = append(slots,
+			activitySlot{&scheduler.backupper.lastOp, NodeActivityKindBackup},
+			activitySlot{&scheduler.restorer.lastOp, NodeActivityKindRestore})
+	}
+	slots = append(slots,
+		activitySlot{&p.participant.backupper.lastOp, NodeActivityKindBackup},
+		activitySlot{&p.participant.restorer.lastOp, NodeActivityKindRestore})
+
+	for _, slot := range slots {
+		// renew writes the id and reset clears it, so a non-empty id is exactly
+		// "held". The status is no substitute: set and setFailed also write it to a
+		// slot that was already released, and this node would then never idle again.
+		if id := slot.stat.get().ID; id != "" {
+			return NodeActivity{Busy: true, Kind: slot.kind, ID: id}
+		}
+	}
+	return NodeActivity{}
 }

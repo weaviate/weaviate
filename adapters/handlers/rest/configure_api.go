@@ -794,6 +794,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
+	appState.BackupActivity = backup.NewNodeActivityProbe(backupManager)
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
@@ -1510,6 +1511,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
+	appState.BackupActivity.AttachScheduler(backupScheduler)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
