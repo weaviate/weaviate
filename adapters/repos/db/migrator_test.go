@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -403,6 +404,10 @@ func TestUpdateIndexShards(t *testing.T) {
 		expectedShards []string
 		mustLoad       bool
 		lazyLoading    bool
+		// protectedShards are held by a backup, so their load fails.
+		protectedShards []string
+		// wantErrFor is a substring of the error the reconcile must return.
+		wantErrFor string
 	}{
 		{
 			name:           "add new shard with lazy loading",
@@ -475,6 +480,16 @@ func TestUpdateIndexShards(t *testing.T) {
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       false,
 			lazyLoading:    true,
+		},
+		{
+			// The requested shards are loaded in sorted order, so shard3 only gets
+			// loaded if the failure on shard2 did not end the loop.
+			name:            "a shard a backup holds does not skip the shards after it",
+			initialShards:   []string{"shard1"},
+			newShards:       []string{"shard1", "shard2", "shard3"},
+			expectedShards:  []string{"shard1", "shard3"},
+			protectedShards: []string{"shard2"},
+			wantErrFor:      "add missing shard shard2",
 		},
 	}
 
@@ -570,9 +585,17 @@ func TestUpdateIndexShards(t *testing.T) {
 			}
 			newState.SetLocalName("node1")
 
+			for _, shardName := range tt.protectedShards {
+				index.backupProtectedShards.Store(shardName, struct{}{})
+			}
+
 			// Update shards
 			err = migrator.updateIndexShards(ctx, index, newState)
-			require.NoError(t, err)
+			if tt.wantErrFor == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErrFor)
+			}
 
 			// Verify expected shards exist and are of the correct type and status
 			for _, expectedShard := range tt.expectedShards {
@@ -599,9 +622,287 @@ func TestUpdateIndexShards(t *testing.T) {
 				}
 			}
 
+			for _, protectedShard := range tt.protectedShards {
+				shard := index.shards.Load(protectedShard)
+				require.Nil(t, shard, "shard %s is held by a backup", protectedShard)
+			}
+
 			mockSchemaGetter.AssertExpectations(t)
 		})
 	}
+}
+
+// A shard that cannot be reconciled must not stop the rest from being attempted,
+// and must not be reported as a success.
+//
+// A per-shard failure is driven either by a loaded shard whose shutdown fails,
+// for the unload branch, or by a backup holding the shard, for the load branch.
+func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
+	shutdownRefused := errors.New("shutdown refused")
+
+	tests := []struct {
+		name string
+		// incoming are the local shards the incoming sharding state assigns here.
+		incoming []string
+		// acceptingShutdown are shards already in the index whose shutdown succeeds.
+		acceptingShutdown []string
+		// refusingShutdown are shards already in the index whose shutdown fails.
+		refusingShutdown []string
+		// backupProtected are shards a backup holds, so their load fails.
+		backupProtected []string
+		// closed shuts the index, which fails every shard for the same reason.
+		closed bool
+		// cancelCtx hands the reconcile an already cancelled context.
+		cancelCtx bool
+		// wantErrFor is a substring of the returned error for every failure expected.
+		wantErrFor []string
+		// wantCappedBy is how many failures the error must report as a count only.
+		wantCappedBy int
+	}{
+		{
+			name:             "a failing unload is reported",
+			refusingShutdown: []string{"gone1"},
+			wantErrFor:       []string{"shutdown shard gone1"},
+		},
+		{
+			name:             "every failing unload is reported, not just the first",
+			refusingShutdown: []string{"gone1", "gone2", "gone3"},
+			wantErrFor: []string{
+				"shutdown shard gone1",
+				"shutdown shard gone2",
+				"shutdown shard gone3",
+			},
+		},
+		{
+			// The shards that can be unloaded still are, and only the one that
+			// could not is reported.
+			name:              "a failing unload does not stop the others",
+			acceptingShutdown: []string{"gone1", "gone3"},
+			refusingShutdown:  []string{"gone2"},
+			wantErrFor:        []string{"shutdown shard gone2"},
+		},
+		{
+			name:             "a failing unload still runs the loads",
+			incoming:         []string{"new1"},
+			backupProtected:  []string{"new1"},
+			refusingShutdown: []string{"gone1"},
+			wantErrFor: []string{
+				"shutdown shard gone1",
+				"add missing shard new1",
+			},
+		},
+		{
+			name:            "a failing load is reported",
+			incoming:        []string{"new1"},
+			backupProtected: []string{"new1"},
+			wantErrFor:      []string{"add missing shard new1"},
+		},
+		{
+			name:            "every failing load is reported, not just the first",
+			incoming:        []string{"new1", "new2", "new3"},
+			backupProtected: []string{"new1", "new2", "new3"},
+			wantErrFor: []string{
+				"add missing shard new1",
+				"add missing shard new2",
+				"add missing shard new3",
+			},
+		},
+		{
+			// A shut index fails every shard for the same reason, and each one is
+			// still attempted rather than the reconcile stopping at the first.
+			name:              "a shut index reports every shard",
+			incoming:          []string{"new1"},
+			acceptingShutdown: []string{"gone1"},
+			closed:            true,
+			wantErrFor: []string{
+				"shutdown shard gone1",
+				"add missing shard new1",
+			},
+		},
+		{
+			name:             "a cancelled context still attempts every shard",
+			incoming:         []string{"new1"},
+			backupProtected:  []string{"new1"},
+			refusingShutdown: []string{"gone1"},
+			cancelCtx:        true,
+			wantErrFor: []string{
+				"shutdown shard gone1",
+				"add missing shard new1",
+			},
+		},
+		{
+			// More failures than maxReportedErrors, so the message is summarized
+			// rather than growing with the number of shards on the node.
+			name:             "the reported failures are capped",
+			refusingShutdown: numberedShards(maxReportedErrors + 2),
+			wantCappedBy:     2,
+		},
+		{
+			name: "nothing to reconcile",
+		},
+		{
+			// A shard the incoming state still lists is neither unloaded nor
+			// loaded, so its refusing shutdown never runs.
+			name:             "a shard that stays in the sharding state is left alone",
+			incoming:         []string{"keep1"},
+			refusingShutdown: []string{"keep1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			idx, _ := newDropTestIndex(t)
+			sg := schemaUC.NewMockSchemaGetter(t)
+			sg.EXPECT().ReadOnlyClass(mock.Anything).
+				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
+			idx.getSchema = sg
+			m := &Migrator{logger: idx.logger}
+
+			storeShard := func(name string, shutdownErr error) {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(shutdownErr).Maybe()
+				idx.shards.Store(name, shard)
+			}
+			for _, name := range tt.acceptingShutdown {
+				storeShard(name, nil)
+			}
+			for _, name := range tt.refusingShutdown {
+				storeShard(name, shutdownRefused)
+			}
+			for _, name := range tt.backupProtected {
+				idx.backupProtectedShards.Store(name, struct{}{})
+			}
+			idx.closed = tt.closed
+
+			err := m.updateIndexShards(ctx, idx, localShardingState(tt.incoming))
+
+			if len(tt.wantErrFor) == 0 && tt.wantCappedBy == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				for _, want := range tt.wantErrFor {
+					require.ErrorContains(t, err, want)
+				}
+				if tt.wantCappedBy > 0 {
+					require.ErrorContains(t, err, fmt.Sprintf("(and %d more)", tt.wantCappedBy))
+				}
+			}
+
+			// the index drops a shard from its map before shutting it down, so a
+			// refused shutdown still leaves the shard unloaded
+			for _, name := range slices.Concat(tt.acceptingShutdown, tt.refusingShutdown) {
+				if slices.Contains(tt.incoming, name) {
+					require.NotNil(t, idx.shards.Load(name), "shard %q is still in the sharding state", name)
+					continue
+				}
+				if tt.closed {
+					require.NotNil(t, idx.shards.Load(name), "a shut index unloads nothing, shard %q", name)
+					continue
+				}
+				require.Nil(t, idx.shards.Load(name), "shard %q left the sharding state", name)
+			}
+			for _, name := range tt.backupProtected {
+				require.Nil(t, idx.shards.Load(name), "shard %q is held by a backup", name)
+			}
+		})
+	}
+}
+
+// The property add is the only thing that gives an already loaded shard the
+// class's new properties, so a shard that could not be reconciled must not cost
+// every other shard those properties — on either the single-tenant or the
+// multi-tenant arm.
+func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
+	tests := []struct {
+		name        string
+		partitioned bool
+		wantErrFor  string
+	}{
+		{
+			name:       "a single-tenant shard that refuses to unload",
+			wantErrFor: "shutdown shard gone1",
+		},
+		{
+			name:        "a tenant that refuses to be dropped",
+			partitioned: true,
+			wantErrFor:  "drop tenant shards",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			class := &models.Class{
+				Class:      idx.Config.ClassName.String(),
+				Properties: []*models.Property{{Name: "location", DataType: []string{"geoCoordinates"}}},
+			}
+
+			sg := schemaUC.NewMockSchemaGetter(t)
+			sg.EXPECT().NodeName().Return("node1").Maybe()
+			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(class).Maybe()
+			idx.getSchema = sg
+			m := &Migrator{
+				db: &DB{
+					schemaGetter: sg,
+					indices:      map[string]*Index{indexID(idx.Config.ClassName): idx},
+				},
+				logger: idx.logger,
+			}
+
+			// gone1 leaves the sharding state, and whichever way the arm removes it
+			// fails; keep1 stays, so it is the shard the property add must reach.
+			gone := NewMockShardLike(t)
+			gone.EXPECT().Shutdown(mock.Anything).Return(errors.New("shutdown refused")).Maybe()
+			gone.EXPECT().drop(false).Return(errors.New("drop refused")).Maybe()
+			gone.EXPECT().ID().Return("gone1").Maybe()
+			idx.shards.Store("gone1", gone)
+
+			keep := NewMockShardLike(t)
+			keep.EXPECT().hasGeoIndexForProp("location").Return(true)
+			idx.shards.Store("keep1", keep)
+
+			incomingSS := localShardingState([]string{"keep1"})
+			incomingSS.PartitioningEnabled = tt.partitioned
+
+			err := m.UpdateIndex(context.Background(), class, incomingSS)
+
+			require.ErrorContains(t, err, tt.wantErrFor)
+			// keep's expectation is not Maybe: the property add has to have run
+			keep.AssertExpectations(t)
+		})
+	}
+}
+
+// localShardingState assigns every named shard to this node, hot.
+func localShardingState(names []string) *sharding.State {
+	physical := make(map[string]sharding.Physical, len(names))
+	for _, name := range names {
+		physical[name] = sharding.Physical{
+			Name:           name,
+			BelongsToNodes: []string{"node1"},
+			Status:         models.TenantActivityStatusHOT,
+		}
+	}
+	state := &sharding.State{Physical: physical}
+	state.SetLocalName("node1")
+	return state
+}
+
+// numberedShards names n shards, for the cases that assert how many failures are
+// reported rather than which.
+func numberedShards(n int) []string {
+	names := make([]string, n)
+	for i := range names {
+		names[i] = fmt.Sprintf("gone%d", i)
+	}
+	return names
 }
 
 // When the index is not local yet (RAFT schema not applied on this node) or
