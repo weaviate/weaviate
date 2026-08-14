@@ -368,17 +368,15 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			if !task.Status.IsTerminal() {
 				continue
 			}
-			// Recovery hook: if the provider implements
-			// [RecoveryAwareProvider] and reports local-side callback
-			// work as NOT yet done, skip the pre-mark for this task so
-			// the next tick re-fires OnGroupCompleted and the
-			// provider's recovery path can complete (e.g. a swap that
-			// got context-cancelled during a rolling restart). Failed /
-			// cancelled tasks are NOT subject to this check — the
-			// provider semantically owns the "should the schema-flip
-			// callback be retried" decision only for the FINISHED case;
-			// retrying a cancelled task's OnGroupCompleted could
-			// re-apply a half-baked swap the user explicitly aborted.
+			// A [RecoveryAwareProvider] that reports local callback work
+			// as not done skips the pre-mark, so the next tick
+			// re-dispatches this task's callbacks. That recovers
+			// nothing: every callback is a no-op at terminal status. The
+			// one durable effect is a re-issued post-completion ack, once
+			// per process start, until the completed-task TTL drops the
+			// task (see [RecoveryAwareProvider.LocalCallbacksDone]). Only
+			// FINISHED tasks are asked: a failed or cancelled task has no
+			// completed swap that could be missing.
 			if task.Status == TaskStatusFinished {
 				if r, ok := provider.(RecoveryAwareProvider); ok {
 					if !r.LocalCallbacksDone(task, s.localNode) {
