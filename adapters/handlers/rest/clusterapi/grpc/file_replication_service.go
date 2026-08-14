@@ -87,7 +87,8 @@ func (fps *FileReplicationService) ReleaseReplicaSnapshot(ctx context.Context, r
 	}
 
 	if err := index.IncomingReleaseReplicaSnapshot(ctx, opID); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to release replica snapshot for index %q, op %q: %v", indexName, opID, err)
+		return nil, status.Errorf(codeForShardCallError(err),
+			"failed to release replica snapshot for index %q, op %q: %v", indexName, opID, err)
 	}
 
 	return &pb.ReleaseReplicaSnapshotResponse{
@@ -107,7 +108,8 @@ func (fps *FileReplicationService) GetReplicaSnapshotFileMetadata(ctx context.Co
 
 	md, err := index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, fileName)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in op %q: %v", fileName, opID, err)
+		return nil, status.Errorf(codeForShardCallError(err),
+			"failed to get file metadata for %q in op %q: %v", fileName, opID, err)
 	}
 
 	return &pb.FileMetadata{
@@ -134,7 +136,7 @@ func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnap
 
 	reader, err := index.IncomingGetReplicaSnapshotFile(stream.Context(), opID, fileName)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get file %q: %v", fileName, err)
+		return status.Errorf(codeForShardCallError(err), "failed to get file %q: %v", fileName, err)
 	}
 	defer reader.Close()
 
@@ -195,7 +197,7 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 
 	tailer, err := index.IncomingGetChangeLog(stream.Context(), req.ShardName, req.OpId, req.UntilLsn)
 	if err != nil {
-		return status.Errorf(codes.Internal, "open change-log tailer for index %q, shard %q, op %q: %v",
+		return status.Errorf(codeForShardCallError(err), "open change-log tailer for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
 	}
 	defer tailer.Close()
@@ -232,7 +234,7 @@ func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req
 
 	lsn, err := index.IncomingSnapshotChangeLogLSN(ctx, req.ShardName, req.OpId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "snapshot change-log LSN for index %q, shard %q, op %q: %v",
+		return nil, status.Errorf(codeForShardCallError(err), "snapshot change-log LSN for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
 	}
 
@@ -252,7 +254,7 @@ func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *p
 
 	finalLSN, err := index.IncomingFinalizeChangeLog(ctx, req.ShardName, req.OpId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "finalize change log for index %q, shard %q, op %q: %v",
+		return nil, status.Errorf(codeForShardCallError(err), "finalize change log for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
 	}
 
@@ -271,7 +273,7 @@ func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *p
 	}
 
 	if err := index.IncomingStopChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
-		return nil, status.Errorf(codes.Internal, "stop change capture for index %q, shard %q, op %q: %v",
+		return nil, status.Errorf(codeForShardCallError(err), "stop change capture for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
 	}
 
