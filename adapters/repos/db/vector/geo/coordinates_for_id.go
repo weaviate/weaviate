@@ -34,6 +34,22 @@ func (cfid CoordinatesForID) VectorForID(ctx context.Context, id uint64) ([]floa
 	return geoCoordiantesToVector(coordinates)
 }
 
+// CoordinatesFromObject must provide the geo coordinates held by one stored
+// object, or nil if the object holds none.
+type CoordinatesFromObject func(objectBytes []byte) (*models.GeoCoordinates, error)
+
+// VectorFromObject transforms the coordinates of a stored object into the same
+// two-element vector VectorForID produces. An object without coordinates yields
+// a nil vector, which the cache prefill skips.
+func (cfo CoordinatesFromObject) VectorFromObject(objectBytes []byte) ([]float32, error) {
+	coordinates, err := cfo(objectBytes)
+	if err != nil || coordinates == nil {
+		return nil, err
+	}
+
+	return geoCoordiantesToVector(coordinates)
+}
+
 // GeoCoordinatesToVector converts geo coordinates to a vector of [lat, lon].
 func GeoCoordinatesToVector(in *models.GeoCoordinates) ([]float32, error) {
 	return geoCoordiantesToVector(in)

@@ -1038,10 +1038,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// That cancellation propagates into Store.PauseCompaction and
 		// surfaces as a misleading "context canceled" error.
 		auditCtx := serverShutdownCtx
-		type taskKey struct {
-			id      string
-			version uint64
-		}
 		// buildKnownTask returns an error on ListDistributedTasks
 		// failure. Callers MUST propagate the error rather than
 		// substitute a soft default — prior versions returned a
@@ -1053,13 +1049,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
-			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				live[taskKey{task.ID, task.Version}] = db.IsLiveReindexTaskStatus(task.Status)
-			}
-			return func(taskID string, taskVersion uint64) bool {
-				return live[taskKey{taskID, taskVersion}]
-			}, nil
+			return db.NewLiveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
@@ -1108,10 +1098,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		type shardKey struct {
-			collection string
-			shardName  string
-		}
 		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
@@ -1119,25 +1105,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 				return func(string, string) bool { return true }
 			}
-			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
-					continue
-				}
-				var payload db.ReindexTaskPayload
-				if err := json.Unmarshal(task.Payload, &payload); err != nil {
-					appState.Logger.WithField("action", "backup_reindex_gate").
-						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-					continue
-				}
-				for _, shardName := range payload.UnitToShard {
-					live[shardKey{payload.Collection, shardName}] = true
-				}
-			}
-			return func(collection, shardName string) bool {
-				return live[shardKey{collection, shardName}]
-			}
+			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
@@ -1238,13 +1206,14 @@ func initReindexAndDistributedTasks(
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder:       appState.ClusterService.Raft,
-		Providers:         providers,
-		Logger:            appState.Logger,
-		MetricsRegisterer: metricsRegisterer,
-		LocalNode:         appState.Cluster.LocalName(),
-		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		AckRecorder:        appState.ClusterService.Raft,
+		LocalTaskInspector: appState.ClusterService.Raft,
+		Providers:          providers,
+		Logger:             appState.Logger,
+		MetricsRegisterer:  metricsRegisterer,
+		LocalNode:          appState.Cluster.LocalName(),
+		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		CompletedTaskTTL:   appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].

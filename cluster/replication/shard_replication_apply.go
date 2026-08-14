@@ -383,14 +383,7 @@ func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
 		return nil // nothing to do
 	}
 
-	for _, op := range ops {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
-
-	return nil
+	return s.removeReplicationOps(ops)
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard string) error {
@@ -407,14 +400,7 @@ func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard 
 		return nil // nothing to do
 	}
 
-	for _, op := range shardOps {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
-
-	return nil
+	return s.removeReplicationOps(shardOps)
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
@@ -426,14 +412,7 @@ func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
 		return nil // nothing to do
 	}
 
-	for _, op := range ops {
-		err := s.removeReplicationOp(op.ID)
-		if err != nil {
-			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
-		}
-	}
-
-	return nil
+	return s.removeReplicationOps(ops)
 }
 
 func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
@@ -447,6 +426,25 @@ func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
 
 	if err := s.removeReplicationOp(id); err != nil {
 		return fmt.Errorf("could not remove op %d: %w", id, err)
+	}
+
+	return nil
+}
+
+// removeReplicationOps deletes every op in ops. It reads the ids up front
+// because removeReplicationOp compacts the very slices ops points into: ranging
+// over ops directly skips entries and then revisits ids it already deleted,
+// which fails the whole delete and leaves the skipped ops behind.
+func (s *ShardReplicationFSM) removeReplicationOps(ops []ShardReplicationOp) error {
+	ids := make([]uint64, len(ops))
+	for i, op := range ops {
+		ids[i] = op.ID
+	}
+
+	for _, id := range ids {
+		if err := s.removeReplicationOp(id); err != nil {
+			return fmt.Errorf("could not remove op %d: %w", id, err)
+		}
 	}
 
 	return nil

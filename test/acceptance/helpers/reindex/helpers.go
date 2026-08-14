@@ -104,7 +104,9 @@ func RebuildIndexRaw(t *testing.T, restURI, collection, property, indexType stri
 }
 
 // CancelIndex fires POST .../index/{indexType}/cancel, asserts 202, and
-// returns the decoded response (taskId + status: CANCELLED or NO_OP).
+// returns the decoded response (taskId + status: CANCELLED or NO_OP). Use
+// CancelIndexRaw where the task may have left the cancellable state, which
+// the endpoint answers with 409.
 func CancelIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) *models.IndexUpdateResponse {
 	t.Helper()
 	resp := CancelIndexRaw(t, restURI, collection, property, indexType, opts...)

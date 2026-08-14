@@ -468,7 +468,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 /*
 SchemaObjectsIndexCancel cancels the in flight reindex task on a property s inverted index
 
-Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a `202` with `{"status":"NO_OP"}` is returned when there is nothing to cancel). `indexName` accepts `rangeable` as an alias for `rangeFilters`.
+Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a `202` with `{"status":"NO_OP"}` is returned when there is nothing to cancel). A task that is in flight but no longer cancellable is refused with `409`. `indexName` accepts `rangeable` as an alias for `rangeFilters`.
 */
 func (a *Client) SchemaObjectsIndexCancel(params *SchemaObjectsIndexCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexCancelAccepted, error) {
 	// TODO: Validate the params before sending

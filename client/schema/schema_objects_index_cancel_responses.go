@@ -58,6 +58,12 @@ func (o *SchemaObjectsIndexCancelReader) ReadResponse(response runtime.ClientRes
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewSchemaObjectsIndexCancelConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewSchemaObjectsIndexCancelUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -89,7 +95,7 @@ func NewSchemaObjectsIndexCancelAccepted() *SchemaObjectsIndexCancelAccepted {
 /*
 SchemaObjectsIndexCancelAccepted describes a response with status code 202, with default header values.
 
-Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a live task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
+Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
 */
 type SchemaObjectsIndexCancelAccepted struct {
 	Payload *models.IndexUpdateResponse
@@ -330,6 +336,74 @@ func (o *SchemaObjectsIndexCancelNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsIndexCancelNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsIndexCancelConflict creates a SchemaObjectsIndexCancelConflict with default headers values
+func NewSchemaObjectsIndexCancelConflict() *SchemaObjectsIndexCancelConflict {
+	return &SchemaObjectsIndexCancelConflict{}
+}
+
+/*
+SchemaObjectsIndexCancelConflict describes a response with status code 409, with default header values.
+
+The target task is in flight but not STARTED, so the cancel is refused and nothing was cancelled. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
+*/
+type SchemaObjectsIndexCancelConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects index cancel conflict response has a 2xx status code
+func (o *SchemaObjectsIndexCancelConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects index cancel conflict response has a 3xx status code
+func (o *SchemaObjectsIndexCancelConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects index cancel conflict response has a 4xx status code
+func (o *SchemaObjectsIndexCancelConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects index cancel conflict response has a 5xx status code
+func (o *SchemaObjectsIndexCancelConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects index cancel conflict response a status code equal to that given
+func (o *SchemaObjectsIndexCancelConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the schema objects index cancel conflict response
+func (o *SchemaObjectsIndexCancelConflict) Code() int {
+	return 409
+}
+
+func (o *SchemaObjectsIndexCancelConflict) Error() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/index/{indexName}/cancel][%d] schemaObjectsIndexCancelConflict  %+v", 409, o.Payload)
+}
+
+func (o *SchemaObjectsIndexCancelConflict) String() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/index/{indexName}/cancel][%d] schemaObjectsIndexCancelConflict  %+v", 409, o.Payload)
+}
+
+func (o *SchemaObjectsIndexCancelConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsIndexCancelConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

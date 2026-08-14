@@ -82,8 +82,7 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 			shardLike, index := testShard(t, context.Background(), "VecQueueOrphan")
 			s := underlyingShard(t, shardLike)
 			// enable async only after NewShard: it makes NewVectorIndexQueue call
-			// q.Init(), but at creation it would spawn a ConvertQueue goroutine that
-			// nil-derefs the test harness's (absent) indexCheckpoints.
+			// q.Init(), but at creation the harness would also need a checkpoint store.
 			index.AsyncIndexingEnabled = true
 
 			const target = "orphanTarget"
