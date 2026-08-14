@@ -98,11 +98,10 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 }
 
 // completedMigrationGens returns the set of generation numbers whose
-// migration tracker dir (for any of the strategy prefixes in `prefixes`)
-// has `tidied.mig` or `merged.mig` on disk — i.e., migrations that
-// completed successfully in-process and whose sidecar dirs are LIVE data
-// pointed at by the in-memory bucket pointers, awaiting next-restart
-// finalize to be promoted to canonical names.
+// migration tracker dir in `scope` has `tidied.mig` or `merged.mig` on disk
+// — i.e., migrations that completed successfully in-process and whose sidecar
+// dirs are LIVE data pointed at by the in-memory bucket pointers, awaiting
+// next-restart finalize to be promoted to canonical names.
 //
 // Called from the submit-handler and cancel-handler pre-submit cleanup
 // path ([Shard.CleanStalePartialReindexState]) so the cleanup can skip
@@ -113,11 +112,11 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // canonical bucket becomes empty → silent #10675-shape data loss on the
 // submitting node.
 //
-// `prefixes` is the strategy-dir prefixes from
-// [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
-func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
+// `scope` is the tracker dirs of the (propName, indexType) tuple; see
+// [migrationDirScope].
+func completedMigrationGens(scope migrationDirScope) map[int]bool {
 	out := map[int]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	forEachCompletedMigration(scope, func(base string, gen int) {
 		out[gen] = true
 	})
 	return out
@@ -125,12 +124,12 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 
 // completedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
 // suffixes (e.g. "__roaringset_ingest_2") owned by completed-but-deferred
-// migrations matching `prefixes`. Keying by (suffix-base, gen) instead of
+// migrations in `scope`. Keying by (suffix-base, gen) instead of
 // bare gen stops one strategy's completed gen from shielding — or failing
 // to shield — a different strategy's sidecar at the same gen (issue #295).
-func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
+func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool {
 	out := map[string]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	forEachCompletedMigration(scope, func(base string, gen int) {
 		suffixes := migrationSuffixes(base)
 		if suffixes == nil {
 			return
@@ -145,31 +144,29 @@ func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[st
 	return out
 }
 
-// forEachCompletedMigration invokes fn for every tracker dir under
-// lsmPath/.migrations matching `prefixes` that carries tidied.mig or
-// merged.mig (completed in-process, awaiting next-restart finalize).
-func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
+// forEachCompletedMigration invokes fn for every tracker dir in `scope` that
+// carries tidied.mig or merged.mig (completed in-process, awaiting
+// next-restart finalize).
+//
+// The dir listing goes through the scope's cache, so a run of calls over one
+// shard reads its .migrations dir once; a nil cache reads the filesystem every
+// time, which is what most callers pass. The sentinel Stats per matching dir
+// are never cached.
+func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) {
+	migrationsDir := filepath.Join(scope.lsmPath, ".migrations")
+	names, err := scope.dirs.list(migrationsDir)
 	if err != nil {
 		return
 	}
-	prefixSet := map[string]bool{}
-	for _, p := range prefixes {
-		prefixSet[p] = true
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		base, gen, ok := parseMigrationDirName(entry.Name())
+	for _, name := range names {
+		base, gen, ok := parseMigrationDirName(name)
 		if !ok {
 			continue
 		}
-		if !prefixSet[base] {
+		if !scope.inScope(name) {
 			continue
 		}
-		dirPath := filepath.Join(migrationsDir, entry.Name())
+		dirPath := filepath.Join(migrationsDir, name)
 		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
 			fn(base, gen)
 		}
@@ -177,7 +174,8 @@ func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base s
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns
-// true iff the named file is present in dirPath as a regular file.
+// true when the named file is present in dirPath and is not a directory. A
+// stat that fails for any other reason reads as absent.
 func fileExistsInDir(dirPath, fileName string) bool {
 	info, err := os.Stat(filepath.Join(dirPath, fileName))
 	return err == nil && !info.IsDir()

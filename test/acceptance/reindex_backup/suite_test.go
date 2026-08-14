@@ -557,12 +557,19 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	deletedByTest = true
 }
 
-// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts:
+// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts on
+// every run:
 //
-//  1. Cancel triggers auto-cleanup so `.migrations/<prefix>_body_N/`
-//     drains from disk within a few scheduler ticks.
-//  2. DELETE class after the task reaches CANCELLED succeeds and
+//  1. `.migrations/<prefix>_body_N/` drains from disk within a few
+//     scheduler ticks once the task is no longer running.
+//  2. DELETE class after the task reaches a terminal state succeeds and
 //     leaves no on-disk class dir behind.
+//
+// Whether the cancel is what ends the task is not one of them: the reindex
+// can't be held at a chosen phase from outside, so the cancel may land after
+// the task already finished on its own. The switch below asserts whatever
+// response the landed-in phase requires, and logs which one that was — only
+// the 202/CANCELLED path proves cancel-driven cleanup.
 func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	const (
 		className = "ReindexBackup_CancelCleanup"
@@ -691,8 +698,6 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
 			classPath, strings.TrimSpace(out.String()))
 	}
-
-	_ = taskID
 }
 
 // backupAndRestoreRoundTrip creates a filesystem backup, deletes the

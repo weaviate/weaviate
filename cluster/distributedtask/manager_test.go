@@ -2300,33 +2300,6 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	return ns, id, version
 }
 
-// Pins the reader every "a task only this node still holds" claim rests
-// on: the one place that filters this node's own FSM copies on
-// IsRecognized. The scheduler's warn reaches it through an interface it
-// stubs out in tests, so nothing else exercises the production method.
-func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
-	h := newTestHarness(t).init(t)
-
-	addTaskWithUnits(t, h, "ns-a", "recognized", 1, []string{"u-n1"})
-	addTaskWithUnits(t, h, "ns-a", "from-a-newer-leader", 2, []string{"u-n1"})
-	h.manager.tasks["ns-a"]["from-a-newer-leader"].Status = unknownFutureStatus
-	addTaskWithUnits(t, h, "ns-b", "also-recognized", 3, []string{"u-n1"})
-
-	got := h.manager.LocalUnrecognizedDistributedTasks()
-	require.Len(t, got, 1, "a namespace with nothing unrecognized must not appear")
-	require.Len(t, got["ns-a"], 1, "only the unrecognized task may come back")
-	require.Equal(t, "from-a-newer-leader", got["ns-a"][0].ID)
-	require.Equal(t, unknownFutureStatus, got["ns-a"][0].Status)
-
-	got["ns-a"][0].Status = TaskStatusFinished
-	require.Equal(t, unknownFutureStatus, h.manager.tasks["ns-a"]["from-a-newer-leader"].Status,
-		"the godoc promises clones, so a caller writing to one must not reach the FSM")
-
-	h.manager.tasks["ns-a"]["from-a-newer-leader"].Status = TaskStatusStarted
-	require.Empty(t, h.manager.LocalUnrecognizedDistributedTasks(),
-		"the ordinary case reports nothing at all")
-}
-
 // Pins: CleanUpTask refuses the coordination phases, past the TTL, when
 // only the liveness check still stands between the task and deletion —
 // and deletes a task in a status this build cannot name, which is the
@@ -2446,4 +2419,112 @@ func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T
 		Version:   version,
 	})))
 	require.NotContains(t, restarted.tasks[ns], id)
+}
+
+// Pins what LocalUnrecognizedDistributedTasks reads off this node: exactly
+// the tasks in a status this build cannot name, grouped by namespace, and
+// always as clones (the caller reads them outside the Manager's lock). The
+// scheduler's warn reaches this through an interface it stubs out in tests,
+// so nothing else exercises the production method.
+func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
+	const otherNamespace = "other-namespace"
+
+	type taskSpec struct {
+		namespace string
+		id        string
+		version   uint64
+		status    TaskStatus
+	}
+
+	for _, tc := range []struct {
+		name  string
+		tasks []taskSpec
+		// want lists, per namespace, the task IDs that must be reported.
+		// Empty means the whole map must come back empty.
+		want map[string][]string
+	}{
+		{
+			name: "no tasks at all",
+		},
+		{
+			name: "every status this build declared is filtered out",
+			tasks: []taskSpec{
+				{"tasks-namespace", "started", 10, TaskStatusStarted},
+				{"tasks-namespace", "preparing", 11, TaskStatusPreparing},
+				{"tasks-namespace", "swapping", 12, TaskStatusSwapping},
+				{"tasks-namespace", "finished", 13, TaskStatusFinished},
+				{"tasks-namespace", "failed", 14, TaskStatusFailed},
+				{"tasks-namespace", "cancelled", 15, TaskStatusCancelled},
+			},
+		},
+		{
+			name: "one unrecognized task next to its recognized neighbors",
+			tasks: []taskSpec{
+				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
+				{"tasks-namespace", "started", 11, TaskStatusStarted},
+				{"tasks-namespace", "finished", 12, TaskStatusFinished},
+			},
+			want: map[string][]string{"tasks-namespace": {"stuck"}},
+		},
+		{
+			name: "several namespaces, one of them clean",
+			tasks: []taskSpec{
+				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
+				{"tasks-namespace", "also-stuck", 11, unknownFutureStatus},
+				{otherNamespace, "elsewhere", 12, unknownFutureStatus},
+				{"third-namespace", "started", 13, TaskStatusStarted},
+			},
+			want: map[string][]string{
+				"tasks-namespace": {"also-stuck", "stuck"},
+				otherNamespace:    {"elsewhere"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			for _, spec := range tc.tasks {
+				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
+				h.manager.tasks[spec.namespace][spec.id].Status = spec.status
+			}
+
+			got := h.manager.LocalUnrecognizedDistributedTasks()
+
+			if len(tc.want) == 0 {
+				require.Empty(t, got, "nothing unrecognized means nothing to report")
+				return
+			}
+
+			gotIDs := map[string][]string{}
+			for namespace, tasks := range got {
+				for _, task := range tasks {
+					require.False(t, task.Status.IsRecognized(),
+						"%s/%s is in a status this build declared", namespace, task.ID)
+					gotIDs[namespace] = append(gotIDs[namespace], task.ID)
+				}
+				sort.Strings(gotIDs[namespace])
+			}
+			require.Equal(t, tc.want, gotIDs)
+
+			// Clones: a caller that writes through the returned tasks
+			// must not reach the FSM the RAFT applies own.
+			for namespace, tasks := range got {
+				for _, task := range tasks {
+					task.Status = TaskStatusCancelled
+					for _, unit := range task.Units {
+						unit.Status = UnitStatusFailed
+					}
+
+					stored := h.manager.tasks[namespace][task.ID]
+					require.Equal(t, unknownFutureStatus, stored.Status,
+						"writing to a returned task must not change %s/%s", namespace, task.ID)
+					require.NotEmpty(t, stored.Units)
+					for unitID, unit := range stored.Units {
+						require.Equal(t, UnitStatusPending, unit.Status,
+							"writing to a returned unit must not change %s/%s/%s",
+							namespace, task.ID, unitID)
+					}
+				}
+			}
+		})
+	}
 }

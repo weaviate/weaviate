@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -32,9 +33,11 @@ type fakeStaleCleaner struct {
 	err   error
 }
 
-func (f *fakeStaleCleaner) CleanStalePartialReindexState(_ context.Context, _, _, indexType string) error {
-	f.calls = append(f.calls, indexType)
-	return f.err
+func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexSweep {
+	return func(_ context.Context, _, _, indexType string) error {
+		f.calls = append(f.calls, indexType)
+		return f.err
+	}
 }
 
 // TestCleanStalePartialStateOrFail pins that the pre-submit stale-state scrub
@@ -61,6 +64,18 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			"C", "p", db.ReindexTypeEnableFilterable)
 		code, _ := statusOf(t, resp)
 		require.Equal(t, http.StatusInternalServerError, code)
+	})
+
+	t.Run("a truncated sweep proceeds instead of refusing the submit", func(t *testing.T) {
+		cleaner := &fakeStaleCleaner{
+			err: fmt.Errorf("%w: shards skipped mid-walk: tenant-a", db.ErrCleanupSweepTruncated),
+		}
+		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
+			"C", "p", db.ReindexTypeChangeTokenization)
+		require.Nil(t, resp,
+			"unvisited shards are unverified rather than known stale, so the submit must proceed")
+		require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls,
+			"a truncation on the first index type must not stop the sweep of the second")
 	})
 
 	t.Run("change-tokenization scrubs BOTH searchable and filterable then proceeds", func(t *testing.T) {

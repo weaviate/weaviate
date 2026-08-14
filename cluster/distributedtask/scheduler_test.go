@@ -2213,6 +2213,41 @@ func TestSchedulerTick_UnrecognizedStatusSeriesSurvivesALaterFailingList(t *test
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)))
 }
 
+// The ordinary case, not the edge case: a task in an unrecognized status
+// sits in both the leader-routed list and this node's own FSM at once, so
+// counting it twice would double the gauge and mislabel it as this node's own.
+func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
+	const namespace = "tasks-namespace"
+	wedged := &Task{
+		Namespace:      namespace,
+		TaskDescriptor: TaskDescriptor{ID: "wedged", Version: 7},
+		Status:         unknownFutureStatus,
+	}
+
+	h := newTestHarness(t)
+	h.localTaskInspector = localTaskInspectorStub{namespace: {wedged.Clone()}}
+	h.init(t)
+
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		namespace: {wedged.TaskDescriptor: wedged},
+	}, true)
+
+	var warned string
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
+			warned = e.Message
+		}
+	}
+	require.Equal(t, 1, strings.Count(warned, "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE"),
+		"one task must be named once, not once per list it appears in")
+	require.Contains(t, warned, "1 distributed task(s)",
+		"the count must match the task set, not the number of sightings")
+	require.NotContains(t, warned, "this node only",
+		"a task the leader-routed list still carries is not this node's own leftover")
+	require.Equal(t, 1.0, testutil.ToFloat64(
+		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
+}
+
 // The warn fires for exactly the task set the FSM will not cancel, so an
 // exit that names a cancel sends the operator at a verb every node
 // answers with an error. Both halves are asserted together — what the
@@ -2231,6 +2266,8 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 		"the cancel has to be refused for the advice to be wrong")
 
 	task := h.manager.tasks[ns][id]
+	require.Equal(t, unknownFutureStatus, task.Status,
+		"the cancel has to be refused for the advice to be wrong")
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
 		ns: {task.TaskDescriptor: task},
 	}, true)

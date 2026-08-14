@@ -233,6 +233,10 @@ var (
 	errIndexShutdown = stderrors.New("node is shutting down")
 )
 
+// errShardsSkipped signals a walk that didn't reach every shard the index
+// held when it started — not a close cause, it describes the walk itself.
+var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
+
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -789,6 +793,98 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 	}
 }
 
+// closeCause reports why the index is closing, or nil if still open. It is
+// nil-safe (unlike calling Err on closingCtx directly) and distinguishes a
+// delete from a shutdown; an unsignalled close reads as [errIndexClosed].
+//
+// An Index whose contexts were never wired also reads as open, so
+// [Index.ForEachShard] walks it rather than panicking.
+func (i *Index) closeCause() error {
+	if i.closingCtx == nil || i.closingCtx.Err() == nil {
+		return nil
+	}
+	if i.closeRequestedCtx == nil {
+		return errIndexClosed
+	}
+	if cause := context.Cause(i.closeRequestedCtx); cause != nil {
+		return cause
+	}
+	return errIndexClosed
+}
+
+// closeRequestedCause reports why this index is closing or is about to, or nil
+// if neither. [Index.closeCause] only answers once teardown reaches the index,
+// but a delete first waits on db.indexLock and dropIndex; a walk starting in
+// that window works on a collection already committed for deletion.
+func (i *Index) closeRequestedCause() error {
+	if i.closeRequestedCtx != nil {
+		if cause := context.Cause(i.closeRequestedCtx); cause != nil {
+			return cause
+		}
+	}
+	return i.closeCause()
+}
+
+// forEachShardStrict is [Index.ForEachShard] for callers that must not
+// mistake a walk that skipped shards for one that reached them all.
+//
+// A close is checked both before and after the walk ([Index.closeCause]),
+// since sync.Map.Range can skip an entry removed mid-walk before the close
+// became visible. A removal with no close cause (e.g. one tenant deleted)
+// is instead caught by diffing unvisited names against the shard set
+// captured before the walk, reported as [errShardsSkipped]. A shard added
+// mid-walk is out of scope either way: Range makes no consistent-snapshot
+// guarantee.
+func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
+	if cause := i.closeRequestedCause(); cause != nil {
+		return cause
+	}
+	unvisited := i.shardNameSet()
+	err := i.shards.Range(func(name string, shard ShardLike) error {
+		delete(unvisited, name)
+		return f(name, shard)
+	})
+	if err != nil {
+		return err
+	}
+	if cause := i.closeCause(); cause != nil {
+		return cause
+	}
+	if len(unvisited) > 0 {
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
+	}
+	return nil
+}
+
+// shardNameSet snapshots the shards currently in the map, used to detect
+// shards skipped mid-walk. Paid once per walk rather than shared across
+// walks: sharing would be cheaper, but a tenant dropped between two walks
+// would then read as skipped in the later one, falsely reporting it truncated.
+func (i *Index) shardNameSet() map[string]struct{} {
+	names := map[string]struct{}{}
+	i.shards.Range(func(name string, _ ShardLike) error {
+		names[name] = struct{}{}
+		return nil
+	})
+	return names
+}
+
+// reportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message; the cap itself is reported as an entry so the
+// count of unaccounted shards isn't lost.
+func reportedShardNames(names map[string]struct{}) []string {
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
+	}
+	slices.Sort(sorted)
+	if len(sorted) <= maxReportedErrors {
+		return sorted
+	}
+	return append(sorted[:maxReportedErrors:maxReportedErrors],
+		fmt.Sprintf("(and %d more)", len(sorted)-maxReportedErrors))
+}
+
 // ForEachShard applies func f on each shard in the index.
 //
 // WARNING: only use this if you expect all LazyLoadShards to be loaded!
@@ -798,7 +894,7 @@ func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, fu
 // Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
-	if i.closingCtx.Err() != nil {
+	if i.closeCause() != nil {
 		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
 		return nil
 	}
@@ -820,7 +916,7 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
-	if i.closingCtx.Err() != nil {
+	if i.closeCause() != nil {
 		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
 		return nil
 	}
@@ -901,17 +997,30 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 		}
 	}()
 
+	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		release, ok := pinLoadedShard(shard)
 		if !ok {
 			return nil
 		}
 		releases = append(releases, release)
-		shard.updatePropertyBuckets(ctx, eg, property)
+		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
 		return nil
 	})
 
-	if err := eg.Wait(); err != nil {
+	err := eg.Wait()
+	// Gated on work done, not property shape: every property has some index
+	// type disabled, so gating on shape alone would log a sweep on every
+	// update. This under-reports on purpose: a tracker removed by name match
+	// alone costs no payload read, so an absent line doesn't mean nothing swept.
+	if reads := payloadReads.Load(); reads > 0 {
+		i.logger.WithFields(map[string]any{
+			"property":      property.Name,
+			"index_types":   disabledIndexTypes(property),
+			"payload_reads": reads,
+		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
+	}
+	if err != nil {
 		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
 	}
 

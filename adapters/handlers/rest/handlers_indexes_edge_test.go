@@ -946,10 +946,8 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 	return events[0]
 }
 
-// Pins: a cancel refused at apply time answers the same way the pre-flight
-// would have. The status can flip between the list read and the apply, and
-// the 500 that used to result rendered the sentinel's internal marker into
-// the response body.
+// Pins: a cancel refused at apply time answers with the pre-flight's status
+// code, not a 500 that leaked the sentinel's internal marker.
 func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -957,6 +955,27 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		}, nil)
+
+	// The target still reads STARTED — the pre-flight would not have let the
+	// request reach the apply otherwise — and the apply has just proved it is
+	// not STARTED any more. The raced arm cannot tell which status it moved
+	// to, so it must name none of them.
+	var everyStatus []string
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		everyStatus = append(everyStatus, status.String())
+	}
+	// The coordination-phase advice is wrong on the raced arm for the same
+	// reason: the task may have raced to the very terminal state that advice
+	// tells the operator to wait for. cancelRefusalReason is where it comes
+	// from, so a refactor routing this arm through it must fail here.
+	racedAbsent := append([]string{"wait for it to reach a terminal state"}, everyStatus...)
 
 	for _, tc := range []struct {
 		name      string
@@ -967,6 +986,9 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 		// wantAbsent is text the body must not carry, for the arms
 		// where the obvious wording would be wrong.
 		wantAbsent []string
+		// wantStatusAtRead is the audit line's record of the status the
+		// list read saw, under a name that says it is stale.
+		wantStatusAtRead string
 	}{
 		{
 			// The FSM stamps the on-wire marker into the message, and it
@@ -978,20 +1000,22 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			err: fmt.Errorf("executing command: %w",
 				fmt.Errorf("[dtm-perm/task-not-running] task reindex/T1/1 is no longer running: %w",
 					distributedtask.ErrTaskNotRunning)),
-			wantCode:  http.StatusConflict,
-			wantAudit: "reindex_task_cancel_refused",
-			wantBody:  "changed status between",
-			// The target still reads STARTED — the pre-flight would not
-			// have let the request reach the apply otherwise — and the
-			// apply has just proved it is not STARTED any more. Naming
-			// that status is wrong, and so is the coordination-phase
-			// advice: the task may have raced to a terminal state, which
-			// is the very thing that advice tells the operator to wait
-			// for.
-			wantAbsent: []string{
-				string(distributedtask.TaskStatusStarted),
-				"wait for it to reach a terminal state",
-			},
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
+		},
+		{
+			// Same arm reached by a sentinel no marker was stamped on, since
+			// the switch classifies on errors.Is alone.
+			name:             "task is no longer running, unmarked",
+			err:              fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
 		},
 		{
 			name: "task does not exist",
@@ -1031,6 +1055,10 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 				return
 			}
 			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
+			if tc.wantStatusAtRead != "" {
+				require.Equal(t, tc.wantStatusAtRead, hook.LastEntry().Data["status_at_read"],
+					"the audit line keeps the status the read saw, under a name that says it is stale")
+			}
 		})
 	}
 }
