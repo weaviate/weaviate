@@ -287,9 +287,12 @@ func cleanStaleMigrationDirsIn(scope migrationDirScope, logger logrus.FieldLogge
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
 			// Debug, not Info: this runs once per preserved generation inside the
-			// RAFT apply loop (updatePropertyBuckets → cleanStaleMigrationDirs), and
-			// the aggregate line on that call path already carries the per-dir count
-			// on its own fields, so nothing operator-facing is lost.
+			// RAFT apply loop (updatePropertyBuckets → cleanStaleMigrationDirs),
+			// so on a multi-tenant collection the line count follows tenant
+			// count. Preserving a dir is the expected outcome of a deferred
+			// finalize, not something to tell an operator once per tenant. The
+			// aggregate line on that call path counts payload reads, not
+			// preserved dirs, so it does not report this on their behalf.
 			logger.WithField("path", filepath.Join(migrationsRoot, name)).
 				WithField("gen", gen).
 				Debug("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
