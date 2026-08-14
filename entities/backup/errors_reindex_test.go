@@ -34,7 +34,7 @@ var reindexSentinels = []struct {
 	},
 	{
 		name: "commit-time overlap observed",
-		err:  ErrBackupSpannedReindex,
+		err:  ErrReindexOverlappedBackup,
 		text: "backup blocked: a runtime-reindex overlapped this backup",
 	},
 	{
@@ -51,7 +51,7 @@ func TestReindexOverlapUndeterminedWording(t *testing.T) {
 	msg := ErrReindexOverlapUndetermined.Error()
 	assert.NotContains(t, msg, "overlapped this backup")
 	assert.NotContains(t, msg, "in flight")
-	assert.Contains(t, ErrBackupSpannedReindex.Error(), "overlapped this backup")
+	assert.Contains(t, ErrReindexOverlappedBackup.Error(), "overlapped this backup")
 }
 
 func TestReindexSentinelTexts(t *testing.T) {

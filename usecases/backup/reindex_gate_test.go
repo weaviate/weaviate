@@ -279,7 +279,7 @@ func TestIsReindexBackupFailure(t *testing.T) {
 	}{
 		{
 			name: "an overlap the commit-time check observed",
-			err:  fmt.Errorf("%w: x", backup.ErrBackupSpannedReindex),
+			err:  fmt.Errorf("%w: x", backup.ErrReindexOverlappedBackup),
 			want: true,
 		},
 		{
@@ -288,9 +288,7 @@ func TestIsReindexBackupFailure(t *testing.T) {
 			want: true,
 		},
 		{
-			// The check reaches the task manager over RAFT, so its own cause
-			// can wrap a cancellation. That must not read as somebody
-			// stopping the backup.
+			// A cancellation wrapped by a refusal is not an operator abort.
 			name: "an unanswerable check whose cause was cancelled",
 			err: fmt.Errorf("%w: %w",
 				backup.ErrReindexOverlapUndetermined, context.Canceled),

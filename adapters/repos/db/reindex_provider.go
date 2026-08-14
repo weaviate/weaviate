@@ -296,7 +296,9 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// A worker registers before its first report moves a unit out of PENDING.
+// HasActiveWorker reports whether this node is still running the task.
+// runningHandles is the load-bearing half: StartTask registers it before any
+// unit goroutine starts. activeWorkers only covers semantic migrations.
 func (p *ReindexProvider) HasActiveWorker(desc distributedtask.TaskDescriptor) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

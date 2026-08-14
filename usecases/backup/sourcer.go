@@ -30,6 +30,8 @@ type Sourcer interface { // implemented by the index
 
 	RefuseIfAnyReindexInFlight(_ context.Context, classes []string) error
 
+	// RefuseIfReindexOverlapped fails a finished capture that a runtime-reindex
+	// rewrote. since is when the capture started, not the commit instant.
 	RefuseIfReindexOverlapped(_ context.Context, classes []string, since time.Time) error
 
 	// BackupDescriptors returns a channel of class descriptors.

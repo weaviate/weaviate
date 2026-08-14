@@ -289,7 +289,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = publishableFailure(err, nil)
+		desc.Error = failureMessageForStatus(err, nil)
 
 		// Handle error cases
 		cancelled := publishAsCancelled(err, ctx.Err())
@@ -302,18 +302,17 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		metaFault := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
-		if metaFault != nil {
+		metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath)
+		if metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
-			err = fmt.Errorf("upload %w: %w", err, metaFault)
+			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		// After the meta write, which has to carry the reason by the time a
-		// poll can see FAILED. err is published rather than desc.Error, which
-		// was fixed before the write and so says nothing when the write is
-		// what failed.
+		// Published after the meta write, so a poll that can see FAILED also
+		// has the reason. Built from err, not desc.Error: desc.Error was fixed
+		// before the write and says nothing when the write is what failed.
 		if !cancelled {
-			u.slot.setFailed(publishableFailure(err, metaFault))
+			u.slot.setFailed(failureMessageForStatus(err, metaErr))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -400,14 +399,15 @@ func nonEmptyErrMsg(err error) string {
 	return failureWithoutReason
 }
 
-// The gate's own redacted text, with the write fault beside the refusal.
-func publishableFailure(err, metaFault error) string {
+// failureMessageForStatus is what a status poll serves: a reindex refusal
+// redacted, anything else verbatim, with a metadata write fault appended.
+func failureMessageForStatus(err, metaErr error) string {
 	var blocked backup.ReindexBlockedError
 	if !errors.As(err, &blocked) || blocked.Msg == "" {
 		return nonEmptyErrMsg(err)
 	}
-	if metaFault != nil {
-		return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", blocked.Msg, metaFault)
+	if metaErr != nil {
+		return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", blocked.Msg, metaErr)
 	}
 	return blocked.Msg
 }

@@ -23,10 +23,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestBackupFailsWhenAMigrationRanThroughItsCapture proves the
-// commit-time backstop end to end: a migration submitted after the
-// per-shard gate has already admitted the capture is invisible to that
-// gate, and the backup must not be published.
+// TestBackupFailsWhenAMigrationRanThroughItsCapture proves the commit-time
+// check end to end: a migration submitted after the per-shard gate has
+// already admitted the capture is invisible to that gate, and the backup
+// must not be published.
 func TestBackupFailsWhenAMigrationRanThroughItsCapture(t *testing.T) {
 	ctx := context.Background()
 
@@ -66,8 +66,8 @@ func TestBackupFailsWhenAMigrationRanThroughItsCapture(t *testing.T) {
 		"the status API must not name a shard; got: %s", reason)
 }
 
-// TestBackupSucceedsWhenNoMigrationTouchesTheCapture is the negative
-// half. Without it the test above passes on a backstop that fails
+// TestBackupSucceedsWhenNoMigrationTouchesTheCapture is the negative half.
+// Without it the test above passes on a commit-time check that fails
 // everything.
 func TestBackupSucceedsWhenNoMigrationTouchesTheCapture(t *testing.T) {
 	ctx := context.Background()
