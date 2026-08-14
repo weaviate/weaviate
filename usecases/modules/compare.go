@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -131,6 +132,62 @@ func renderSourceValue(v any) string {
 		}
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// asStringSlice normalizes a text[] value to []string: it can be []any after a JSON/RAFT
+// round-trip, and nil means empty. False means the shape is not a renderable text[].
+func asStringSlice(v any) ([]string, bool) {
+	switch val := v.(type) {
+	case nil:
+		return nil, true
+	case []string:
+		return val, true
+	case []any:
+		out := make([]string, len(val))
+		for i := range val {
+			s, ok := val[i].(string)
+			if !ok {
+				return nil, false
+			}
+			out[i] = s
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// hasComparableDynamicType reports whether v holds a dynamic type == compares without
+// panicking. The list is a fast path, not the correctness boundary.
+func hasComparableDynamicType(v any) bool {
+	switch v.(type) {
+	case nil, string, bool, int, int32, int64, float32, float64, json.Number, time.Time:
+		return true
+	default:
+		return false
+	}
+}
+
+// sourceValuesEqual compares scalar values without the panic a bare == raises when both
+// interfaces hold the same uncomparable type (slice/map), as object/object[] media
+// properties reaching this branch can. Tiers: type-switch fast path, reflect only when
+// both sides are slice/map-shaped, same-type uncomparable pairs by renderSourceValue key.
+func sourceValuesEqual(a, b any) bool {
+	if hasComparableDynamicType(a) || hasComparableDynamicType(b) {
+		// At least one dynamic type is comparable, so the two are either identical and
+		// comparable or simply different types: == cannot panic either way.
+		return a == b
+	}
+	// Both sides are uncomparable-suspect; == panics only when the dynamic types are
+	// identical and uncomparable, so establish that first.
+	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
+	if ta != tb {
+		return false
+	}
+	if ta.Comparable() {
+		return a == b
+	}
+	return renderSourceValue(a) == renderSourceValue(b)
 }
 
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
@@ -277,20 +334,19 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if propStruct.IsArray {
-			// empty strings do not have type information saved with them - the new value can also come from disk if
-			// an update happens
-			if _, ok := valOld.([]any); ok && len(valOld.([]any)) == 0 {
-				valOld = []string{}
-			}
-			if _, ok := valNew.([]any); ok && len(valNew.([]any)) == 0 {
-				valNew = []string{}
-			}
-
-			if len(valOld.([]string)) != len(valNew.([]string)) {
+			// Either side can be []any after a JSON/RAFT round-trip; normalize instead
+			// of asserting []string, which panicked and surfaced as a 500.
+			oldArr, oldOK := asStringSlice(valOld)
+			newArr, newOK := asStringSlice(valNew)
+			if !oldOK || !newOK {
+				// Unknown shape: cannot prove the corpus text unchanged - re-vectorize.
 				return true, nil
 			}
-			for i, val := range valOld.([]string) {
-				if val != valNew.([]string)[i] {
+			if len(oldArr) != len(newArr) {
+				return true, nil
+			}
+			for i, val := range oldArr {
+				if val != newArr[i] {
 					return true, nil
 				}
 			}
@@ -305,7 +361,7 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 					}
 				}
 			}
-			if valOld != valNew {
+			if !sourceValuesEqual(valOld, valNew) {
 				return true, nil
 			}
 		}
