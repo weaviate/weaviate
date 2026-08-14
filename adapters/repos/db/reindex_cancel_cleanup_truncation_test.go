@@ -172,6 +172,21 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			wantShardNamed: true,
 		},
 		{
+			// The same collision with nothing left unvisited, so Failed stands
+			// on its own here: the run's clock ran out, and the sweep still has
+			// to report a broken shard rather than a run out of time. A full
+			// disk fails every tenant at once and the run is out of time by the
+			// time it reaches one of them.
+			name:           "the only shard breaks for its own reason as the abort lands",
+			shards:         []string{"shard-a"},
+			cancelOnCall:   1,
+			staleOnDisk:    true,
+			wantErr:        true,
+			wantTruncated:  false,
+			wantShardErr:   true,
+			wantShardNamed: true,
+		},
+		{
 			// The abort IS why this shard was not swept, so it is one the run
 			// never finished rather than one it found broken. Tagging it failed
 			// would report confirmed state on a shard nothing looked at, at the
@@ -330,6 +345,8 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 					"a shard the sweep reached and could not sweep has to be tagged as one, "+
 						"or a caller that asks only about the delete reports state as gone "+
 						"while that shard's is still on disk")
+				require.Contains(t, err.Error(), "memory pressure",
+					"the reason the shard broke is what the operator acts on")
 			} else {
 				require.NotErrorIs(t, err, ErrCleanupShardFailed,
 					"no shard was reached and failed, so nothing was left on one")
