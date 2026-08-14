@@ -106,8 +106,8 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 }
 
 // AddReplicaToShard loads the shard the schema now lists this node as a replica
-// of. No replica movement accompanies it, so a namespace that keeps its shards
-// closed keeps this one closed too.
+// of. No replica movement accompanies it, and only a namespace being deleted
+// leaves the shard closed.
 func (e *executor) AddReplicaToShard(class string, shard string, targetNode string) error {
 	if err := e.requireShardReplica(class, shard, targetNode); err != nil {
 		return err

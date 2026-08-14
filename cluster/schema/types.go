@@ -42,7 +42,7 @@ type Indexer interface {
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	// AddReplicaToShard materializes a replica the schema just assigned to this
 	// node, with no replica movement under way. Success does not guarantee a
-	// local shard: a namespace that keeps no shards open opens none.
+	// local shard: a namespace being deleted opens none.
 	AddReplicaToShard(class, shard, targetNode string) error
 	// AddReplicaToShardForMovement materializes a movement's target shard, which
 	// a suspended namespace still admits.

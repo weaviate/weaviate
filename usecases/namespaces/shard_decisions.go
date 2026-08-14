@@ -39,9 +39,10 @@ func ShardsShouldBeOpen(state cmd.NamespaceState) bool {
 // AppliedChangeMayOpenShard reports whether an apply whose schema half has
 // already committed may open the shard it just recorded. A suspended namespace
 // allows it even though it holds no shards open: the schema now names a shard
-// this node owns, and these applies land once and are never re-sent, so one left
-// closed is one nothing opens again. Deleting refuses, since that namespace's
-// data is being removed.
+// this node owns, and a read that finds none answers "shard not found" until a
+// write or a restart under an active namespace registers one. Reclaiming the
+// shard falls to a sweep, which unloads what a suspended namespace should not
+// hold open. Deleting refuses, since that namespace's data is being removed.
 func AppliedChangeMayOpenShard(state cmd.NamespaceState) bool {
 	switch state {
 	case cmd.NamespaceStateActive:

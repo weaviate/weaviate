@@ -3193,9 +3193,9 @@ func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, m
 }
 
 // loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
-// has already committed. A namespace that keeps no shards open loads none and
-// returns nil rather than erroring. The schema change stands either way, and the
-// shard is materialized by whatever next loads it. A state that cannot be read
+// has already committed. A namespace whose state refuses this caller loads none
+// and returns nil rather than erroring. The schema change stands either way, and
+// the shard is materialized by whatever next loads it. A state that cannot be read
 // still errors.
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
 	caller shardLoadCaller, change string,
