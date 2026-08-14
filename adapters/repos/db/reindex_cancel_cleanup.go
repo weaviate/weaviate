@@ -390,16 +390,14 @@ type dirNamesCache struct {
 	props taskPropsCache
 }
 
-// trackerProps is the payload memo that shares this cache's lifetime. It lives
-// here rather than being threaded on its own so the two can no longer differ
-// in how long they last: every tuple of one cleanup run asks the same unloaded
-// shards, and a tracker payload costs orders of magnitude more to parse than a
-// directory listing costs to read.
+// trackerProps is the payload memo sharing this cache's lifetime, so the two
+// can never drift apart: every tuple of one run asks the same unloaded shards,
+// and a payload costs orders of magnitude more to parse than a listing costs
+// to read.
 //
-// Carrying it across the tuples of one run is safe in both directions: a shard
-// the gate skipped is unchanged, and one it hydrated answers from
-// [LazyLoadShard.loaded] before it consults the memo again. A nil cache has no
-// memo, and its callers keep one per call instead.
+// Safe across tuples in both directions: a skipped shard is unchanged, and a
+// hydrated one answers from [LazyLoadShard.loaded] before it consults the
+// memo again. A nil cache has no memo; its callers keep one per call instead.
 func (c *dirNamesCache) trackerProps() *taskPropsCache {
 	if c == nil {
 		return nil

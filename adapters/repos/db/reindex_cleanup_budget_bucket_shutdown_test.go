@@ -24,18 +24,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// sweepStoppedInABucketShutdown runs sweep against a shard holding one
-// cancelled attempt's sidecar bucket, and cancels the sweep's context while it
-// is inside that bucket's shutdown. It returns the log the index wrote and what
-// the sweep reported.
+// sweepStoppedInABucketShutdown cancels the sweep's context while a shard's
+// sweep is inside a cancelled attempt's sidecar-bucket shutdown, and returns
+// the log the index wrote and what the sweep reported.
 //
-// The bucket is deregistered before its shutdown drains its in-flight reads, so
-// "gone from the store" is the point where the sweep is known to be inside the
-// shutdown and past the check at the top of its turn. A read pin holds it there
-// until the cancel lands, which is what makes the cancellation reach the
-// shutdown every run rather than most runs. The drain itself ignores the
-// context: cancelling only takes effect once the pin is released and the
-// shutdown reaches its first wait.
+// The bucket is deregistered before its shutdown drains its in-flight reads,
+// so its absence from the store means the sweep is inside the shutdown, past
+// the check at the top of its turn. A read pin holds it there until cancel
+// lands. The drain ignores the context: cancelling only takes effect once the
+// pin releases and the shutdown reaches its first wait.
 func sweepStoppedInABucketShutdown(t *testing.T,
 	sweep func(ctx context.Context, idx *Index, shard *Shard) error,
 ) (*logrustest.Hook, error) {

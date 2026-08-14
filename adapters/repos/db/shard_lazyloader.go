@@ -1102,7 +1102,7 @@ func (l *LazyLoadShard) blockLoading() func() {
 // sweep racing an index shutdown then comes back truncated from
 // [Index.forEachShardStrict] rather than as a walk that reached every shard.
 //
-// The second return is how many tracker payloads THIS call had to read, for
+// The second return is how many tracker payloads this call had to read, for
 // the caller's log; a loaded shard reads none, and so does a shard a previous
 // tuple of the same run already answered from props.
 func (l *LazyLoadShard) canSkipUnloadedSweep(

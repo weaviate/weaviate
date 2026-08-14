@@ -486,12 +486,10 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 // taskPropsCache memoizes parsed tracker payloads; a nil cache reads every
 // time. Not safe for concurrent use.
 //
-// Its lifetime is one cleanup pass ([Shard.CleanStalePartialReindexState],
-// [cleanStaleMigrationDirsIn]), or one whole run of the unloaded-shard gate
-// over a grid of tuples ([dirNamesCache.trackerProps]). What it must never
-// outlive is a sweep that changes the disk under it: the gate only reads, and
-// stops consulting a memo for any shard it hydrates, so
-// [DB.NewStalePartialReindexSweep] still never acts on a stale snapshot.
+// Lives no longer than one cleanup pass, or one gate run over a tuple grid
+// ([dirNamesCache.trackerProps]): a hydrated shard stops consulting the memo,
+// so it never drives a sweep decision off a stale snapshot
+// ([DB.NewStalePartialReindexSweep]).
 type taskPropsCache struct {
 	byDir map[string]taskProps
 	reads int
@@ -543,13 +541,11 @@ func (c *taskPropsCache) count() int {
 // apply that holds the FSM loop cluster-wide.
 //
 // A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
-// reads the same as one that could not be parsed. That answer costs a
-// hydration and a tracker dir left on disk, never a wrong one: deletion drops
-// back to matching the dir's own name, which removes a tracker only where the
-// name proves it names this property alone and otherwise leaves it for the
-// stale-sentinel check to refuse loudly; preservation matches on a name token,
-// so it keeps more; and the unloaded-shard gate hydrates the shard instead of
-// skipping it.
+// reads the same as one that could not be parsed: fail-open, never
+// fail-wrong. Deletion falls back to matching the dir's own name (removing
+// only what the name proves, else leaving it for the stale-sentinel check to
+// refuse loudly); preservation matches on a name token and so keeps more;
+// the unloaded-shard gate hydrates the shard instead of skipping it.
 //
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.

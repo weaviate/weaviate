@@ -291,15 +291,13 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// maxRecoveryPayloadBytes is the parse bound [readTaskProps] applies. A task's
-// payload names every tenant it targets, so a large multi-tenant migration
-// writes megabytes, and encoding/json lexes every byte of them to reach the one
-// field the cleanup probes want. Those probes run inside the RAFT apply of a
-// property DELETE, once per loaded shard, holding the FSM loop cluster-wide.
+// maxRecoveryPayloadBytes bounds what [readTaskProps] parses. A payload names
+// every targeted tenant, so a large multi-tenant migration reaches megabytes,
+// and the cleanup probes that want one field from it run inside the RAFT
+// apply of a property DELETE, holding the FSM loop cluster-wide.
 //
-// A payload over the bound is refused rather than parsed, which reads as
-// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what its callers then
-// conclude.
+// A payload over the bound is refused, not parsed, and reads as
+// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers conclude.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
 // unboundedRecoveryPayload parses a payload of any size.

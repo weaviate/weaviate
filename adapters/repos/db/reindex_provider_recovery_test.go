@@ -250,10 +250,7 @@ func TestHasUntidiedTracker(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
 			if tc.unlistable {
-				// A file where .migrations belongs reads as unlistable for
-				// any user, which chmod 0 does not manage when the tests
-				// run as root. The row's trackers are empty, so there is no
-				// tracker content this substitution could hide.
+				// See unlistable above for why a file, not chmod.
 				require.NoError(t,
 					os.WriteFile(filepath.Join(tmp, ".migrations"), []byte("x"), 0o644))
 			} else if tc.trackers != nil {

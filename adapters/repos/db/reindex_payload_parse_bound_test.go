@@ -223,9 +223,8 @@ func TestOversizedTrackerPayloadMakesTheUnloadedGateHydrate(t *testing.T) {
 	}
 }
 
-// TestStaleMigrationDirCleanupStopsOnCancelledContext pins that the walk this
-// change threads a context into actually reads it: a doomed apply parses no
-// further tracker payloads and removes nothing.
+// TestStaleMigrationDirCleanupStopsOnCancelledContext pins that a cancelled
+// walk parses no further tracker payloads and removes nothing.
 func TestStaleMigrationDirCleanupStopsOnCancelledContext(t *testing.T) {
 	lsm := t.TempDir()
 	name := ambiguousTrackerAt(t, lsm, 1,

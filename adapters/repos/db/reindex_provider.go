@@ -1039,10 +1039,9 @@ type reindexRecoveryRecord struct {
 }
 
 // selectedPropsFailures counts the units whose property list could not be
-// recorded, so the task warns once instead of once per unit. The write is
-// best-effort and its usual causes — a full, read-only or failing disk —
-// fail on every unit alike, and a multi-tenant collection has one unit per
-// tenant, so warning at the failure site scales the log with tenant count.
+// recorded, so the task warns once instead of once per unit: the usual
+// cause (a full or read-only disk) fails every unit alike, and a
+// multi-tenant collection has one unit per tenant.
 //
 // Safe for concurrent use: units run in parallel under [processUnits].
 type selectedPropsFailures struct {

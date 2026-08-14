@@ -24,12 +24,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The selected-props write is best-effort: persistRecoveryRecord logs and
-// carries on so one unwritable shard does not fail the task. The cause is
-// usually the disk, which fails the write on every unit alike, and
-// persistRecoveryRecord runs once per unit — one shard per tenant on a
-// multi-tenant collection. Warning per unit therefore puts one line per
-// tenant in the log. Count the failures and warn once for the task.
+// TestPersistRecoveryRecordDoesNotWarnPerUnit pins that a selected-props
+// write failure repeating on every unit produces one warning for the task,
+// not one per unit (see [selectedPropsFailures]).
 func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 	ctx := testCtx()
 	className := "PropsWarnVolume" + uuid.NewString()[:8]
@@ -63,10 +60,9 @@ func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 	// The first call creates the migration dirs and writes the sidecars.
 	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks, failures))
 
-	// Take the sidecar away and make its directory unwritable, so every later
-	// call fails the write the way a full or read-only disk does. The recovery
-	// payload beside it is already on disk with identical content, so that
-	// half still succeeds and the failure is isolated to the props write.
+	// Removing the sidecar and making its dir unwritable fails only the props
+	// write: the recovery payload, already on disk with identical content,
+	// still writes fine.
 	for _, task := range tasks {
 		migDir := filepath.Join(lsm, ".migrations", task.MigrationDirName())
 		require.FileExists(t, filepath.Join(migDir, "properties.mig"),

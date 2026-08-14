@@ -594,9 +594,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				require.NoError(t, os.Chmod(denied, 0o000))
 			}
 			if tc.unreadablePayloadTracker != "" {
-				// A directory where the payload belongs reads as unreadable
-				// for any user, which chmod 0 does not manage when the
-				// tests run as root.
+				// See unreadablePayloadTracker above for why a dir, not chmod.
 				require.NoError(t, os.MkdirAll(filepath.Join(
 					lsm, ".migrations", tc.unreadablePayloadTracker, reindexRecoveryPayloadFile),
 					0o755))

@@ -133,10 +133,9 @@ func disabledFilterableProp() *models.Property {
 	}
 }
 
-// TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads pins that one property
-// DELETE parses each tracker payload once per shard, not once per disabled
-// index type, and that what it read reaches the operator once per class, summed
-// over shards. The parse costs megabytes per tracker, inside the RAFT apply.
+// TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads pins that a property
+// DELETE parses each tracker payload once per shard, however many index types
+// it disables, and reports the summed count once per class.
 //
 // Two shards, so no single shard's count can pass for the aggregate.
 func TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads(t *testing.T) {
@@ -168,7 +167,7 @@ func TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads(t *testing.T) {
 	require.Equal(t, []string{"filterable", "rangeable"}, indexTypes)
 
 	// One memo per index type is what one shard's DELETE cost before they
-	// shared one, against the one memo it sweeps with now.
+	// shared one.
 	logger, _ := test.NewNullLogger()
 	unsharedLSM := writeSweepMemoFixtures(t)
 	unshared := 0
