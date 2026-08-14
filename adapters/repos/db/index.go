@@ -3153,7 +3153,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 // refused at IncomingStartChangeCapture and waits for the namespace, while one
 // past that drains its source through getLoadedShard and finishes.
 func (i *Index) LoadLocalShardForMovement(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerReplication)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerMovement)
 }
 
 // LoadLocalShardForNewReplica loads a shard for the apply that records this node
@@ -3161,7 +3161,7 @@ func (i *Index) LoadLocalShardForMovement(ctx context.Context, shardName string)
 // being deleted skips it, and that skip returns nil: the apply lands once and is
 // never re-sent, so erroring reports a failure nothing acts on.
 func (i *Index) LoadLocalShardForNewReplica(ctx context.Context, shardName string) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerReplicaAdd, "replica added")
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerNewReplica, "replica added")
 }
 
 // LoadLocalShardForTenantAdd loads a shard for the apply that records a new HOT
@@ -3334,7 +3334,7 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 func (i *Index) getOrInitShardForReplication(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, true, callerReplication)
+	return i.getOptInitLocalShard(ctx, shardName, true, callerMovement)
 }
 
 // getLoadedShard returns the shard only if it is already loaded, never

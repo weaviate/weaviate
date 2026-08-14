@@ -55,12 +55,12 @@ const (
 	// refused for a namespace that keeps no shards open, so a stale reopen cannot
 	// revive a suspended one.
 	callerResume
-	// callerReplication is a replica movement loading its target shard.
+	// callerMovement is a replica movement loading its target shard.
 	// Suspending or resuming must not fail a movement already under way.
-	callerReplication
-	// callerReplicaAdd is the apply that records this node as a replica of a
+	callerMovement
+	// callerNewReplica is the apply that records this node as a replica of a
 	// shard, with no movement under way.
-	callerReplicaAdd
+	callerNewReplica
 	// callerTenantProcess is the apply that records a finished offload or onload.
 	callerTenantProcess
 	// callerTenantAdd is the apply that records a new HOT tenant.
@@ -197,14 +197,14 @@ func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 			return errShardNamespaceClosed
 		}
 		return nil
-	case callerReplicaAdd, callerTenantProcess, callerTenantAdd, callerTenantActivation:
+	case callerNewReplica, callerTenantProcess, callerTenantAdd, callerTenantActivation:
 		// Each records a shard this node owns before it opens it, so
 		// AppliedChangeMayOpenShard says why a suspended namespace opens it.
 		if !namespaces.AppliedChangeMayOpenShard(state) {
 			return errShardNamespaceClosed
 		}
 		return nil
-	case callerReplication:
+	case callerMovement:
 		return namespaces.AdmitReplicationTarget(state)
 	}
 	return errUnknownShardLoadCaller
