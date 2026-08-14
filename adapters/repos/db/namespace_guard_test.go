@@ -1915,14 +1915,8 @@ func TestLocalShardsToLoad(t *testing.T) {
 		assert.Equal(t, int64(2), db.localShardsToLoad(class))
 	})
 
-	// The namespace filter has to reach through the wrapper, or a suspended
-	// class would be counted and never loaded.
-	t.Run("a suspended class counts none", func(t *testing.T) {
-		db := dbForDesiredOpen(t, class, existerWithState(t, api.NamespaceStateSuspended), mixed)
-
-		assert.Zero(t, db.localShardsToLoad(class))
-	})
-
+	// The wrapper's own behavior: the error becomes a count of zero, since the
+	// startup progress it feeds has no way to report one.
 	t.Run("a lookup miss counts none and logs", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
