@@ -483,13 +483,15 @@ func (s migrationDirScope) taskProperties(name string) (props []string, ok, unre
 	return answer.props, answer.ok, answer.unreadable
 }
 
-// taskPropsCache memoizes parsed tracker payloads for one cleanup pass
-// ([Shard.CleanStalePartialReindexState], [cleanStaleMigrationDirsIn]) or
-// one unloaded-shard gate call ([hasStalePartialReindexState]); a nil cache
-// reads every time. Not safe for concurrent use.
+// taskPropsCache memoizes parsed tracker payloads; a nil cache reads every
+// time. Not safe for concurrent use.
 //
-// Anything longer-lived would let a hydrated shard's sweep act on a stale
-// snapshot, which [DB.NewStalePartialReindexSweep] promises it never does.
+// Its lifetime is one cleanup pass ([Shard.CleanStalePartialReindexState],
+// [cleanStaleMigrationDirsIn]), or one whole run of the unloaded-shard gate
+// over a grid of tuples ([dirNamesCache.trackerProps]). What it must never
+// outlive is a sweep that changes the disk under it: the gate only reads, and
+// stops consulting a memo for any shard it hydrates, so
+// [DB.NewStalePartialReindexSweep] still never acts on a stale snapshot.
 type taskPropsCache struct {
 	byDir map[string]taskProps
 	reads int

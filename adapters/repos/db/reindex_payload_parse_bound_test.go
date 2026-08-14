@@ -151,11 +151,11 @@ func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 	unambiguous := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{"cat"}) + genSuffix(1)
 
 	tests := []struct {
-		name       string
-		dirName    string
-		propName   string
-		tenants    int
-		wantSurvit bool
+		name         string
+		dirName      string
+		propName     string
+		tenants      int
+		wantSurvives bool
 	}{
 		{
 			name:     "name settles it: deleted whatever the payload weighs",
@@ -170,11 +170,11 @@ func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 			tenants:  payloadTenantsUnderBound,
 		},
 		{
-			name:       "payload settles it and is refused: left for the stale-sentinel check",
-			dirName:    ambiguous,
-			propName:   "a",
-			tenants:    payloadTenantsOverBound,
-			wantSurvit: true,
+			name:         "payload settles it and is refused: left for the stale-sentinel check",
+			dirName:      ambiguous,
+			propName:     "a",
+			tenants:      payloadTenantsOverBound,
+			wantSurvives: true,
 		},
 	}
 	for _, tc := range tests {
@@ -187,7 +187,7 @@ func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, "filterable", logger, &taskPropsCache{})
 
 			dir := filepath.Join(lsm, ".migrations", tc.dirName)
-			if tc.wantSurvit {
+			if tc.wantSurvives {
 				require.DirExists(t, dir)
 				return
 			}
@@ -217,7 +217,7 @@ func TestOversizedTrackerPayloadMakesTheUnloadedGateHydrate(t *testing.T) {
 			writeTrackerWithPayload(t, lsm, dirName,
 				tenantScalePayload(t, []string{"a_b"}, tc.tenants))
 
-			stale, _, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil)
+			stale, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil)
 			require.Equal(t, tc.wantStale, stale)
 		})
 	}
@@ -293,20 +293,76 @@ var (
 
 // BenchmarkUnloadedSweepGateAcrossTuples measures the unloaded-shard gate over
 // that grid: each shard's tracker payload is either parsed once for the run or
-// once per tuple.
+// once per tuple. The payloads fit under the parse bound, so what the two arms
+// differ by is the memo, not the refusal.
 func BenchmarkUnloadedSweepGateAcrossTuples(b *testing.B) {
-	lsmPaths, payloadBytes := coldShardTree(b, 20, 10_000)
-	b.SetBytes(int64(payloadBytes * len(lsmPaths)))
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		dirs := &dirNamesCache{}
-		for _, indexType := range sweepTupleIndexTypes {
-			for _, propName := range sweepTupleProps {
-				for _, lsm := range lsmPaths {
-					hasStalePartialReindexState(lsm, propName, indexType, dirs)
+	lsmPaths, payloadBytes := coldShardTree(b, 20, payloadTenantsUnderBound)
+	for _, shareMemo := range []bool{false, true} {
+		name := "memo-per-tuple"
+		if shareMemo {
+			name = "memo-per-run"
+		}
+		b.Run(name, func(b *testing.B) {
+			b.SetBytes(int64(payloadBytes * len(lsmPaths)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				dirs := &dirNamesCache{}
+				for _, indexType := range sweepTupleIndexTypes {
+					for _, propName := range sweepTupleProps {
+						props := dirs.trackerProps()
+						if !shareMemo {
+							props = nil
+						}
+						for _, lsm := range lsmPaths {
+							hasStalePartialReindexState(lsm, propName, indexType, dirs, props)
+						}
+					}
 				}
+			}
+		})
+	}
+}
+
+// TestUnloadedSweepGateReadsEachShardsPayloadOncePerRun counts the payload
+// parses one terminal cleanup's tuple grid costs. The tuples all ask the same
+// cold shards, so the run pays per shard, not per shard per tuple.
+func TestUnloadedSweepGateReadsEachShardsPayloadOncePerRun(t *testing.T) {
+	const shards = 3
+	lsmPaths, _ := coldShardTree(t, shards, payloadTenantsUnderBound)
+
+	// How many tuples of the grid have to open a payload at all — the rest are
+	// settled by the tracker's name, and would read nothing however the memo is
+	// scoped. Without this, a memo that simply stopped reading would pass too.
+	readingTuples := 0
+	for _, propName := range sweepTupleProps {
+		props := &taskPropsCache{}
+		hasStalePartialReindexState(lsmPaths[0], propName, sweepTupleIndexTypes[0], nil, props)
+		if props.count() > 0 {
+			readingTuples++
+		}
+	}
+	require.Greater(t, readingTuples, 1,
+		"the grid must hold more than one tuple that reads, or there is nothing to share")
+
+	perTuple := 0
+	unshared, shared := &dirNamesCache{}, &dirNamesCache{}
+	for _, indexType := range sweepTupleIndexTypes {
+		for _, propName := range sweepTupleProps {
+			for _, lsm := range lsmPaths {
+				// A memo per gate call is what the run cost before one was
+				// threaded through it.
+				own := &taskPropsCache{}
+				hasStalePartialReindexState(lsm, propName, indexType, unshared, own)
+				perTuple += own.count()
+
+				hasStalePartialReindexState(lsm, propName, indexType, shared, shared.trackerProps())
 			}
 		}
 	}
+
+	require.Equal(t, shards*readingTuples, perTuple,
+		"a memo per gate call re-reads every shard's payload for every tuple that asks")
+	require.Equal(t, shards, shared.trackerProps().count(),
+		"a memo per run reads each shard's payload once, whatever the grid asks")
 }
