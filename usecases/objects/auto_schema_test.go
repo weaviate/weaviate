@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
@@ -815,9 +816,15 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, getProperty(class.Properties, "numberArray"))
 	assert.Equal(t, "numberArray", getProperty(class.Properties, "numberArray").Name)
 	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
-	assert.Equal(t, "hnsw", class.VectorIndexType)
-	assert.Equal(t, "none", class.Vectorizer)
-	assert.NotNil(t, class.VectorIndexConfig)
+	assert.Empty(t, class.VectorIndexType)
+	assert.Empty(t, class.Vectorizer)
+	assert.Nil(t, class.VectorIndexConfig)
+	require.Len(t, class.VectorConfig, 1)
+	defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+	require.True(t, ok)
+	assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
+	assert.Equal(t, "hnsw", defaultVector.VectorIndexType)
+	assert.NotNil(t, defaultVector.VectorIndexConfig)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {

@@ -150,9 +150,19 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	class.VectorIndexConfig = hnsw.UserConfig{}
-	class.VectorIndexType = "hnsw"
-	class.Vectorizer = "none"
+	// mimic the parts of (*schema.Handler).setClassDefaults that callers care about
+	if len(class.VectorConfig) == 0 {
+		class.VectorIndexConfig = hnsw.UserConfig{}
+		class.VectorIndexType = "hnsw"
+		class.Vectorizer = "none"
+	}
+	for targetVector, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			vectorConfig.VectorIndexType = "hnsw"
+			vectorConfig.VectorIndexConfig = hnsw.UserConfig{}
+			class.VectorConfig[targetVector] = vectorConfig
+		}
+	}
 	classes := f.GetSchemaResponse.Objects.Classes
 	if classes != nil {
 		classes = append(classes, class)
