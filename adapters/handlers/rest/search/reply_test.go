@@ -179,6 +179,43 @@ func TestBuildResponseMetadataOnlyWhenRequested(t *testing.T) {
 	assert.Nil(t, metadata.LastUpdateTime)
 }
 
+// TestBuildResponseBm25ScoreMetadata: the keyword-search reply shape. The
+// traverser emits score/explainScore but never distance/certainty for a
+// keyword search, so requested-but-inapplicable metadata keys are silently
+// omitted from the response (the bm25 silent-drop contract).
+func TestBuildResponseBm25ScoreMetadata(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score":        float32(1.5),
+				"explainScore": "BM25F: term frequency",
+			},
+		},
+	}
+	params := dto.GetParams{
+		Properties: selectProps("title"),
+		AdditionalProperties: additional.Properties{
+			ID:           true,
+			Score:        true,
+			ExplainScore: true,
+			Distance:     true, // requested, but a keyword search never yields one
+		},
+	}
+
+	reply, err := buildResponse(res, params, time.Millisecond)
+	require.NoError(t, err)
+	metadata := reply.Results[0].Metadata
+	require.NotNil(t, metadata)
+	require.NotNil(t, metadata.Score)
+	assert.Equal(t, float32(1.5), *metadata.Score)
+	require.NotNil(t, metadata.ExplainScore)
+	assert.Equal(t, "BM25F: term frequency", *metadata.ExplainScore)
+	assert.Nil(t, metadata.Distance)
+	assert.Nil(t, metadata.Certainty)
+}
+
 // TestBuildResponseMetadataOmittedWhenIDOnly: the id is carried on the
 // envelope, so an id-only request produces no metadata block at all.
 func TestBuildResponseMetadataOmittedWhenIDOnly(t *testing.T) {

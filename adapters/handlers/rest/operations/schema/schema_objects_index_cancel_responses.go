@@ -28,7 +28,7 @@ import (
 const SchemaObjectsIndexCancelAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexCancelAccepted Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a live task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
+SchemaObjectsIndexCancelAccepted Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
 
 swagger:response schemaObjectsIndexCancelAccepted
 */
@@ -176,6 +176,51 @@ func (o *SchemaObjectsIndexCancelNotFound) SetPayload(payload *models.ErrorRespo
 func (o *SchemaObjectsIndexCancelNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SchemaObjectsIndexCancelConflictCode is the HTTP code returned for type SchemaObjectsIndexCancelConflict
+const SchemaObjectsIndexCancelConflictCode int = 409
+
+/*
+SchemaObjectsIndexCancelConflict The target task is in flight but not STARTED, so the cancel is refused and nothing was cancelled. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
+
+swagger:response schemaObjectsIndexCancelConflict
+*/
+type SchemaObjectsIndexCancelConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsIndexCancelConflict creates SchemaObjectsIndexCancelConflict with default headers values
+func NewSchemaObjectsIndexCancelConflict() *SchemaObjectsIndexCancelConflict {
+
+	return &SchemaObjectsIndexCancelConflict{}
+}
+
+// WithPayload adds the payload to the schema objects index cancel conflict response
+func (o *SchemaObjectsIndexCancelConflict) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexCancelConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects index cancel conflict response
+func (o *SchemaObjectsIndexCancelConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsIndexCancelConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

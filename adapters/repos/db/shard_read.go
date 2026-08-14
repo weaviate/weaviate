@@ -425,7 +425,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -492,7 +492,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -543,7 +543,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if filters != nil {
 			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
+				s.index.getSchema.ReadOnlyClass, s.propertyIndicesSnapshot(),
 				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 				s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
@@ -561,7 +561,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
+			s.index.getSchema.ReadOnlyClass, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
 			WithTokenizationResolver(s.TokenizationFor).
 			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
@@ -579,7 +579,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
@@ -905,7 +905,7 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).

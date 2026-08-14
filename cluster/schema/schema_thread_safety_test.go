@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -76,6 +77,10 @@ func TestConcurrentSchemaAccess(t *testing.T) {
 		{
 			name: "concurrent sharding state operations",
 			test: testConcurrentShardingStateOperations,
+		},
+		{
+			name: "concurrent alias snapshot and alias writes",
+			test: testConcurrentAliasSnapshot,
 		},
 	}
 
@@ -742,6 +747,66 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 					assert.NotEmpty(t, status)
 				}
 				time.Sleep(time.Microsecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// AliasSnapshot runs while raft applies alias commands. Reading the alias map
+// without the lock is a concurrent map iteration and write, which crashes the
+// process. RestoreAlias is covered too: it replaces the map rather than
+// mutating it in place.
+func testConcurrentAliasSnapshot(t *testing.T, s *schema) {
+	class := &models.Class{Class: "TestClass"}
+	require.NoError(t, s.addClass(class, &sharding.State{}, 1))
+
+	sm := &SchemaManager{schema: s}
+
+	const numGoroutines = 10
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 3)
+
+	// Test concurrent AliasSnapshot calls
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				data, err := sm.AliasSnapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				var aliases map[string]string
+				if !assert.NoError(t, json.Unmarshal(data, &aliases)) {
+					continue
+				}
+				for alias, className := range aliases {
+					assert.Equal(t, "TestClass", className, "alias %q resolves to its class", alias)
+				}
+			}
+		}()
+	}
+
+	// Test concurrent alias creation while snapshotting
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				assert.NoError(t, s.createAlias("TestClass", fmt.Sprintf("Alias%d_%d", id, j)))
+			}
+		}(i)
+	}
+
+	// Test concurrent alias restores while snapshotting
+	restored := []byte(`{"RestoredAlias":"TestClass"}`)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				assert.NoError(t, s.RestoreAlias(restored))
 			}
 		}()
 	}

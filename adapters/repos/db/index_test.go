@@ -335,10 +335,10 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 			// test — proving the call short-circuited before consulting the router.
 
 			idx := &Index{
-				Config:               IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
-				replicationFSMReader: fsm,
-				router:               mockRouter,
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				router: mockRouter,
 			}
+			idx.SetReplicationFSMReader(fsm)
 
 			got := idx.shardHasMultipleReplicasWrite(tenant, shardName)
 			require.Equal(t, tt.want, got)

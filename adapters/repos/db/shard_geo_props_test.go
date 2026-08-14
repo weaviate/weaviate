@@ -16,14 +16,21 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -261,6 +268,60 @@ func TestMakeCoordinatesForIDConcurrentLookups(t *testing.T) {
 	}
 }
 
+// The prefill scan reads coordinates straight off the stored bytes while every
+// other lookup goes by doc ID. A shard whose two readers disagree would index
+// coordinates it never serves.
+func TestGeoCoordinateReadersAgree(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	tests := []struct {
+		name  string
+		props map[string]interface{}
+		want  *models.GeoCoordinates
+	}{
+		{
+			name:  "geo prop next to other properties",
+			props: map[string]interface{}{"name": "munich office", "location": munichCoordinates()},
+			want:  munichCoordinates(),
+		},
+		{
+			name:  "two geo props on one object",
+			props: map[string]interface{}{"location": munichCoordinates(), "home": stuttgartCoordinates()},
+			want:  munichCoordinates(),
+		},
+		{
+			name:  "object without the requested prop",
+			props: map[string]interface{}{"name": "no coordinates here"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			docID := putGeoPropObject(t, ctx, s, test.props)
+
+			objectBytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+				GetBySecondary(ctx, 0, binary.LittleEndian.AppendUint64(nil, docID))
+			require.NoError(t, err)
+
+			fromObject, err := s.makeCoordinatesFromObject("location")(objectBytes)
+			require.NoError(t, err)
+			require.Equal(t, test.want, fromObject)
+
+			forID, err := s.makeCoordinatesForID("location")(ctx, docID)
+			if test.want == nil {
+				// the by-id reader reports a missing coordinate as a gone doc, the
+				// scan just skips the object
+				var notFound storobj.ErrNotFound
+				require.ErrorAs(t, err, &notFound)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, forID, fromObject)
+		})
+	}
+}
+
 func TestObjectByIndexIDWithPropsDecodesOnlyRequestedProps(t *testing.T) {
 	ctx := context.Background()
 	s := testGeoPropShard(t, ctx)
@@ -279,4 +340,328 @@ func TestObjectByIndexIDWithPropsDecodesOnlyRequestedProps(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, props, 1, "only the requested property must be decoded")
 	require.Equal(t, munichCoordinates(), props["location"])
+}
+
+func geoProp(name string) *models.Property {
+	return &models.Property{Name: name, DataType: []string{string(schema.DataTypeGeoCoordinates)}}
+}
+
+// geoIndexAndQueue reads the live index and queue registered for propName.
+func geoIndexAndQueue(t *testing.T, s *Shard, propName string) (*geo.Index, *VectorIndexQueue) {
+	t.Helper()
+
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	idx, ok := s.propertyIndices[propName]
+	require.True(t, ok, "no property index for %q", propName)
+	return idx.GeoIndex, s.geoQueues[propName]
+}
+
+// TestInitGeoProp covers when a second initGeoProp call reuses the registered
+// index and when it has to build a new one. Reusing is what keeps a re-init off
+// the blocking cache prefill and stops the old index from being orphaned.
+func TestInitGeoProp(t *testing.T) {
+	tests := []struct {
+		name string
+		prop string
+		// setup runs between capturing the index and calling initGeoProp again.
+		setup    func(t *testing.T, ctx context.Context, s *Shard)
+		wantSame bool
+	}{
+		{
+			name:     "first geo prop of the class is reused",
+			prop:     "location",
+			wantSame: true,
+		},
+		{
+			name:     "second geo prop of the class is reused",
+			prop:     "home",
+			wantSame: true,
+		},
+		{
+			name: "a dropped prop is built from scratch",
+			prop: "location",
+			setup: func(t *testing.T, ctx context.Context, s *Shard) {
+				s.propertyIndicesLock.Lock()
+				defer s.propertyIndicesLock.Unlock()
+				require.NoError(t, s.propertyIndices.DropAll(ctx, false))
+			},
+			wantSame: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := testGeoPropShard(t, ctx)
+
+			before, beforeQueue := geoIndexAndQueue(t, s, test.prop)
+			if test.setup != nil {
+				test.setup(t, ctx, s)
+			}
+
+			require.NoError(t, s.initGeoProp(geoProp(test.prop)))
+
+			after, afterQueue := geoIndexAndQueue(t, s, test.prop)
+			if !test.wantSame {
+				require.NotSame(t, before, after, "the prop must be inited from scratch")
+				return
+			}
+			require.Same(t, before, after,
+				"re-init replaced the live geo index, leaving the old one running")
+			require.Same(t, beforeQueue, afterQueue,
+				"re-init replaced the live geo queue, leaving the old one registered")
+		})
+	}
+}
+
+// TestInitGeoPropKeysOnPropName pins that the guard keys on the property name
+// rather than on the shard having any geo index at all.
+func TestInitGeoPropKeysOnPropName(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	location, _ := geoIndexAndQueue(t, s, "location")
+	home, _ := geoIndexAndQueue(t, s, "home")
+	require.NotSame(t, location, home, "each geo prop must get its own index")
+
+	require.NoError(t, s.initGeoProp(geoProp("office")))
+
+	office, _ := geoIndexAndQueue(t, s, "office")
+	require.NotNil(t, office, "a prop with no index yet must still be inited")
+
+	stillLocation, _ := geoIndexAndQueue(t, s, "location")
+	require.Same(t, location, stillLocation, "initing a new prop disturbed an existing one")
+}
+
+// initGeoProp is the only caller holding the collection and shard a geo index
+// belongs to, so an index built without them logs its blocking startup work
+// anonymously on a node running many shards.
+func TestInitGeoPropNamesItsShard(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	// hooking the shard's own logger rather than replacing it: the field is read
+	// unsynchronized from background goroutines the shard already started
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
+	logger.SetLevel(logrus.DebugLevel)
+
+	props := []string{"office", "depot"}
+	for _, prop := range props {
+		require.NoError(t, s.initGeoProp(geoProp(prop)))
+	}
+
+	namedPerProp := map[string]int{}
+	for _, entry := range hook.AllEntries() {
+		class, ok := entry.Data["class"]
+		if !ok {
+			// the commit logger and the vector cache do not carry these
+			continue
+		}
+		// the id also pins the tagging: without it the shard's geo props and its
+		// main index all log under the same class and shard
+		id, ok := entry.Data["index_id"].(string)
+		if !ok {
+			continue
+		}
+		namedPerProp[id]++
+		require.Equalf(t, geoPropClass, class, "line %q", entry.Message)
+		require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+	}
+
+	for _, prop := range props {
+		require.NotZerof(t, namedPerProp[geoPropID(prop)],
+			"prop %q logged no line naming its class and shard", prop)
+	}
+}
+
+// TestInitGeoPropQueueFailureIsRetryable pins that a failed queue build leaves
+// no index registered. Keeping it would make the guard skip the retry, so the
+// prop would serve reads with an index nothing ever drains into.
+func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
+	ctx := context.Background()
+	class := &models.Class{
+		Class:      geoPropClass,
+		Properties: []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
+	}
+	shardLike, _ := testShardWithSettings(t, ctx, class,
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
+	s := concreteShard(t, shardLike)
+
+	blockGeoQueueDir(t, s, "location")
+
+	require.Error(t, s.initGeoProp(geoProp("location")))
+
+	s.propertyIndicesLock.RLock()
+	_, registered := s.propertyIndices["location"]
+	s.propertyIndicesLock.RUnlock()
+	require.False(t, registered, "a failed init must not leave the index registered")
+
+	require.NoError(t, os.Remove(filepath.Join(s.path(), geoPropID("location")+".queue.d")))
+	require.NoError(t, s.initGeoProp(geoProp("location")), "the retry must be able to run")
+
+	idx, queue := geoIndexAndQueue(t, s, "location")
+	require.NotNil(t, idx)
+	require.NotNil(t, queue, "the retry must produce the queue the first attempt failed on")
+}
+
+// TestInitGeoPropConcurrent pins that racing callers build exactly one index.
+// A second index on the same commit log directory brings its own condensor,
+// which deletes files the first one is still replaying.
+func TestInitGeoPropConcurrent(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShard(t, ctx)
+
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
+
+	const callers = 8
+	var wg sync.WaitGroup
+	errs := make([]error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = s.initGeoProp(geoProp("office"))
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.NoError(t, err, "caller %d", i)
+	}
+
+	restores := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "restore_from_disk" &&
+			entry.Data["index_id"] == geoPropID("office") {
+			restores++
+		}
+	}
+	require.Equal(t, 1, restores, "every caller but one must reuse the built index")
+
+	idx, _ := geoIndexAndQueue(t, s, "office")
+	require.NotNil(t, idx)
+
+	require.NoError(t, idx.Add(ctx, 1, munichCoordinates()))
+	found, err := idx.WithinRange(ctx, filters.GeoRange{
+		GeoCoordinates: munichCoordinates(),
+		Distance:       10000,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1}, found)
+}
+
+// blockGeoQueueDir puts a regular file where propName's queue directory belongs,
+// so the queue's MkdirAll fails and initGeoProp errors.
+func blockGeoQueueDir(t *testing.T, s *Shard, propName string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(s.path(), geoPropID(propName)+".queue.d"), []byte("blocked"), 0o644))
+}
+
+// geoInitJobs counts the errgroup jobs initPropertyBuckets submits for props.
+// The wrapper reports the count when Wait runs, which is the only place the
+// submission shape is observable from outside.
+func geoInitJobs(t *testing.T, s *Shard, props ...*models.Property) int {
+	t.Helper()
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	s.initPropertyBuckets(context.Background(), eg, false, props...)
+	require.NoError(t, eg.Wait())
+
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "error_group_wait_initiated" {
+			count, ok := entry.Data["jobs_count"].(int64)
+			require.True(t, ok, "jobs_count field missing or not int64")
+			return int(count)
+		}
+	}
+	t.Fatal("error group never logged its job count")
+	return 0
+}
+
+// TestInitPropertyBucketsBatchesGeoProps pins that geo props share one errgroup
+// job. Each of them prefills its cache by scanning the whole objects bucket, so
+// a job apiece is a full scan apiece running at once.
+func TestInitPropertyBucketsBatchesGeoProps(t *testing.T) {
+	textProp := &models.Property{
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
+	}
+
+	tests := []struct {
+		name     string
+		props    []*models.Property
+		wantJobs int
+	}{
+		{
+			name:     "no props",
+			wantJobs: 0,
+		},
+		{
+			name:     "one text prop",
+			props:    []*models.Property{textProp},
+			wantJobs: 1,
+		},
+		{
+			name:     "one geo prop",
+			props:    []*models.Property{geoProp("location")},
+			wantJobs: 1,
+		},
+		{
+			name:     "three geo props share one job",
+			props:    []*models.Property{geoProp("location"), geoProp("home"), geoProp("office")},
+			wantJobs: 1,
+		},
+		{
+			name:     "geo props batch while other props still fan out",
+			props:    []*models.Property{textProp, geoProp("location"), geoProp("home")},
+			wantJobs: 2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
+				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+
+			require.Equal(t, test.wantJobs,
+				geoInitJobs(t, concreteShard(t, shardLike), test.props...))
+		})
+	}
+}
+
+// TestInitPropertyBucketsGeoBatchContinuesAfterError pins that one geo prop
+// failing still leaves the others initialized. Skipping them would bring the
+// shard up accepting writes it never geo-indexes.
+func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
+	ctx := context.Background()
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
+	s := concreteShard(t, shardLike)
+
+	blockGeoQueueDir(t, s, "alpha")
+
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	s.initPropertyBuckets(ctx, eg, false, geoProp("alpha"), geoProp("beta"))
+
+	err := eg.Wait()
+	require.ErrorContains(t, err, `init prop "alpha": value index:`)
+
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	require.NotContains(t, s.propertyIndices, "alpha", "the failed prop must not stay registered")
+	require.Contains(t, s.propertyIndices, "beta", "a later prop must still be initialized")
 }

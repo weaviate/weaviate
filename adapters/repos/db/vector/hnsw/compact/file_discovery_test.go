@@ -18,6 +18,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestFileDiscovery_Scan_EmptyDirectory(t *testing.T) {
@@ -455,6 +457,113 @@ func TestDirectoryState_TotalSizes(t *testing.T) {
 	}
 	assert.Equal(t, int64(0), stateNoSnapshot.TotalSnapshotSize())
 	assert.Equal(t, int64(500), stateNoSnapshot.TotalSortedSize())
+}
+
+// statFS answers Stat for the named files with err instead of consulting disk,
+// standing in for a file another writer deleted after the directory listing.
+type statFS struct {
+	common.FS
+	names map[string]bool
+	err   error
+}
+
+func (f *statFS) Stat(name string) (os.FileInfo, error) {
+	if f.names[filepath.Base(name)] {
+		return nil, f.err
+	}
+	return f.FS.Stat(name)
+}
+
+func TestFileDiscovery_Scan_FileVanishesAfterListing(t *testing.T) {
+	tests := []struct {
+		name           string
+		vanished       []string
+		statErr        error
+		expectErr      bool
+		expectLiveTS   int64
+		expectRawTS    []int64
+		expectSortedTS []int64
+	}{
+		{
+			name:           "nothing vanishes",
+			expectLiveTS:   3000,
+			expectRawTS:    []int64{2000},
+			expectSortedTS: []int64{1000},
+		},
+		{
+			name:           "condensor deleted a raw file",
+			vanished:       []string{"2000"},
+			statErr:        os.ErrNotExist,
+			expectLiveTS:   3000,
+			expectSortedTS: []int64{1000},
+		},
+		{
+			name:         "compactor deleted a sorted file",
+			vanished:     []string{"1000.sorted"},
+			statErr:      os.ErrNotExist,
+			expectLiveTS: 3000,
+			expectRawTS:  []int64{2000},
+		},
+		{
+			name:           "the live file itself vanished",
+			vanished:       []string{"3000"},
+			statErr:        os.ErrNotExist,
+			expectLiveTS:   2000,
+			expectSortedTS: []int64{1000},
+		},
+		{
+			// only a vanished file is skipped: anything else means the state is
+			// unknown, and acting on a partial listing could delete live data
+			name:      "stat fails for another reason",
+			vanished:  []string{"2000"},
+			statErr:   os.ErrPermission,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			createFile(t, dir, "1000.sorted")
+			createFile(t, dir, "2000")
+			createFile(t, dir, "3000")
+
+			names := map[string]bool{}
+			for _, name := range tt.vanished {
+				names[name] = true
+			}
+			fs := &statFS{FS: common.NewOSFS(), names: names, err: tt.statErr}
+
+			state, err := NewFileDiscoveryWithFS(dir, fs).Scan()
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			require.NotNil(t, state.LiveFile)
+			assert.Equal(t, tt.expectLiveTS, state.LiveFile.StartTS)
+
+			rawTS := make([]int64, 0, len(state.RawFiles))
+			for _, f := range state.RawFiles {
+				rawTS = append(rawTS, f.StartTS)
+			}
+			assert.Equal(t, tt.expectRawTS, nilIfEmpty(rawTS))
+
+			sortedTS := make([]int64, 0, len(state.SortedFiles))
+			for _, f := range state.SortedFiles {
+				sortedTS = append(sortedTS, f.StartTS)
+			}
+			assert.Equal(t, tt.expectSortedTS, nilIfEmpty(sortedTS))
+		})
+	}
+}
+
+func nilIfEmpty(ts []int64) []int64 {
+	if len(ts) == 0 {
+		return nil
+	}
+	return ts
 }
 
 func TestFileType_String(t *testing.T) {

@@ -33,6 +33,7 @@ type Config struct {
 	MakeCommitLoggerThunk             MakeCommitLogger
 	VectorForIDThunk                  common.VectorForID[float32]
 	MultiVectorForIDThunk             common.VectorForID[[]float32]
+	VectorFromObject                  VectorFromObject
 	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]

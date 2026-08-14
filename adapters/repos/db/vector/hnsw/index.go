@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"runtime"
@@ -198,6 +197,7 @@ type hnsw struct {
 	shardName             string
 	VectorForIDThunk      common.VectorForID[float32]
 	MultiVectorForIDThunk common.VectorForID[[]float32]
+	vectorFromObject      VectorFromObject
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
@@ -299,11 +299,7 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	if cfg.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		cfg.Logger = logger
-	}
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
@@ -393,6 +389,7 @@ func New(cfg Config, uc ent.UserConfig,
 		rqConfig:                          uc.RQ,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
+		vectorFromObject:                  cfg.VectorFromObject,
 
 		store:                     store,
 		allocChecker:              cfg.AllocChecker,

@@ -63,6 +63,13 @@ type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
+// LocalTaskInspector exposes the part of this node's own FSM state that
+// the leader-routed [TaskLister] cannot report: a task the rest of the
+// cluster has already deleted but this node still holds.
+type LocalTaskInspector interface {
+	LocalUnrecognizedDistributedTasks() map[string][]*Task
+}
+
 // TaskFinalizer is how the [Scheduler] transitions a task out of
 // [TaskStatusSwapping] once local [UnitAwareProvider.OnTaskCompleted] has
 // returned. Both methods are idempotent at the FSM layer: only the first
@@ -451,20 +458,24 @@ func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
 		return true
-	default:
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
 		return false
 	}
+	// A status this build never declared. Fail-closed: treat it as in
+	// flight.
+	return false
 }
 
-// IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
-// SWAPPING) — used by conflict detection and the schema MutationGuard.
+// IsActive is true for every non-terminal status — used by conflict
+// detection and the schema MutationGuard.
+//
+// The exact negation of [TaskStatus.IsTerminal], so a status this build
+// does not recognize counts as in flight: reading it as done would admit
+// a second migration onto a property a newer node is still migrating, and
+// let the orphan audit and TTL sweep delete live state. See
+// docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
-	switch t {
-	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
-		return true
-	default:
-		return false
-	}
+	return !t.IsTerminal()
 }
 
 // IsCompleted is true once every unit of the task succeeded: SWAPPING
@@ -475,14 +486,43 @@ func (t TaskStatus) IsCompleted() bool {
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases
-// (PREPARING, SWAPPING) — i.e. the scheduler-driven callback states.
+// (PREPARING, SWAPPING) — the scheduler-driven callback states.
+//
+// A status this build does not recognize answers false here and true from
+// [TaskStatus.IsActive]: this asks which phase a task is in, IsActive
+// whether to assume it is still running.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
 		return true
-	default:
+	case TaskStatusStarted, TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
 		return false
 	}
+	// A status this build never declared cannot be placed in a phase.
+	return false
+}
+
+// IsRecognized is false for a status this build never declared — what a
+// node sees when a newer release introduces one mid rolling-upgrade.
+func (t TaskStatus) IsRecognized() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,
+		TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	}
+	return false
+}
+
+// IsCancellable is true for the one status [Manager.CancelTask] accepts:
+// STARTED. Past that, some nodes may already have written merged state or
+// renamed bucket directories, so stopping the rest would leave the cluster
+// serving migrated buckets under the pre-migration schema.
+//
+// A literal comparison, not a classification: the FSM apply that reads it
+// must reach the same verdict on every binary that replays the entry,
+// including one that cannot name the status.
+func (t TaskStatus) IsCancellable() bool {
+	return t == TaskStatusStarted
 }
 
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.

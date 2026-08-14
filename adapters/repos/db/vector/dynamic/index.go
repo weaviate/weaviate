@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	simpleErrors "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -183,12 +182,9 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the flat config below passes cfg.Logger
+	// on, so a default kept beside it would not travel with the index
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	flatConfig := flat.Config{
 		ID:                cfg.ID,
@@ -205,7 +201,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	index := &dynamic{
 		id:                           cfg.ID,
 		targetVector:                 cfg.TargetVector,
-		logger:                       logger,
+		logger:                       cfg.Logger,
 		rootPath:                     cfg.RootPath,
 		shardName:                    cfg.ShardName,
 		className:                    cfg.ClassName,
