@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -23,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -547,11 +547,12 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property,
+	property *models.Property, payloadReads *atomic.Int64,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property)
+		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
+		// The unloaded path removes bucket dirs by name and reads no payloads.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -561,22 +562,18 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	prop *models.Property,
 ) {
 	eg.Go(func() error {
-		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+		// Shares the loaded path's index types so Index.updateProperty's summary
+		// log names what this branch removed too. Not its body: this path
+		// removes the main bucket dir by name and nothing else, so a cold
+		// tenant's migration and sidecar dirs outlive the property delete.
+		// That is a gap, not a property of unloaded shards.
+		for _, indexType := range disabledIndexTypes(prop) {
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			if !ok {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-		}
-		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
-			}
-		}
-		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
+			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
 			}
 		}
 		return nil
@@ -1082,4 +1079,49 @@ func (l *LazyLoadShard) blockLoading() func() {
 	return func() {
 		l.mutex.Unlock()
 	}
+}
+
+// canSkipUnloadedSweep reports whether the cleanup sweep can leave this
+// shard alone; a loaded shard is never skipped, since sweeping it costs no
+// load. The loading mutex covers the disk read and is released before
+// returning — the hydration that follows takes it itself.
+//
+// A completed migration's leftovers are the second reason not to skip: a
+// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
+// data under the ingest sidecar name plus a full backup copy of the bucket it
+// replaced reclaims neither until something hydrates it. One load per tenant
+// per completed migration settles that — finalize removes the tracker dir it
+// answers from, so the next sweep skips the tenant again. A tenant with no
+// migration leftovers at all, which is the population this gate is for, is
+// never loaded.
+//
+// Skipping holds only while reindex state arrives through a load. Shutdown does
+// not remove the shard from the index map — [Index.Shutdown] shuts its shards
+// down in place — so what keeps the gate off a shard being shut down is the
+// mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
+// sweep racing an index shutdown then comes back truncated from
+// [Index.forEachShardStrict] rather than as a walk that reached every shard.
+//
+// The second return is how many tracker payloads this call had to read, for
+// the caller's log; a loaded shard reads none, and so does a shard a previous
+// tuple of the same run already answered from props.
+func (l *LazyLoadShard) canSkipUnloadedSweep(
+	propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+) (bool, int) {
+	release := l.blockLoading()
+	defer release()
+
+	if l.loaded {
+		return false, 0
+	}
+	if props == nil {
+		// No run-wide memo. Substituted here rather than left to the probe, so
+		// the count below is taken off the cache the probe actually used.
+		props = &taskPropsCache{}
+	}
+	// props is a running total over the whole run, so the caller gets the delta.
+	before := props.count()
+	stale, finalizable := hasStalePartialReindexState(
+		l.pathLSM(), propName, indexType, dirs, props)
+	return !stale && !finalizable, props.count() - before
 }

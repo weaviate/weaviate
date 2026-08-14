@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -75,6 +76,68 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 			require.Contains(t, conflict, string(tc.status))
 		})
 	}
+}
+
+// Pins: the pre-flight's refusal ends on the same remedy as the FSM guard,
+// and never advises a cancel where the cancel verb itself would 409.
+func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title"},
+	}
+	refusals := func(status distributedtask.TaskStatus) (string, error) {
+		task := buildTask(t, "T1", status, payload, nil)
+		return gateWithTasks(task).
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title"),
+			(&db.ReindexProvider{}).
+				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
+	}
+
+	// The remedy for the one cancellable status; elsewhere it must be gone,
+	// not merely qualified.
+	cancellable, _ := refusals(distributedtask.TaskStatusStarted)
+	cancellableRemedy := remedyOf(t, cancellable)
+
+	for _, tc := range []struct {
+		status     distributedtask.TaskStatus
+		wantCancel bool
+	}{
+		{distributedtask.TaskStatusStarted, true},
+		{distributedtask.TaskStatusPreparing, false},
+		{distributedtask.TaskStatusSwapping, false},
+		{unknownFutureStatus, false},
+	} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			restReason, fsmErr := refusals(tc.status)
+			require.NotEmpty(t, restReason)
+			require.Error(t, fsmErr)
+
+			remedy := remedyOf(t, restReason)
+			require.Equal(t, remedyOf(t, fsmErr.Error()), remedy,
+				"the two surfaces must end on the same sentence")
+
+			if tc.wantCancel {
+				require.Contains(t, remedy, "cancel")
+				return
+			}
+			require.NotContains(t, remedy, "cancel",
+				"the cancel verb answers 409 for %q, so the closing advice must not "+
+					"send the operator to it", tc.status)
+			require.NotContains(t, restReason, cancellableRemedy,
+				"the cancel advice has to be gone, not joined by a caveat")
+		})
+	}
+}
+
+// remedyOf returns the closing advice of a mutation refusal: everything from
+// its last em-dash on. A non-cancellable remedy carries an em-dash of its own,
+// so this is the clause the operator acts on, not the whole remedy.
+func remedyOf(t *testing.T, refusal string) string {
+	t.Helper()
+	i := strings.LastIndex(refusal, "— ")
+	require.NotEqual(t, -1, i, "refusal %q has no remedy", refusal)
+	return refusal[i:]
 }
 
 // Pins: the pre-flight and the FSM guard reach the same verdict for

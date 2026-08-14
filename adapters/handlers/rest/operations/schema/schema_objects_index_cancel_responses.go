@@ -188,7 +188,7 @@ func (o *SchemaObjectsIndexCancelNotFound) WriteResponse(rw http.ResponseWriter,
 const SchemaObjectsIndexCancelConflictCode int = 409
 
 /*
-SchemaObjectsIndexCancelConflict The target task is in flight but not STARTED, so the cancel is refused and nothing was cancelled. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
+SchemaObjectsIndexCancelConflict The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.
 
 swagger:response schemaObjectsIndexCancelConflict
 */

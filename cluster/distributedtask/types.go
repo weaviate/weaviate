@@ -284,37 +284,39 @@ type VectorConfigRemovalGate interface {
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
-// RecoveryAwareProvider is an optional interface providers implement to
-// participate in post-restart callback retry. The Scheduler's bootstrap
-// pre-mark (which normally suppresses replay of callbacks that fired
-// pre-restart) calls into this hook for every terminal task; if the
-// provider reports the local-side callback as NOT yet durably complete,
-// the scheduler skips the pre-mark for that task so the next tick
-// re-fires OnGroupCompleted and the provider's recovery path can
-// finish the half-applied work.
+// RecoveryAwareProvider is an optional interface a provider implements to
+// keep the Scheduler's bootstrap pre-mark off its terminal tasks. The
+// pre-mark normally suppresses replay of callbacks that already fired
+// before a restart; when the provider reports local callback work as not
+// durably complete, the scheduler skips it for that task and the next tick
+// re-dispatches the task's callbacks.
 //
-// Motivating scenario (RollingRestartMidMigration): a node's
-// OnGroupCompleted started running, completed swap for 2 of 3 local
-// shards, then context-cancelled mid-shutdown of the 3rd shard's
-// reindex bucket because the rolling restart began. The task is
-// FINISHED in RAFT (the unit-completion was recorded before
-// OnGroupCompleted fired), so without this hook the bootstrap pre-mark
-// silently suppresses the retry and the 3rd shard stays at the old
-// tokenization forever — per-replica divergence (#10675 family).
+// Re-dispatch recovers nothing: every callback is a no-op at terminal
+// status. The one durable effect is a re-issued post-completion ack, once
+// per process start — see [RecoveryAwareProvider.LocalCallbacksDone].
 type RecoveryAwareProvider interface {
 	Provider
 
-	// LocalCallbacksDone returns true iff this provider has verified,
-	// from durable local state, that OnGroupCompleted (and any
-	// follow-up local recovery) has completed successfully for every
-	// unit assigned to localNode. Returning false means "the
-	// bootstrap pre-mark should NOT suppress callback replay for
-	// this task — let OnGroupCompleted re-fire on next tick so the
-	// provider can finish recovery."
+	// LocalCallbacksDone returns false when durable local state shows
+	// OnGroupCompleted (and any follow-up recovery) did not complete for
+	// every unit assigned to localNode. State it cannot read answers false
+	// too: not knowing is not the same as being done.
 	//
-	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under
-	// s.mu, ONCE per terminal task at bootstrap. Implementations
-	// should treat this as a cheap on-disk check.
+	// All false does today is suppress the bootstrap pre-mark. The terminal
+	// task's callbacks are then re-dispatched once on the next tick — each a
+	// no-op at terminal status — and one
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck] RAFT
+	// write is re-issued, once per process start, until the completed-task
+	// TTL drops the task from the FSM.
+	//
+	// Otherwise it returns true, which is weaker than "verified done": a
+	// task the provider has nothing to recover for (unparseable, wrong
+	// migration kind, no local shards) also returns true, since replaying
+	// callbacks for it would achieve nothing.
+	//
+	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under s.mu, ONCE
+	// per terminal task at bootstrap. Implementations should treat this as a
+	// cheap on-disk check.
 	LocalCallbacksDone(task *Task, localNode string) bool
 }
 
