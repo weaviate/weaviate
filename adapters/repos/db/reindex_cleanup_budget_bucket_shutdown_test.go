@@ -24,23 +24,26 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The run's budget can also expire inside a shard's own sweep, not just inside
-// the load that precedes it: shutting a sidecar bucket down takes the same
-// context, and a bucket still draining in-flight reads is where a slow one
-// sits. Reported as a shard that could not be swept, that timeout pages an
-// operator at Error and claims confirmed state on a shard the run never
-// finished.
+// sweepStoppedInABucketShutdown runs sweep against a shard holding one
+// cancelled attempt's sidecar bucket, and cancels the sweep's context while it
+// is inside that bucket's shutdown. It returns the log the index wrote and what
+// the sweep reported.
 //
-// The bucket is deregistered before its shutdown drains, so "gone from the
-// store" is the point where the sweep is known to be inside the shutdown and
-// past the check at the top of its turn. Holding a read pin keeps it there
-// until the budget is cancelled, which is what makes the expiry land in the
-// shutdown every run rather than most runs.
-func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testing.T) {
+// The bucket is deregistered before its shutdown drains its in-flight reads, so
+// "gone from the store" is the point where the sweep is known to be inside the
+// shutdown and past the check at the top of its turn. A read pin holds it there
+// until the cancel lands, which is what makes the cancellation reach the
+// shutdown every run rather than most runs. The drain itself ignores the
+// context: cancelling only takes effect once the pin is released and the
+// shutdown reaches its first wait.
+func sweepStoppedInABucketShutdown(t *testing.T,
+	sweep func(ctx context.Context, idx *Index, shard *Shard) error,
+) (*logrustest.Hook, error) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(testCtx())
-	defer cancel()
+	t.Cleanup(cancel)
 
-	className := "BudgetInShutdown" + uuid.NewString()[:8]
+	className := "SweepInShutdown" + uuid.NewString()[:8]
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -49,7 +52,7 @@ func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testi
 		enthnsw.UserConfig{Skip: true}, false, false, false,
 		func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
-	defer shard.Shutdown(testCtx())
+	t.Cleanup(func() { shard.Shutdown(testCtx()) })
 	idx.logger = logger
 
 	// A cancelled attempt at gen 2: started but never completed, so the sweep
@@ -66,19 +69,32 @@ func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testi
 
 	swept := make(chan error, 1)
 	go func() {
-		swept <- idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil)
+		swept <- sweep(ctx, idx, shard)
 	}()
 
 	require.Eventually(t, func() bool {
 		_, stillRegistered := shard.store.GetBucketsByName()[sidecar]
 		return !stillRegistered
 	}, 30*time.Second, time.Millisecond,
-		"the sweep never reached the bucket shutdown, so the budget could not expire inside it")
+		"the sweep never reached the bucket shutdown, so the cancellation could not land in it")
 
 	cancel()
 	unpin()
+	return hook, <-swept
+}
 
-	err := <-swept
+// The run's budget can also expire inside a shard's own sweep, not just inside
+// the load that precedes it: shutting a sidecar bucket down takes the same
+// context, and a bucket still draining in-flight reads is where a slow one
+// sits. Reported as a shard that could not be swept, that timeout pages an
+// operator at Error and claims confirmed state on a shard the run never
+// finished.
+func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testing.T) {
+	hook, err := sweepStoppedInABucketShutdown(t,
+		func(ctx context.Context, idx *Index, _ *Shard) error {
+			return idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil)
+		})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "shutting down stale sidecar bucket",
 		"the run has to have stopped in the bucket shutdown, not in the load before it")
