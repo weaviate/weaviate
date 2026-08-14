@@ -316,6 +316,37 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "hfresh only supports rq",
 		},
 		{
+			name: "with rq centering enabled",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled":   true,
+					"centering": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "centering in HFresh not supported yet",
+		},
+		{
+			name: "with rq centering explicitly disabled",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled":   true,
+					"centering": false,
+				},
+			},
+			expected: UserConfig{
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
+			},
+		},
+		{
 			name: "with too large replicas",
 			input: map[string]interface{}{
 				"replicas": json.Number("11"),
@@ -346,4 +377,16 @@ func Test_UserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Centering is rejected by validate() too, so a config assembled as a struct
+// rather than parsed from a map can't smuggle it in either.
+func Test_UserConfigValidateCentering(t *testing.T) {
+	uc := NewDefaultUserConfig()
+	require.NoError(t, uc.validate())
+
+	uc.RQ.Centering = true
+	err := uc.validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "centering in HFresh not supported yet")
 }
