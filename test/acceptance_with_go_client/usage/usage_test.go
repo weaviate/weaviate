@@ -696,8 +696,10 @@ func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, cl
 		"every tenant with nested values must report the nested property buckets on top of the baseline")
 }
 
+// testAllObjectsIndexed waits for every shard of a class to finish indexing. A
+// class with several named vectors fills one queue per vector, and a quantizer
+// trains on top of that, so the wait is far longer than a single queue needs.
 func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
-	// wait for all of the objects to get indexed
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := c.Cluster().NodesStatusGetter().
 			WithClass(className).
@@ -711,7 +713,7 @@ func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
 				assert.Equal(ct, "READY", s.VectorIndexingStatus)
 			}
 		}
-	}, 30*time.Second, 500*time.Millisecond)
+	}, 2*time.Minute, 500*time.Millisecond)
 }
 
 // namedVectors maps every named vector of a shard usage report to its usage
