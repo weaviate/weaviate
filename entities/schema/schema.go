@@ -64,6 +64,27 @@ func UppercaseClassName(name string) string {
 		return name
 	}
 
+	// If the name is already namespace-qualified ("<namespace>:<ClassName>"),
+	// only uppercase the class portion. The namespace prefix is lowercase by
+	// contract and must be preserved verbatim so resolved names remain stable.
+	//
+	// strings.Cut (first-separator split) is correct here because qualified
+	// names always have exactly one separator: a namespace name is validated
+	// to be lowercase ASCII letters/digits only (see usecases/namespaces
+	// ValidateName), so it cannot itself contain ":", and qualification
+	// happens at most once per request at the resolver boundary.
+	if ns, cls, ok := strings.Cut(name, NamespaceSeparator); ok {
+		return ns + NamespaceSeparator + uppercaseFirst(cls)
+	}
+
+	return uppercaseFirst(name)
+}
+
+func uppercaseFirst(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
 	if len(name) == 1 {
 		return strings.ToUpper(name)
 	}

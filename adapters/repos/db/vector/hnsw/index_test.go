@@ -105,7 +105,9 @@ func TestHnswIndexGrow(t *testing.T) {
 		require.Nil(t, err)
 		// index should grow to 5001
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
+		// the exact cache size depends on the growth strategy (small caches
+		// grow relative to the requested id); it must cover the nodes slice
+		assert.GreaterOrEqual(t, index.cache.Len(), int32(len(index.nodes)))
 		// try to add a vector with id: 8001
 		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
 		err = index.Add(ctx, id, vector)
@@ -257,6 +259,50 @@ func createVectorHnswIndexTestConfig() Config {
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
 	}
+}
+
+func TestIsEmptyUnlocked_ZeroLengthNodes(t *testing.T) {
+	// Regression test: when h.nodes has length 0 and h.entryPointID is 0,
+	// isEmptyUnlocked must return true without panicking. Before the fix,
+	// the check used ">" instead of ">=" which caused an out-of-bounds
+	// access: h.nodes[0] on a zero-length slice.
+	t.Run("zero-length nodes slice must not panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		// Simulate state loaded from a snapshot with zero nodes
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 0)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 0
+
+		assert.NotPanics(t, func() {
+			assert.True(t, index.isEmpty())
+		})
+	})
+
+	t.Run("entryPointID beyond nodes length must not panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 5)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 5
+
+		assert.NotPanics(t, func() {
+			assert.True(t, index.isEmpty())
+		})
+	})
+
+	t.Run("search on empty nodes returns nil without panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 0)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 0
+
+		res, dists, err := index.SearchByVector(context.Background(), []float32{0.1, 0.2, 0.3}, 10, nil)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+		assert.Nil(t, dists)
+	})
 }
 
 func TestHnswIndexContainsDoc(t *testing.T) {

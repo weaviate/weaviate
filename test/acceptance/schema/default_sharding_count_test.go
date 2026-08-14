@@ -254,7 +254,7 @@ func TestDefaultShardingCountRuntimeOverride(t *testing.T) {
 				continue
 			}
 
-			cls, err := helper.GetClassWithoutAssert(t, className)
+			cls, err := helper.GetClassWithoutAssert(t, className, "")
 			if err != nil || cls == nil {
 				continue
 			}

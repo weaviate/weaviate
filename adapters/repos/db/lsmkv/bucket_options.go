@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -30,6 +31,12 @@ func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
 	return []BucketOption{WithStrategy(strategy)}
 }
 
+func MakeRegularBucketOptions(strategy string, customOptions ...BucketOption) []BucketOption {
+	return append([]BucketOption{
+		WithStrategy(strategy),
+	}, customOptions...)
+}
+
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		if err := CheckExpectedStrategy(strategy); err != nil {
@@ -37,6 +44,17 @@ func WithStrategy(strategy string) BucketOption {
 		}
 
 		b.strategy = strategy
+		return nil
+	}
+}
+
+// WithClassName attaches the canonical class name to the bucket. Set on the
+// objects bucket so storobj decoders stamp the canonical class on every
+// decoded object instead of trusting the on-disk className field. Leave unset
+// for buckets that do not hold storobj payloads.
+func WithClassName(className string) BucketOption {
+	return func(b *Bucket) error {
+		b.className = className
 		return nil
 	}
 }
@@ -79,6 +97,29 @@ func WithWalThreshold(threshold uint64) BucketOption {
 func WithLazySegmentLoading(lazyLoading bool) BucketOption {
 	return func(b *Bucket) error {
 		b.lazySegmentLoading = lazyLoading
+		return nil
+	}
+}
+
+// WithLazyPropertyLengths defers loading an inverted segment's property length
+// map until first use. Read live at segment open, so runtime config can flip it
+// without a restart.
+func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOption {
+	return func(b *Bucket) error {
+		b.lazyPropertyLengths = lazy
+		return nil
+	}
+}
+
+// WithBM25FilterTombMergeGateRatio sets the block-max WAND merged-filter gate: fold
+// tombstones into the filter only when summed query doc frequency >= ratio *
+// filter cardinality * disk-segment count (the fold clones the filter once per
+// segment). 0 always merges, +Inf disables the fold, default 1. Read live at query
+// time, so runtime config can retune it without a restart. When left unset the read
+// falls back to the default ratio.
+func WithBM25FilterTombMergeGateRatio(ratio *configRuntime.DynamicValue[float64]) BucketOption {
+	return func(b *Bucket) error {
+		b.bm25FilterTombMergeGateRatio = ratio
 		return nil
 	}
 }
@@ -260,6 +301,16 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
+// WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
+// unbuilt intentionally. Enables a diagnostic log line only; never affects
+// read-path selection.
+func WithRangeableInMemoryDeferred(deferred bool) BucketOption {
+	return func(b *Bucket) error {
+		b.rangeableInMemoryDeferred = deferred
+		return nil
+	}
+}
+
 func WithBitmapBufPool(bufPool roaringset.BitmapBufPool) BucketOption {
 	return func(b *Bucket) error {
 		b.bitmapBufPool = bufPool
@@ -284,6 +335,30 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 	return func(b *Bucket) error {
 		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
+
+// WithImmutable marks the bucket as immutable. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.immutable = immutable
+		return nil
+	}
+}
+
+// WithSequentialAccess hints the kernel (via fadvise) that segment files will
+// be read sequentially, enabling aggressive read-ahead. Used by snapshot
+// buckets where the export cursor scans from start to end.
+func WithSequentialAccess(v bool) BucketOption {
+	return func(b *Bucket) error {
+		b.sequentialAccess = v
 		return nil
 	}
 }

@@ -44,8 +44,6 @@ type Config struct {
 	WaitForCachePrefill               bool
 	FlatSearchConcurrency             int
 	AcornFilterRatio                  float64
-	DisableSnapshots                  bool
-	SnapshotOnStartup                 bool
 	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
 	// metadata for monitoring
@@ -55,6 +53,8 @@ type Config struct {
 	VisitedListPoolMaxSize int
 
 	AsyncIndexingEnabled bool
+
+	HFreshMode bool
 }
 
 func (c Config) Validate() error {

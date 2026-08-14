@@ -1,0 +1,231 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package inverted
+
+import (
+	"fmt"
+	"maps"
+	"slices"
+
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+)
+
+// Has* helpers — check whether any descendant of a top-level Property has a
+// given index type enabled. Used to decide which buckets to create.
+
+// HasNestedFilterableIndex returns true if any descendant NestedProperty
+// of the given property has a filterable index. Used to decide whether
+// the nested value bucket needs to be created.
+func HasNestedFilterableIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasNestedFilterableRecursive)
+}
+
+func hasNestedFilterableRecursive(prop *models.NestedProperty) bool {
+	return schema.IsNestedFilterable(prop) ||
+		slices.ContainsFunc(prop.NestedProperties, hasNestedFilterableRecursive)
+}
+
+// HasNestedSearchableIndex returns true if any descendant NestedProperty
+// of the given property has a searchable index. Used to decide whether
+// the nested searchable bucket needs to be created.
+func HasNestedSearchableIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasNestedSearchableRecursive)
+}
+
+func hasNestedSearchableRecursive(prop *models.NestedProperty) bool {
+	dt := schema.DataType(prop.DataType[0])
+	return schema.IsNestedSearchable(prop, dt) ||
+		slices.ContainsFunc(prop.NestedProperties, hasNestedSearchableRecursive)
+}
+
+// HasNestedRangeableIndex returns true if any descendant NestedProperty
+// of the given property has a rangeable index. Used to decide whether
+// the nested rangeable bucket needs to be created.
+func HasNestedRangeableIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasNestedRangeableRecursive)
+}
+
+func hasNestedRangeableRecursive(prop *models.NestedProperty) bool {
+	dt := schema.DataType(prop.DataType[0])
+	return schema.IsNestedRangeable(prop, dt) ||
+		slices.ContainsFunc(prop.NestedProperties, hasNestedRangeableRecursive)
+}
+
+// HasAnyNestedInvertedIndex returns true if any descendant NestedProperty
+// of the given property has any inverted index enabled. Used to decide
+// whether the nested metadata bucket needs to be created.
+func HasAnyNestedInvertedIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasAnyNestedInvertedIndexRecursive)
+}
+
+func hasAnyNestedInvertedIndexRecursive(prop *models.NestedProperty) bool {
+	dt := schema.DataType(prop.DataType[0])
+	return schema.IsNestedFilterable(prop) ||
+		schema.IsNestedSearchable(prop, dt) ||
+		schema.IsNestedRangeable(prop, dt) ||
+		slices.ContainsFunc(prop.NestedProperties, hasAnyNestedInvertedIndexRecursive)
+}
+
+// nestedIndexConfig holds which index types are enabled for a single leaf path.
+// collectNestedIndexConfig produces one entry per primitive leaf in the schema tree.
+type nestedIndexConfig struct {
+	filterable bool
+	searchable bool
+	rangeable  bool
+}
+
+func (c nestedIndexConfig) hasAny() bool {
+	return c.filterable || c.searchable || c.rangeable
+}
+
+// collectNestedIndexConfig walks the NestedProperty tree and returns index
+// configuration for each dot-notation path.
+func collectNestedIndexConfig(prefix string, props []*models.NestedProperty) map[string]nestedIndexConfig {
+	configs := map[string]nestedIndexConfig{}
+	for _, np := range props {
+		path := np.Name
+		if prefix != "" {
+			path = prefix + "." + np.Name
+		}
+
+		dt := schema.DataType(np.DataType[0])
+		if !schema.IsNested(dt) {
+			configs[path] = nestedIndexConfig{
+				filterable: schema.IsNestedFilterable(np),
+				searchable: schema.IsNestedSearchable(np, dt),
+				rangeable:  schema.IsNestedRangeable(np, dt),
+			}
+		}
+		maps.Copy(configs, collectNestedIndexConfig(path, np.NestedProperties))
+	}
+	return configs
+}
+
+// analyzeNestedProp runs position assignment on a nested property value,
+// then analyzes each leaf value into bytes suitable for indexing.
+func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedProperty, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	// Skip analysis entirely when no descendant has any index enabled — no
+	// buckets were created for this property, so writing would hit a nil bucket.
+	if !HasAnyNestedInvertedIndex(prop) {
+		return nil, nil
+	}
+
+	assignResult, err := invnested.AssignPositions(prop, value)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only reachable for DataTypeObjectArray with an empty array value: AssignPositions
+	// returns early before appending the root _exists entry, leaving all slices empty.
+	// DataTypeObject always wraps the value in a 1-element slice so this cannot fire.
+	if len(assignResult.Values) == 0 && len(assignResult.Idx) == 0 && len(assignResult.Exists) == 0 {
+		return nil, nil
+	}
+
+	indexConfigs := collectNestedIndexConfig("", prop.NestedProperties)
+
+	var hasFilterable, hasSearchable, hasRangeable bool
+	for _, cfg := range indexConfigs {
+		hasFilterable = hasFilterable || cfg.filterable
+		hasSearchable = hasSearchable || cfg.searchable
+		hasRangeable = hasRangeable || cfg.rangeable
+	}
+
+	values := make([]NestedValue, 0, len(assignResult.Values))
+	for _, pv := range assignResult.Values {
+		cfg := indexConfigs[pv.Path]
+		if !cfg.hasAny() {
+			continue
+		}
+		analyzed, err := a.analyzeNestedValue(pv, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("analyze value at %q: %w", pv.Path, err)
+		}
+		values = append(values, analyzed...)
+	}
+
+	idx := make([]NestedMeta, len(assignResult.Idx))
+	for i, entry := range assignResult.Idx {
+		idx[i] = NestedMeta{
+			Path:      entry.Path,
+			Index:     entry.Index,
+			Positions: entry.Positions,
+		}
+	}
+
+	// _exists entries are gated by the same per-leaf config as values:
+	// a leaf with no inverted index can't be filtered on (the validator
+	// rejects IS NULL on non-filterable leaves), so writing its _exists
+	// is pure waste. The root sentinel (Path="") and intermediate
+	// object-array paths (e.g. "cars" or "cars.tires") are not in
+	// indexConfigs and stay — they back IS NULL on the array property
+	// itself, which is a doc-level / element-level question independent
+	// of any leaf flag.
+	exists := make([]NestedMeta, 0, len(assignResult.Exists))
+	for _, entry := range assignResult.Exists {
+		if entry.Path != "" {
+			if cfg, isLeaf := indexConfigs[entry.Path]; isLeaf && !cfg.hasAny() {
+				continue
+			}
+		}
+		exists = append(exists, NestedMeta{
+			Path:      entry.Path,
+			Index:     -1,
+			Positions: entry.Positions,
+		})
+	}
+
+	return &NestedProperty{
+		Name:               prop.Name,
+		Values:             values,
+		Idx:                idx,
+		Exists:             exists,
+		HasFilterableIndex: hasFilterable,
+		HasSearchableIndex: hasSearchable,
+		HasRangeableIndex:  hasRangeable,
+	}, nil
+}
+
+// analyzeNestedValue converts a raw positioned value into one or more
+// NestedValue entries with analyzed byte representations. Text values
+// may produce multiple entries (one per token).
+func (a *Analyzer) analyzeNestedValue(pv invnested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
+	// TODO aliszka:nested_filtering verify whether pv.PropName (leaf nested property
+	// name, e.g. "city") is the correct identifier for the text analyzer lookup,
+	// or whether the top-level property name (e.g. "addresses") should be used instead.
+	items, err := a.analyzeValue(pv.DataType, pv.Tokenization, pv.PropName, pv.TextAnalyzer, pv.Value)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return nil, nil
+	}
+
+	out := make([]NestedValue, len(items))
+	for i, item := range items {
+		out[i] = NestedValue{
+			Path:               pv.Path,
+			Data:               item.Data,
+			Positions:          pv.Positions,
+			HasFilterableIndex: cfg.filterable,
+			HasSearchableIndex: cfg.searchable,
+			HasRangeableIndex:  cfg.rangeable,
+		}
+	}
+	return out, nil
+}

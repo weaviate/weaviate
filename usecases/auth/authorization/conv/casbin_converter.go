@@ -76,13 +76,14 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 	return permissions, nil
 }
 
-func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Policy, error) {
+func CasbinPolicies(namespacesEnabled bool, casbinPolicies ...[][]string) (map[string][]authorization.Policy, error) {
+	builtIn := authorization.BuiltInPermissionsFor(namespacesEnabled)
 	rolesPermissions := make(map[string][]authorization.Policy)
 	for _, p := range casbinPolicies {
 		for _, policyParts := range p {
 			name := TrimRoleNamePrefix(policyParts[0])
 			if slices.Contains(authorization.BuiltInRoles, name) {
-				perms := authorization.BuiltInPermissions[name]
+				perms := builtIn[name]
 				for _, p := range perms {
 					perm, err := policy(p)
 					if err != nil {

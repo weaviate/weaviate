@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -56,6 +57,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
+	PrecomputedDiskBinary []byte `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -105,16 +110,50 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-func FromBinary(data []byte) (*Object, error) {
+// FromBinaryNetwork decodes a payload and reads Object.Class from the data
+// bytes. Network methods are used for node to node communication.
+// Use FromBinaryDisk when reading from disk, as the on-disk class-name may
+// be empty.
+func FromBinaryNetwork(data []byte) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinary(data); err != nil {
+	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
 		return nil, err
 	}
 
 	return ko, nil
 }
 
-func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+// FromBinaryDisk decodes a payload and stamps the caller-supplied class name
+// on the decoded object, ignoring whatever is in the on-disk class-name field.
+// className must be non-empty; the function returns an error otherwise. Use
+// FromBinaryNetwork for the on-disk-fallback path used by wire-receive callers
+// that have no canonical class to supply.
+func FromBinaryDisk(data []byte, className string) (*Object, error) {
+	return FromBinaryDiskWithProps(data, className, nil)
+}
+
+// FromBinaryDiskWithProps is FromBinaryDisk with a known property set; see
+// UnmarshalBinaryDiskWithProps for the contract.
+func FromBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) (*Object, error) {
+	ko := &Object{}
+	if err := ko.UnmarshalBinaryDiskWithProps(data, className, properties); err != nil {
+		return nil, err
+	}
+
+	return ko, nil
+}
+
+// FromBinaryUUIDOnlyDisk is a header-only fast path that decodes the ID, doc
+// ID, timestamps, and class — vectors, properties, and the rest of the
+// payload are skipped. The caller-supplied class name is stamped on the
+// decoded object, ignoring the on-disk class-name field. className must be
+// non-empty; the function returns an error otherwise. There is no
+// FromBinaryUUIDOnlyNetwork variant — this fast path runs only against bucket
+// reads where a bucket className is always available.
+func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryUUIDOnlyDisk")
+	}
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -136,16 +175,41 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
 	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
-	vecLen := rw.ReadUint16()
-	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := rw.ReadUint16()
-
-	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// Vector bytes are ignored, as are all vector bytes, because this is a header-only fast path
+	// On-disk class-name bytes are ignored: className is guaranteed non-empty
+	// by the entry guard above, so the caller-supplied value is what we use.
+	ko.Object.Class = className
 
 	return ko, nil
 }
 
-func FromBinaryOptional(data []byte,
+// FromBinaryOptionalNetwork decodes a payload, optionally including/excluding
+// vectors and properties via addProp, and reads Object.Class from the on-disk
+// bytes. The on-disk class is not authoritative; use FromBinaryOptionalDisk
+// when you have a className in scope.
+func FromBinaryOptionalNetwork(data []byte,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	return fromBinaryOptionalInternal(data, "", addProp, properties)
+}
+
+// FromBinaryOptionalDisk lets the caller supply an authoritative
+// class name; an empty className falls back to the on-disk bytes.
+func FromBinaryOptionalDisk(data []byte, className string,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryOptionalDisk; use FromBinaryOptionalNetwork if you want to fall back to on-disk value")
+	}
+	return fromBinaryOptionalInternal(data, className, addProp, properties)
+}
+
+// fromBinaryOptionalInternal is the shared implementation behind
+// FromBinaryOptionalDisk and FromBinaryOptionalNetwork. A non-empty className
+// is stamped on the decoded object (Disk-side semantics); an empty className
+// falls back to the on-disk value (Network-side semantics). Callers should
+// use the exported wrappers, which encode their respective contracts.
+func fromBinaryOptionalInternal(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
@@ -170,19 +234,27 @@ func FromBinaryOptional(data []byte,
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Object.Vector = make([]float32, vectorLength)
-		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
-		for i := 0; i < int(vectorLength); i++ {
-			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
-			ko.Object.Vector[i] = math.Float32frombits(bits)
-		}
+		byteops.CopyBytesToSlice(ko.Object.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 	} else {
 		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
 		ko.Object.Vector = nil
 	}
 	ko.Vector = ko.Object.Vector
 
-	classNameLen := rw.ReadUint16()
-	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value. If both are empty there is no class
+	// to attach to the decoded object — return an error rather than produce
+	// a silent empty Class.
+	classNameLength := uint64(rw.ReadUint16())
+	if className == "" {
+		if classNameLength == 0 {
+			return nil, errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
+	}
 
 	propLength := rw.ReadUint32()
 	var props []byte
@@ -302,38 +374,97 @@ func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 	return pe
 }
 
+// AllPropertiesExtraction lists every top-level property of the class for the
+// jsonparser-based decode path. Returns nil (json.Unmarshal fallback) when the
+// class is unknown or has no properties.
+func AllPropertiesExtraction(class *models.Class) *PropertyExtraction {
+	if class == nil || len(class.Properties) == 0 {
+		return nil
+	}
+	pe := NewPropExtraction()
+	for _, prop := range class.Properties {
+		pe.Add(prop.Name)
+	}
+	return pe
+}
+
+// secondaryLookup fetches a value by secondary key into the given buffer,
+// returning the value and the (possibly regrown) buffer.
+type secondaryLookup = func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
+
+// bucket is the objects LSM bucket needed to fetch objects by their doc-id
+// secondary key.
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
+	// ClassName returns the canonical class name attached to the bucket. The
+	// storobj helpers (ObjectsByDocID*) use it to stamp Object.Class on every
+	// decoded payload via FromBinaryOptionalDisk. Implementations must return
+	// a non-nil error when the bucket has no class context (e.g. test fakes,
+	// non-objects buckets); the helpers propagate that error rather than fall
+	// back to the on-disk class name.
+	ClassName() (string, error)
+	// SecondaryViewLookup returns a doc-id lookup bound to a single consistent
+	// view for the whole batch, plus a release func to call when done.
+	SecondaryViewLookup() (lookup secondaryLookup, release func())
 }
 
+// withBatchLookup runs fn with a doc-id lookup that shares one consistent view
+// for the whole batch, releasing the view once fn returns.
+func withBatchLookup(bucket bucket, fn func(secondaryLookup) ([]*Object, error)) ([]*Object, error) {
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket not found")
+	}
+	lookup, release := bucket.SecondaryViewLookup()
+	defer release()
+	return fn(lookup)
+}
+
+// ObjectsByDocID resolves a batch of doc IDs against the given bucket and
+// returns the decoded objects, dropping entries whose payload is missing.
+// Object.Class on each decoded object is stamped from bucket.ClassName(); the
+// bucket must have been opened with lsmkv.WithClassName, otherwise
+// bucket.ClassName() returns an error and the call fails.
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
-	}
-
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+	return objectsByDocID(bucket, ids, additional, properties, logger, false)
 }
 
+// ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
+// positions where a doc ID has no payload, so the returned slice always has
+// the same length as ids. Object.Class is stamped from bucket.ClassName() —
+// see ObjectsByDocID for the bucket-resolution contract.
 func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
-	}
+	return objectsByDocID(bucket, ids, additional, properties, logger, true)
+}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
+func objectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
+) ([]*Object, error) {
+	if len(ids) == 0 { // avoid acquiring a consistent view for an empty batch
+		return []*Object{}, nil
+	}
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+			return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, includeEmpty)
+		}
+		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger, includeEmpty)
+	})
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger, false)
+	})
 }
 
-func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
+func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -361,7 +492,7 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
+			objs, err := objectsByDocIDSequentialInner(bucket, lookup, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -394,15 +525,22 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
-	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, false)
+	})
 }
 
-func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
+func objectsByDocIDSequentialInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	additional additional.Properties, properties []string,
 	includeEmpty bool,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
 	var (
@@ -431,7 +569,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(context.TODO(), 0, docIDBuf, lsmBuf) // TODO: pass through context instead of spawning new one
+		res, newBuf, err := lookup(context.TODO(), 0, docIDBuf, lsmBuf) // TODO: pass through context instead of spawning new one
 		if err != nil {
 			return nil, err
 		}
@@ -451,7 +589,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		unmarshalled, err := FromBinaryOptionalDisk(res, className, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -671,6 +809,18 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
+func (ko *Object) RemoveTargetVector(targetVector string) bool {
+	if _, ok := ko.Vectors[targetVector]; ok {
+		delete(ko.Vectors, targetVector)
+		return true
+	}
+	if _, ok := ko.MultiVectors[targetVector]; ok {
+		delete(ko.MultiVectors, targetVector)
+		return true
+	}
+	return false
+}
+
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
@@ -713,6 +863,19 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
+func PatchDocID(in []byte, docID uint64) error {
+	if len(in) < 9 {
+		return errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	binary.LittleEndian.PutUint64(in[1:9], docID)
+	return nil
 }
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
@@ -768,6 +931,10 @@ const (
 	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
 )
 
+// MarshallerV1HeaderLen bounds the value prefix a digest-only scan must retain:
+// DocIDAndTimeFromBinary reads no further than this.
+const MarshallerV1HeaderLen = marshallerV1HeaderLen
+
 const (
 	maxVectorLength               int = math.MaxUint16
 	maxClassNameLength            int = math.MaxUint16
@@ -791,74 +958,143 @@ const (
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors is empty, NO target vectors are included
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors has specific names, only those are included
 func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte, error) {
-	if ko.MarshallerVersion != 1 {
-		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
+	return ko.marshalBinaryInternal(addProps, false)
+}
+
+func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClassName bool) ([]byte, error) {
+	pm, err := ko.prepareMarshal(addProps, skipClassName)
+	if err != nil {
+		return nil, err
 	}
 
-	kindByte := uint8(0)
+	byteBuffer := make([]byte, pm.Len())
+	if err := pm.MarshalTo(byteBuffer); err != nil {
+		return byteBuffer, err
+	}
+	return byteBuffer, nil
+}
+
+// emptySchemaJSON keeps older nodes' pre-upgrade unmarshal path (which lacks
+// an empty-schema check) from breaking. Shared across objects; read-only.
+var emptySchemaJSON = []byte("{}")
+
+// PreparedMarshal is the sizing-pass output of the two-pass binary marshal
+// (see PrepareMarshalOptional, MarshalTo), letting callers that batch many
+// objects into one payload allocate a single exactly-sized buffer instead of
+// one per object.
+//
+// It aliases rather than copies the source Object's vector slices, so
+// concurrent mutation of vector contents is as unsafe as for MarshalBinary;
+// otherwise it is self-contained once the source Object is discarded.
+type PreparedMarshal struct {
+	version      uint8
+	docID        uint64
+	kind         uint8
+	id           uuid.UUID
+	creationTime uint64
+	updateTime   uint64
+
+	vector []float32 // nil when the vector is excluded
+
+	className     string // empty when skipped (on-disk format without class name)
+	schema        []byte
+	meta          []byte
+	vectorWeights []byte
+
+	targetVectorsOffsets       []byte
+	targetVectorsSegmentLength uint32
+	targetVectors              [][]float32 // in targetVectorsOffsets order
+
+	multiVectorsOffsets       []byte
+	multiVectorsSegmentLength uint32
+	multiVectors              [][][]float32 // in multiVectorsOffsets order
+
+	size int
+}
+
+// Len returns the exact number of bytes MarshalTo will write.
+func (pm *PreparedMarshal) Len() int {
+	return pm.size
+}
+
+// PrepareMarshalOptional runs the sizing pass of the two-pass marshal with
+// the same addProps filtering as MarshalBinaryOptional; MarshalTo produces
+// identical bytes.
+func (ko *Object) PrepareMarshalOptional(addProps additional.Properties) (PreparedMarshal, error) {
+	return ko.prepareMarshal(addProps, false)
+}
+
+// prepareMarshal is the sizing pass shared by marshalBinaryInternal and
+// PrepareMarshalOptional; filtering semantics (addProps, skipClassName)
+// match marshalBinaryInternal.
+func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName bool) (PreparedMarshal, error) {
+	var pm PreparedMarshal
+
+	if ko.MarshallerVersion != 1 {
+		return pm, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
+	}
+
+	pm.version = ko.MarshallerVersion
+	pm.docID = ko.DocID
 	// Deprecated Kind field
-	kindByte = 1
+	pm.kind = 1
+	pm.creationTime = uint64(ko.CreationTimeUnix())
+	pm.updateTime = uint64(ko.LastUpdateTimeUnix())
 
 	idParsed, err := uuid.Parse(ko.ID().String())
 	if err != nil {
-		return nil, err
+		return pm, err
 	}
-	idBytes, err := idParsed.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
+	pm.id = idParsed
 
 	// Conditionally include vector based on addProps.Vector
 	var vectorLength uint32
 	if addProps.Vector {
 		if len(ko.Vector) > maxVectorLength {
-			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+			return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
 		}
 		vectorLength = uint32(len(ko.Vector))
+		pm.vector = ko.Vector
 	}
 
-	className := []byte(ko.Class())
+	className := string(ko.Class())
 	if len(className) > maxClassNameLength {
-		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
+		return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
 	}
-	classNameLength := uint32(len(className))
+	if !skipClassName {
+		pm.className = className
+	}
 
 	// Conditionally include properties based on addProps.NoProps
-	var schema []byte
-	var schemaLength uint32
 	if !addProps.NoProps {
-		schema, err = json.Marshal(ko.Properties())
+		pm.schema, err = json.Marshal(ko.Properties())
 		if err != nil {
-			return nil, err
+			return pm, err
 		}
-		if len(schema) > maxSchemaLength {
-			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
+		if len(pm.schema) > maxSchemaLength {
+			return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(pm.schema), maxSchemaLength)
 		}
-		schemaLength = uint32(len(schema))
 	} else {
 		// send empty object so that we don't break unmarshalling during upgrades
 		// where some nodes don't have the empty check on the unmarshal side yet
-		schema = []byte("{}")
-		schemaLength = uint32(len(schema))
+		pm.schema = emptySchemaJSON
 	}
 
-	meta, err := json.Marshal(ko.AdditionalProperties())
+	pm.meta, err = json.Marshal(ko.AdditionalProperties())
 	if err != nil {
-		return nil, err
+		return pm, err
 	}
-	if len(meta) > maxMetaLength {
-		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(meta), maxMetaLength)
+	if len(pm.meta) > maxMetaLength {
+		return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(pm.meta), maxMetaLength)
 	}
-	metaLength := uint32(len(meta))
 
-	vectorWeights, err := json.Marshal(ko.VectorWeights())
+	pm.vectorWeights, err = json.Marshal(ko.VectorWeights())
 	if err != nil {
-		return nil, err
+		return pm, err
 	}
-	if len(vectorWeights) > maxVectorWeightsLength {
-		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(vectorWeights), maxVectorWeightsLength)
+	if len(pm.vectorWeights) > maxVectorWeightsLength {
+		return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(pm.vectorWeights), maxVectorWeightsLength)
 	}
-	vectorWeightsLength := uint32(len(vectorWeights))
 
 	// Determine which target vectors to include:
 	// - IncludeAllTargetVectors: true means include ALL vectors (used by MarshalBinary)
@@ -876,13 +1112,10 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		}
 	}
 
-	var targetVectorsOffsets []byte
-	var targetVectorsOffsetsLength uint32
 	var targetVectorsSegmentLength int
-
-	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
 	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.Vectors) > 0 {
 		offsetsMap := map[string]uint32{}
+		pm.targetVectors = make([][]float32, 0, len(ko.Vectors))
 		for name, vec := range ko.Vectors {
 			// Skip if we're filtering and this vector wasn't requested
 			if includeSpecificTargetVectors {
@@ -891,40 +1124,37 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 				}
 			}
 			if len(vec) > maxVectorLength {
-				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+				return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
 			}
 
 			offsetsMap[name] = uint32(targetVectorsSegmentLength)
 			targetVectorsSegmentLength += 2 + 4*len(vec) // 2 for vec length + vec bytes
 
 			if targetVectorsSegmentLength > maxTargetVectorsSegmentLength {
-				return nil,
+				return pm,
 					fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
 						"targetVectorsSegmentLength", targetVectorsSegmentLength, maxTargetVectorsSegmentLength)
 			}
 
-			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
+			pm.targetVectors = append(pm.targetVectors, vec)
 		}
 
 		if len(offsetsMap) > 0 {
-			targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+			pm.targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 			if err != nil {
-				return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+				return pm, fmt.Errorf("could not marshal target vectors offsets: %w", err)
 			}
-			if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
-				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
+			if len(pm.targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
+				return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(pm.targetVectorsOffsets), maxTargetVectorsOffsetsLength)
 			}
-			targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 		}
 	}
+	pm.targetVectorsSegmentLength = uint32(targetVectorsSegmentLength)
 
-	var multiVectorsOffsets []byte
-	var multiVectorsOffsetsLength uint32
 	var multiVectorsSegmentLength int
-
-	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
 	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.MultiVectors) > 0 {
 		offsetsMap := map[string]uint32{}
+		pm.multiVectors = make([][][]float32, 0, len(ko.MultiVectors))
 		for name, vecs := range ko.MultiVectors {
 			// Skip if we're filtering and this vector wasn't requested
 			if includeSpecificTargetVectors {
@@ -937,128 +1167,132 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 			multiVectorsSegmentLength += 4
 			for _, vec := range vecs {
 				if len(vec) > maxVectorLength {
-					return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+					return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
 				}
 				// 2 bytes for vec length and 4 bytes per float32
 				multiVectorsSegmentLength += 2 + 4*len(vec)
 
 				if multiVectorsSegmentLength > maxMultiVectorsSegmentLength {
-					return nil,
+					return pm,
 						fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
 							"multiVectorsSegmentLength", multiVectorsSegmentLength, maxMultiVectorsSegmentLength)
 				}
 			}
-			multiVectorsOffsetOrder = append(multiVectorsOffsetOrder, name)
+			pm.multiVectors = append(pm.multiVectors, vecs)
 		}
 
 		if len(offsetsMap) > 0 {
-			multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+			pm.multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 			if err != nil {
-				return nil, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
+				return pm, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
 			}
-			if len(multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
-				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(multiVectorsOffsets), maxMultiVectorsOffsetsLength)
+			if len(pm.multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
+				return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(pm.multiVectorsOffsets), maxMultiVectorsOffsetsLength)
 			}
-			multiVectorsOffsetsLength = uint32(len(multiVectorsOffsets))
 		}
 	}
+	pm.multiVectorsSegmentLength = uint32(multiVectorsSegmentLength)
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
 		2 + vectorLength*4 +
-		2 + classNameLength +
-		4 + schemaLength +
-		4 + metaLength +
-		4 + vectorWeightsLength +
-		4 + targetVectorsOffsetsLength +
-		4 + uint32(targetVectorsSegmentLength) +
-		4 + multiVectorsOffsetsLength +
-		4 + uint32(multiVectorsSegmentLength)
+		2 + uint32(len(pm.className)) +
+		4 + uint32(len(pm.schema)) +
+		4 + uint32(len(pm.meta)) +
+		4 + uint32(len(pm.vectorWeights)) +
+		4 + uint32(len(pm.targetVectorsOffsets)) +
+		4 + pm.targetVectorsSegmentLength +
+		4 + uint32(len(pm.multiVectorsOffsets)) +
+		4 + pm.multiVectorsSegmentLength
+	pm.size = int(totalBufferLength)
 
-	byteBuffer := make([]byte, totalBufferLength)
-	rw := byteops.NewReadWriter(byteBuffer)
-	rw.WriteByte(ko.MarshallerVersion)
-	rw.WriteUint64(ko.DocID)
-	rw.WriteByte(kindByte)
+	return pm, nil
+}
 
-	rw.CopyBytesToBuffer(idBytes)
+// MarshalTo writes the serialized object into buf, which must be exactly
+// Len() bytes long, producing the same bytes as MarshalBinaryOptional for
+// the addProps the PreparedMarshal was prepared with.
+func (pm *PreparedMarshal) MarshalTo(buf []byte) error {
+	if len(buf) != pm.size {
+		return errors.Errorf("prepared marshal requires a buffer of exactly %d bytes, got %d", pm.size, len(buf))
+	}
 
-	rw.WriteUint64(uint64(ko.CreationTimeUnix()))
-	rw.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+	rw := byteops.NewReadWriter(buf)
+	rw.WriteByte(pm.version)
+	rw.WriteUint64(pm.docID)
+	rw.WriteByte(pm.kind)
+
+	rw.CopyBytesToBuffer(pm.id[:])
+
+	rw.WriteUint64(pm.creationTime)
+	rw.WriteUint64(pm.updateTime)
+
+	vectorLength := len(pm.vector)
 	rw.WriteUint16(uint16(vectorLength))
+	if vectorLength > 0 {
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vectorLength)*byteops.Uint32Len], pm.vector)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * byteops.Uint32Len)
+	}
 
-	if addProps.Vector {
-		for j := uint32(0); j < vectorLength; j++ {
-			rw.WriteUint32(math.Float32bits(ko.Vector[j]))
+	rw.WriteUint16(uint16(len(pm.className)))
+	if len(pm.className) > 0 {
+		// copy the string directly instead of going through a []byte
+		// conversion, which would allocate
+		copy(rw.Buffer[rw.Position:rw.Position+uint64(len(pm.className))], pm.className)
+		rw.MoveBufferPositionForward(uint64(len(pm.className)))
+	}
+
+	rw.WriteUint32(uint32(len(pm.schema)))
+	if len(pm.schema) > 0 {
+		if err := rw.CopyBytesToBuffer(pm.schema); err != nil {
+			return errors.Wrap(err, "Could not copy schema")
 		}
 	}
 
-	rw.WriteUint16(uint16(classNameLength))
-	err = rw.CopyBytesToBuffer(className)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	rw.WriteUint32(uint32(len(pm.meta)))
+	if err := rw.CopyBytesToBuffer(pm.meta); err != nil {
+		return errors.Wrap(err, "Could not copy meta")
 	}
 
-	rw.WriteUint32(schemaLength)
-	if schemaLength > 0 {
-		err = rw.CopyBytesToBuffer(schema)
-		if err != nil {
-			return byteBuffer, errors.Wrap(err, "Could not copy schema")
+	rw.WriteUint32(uint32(len(pm.vectorWeights)))
+	if err := rw.CopyBytesToBuffer(pm.vectorWeights); err != nil {
+		return errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	rw.WriteUint32(uint32(len(pm.targetVectorsOffsets)))
+	if len(pm.targetVectorsOffsets) > 0 {
+		if err := rw.CopyBytesToBuffer(pm.targetVectorsOffsets); err != nil {
+			return errors.Wrap(err, "Could not copy targetVectorsOffsets")
 		}
 	}
 
-	rw.WriteUint32(metaLength)
-	err = rw.CopyBytesToBuffer(meta)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy meta")
-	}
-
-	rw.WriteUint32(vectorWeightsLength)
-	err = rw.CopyBytesToBuffer(vectorWeights)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
-	}
-
-	rw.WriteUint32(targetVectorsOffsetsLength)
-	if targetVectorsOffsetsLength > 0 {
-		err = rw.CopyBytesToBuffer(targetVectorsOffsets)
-		if err != nil {
-			return byteBuffer, errors.Wrap(err, "Could not copy targetVectorsOffsets")
-		}
-	}
-
-	rw.WriteUint32(uint32(targetVectorsSegmentLength))
-	for _, name := range targetVectorsOffsetOrder {
-		vec := ko.Vectors[name]
+	rw.WriteUint32(pm.targetVectorsSegmentLength)
+	for _, vec := range pm.targetVectors {
 		vecLen := len(vec)
 
 		rw.WriteUint16(uint16(vecLen))
-		for j := 0; j < vecLen; j++ {
-			rw.WriteUint32(math.Float32bits(vec[j]))
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+		rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
+	}
+
+	rw.WriteUint32(uint32(len(pm.multiVectorsOffsets)))
+	if len(pm.multiVectorsOffsets) > 0 {
+		if err := rw.CopyBytesToBuffer(pm.multiVectorsOffsets); err != nil {
+			return errors.Wrap(err, "Could not copy multiVectorsOffsets")
 		}
 	}
 
-	rw.WriteUint32(multiVectorsOffsetsLength)
-	if multiVectorsOffsetsLength > 0 {
-		err = rw.CopyBytesToBuffer(multiVectorsOffsets)
-		if err != nil {
-			return byteBuffer, errors.Wrap(err, "Could not copy multiVectorsOffsets")
-		}
-	}
-
-	rw.WriteUint32(uint32(multiVectorsSegmentLength))
-	for _, name := range multiVectorsOffsetOrder {
-		vecs := ko.MultiVectors[name]
+	rw.WriteUint32(pm.multiVectorsSegmentLength)
+	for _, vecs := range pm.multiVectors {
 		rw.WriteUint32(uint32(len(vecs)))
 		for _, vec := range vecs {
 			vecLen := len(vec)
 			rw.WriteUint16(uint16(vecLen))
-			for j := 0; j < vecLen; j++ {
-				rw.WriteUint32(math.Float32bits(vec[j]))
-			}
+			byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+			rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 		}
 	}
 
-	return byteBuffer, nil
+	return nil
 }
 
 func (ko *Object) MarshalBinary() ([]byte, error) {
@@ -1068,6 +1302,17 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		Vector:                  true,
 		IncludeAllTargetVectors: true,
 	})
+}
+
+// MarshalBinaryDisk produces the on-disk representation of the object. When
+// skipClassName is true, the className body is omitted (the 2-byte length
+// prefix is written as 0). Disk readers stamp the className from the bucket
+// onto the decoded object via FromBinaryDisk.
+func (ko *Object) MarshalBinaryDisk(skipClassName bool) ([]byte, error) {
+	return ko.marshalBinaryInternal(additional.Properties{
+		Vector:                  true,
+		IncludeAllTargetVectors: true,
+	}, skipClassName)
 }
 
 // UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
@@ -1083,7 +1328,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
+	rw := byteops.NewReadWriterWithPosition(data, startPos)
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1098,6 +1343,12 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+		if idx < 0 {
+			// data the parser cannot walk at all: it reports that without a path
+			returnError = fmt.Errorf("malformed property json: %w", err)
+			return
+		}
+
 		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
 
 		switch dataType {
@@ -1199,16 +1450,44 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
-// see MarshalBinary for the exact contents of each version
-func (ko *Object) UnmarshalBinary(data []byte) error {
+// UnmarshalBinaryNetwork is the object-method form of FromBinaryNetwork: it
+// decodes onto ko and reads Object.Class from the data bytes.
+// Network methods are used for node to node communication.
+// Use UnmarshalBinaryDisk when reading from disk, as the on-disk class-name
+// may be empty.
+func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
+	return ko.unmarshalInternal(data, "", nil)
+}
+
+// UnmarshalBinaryDisk decodes onto ko and stamps the supplied className on
+// Object.Class, skipping the on-disk class-name bytes. className must be
+// non-empty.
+func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
+	return ko.UnmarshalBinaryDiskWithProps(data, className, nil)
+}
+
+// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk with a known property
+// set: a non-nil properties decodes the property blob via UnmarshalProperties
+// (no reflection) instead of json.Unmarshal. Names not listed are dropped, so
+// callers must pass every property that can be present on disk.
+func (ko *Object) UnmarshalBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) error {
+	if className == "" {
+		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
+	}
+	return ko.unmarshalInternal(data, className, properties)
+}
+
+// unmarshalInternal is the shared decoder behind UnmarshalBinaryDisk and
+// UnmarshalBinaryNetwork. A non-empty className stamps Object.Class; an empty
+// className falls back to the on-disk value.
+func (ko *Object) unmarshalInternal(data []byte, className string, properties *PropertyExtraction) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 	ko.MarshallerVersion = version
 
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
+	rw := byteops.NewReadWriterWithPosition(data, 1)
 	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
@@ -1224,33 +1503,31 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
-	for j := 0; j < int(vectorLength); j++ {
-		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value (the UnmarshalBinaryNetwork path). If
+	// both are empty there is no class to attach to the decoded object —
+	// return an error rather than produce a silent empty Class.
 	classNameLength := uint64(rw.ReadUint16())
-	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
+	if className == "" {
+		if classNameLength == 0 {
+			return errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
 	}
 
 	schemaLength := uint64(rw.ReadUint32())
-	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy schema")
-	}
+	schema := rw.ReadBytesFromBuffer(schemaLength)
 
 	metaLength := uint64(rw.ReadUint32())
-	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy meta")
-	}
+	meta := rw.ReadBytesFromBuffer(metaLength)
 
 	vectorWeightsLength := uint64(rw.ReadUint32())
-	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy vectorWeights")
-	}
+	vectorWeights := rw.ReadBytesFromBuffer(vectorWeightsLength)
 
 	vectors, err := unmarshalTargetVectors(&rw)
 	if err != nil {
@@ -1268,10 +1545,10 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
-		string(className),
+		className,
 		schema,
 		meta,
-		vectorWeights, nil, 0,
+		vectorWeights, properties, uint32(schemaLength),
 	)
 }
 
@@ -1295,9 +1572,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				vecLen := rw.ReadUint16()
 				vec := make([]float32, vecLen)
-				for j := uint16(0); j < vecLen; j++ {
-					vec[j] = math.Float32frombits(rw.ReadUint32())
-				}
+				byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 				targetVectors[name] = vec
 			}
 
@@ -1345,9 +1620,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		out = make([]float32, vecLen)
 	}
 
-	for j := uint16(0); j < vecLen; j++ {
-		out[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 	return out, nil
@@ -1386,14 +1659,12 @@ func unmarshalMultiVectors(
 				}
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				numVecs := rw.ReadUint32()
-				vecs := make([][]float32, 0)
+				vecs := make([][]float32, numVecs)
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
-					for j := uint16(0); j < vecLen; j++ {
-						vec[j] = math.Float32frombits(rw.ReadUint32())
-					}
-					vecs = append(vecs, vec)
+					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
+					vecs[i] = vec
 				}
 				multiVectors[name] = vecs
 			}
@@ -1417,7 +1688,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 
 	if targetVector != "" {
 		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithPosition(in, startPos)
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1442,6 +1713,9 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
 	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	if vecLen == 0 {
+		return nil, fmt.Errorf("vector length is 0")
+	}
 
 	var out []float32
 	if cap(buffer) >= int(vecLen) {
@@ -1452,12 +1726,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
-	}
+	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
 }
@@ -1495,19 +1764,16 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
-		out = buffer[:vecLen]
-	} else {
-		out = make([]float32, vecLen)
-	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
+	if vecLen > 0 {
+		if cap(buffer) >= int(vecLen) {
+			out = buffer[:vecLen]
+		} else {
+			out = make([]float32, vecLen)
+		}
+		byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 	}
 
 	pos := vecEnd
@@ -1523,7 +1789,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(pos)))
+		rw := byteops.NewReadWriterWithPosition(in, uint64(pos))
 		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
 		if err != nil {
 			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)

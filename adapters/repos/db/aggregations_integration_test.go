@@ -16,29 +16,60 @@ package db
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
-
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/clients"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// realShardCountHandler answers the replica object-count endpoint with the true
+// per-shard count from repo, mirroring the production handler. Echoing a constant
+// per shard only matched the expected total while every shard (including the
+// local one) was counted over HTTP; the in-process short-circuit for local
+// replicas now returns real counts, so the fake must report reality too.
+func realShardCountHandler(getRepo func() *DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// /replicas/indices/{collection}/shards/{shard}/objects/_count
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) < 6 {
+			http.Error(w, "unexpected count path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		count, err := getRepo().CountObjects(r.Context(), parts[2], parts[4])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, strconv.Itoa(count))
+	}
+}
+
 func Test_Aggregations(t *testing.T) {
+	var repo *DB
+	srv := httptest.NewServer(realShardCountHandler(func() *DB { return repo }))
+	t.Cleanup(srv.Close)
+
 	dirName := t.TempDir()
 
 	shardState := singleShardState()
@@ -56,18 +87,21 @@ func Test_Aggregations(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
+	replicaClient, err := clients.NewReplicationClient(&http.Client{})
+	require.Nil(t, err)
+	repo, err = New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, replicaClient, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -99,6 +133,10 @@ func Test_Aggregations(t *testing.T) {
 }
 
 func Test_Aggregations_MultiShard(t *testing.T) {
+	var repo *DB
+	srv := httptest.NewServer(realShardCountHandler(func() *DB { return repo }))
+	t.Cleanup(srv.Close)
+
 	dirName := t.TempDir()
 
 	shardState := fixedMultiShardState()
@@ -108,7 +146,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	physicalShards := shardState.AllPhysicalShards()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(physicalShards, nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
@@ -116,18 +155,21 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
+	replicaClient2, err := clients.NewReplicationClient(&http.Client{})
+	require.Nil(t, err)
+	repo, err = New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, replicaClient2, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -934,7 +976,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"makesProduct"},
-							Value: strfmt.URI("weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"),
+							Value: "weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06",
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
@@ -1337,6 +1379,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
+			// Real total across all shards, independent of shard count.
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
@@ -2016,6 +2059,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
+			// Real total across all shards, independent of shard count.
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					{

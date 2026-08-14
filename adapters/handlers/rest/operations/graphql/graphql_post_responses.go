@@ -139,6 +139,51 @@ func (o *GraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// GraphqlPostGoneCode is the HTTP code returned for type GraphqlPostGone
+const GraphqlPostGoneCode int = 410
+
+/*
+GraphqlPostGone Endpoint not available in the current cluster configuration.
+
+swagger:response graphqlPostGone
+*/
+type GraphqlPostGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGraphqlPostGone creates GraphqlPostGone with default headers values
+func NewGraphqlPostGone() *GraphqlPostGone {
+
+	return &GraphqlPostGone{}
+}
+
+// WithPayload adds the payload to the graphql post gone response
+func (o *GraphqlPostGone) WithPayload(payload *models.ErrorResponse) *GraphqlPostGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the graphql post gone response
+func (o *GraphqlPostGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GraphqlPostGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // GraphqlPostUnprocessableEntityCode is the HTTP code returned for type GraphqlPostUnprocessableEntity
 const GraphqlPostUnprocessableEntityCode int = 422
 

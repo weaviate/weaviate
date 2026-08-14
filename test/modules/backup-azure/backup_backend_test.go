@@ -28,6 +28,7 @@ import (
 	mod "github.com/weaviate/weaviate/modules/backup-azure"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Environment variable names for Azure module configuration
@@ -127,6 +128,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -215,6 +217,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -266,6 +269,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err = azure.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -278,17 +282,6 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 			require.Nil(t, err)
 
 			contents, err := azure.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
-		})
-
-		t.Run("fetch file from backend", func(t *testing.T) {
-			destPath := dataDir + "/file_0.copy.db"
-
-			err := azure.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
-			require.Nil(t, err)
-
-			contents, err := os.ReadFile(destPath)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})

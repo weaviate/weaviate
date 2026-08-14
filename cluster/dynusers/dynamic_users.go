@@ -18,18 +18,25 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	dynUser *apikey.DBUser
-	logger  logrus.FieldLogger
+	dynUser           *apikey.DBUser
+	namespaces        usecasesNamespaces.Exister
+	namespacesEnabled bool
+	logger            logrus.FieldLogger
 }
 
-func NewManager(dynUser *apikey.DBUser, logger logrus.FieldLogger) *Manager {
-	return &Manager{dynUser: dynUser, logger: logger}
+func NewManager(dynUser *apikey.DBUser, namespaces usecasesNamespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) *Manager {
+	if namespaces == nil {
+		panic("cluster/dynusers: namespaces controller must not be nil")
+	}
+	return &Manager{dynUser: dynUser, namespaces: namespaces, namespacesEnabled: namespacesEnabled, logger: logger}
 }
 
 func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
@@ -41,7 +48,15 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
+	if m.namespacesEnabled && req.Namespace == "" {
+		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
+	}
+
+	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
+		return fmt.Errorf("%w: %q", err, req.Namespace)
+	}
+
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
@@ -66,6 +81,20 @@ func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	}
 
 	return m.dynUser.DeleteUser(req.UserId)
+}
+
+func (m *Manager) DeleteUsersInNamespace(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.DeleteUsersInNamespaceRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Namespace == "" {
+		return fmt.Errorf("%w: namespace is required", ErrBadRequest)
+	}
+	return m.dynUser.DeleteUsersInNamespace(req.Namespace)
 }
 
 func (m *Manager) ActivateUser(c *cmd.ApplyRequest) error {
@@ -119,7 +148,12 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	response := cmd.QueryGetUsersResponse{Users: users}
+	// These pointers are local and never shared.
+	wireUsers := make(map[string]*dbuser.View, len(users))
+	for id, v := range users {
+		wireUsers[id] = &v
+	}
+	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -160,7 +194,8 @@ func (m *Manager) Restore(snapshot []byte) error {
 	if m.dynUser == nil {
 		return nil
 	}
-	err := m.dynUser.Restore(snapshot)
+	// false: RAFT log compaction never strips; only the backup-restore path does.
+	err := m.dynUser.Restore(snapshot, false)
 	if err != nil {
 		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
 		return err

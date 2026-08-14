@@ -38,3 +38,24 @@ func TestRPCResolver(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "localhost:124", rAddr)
 }
+
+func TestRPCResolverIPv6(t *testing.T) {
+	rpcPort := 8081
+
+	t.Run("non-local cluster with IPv6 raft address", func(t *testing.T) {
+		rAddr, err := NewRpc(false, rpcPort).Address("[2001:db8::1]:8300")
+		assert.NoError(t, err)
+		assert.Equal(t, "[2001:db8::1]:8081", rAddr)
+	})
+
+	t.Run("local cluster with IPv6 raft address", func(t *testing.T) {
+		rAddr, err := NewRpc(true, rpcPort).Address("[::1]:8300")
+		assert.NoError(t, err)
+		assert.Equal(t, "[::1]:8301", rAddr)
+	})
+
+	t.Run("bare IPv6 without brackets is invalid", func(t *testing.T) {
+		_, err := NewRpc(false, rpcPort).Address("2001:db8::1:8300")
+		assert.Error(t, err)
+	})
+}

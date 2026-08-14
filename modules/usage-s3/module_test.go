@@ -277,7 +277,7 @@ func TestModule_SetUsageService(t *testing.T) {
 
 	// Test with valid service after initialization
 	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().SetJitterInterval(mock.Anything).Return()
+	usageService.EXPECT().SetShardConcurrency(mock.Anything).Return()
 
 	assert.NotPanics(t, func() {
 		m.SetUsageService(usageService)

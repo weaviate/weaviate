@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -25,11 +26,13 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -37,21 +40,37 @@ const (
 	SnapshotVersionLatest
 )
 
-type Manager struct {
-	casbin      *casbin.SyncedCachedEnforcer
-	logger      logrus.FieldLogger
-	authNconf   config.Authentication
-	rbacConf    rbacconf.Config
-	restoreLock sync.RWMutex
+// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
+// when it runs rather than at construction, so a snapshot taken later sees namespaces
+// created since boot.
+type NamespaceLister interface {
+	List() []cmd.Namespace
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
-	csbin, err := Init(rbacConf, rbacStoragePath, authNconf)
+type Manager struct {
+	casbin            *casbin.SyncedCachedEnforcer
+	logger            logrus.FieldLogger
+	authNconf         config.Authentication
+	rbacConf          rbacconf.Config
+	namespacesEnabled bool
+	namespaces        NamespaceLister
+	restoreLock       sync.RWMutex
+}
+
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Manager{csbin, logger, authNconf, rbacConf, sync.RWMutex{}}, nil
+	return &Manager{
+		casbin:            csbin,
+		logger:            logger,
+		authNconf:         authNconf,
+		rbacConf:          rbacConf,
+		namespacesEnabled: namespacesEnabled,
+		namespaces:        namespaces,
+	}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -184,25 +203,112 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
-	policies, err := conv.CasbinPolicies(casbinStoragePolicies...)
+	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
 	return policies, nil
 }
 
+// ListGroupingSubjects returns the subject key of every role-assignment row
+// (each a `<prefix>:<user>` or `<prefix>:<group>` string).
+func (m *Manager) ListGroupingSubjects() ([]string, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("GetGroupingPolicy: %w", err)
+	}
+	subjects := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 0 {
+			subjects = append(subjects, r[0])
+		}
+	}
+	return subjects, nil
+}
+
+// NamespaceSubject is a direct (db/oidc) principal holding at least one role
+// assignment bound to a namespace. ID is the user id without the auth-type
+// prefix, e.g. "customer1:bob".
+type NamespaceSubject struct {
+	ID       string
+	AuthType authentication.AuthType
+}
+
+// NamespaceLocalRBAC returns the namespace-local role names and the distinct
+// direct (db/oidc) principals whose role assignments belong to namespace. It is
+// the single source of "what RBAC belongs to a namespace": the removal-block
+// gate counts this set and the delete cascade revokes/deletes exactly it, so
+// the two stay consistent by construction. Group assignments are global and so
+// are excluded — a namespace-named group can't block its namespace's removal.
+func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects []NamespaceSubject, err error) {
+	all, err := m.GetRoles()
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	for name := range all {
+		if namespacing.NamespaceFromQualified(name) == namespace {
+			roles = append(roles, name)
+		}
+	}
+	rows, err := m.ListGroupingSubjects()
+	if err != nil {
+		return nil, nil, fmt.Errorf("ListGroupingSubjects: %w", err)
+	}
+	seen := map[NamespaceSubject]struct{}{}
+	for _, s := range rows {
+		user, authType, ns, err := conv.SubjectNamespace(s)
+		if err != nil {
+			// A row we can't parse must not be silently dropped: an undercount
+			// here lets the removal-block gate read zero and remove a namespace
+			// while an assignment survives.
+			return nil, nil, fmt.Errorf("SubjectNamespace %q: %w", s, err)
+		}
+		// A zero auth type marks a global group subject.
+		if authType == "" || ns != namespace {
+			continue
+		}
+		subject := NamespaceSubject{ID: user, AuthType: authType}
+		if _, ok := seen[subject]; ok {
+			continue
+		}
+		seen[subject] = struct{}{}
+		subjects = append(subjects, subject)
+	}
+	return roles, subjects, nil
+}
+
+// CountNamespaceLocalRBAC returns the number of namespace-local roles plus
+// direct-principal assignments in the namespace. Removal of a namespace entity
+// is blocked while this is non-zero.
+func (m *Manager) CountNamespaceLocalRBAC(namespace string) (int, error) {
+	roles, subjects, err := m.NamespaceLocalRBAC(namespace)
+	if err != nil {
+		return 0, err
+	}
+	return len(roles) + len(subjects), nil
+}
+
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return fmt.Errorf("RemoveNamedPolicy: %w", err)
 		}
-		if !ok {
-			return nil // deletes are idempotent
+		// Removing an already-absent permission is a no-op; keep going so the
+		// rest of the batch is still removed.
+		if ok {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
@@ -228,6 +334,7 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, roleName := range roles {
 		// remove role
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
@@ -240,9 +347,14 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
 		}
 
-		if !roleRemoved && !roleAssignmentsRemoved {
-			return nil // deletes are idempotent
+		// deletes are idempotent: an already-absent role is a no-op, but other
+		// roles in the batch may still have been removed, so keep going.
+		if roleRemoved || roleAssignmentsRemoved {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
@@ -356,14 +468,135 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
+// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
+// the API and therefore exist only in the policy store. Root and read-only are absent
+// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
+// every restore, so carrying them would be discarded work.
+var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
+
+// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
+// qualified with a namespace the selection named. A built-in role can never be selected,
+// so without these rows a namespace's own admin is absent from the snapshot and a fresh
+// cluster has nothing to rebuild it from.
+//
+// Anything outside that namespace stays behind. A db subject strips unconditionally, so
+// another namespace's admin would arrive on the restored cluster as a global identity
+// holding admin. A global or group subject belongs to the source cluster rather than to
+// the namespace being moved.
+func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
+	namespaces := make(map[string]struct{}, len(roles))
+	for _, name := range roles {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			namespaces[ns] = struct{}{}
+		}
+	}
+	if len(namespaces) == 0 {
+		return nil, nil
+	}
+
+	inScope := func(subject string) bool {
+		_, _, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || ns == "" {
+			return false
+		}
+		_, ok := namespaces[ns]
+		return ok
+	}
+
+	var out [][]string
+	for _, role := range apiManagedBuiltInRoles {
+		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
+		if err != nil {
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+		}
+		for _, g := range gs {
+			if len(g) > 0 && inScope(g[0]) {
+				out = append(out, g)
+			}
+		}
+	}
+	return out, nil
+}
+
+// referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
+//
+// Only the prefixes the strip has to resolve are candidates: role names, resource paths,
+// and oidc subjects. A db subject is skipped because it strips unconditionally and never
+// reads this set, so including it would record a namespace the blob does not otherwise
+// mention. A candidate is kept only when the cluster confirms it is a real namespace,
+// which is what separates a namespace prefix from a colon inside a global id such as
+// "urn:foo".
+//
+// The result names only what these rows refer to, never every namespace on the cluster.
+// A backup of one namespace must not disclose the others.
+func (m *Manager) referencedNamespaces(policy, groupingPolicy [][]string) []string {
+	if m.namespaces == nil {
+		return nil
+	}
+
+	candidates := map[string]struct{}{}
+	add := func(name string) {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			candidates[ns] = struct{}{}
+		}
+	}
+	for _, p := range policy {
+		if len(p) > 0 {
+			add(conv.TrimRoleNamePrefix(p[0]))
+		}
+		if len(p) > 1 {
+			// Rewrite is the only segment walker the package exposes. Returning each
+			// segment unchanged makes it a read.
+			_, _ = namespacing.RewriteNamespaceSegments(p[1], func(seg string) (string, error) {
+				add(seg)
+				return seg, nil
+			})
+		}
+	}
+	for _, g := range groupingPolicy {
+		if len(g) > 1 {
+			add(conv.TrimRoleNamePrefix(g[1]))
+		}
+		if len(g) > 0 {
+			if user, prefix, err := conv.GetUserAndPrefix(g[0]); err == nil &&
+				prefix == string(authentication.AuthTypeOIDC) {
+				add(user)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	known := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		known[ns.Name] = struct{}{}
+	}
+	var out []string
+	for ns := range candidates {
+		if _, ok := known[ns]; ok {
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Snapshot is the RBAC state to be used for RAFT snapshots
 type snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
 	GroupingPolicy [][]string `json:"grouping_policies"`
 	Version        int        `json:"version"`
+	Namespaces     []string   `json:"namespaces,omitempty"`
 }
 
-func (m *Manager) Snapshot() ([]byte, error) {
+// Snapshot serialises the RBAC state for RAFT snapshots and backups. Called with
+// no roles it captures the whole store. Called with roles it keeps only those
+// roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
+// hold the role name, so the assignments and the db:wv_internal_empty placeholder
+// come along too. A selection also carries the admin and viewer grants held by
+// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
+func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
 		return []byte{}, nil
@@ -375,24 +608,68 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	policy, err := m.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	groupingPolicy, err := m.casbin.GetGroupingPolicy()
-	if err != nil {
-		return nil, err
+	var policy, groupingPolicy [][]string
+	if len(roles) == 0 {
+		var err error
+		policy, err = m.casbin.GetPolicy()
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy, err = m.casbin.GetGroupingPolicy()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		for _, name := range roles {
+			prefixed := conv.PrefixRoleName(name)
+			ps, err := m.casbin.GetFilteredNamedPolicy("p", 0, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+			}
+			gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+			}
+			// Every live role has at least the db:wv_internal_empty placeholder g-row,
+			// so no rows at all means the role is not here. Fail rather than ship a
+			// backup that is quietly missing a role.
+			if len(ps) == 0 && len(gs) == 0 {
+				return nil, fmt.Errorf("role %q not found in snapshot source", name)
+			}
+			policy = append(policy, ps...)
+			groupingPolicy = append(groupingPolicy, gs...)
+		}
+		gs, err := m.apiManagedBuiltInGroupings(roles)
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy, Version: SnapshotVersionLatest}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(policy, groupingPolicy),
+	}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-func (m *Manager) Restore(b []byte) error {
+// ListAllRoles returns every role name known to the store, custom and built-in.
+// includeRoles selectors are matched against this list.
+func (m *Manager) ListAllRoles() ([]string, error) {
+	roles, err := m.GetRoles()
+	if err != nil {
+		return nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	return slices.Collect(maps.Keys(roles)), nil
+}
+
+func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
 	if m == nil || len(b) == 0 {
@@ -405,6 +682,17 @@ func (m *Manager) Restore(b []byte) error {
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
+	// has to be refused while the target's state is still untouched, otherwise a
+	// rejected restore wipes the target's roles and then returns an error.
+	if stripNamespaces {
+		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
+		if err != nil {
+			return err
+		}
+		snapshot = stripped
 	}
 
 	// Hold the write lock only for the casbin mutation and cache invalidation
@@ -438,7 +726,7 @@ func (m *Manager) Restore(b []byte) error {
 	}
 
 	// environment config needs to be applied again in case there were changes since the last snapshot
-	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf); err != nil {
+	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf, m.namespacesEnabled); err != nil {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
@@ -465,9 +753,11 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	ns := namespacing.ConfinedNamespace(principal)
+
 	// first check group permissions
 	for _, group := range principal.Groups {
-		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
+		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb, ns)
 		if err != nil {
 			return false, err
 		}
@@ -477,7 +767,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	}
 
 	// If no group permissions, check user permissions
-	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
+	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb, ns)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {
@@ -487,16 +777,18 @@ func prettyPermissionsActions(perm *models.Permission) string {
 	return *perm.Action
 }
 
-func prettyPermissionsResources(perm *models.Permission) string {
+func prettyPermissionsResources(principal *models.Principal, perm *models.Permission) string {
 	res := ""
 	if perm == nil {
 		return ""
 	}
 
+	strip := func(s string) string { return namespacing.StripOwnNamespace(principal, s) }
+
 	if perm.Backups != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
-			s += fmt.Sprintf("Collection: %s", *perm.Backups.Collection)
+			s += fmt.Sprintf("Collection: %s", strip(*perm.Backups.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -505,7 +797,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	if perm.Data != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.DataDomain)
 		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Data.Collection))
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
 			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
@@ -524,7 +816,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 			s += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
 		}
 		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s", *perm.Nodes.Collection)
+			s += fmt.Sprintf(" Collection: %s", strip(*perm.Nodes.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -533,7 +825,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	if perm.Roles != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.RolesDomain)
 		if perm.Roles.Role != nil && *perm.Roles.Role != "" {
-			s += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
+			s += fmt.Sprintf(" Role: %s,", strip(*perm.Roles.Role))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -543,7 +835,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.CollectionsDomain)
 
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Collections.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -552,9 +844,11 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	if perm.Tenants != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.TenantsDomain)
 
+		if perm.Tenants.Collection != nil && *perm.Tenants.Collection != "" {
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Tenants.Collection))
+		}
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
-			s += fmt.Sprintf(" Tenant: %s", *perm.Tenants.Tenant)
+			s += fmt.Sprintf(" Tenant: %s,", *perm.Tenants.Tenant)
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -564,7 +858,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.UsersDomain)
 
 		if perm.Users.Users != nil {
-			s += fmt.Sprintf(" User: %s,", *perm.Users.Users)
+			s += fmt.Sprintf(" User: %s,", strip(*perm.Users.Users))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -574,10 +868,10 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.ReplicateDomain)
 
 		if perm.Replicate.Collection != nil && *perm.Replicate.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Replicate.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Replicate.Collection))
 		}
 		if perm.Replicate.Shard != nil && *perm.Replicate.Shard != "" {
-			s += fmt.Sprintf(" Shard: %s,", *perm.Replicate.Shard)
+			s += fmt.Sprintf(" Shard: %s,", strip(*perm.Replicate.Shard))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -587,10 +881,10 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.AliasesDomain)
 
 		if perm.Aliases.Collection != nil && *perm.Aliases.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Aliases.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Aliases.Collection))
 		}
 		if perm.Aliases.Alias != nil && *perm.Aliases.Alias != "" {
-			s += fmt.Sprintf(" Alias: %s,", *perm.Aliases.Alias)
+			s += fmt.Sprintf(" Alias: %s,", strip(*perm.Aliases.Alias))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)

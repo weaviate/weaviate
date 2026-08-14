@@ -45,7 +45,7 @@ func TestBackup_Integration(t *testing.T) {
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
 		"commit-logger",
-		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.HnswCommitLoggerCycleTicker(false),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
 	defer parentCommitLoggerCycle.StopAndWait(ctx)
@@ -72,8 +72,8 @@ func TestBackup_Integration(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks, opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)
@@ -87,26 +87,14 @@ func TestBackup_Integration(t *testing.T) {
 		}
 	})
 
-	// let the index age for a second so that
-	// the commitlogger filenames, which are
-	// based on current timestamp, can differ
-	time.Sleep(time.Second)
-
 	t.Run("pause maintenance", func(t *testing.T) {
 		err = combinedCtrl.Deactivate(ctx)
 		require.Nil(t, err)
 	})
 
 	t.Run("switch commit logs", func(t *testing.T) {
-		err = idx.SwitchCommitLogs(ctx)
+		err = idx.PrepareForBackup(ctx)
 		require.Nil(t, err)
-	})
-
-	// after switch commit logs, to have source log(s)
-	t.Run("create snapshot", func(t *testing.T) {
-		created, _, err := idx.commitLog.CreateSnapshot()
-		require.Nil(t, err)
-		require.True(t, created)
 	})
 
 	t.Run("list files", func(t *testing.T) {
@@ -115,7 +103,7 @@ func TestBackup_Integration(t *testing.T) {
 
 		// by this point there should be two files in the commitlog directory.
 		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
+		// log which was in use prior to `PrepareForBackup`. additionally,
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//
@@ -123,10 +111,7 @@ func TestBackup_Integration(t *testing.T) {
 		// it excludes any currently active log files, which are not part
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
-		//
-		// additionally snapshot was created which consist of 1 file,
-		// so total of 2 files are expected
-		assert.Len(t, files, 2)
+		assert.Len(t, files, 1)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {
@@ -151,19 +136,6 @@ func TestBackup_Integration(t *testing.T) {
 				assert.Empty(t, path.Ext(info.Name()))
 			}
 			assert.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
-		})
-
-		t.Run("verify snapshot dir contents", func(t *testing.T) {
-			snapshotDir := snapshotDirectory(idx.commitLog.RootPath(), idx.commitLog.ID())
-			relSnapshotDir := snapshotDirectory("", idx.commitLog.ID())
-
-			ls, err := os.ReadDir(snapshotDir)
-			require.Nil(t, err)
-
-			for i := range ls {
-				snapshotFilePath := path.Join(relSnapshotDir, ls[i].Name())
-				assert.Contains(t, filesUnique, snapshotFilePath)
-			}
 		})
 	})
 

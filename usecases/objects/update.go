@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -34,8 +36,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(updates.Class)
-	className, _ = m.resolveAlias(className)
+	className, _, err := m.resolveNS(principal, updates.Class)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	updates.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
@@ -57,17 +61,13 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, className, id, updates, repl, fetchedClasses)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
-	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
-		className = cls
-	}
-
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -94,6 +94,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
+		// Extending the collection needs its own permission; reporting a denial
+		// as invalid input would hide the missing grant behind a 422.
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, err
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -107,7 +112,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	class := fetchedClasses[className].Class
 
 	prevObj := obj.Object()
-	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -121,8 +126,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
-		return nil, NewErrInternal("update object: %v", err)
+		return nil, NewErrInternal("update object: %w", err)
 	}
+
+	schema.HashBlobHashProperties(class, updates)
 
 	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
 	if err != nil {

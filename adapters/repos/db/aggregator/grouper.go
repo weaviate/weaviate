@@ -198,7 +198,11 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		}
 	case models.MultipleRef:
 		for i := range val {
-			g.addItem(val[i].Beacon, docID)
+			// Emit a plain string, not strfmt.URI: remote shards JSON-decode
+			// the beacon back to string while local shards keep the named
+			// type, and the two are unequal interface keys — so ShardCombiner
+			// would split one ref target into two buckets with halved counts.
+			g.addItem(string(val[i].Beacon), docID)
 		}
 	default:
 		g.addItem(val, docID)
@@ -287,12 +291,17 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 	c := b.Cursor()
 	defer c.Close()
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting objects bucket class name: %w", err)
+	}
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
+			elem, err := storobj.FromBinaryOptionalDisk(v, className, additional.Properties{}, properties)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}

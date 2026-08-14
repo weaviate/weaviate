@@ -59,13 +59,27 @@ type ClientService interface {
 
 	SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsGetOK, error)
 
+	SchemaObjectsIndexCancel(params *SchemaObjectsIndexCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexCancelAccepted, error)
+
+	SchemaObjectsIndexRebuild(params *SchemaObjectsIndexRebuildParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexRebuildAccepted, error)
+
+	SchemaObjectsIndexUpsert(params *SchemaObjectsIndexUpsertParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexUpsertOK, *SchemaObjectsIndexUpsertAccepted, error)
+
+	SchemaObjectsIndexesGet(params *SchemaObjectsIndexesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesGetOK, error)
+
 	SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesAddOK, error)
+
+	SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error)
+
+	SchemaObjectsPropertiesTokenize(params *SchemaObjectsPropertiesTokenizeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesTokenizeOK, error)
 
 	SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error)
 
 	SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error)
 
 	SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsUpdateOK, error)
+
+	SchemaObjectsVectorsDelete(params *SchemaObjectsVectorsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsVectorsDeleteOK, error)
 
 	TenantExists(params *TenantExistsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantExistsOK, error)
 
@@ -452,6 +466,171 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 }
 
 /*
+SchemaObjectsIndexCancel cancels the in flight reindex task on a property s inverted index
+
+Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a `202` with `{"status":"NO_OP"}` is returned when there is nothing to cancel). `indexName` accepts `rangeable` as an alias for `rangeFilters`.
+*/
+func (a *Client) SchemaObjectsIndexCancel(params *SchemaObjectsIndexCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexCancelAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexCancelParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.index.cancel",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexCancelReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsIndexCancelAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.index.cancel: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsIndexRebuild rebuilds a property s inverted index with unchanged configuration
+
+Rebuilds the inverted index from the stored objects with its current configuration (repair / format refresh). No request body. Index-mutating work is asynchronous: a `202` with a task ID is returned. `indexName` accepts `rangeable` as an alias for `rangeFilters`.
+*/
+func (a *Client) SchemaObjectsIndexRebuild(params *SchemaObjectsIndexRebuildParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexRebuildAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexRebuildParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.index.rebuild",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexRebuildReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsIndexRebuildAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.index.rebuild: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsIndexUpsert declarativelies create or migrate a property s inverted index
+
+Upserts the inverted index of a property, identified by `indexName`. The body describes the desired index configuration; the server diffs it against the current state and either creates the index, migrates its configuration, or does nothing. Index-mutating work is asynchronous: a `202` with a task ID is returned when a reindex task is submitted, and `200` with `{"status":"NO_OP"}` is returned when the desired configuration is already in place. `indexName` accepts `rangeable` as an alias for `rangeFilters`.
+*/
+func (a *Client) SchemaObjectsIndexUpsert(params *SchemaObjectsIndexUpsertParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexUpsertOK, *SchemaObjectsIndexUpsertAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexUpsertParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.index.upsert",
+		Method:             "PUT",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/index/{indexName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexUpsertReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch value := result.(type) {
+	case *SchemaObjectsIndexUpsertOK:
+		return value, nil, nil
+	case *SchemaObjectsIndexUpsertAccepted:
+		return nil, value, nil
+	}
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsIndexesGet gets index status for all properties of a collection
+
+Returns per-property index state including active reindex progress. This powers the UI to show live migration status.
+*/
+func (a *Client) SchemaObjectsIndexesGet(params *SchemaObjectsIndexesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexesGetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.indexes.get",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}/indexes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexesGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsIndexesGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.indexes.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 SchemaObjectsPropertiesAdd adds a property to a collection
 
 Adds a new property definition to an existing collection (`className`) definition.
@@ -489,6 +668,88 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsPropertiesDelete deletes a property s inverted index
+
+Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters` (with `rangeable` accepted as an alias for `rangeFilters`).
+*/
+func (a *Client) SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsPropertiesDeleteParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.properties.delete",
+		Method:             "DELETE",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/index/{indexName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsPropertiesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsPropertiesDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsPropertiesTokenize tokenizes text using a property s configuration
+
+Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.
+*/
+func (a *Client) SchemaObjectsPropertiesTokenize(params *SchemaObjectsPropertiesTokenizeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesTokenizeOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsPropertiesTokenizeParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.properties.tokenize",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/tokenize",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsPropertiesTokenizeReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsPropertiesTokenizeOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.tokenize: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -612,6 +873,47 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsVectorsDelete deletes a collection s vector index
+
+Deletes a specific vector index within a collection (`className`). The vector index to delete is identified by `vectorIndexName`.
+*/
+func (a *Client) SchemaObjectsVectorsDelete(params *SchemaObjectsVectorsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsVectorsDeleteOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsVectorsDeleteParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.vectors.delete",
+		Method:             "DELETE",
+		PathPattern:        "/schema/{className}/vectors/{vectorIndexName}/index",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsVectorsDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsVectorsDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.vectors.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

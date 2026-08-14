@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -256,6 +257,33 @@ func TestConfigParsing(t *testing.T) {
 		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
 		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
+
+	t.Run("parse backup_gcs config and survive the env pass - yaml", func(t *testing.T) {
+		for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+			t.Setenv(key, "")
+		}
+
+		configFileName := "config.yaml"
+		configYaml := `backup_gcs:
+  use_grpc: true
+  grpc_conn_pool: 32
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+		require.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+
+		// LoadConfig reads the file before the environment, so an unset variable
+		// has to leave the parsed value alone.
+		require.NoError(t, FromEnv(&config))
+		assert.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+	})
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -279,6 +307,11 @@ func TestConfigValidation(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name:     "backup gcs connection pool out of range",
+			config:   &Config{BackupGCS: BackupGCS{GRPCConnPool: 100}},
+			expected: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -288,6 +321,208 @@ func TestConfigValidation(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBackupGCSValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		connPool int
+		wantErr  string
+	}{
+		{name: "unset takes the default", connPool: 0},
+		{name: "at the cap", connPool: MaxBackupGCSGRPCConnPool},
+		{
+			name:     "past the cap",
+			connPool: MaxBackupGCSGRPCConnPool + 1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: 65",
+		},
+		{
+			name:     "negative",
+			connPool: -1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := BackupGCS{GRPCConnPool: tt.connPool}.Validate()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestConfigValidation_OIDCNamespaceClaims covers the cross-field invariant
+// for AUTHENTICATION_OIDC_NAMESPACE_CLAIM /
+// AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM: required when NS+OIDC are
+// both on, forbidden when NS=off, and unconstrained when OIDC is off.
+func TestConfigValidation_OIDCNamespaceClaims(t *testing.T) {
+	type wantErr struct {
+		want   bool
+		substr string
+	}
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		oidcEnabled       bool
+		nsClaim           string
+		globalClaim       string
+		want              wantErr
+	}{
+		{
+			name:              "NS+OIDC on, both claims set — pass",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{},
+		},
+		{
+			name:              "NS+OIDC on, namespace claim missing — fail",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{want: true, substr: "are required when NAMESPACES_ENABLED=true"},
+		},
+		{
+			name:              "NS+OIDC on, global claim missing — fail",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "",
+			want:              wantErr{want: true, substr: "are required when NAMESPACES_ENABLED=true"},
+		},
+		{
+			name:              "NS off, namespace claim set — fail",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "",
+			want:              wantErr{want: true, substr: "must not be set when NAMESPACES_ENABLED=false"},
+		},
+		{
+			name:              "NS off, global claim set — fail",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{want: true, substr: "must not be set when NAMESPACES_ENABLED=false"},
+		},
+		{
+			name:              "NS off, both claims unset — pass",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "",
+			want:              wantErr{},
+		},
+		{
+			name:              "NS on, OIDC off — pass even if claims missing",
+			namespacesEnabled: true,
+			oidcEnabled:       false,
+			nsClaim:           "",
+			globalClaim:       "",
+			want:              wantErr{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{
+				Authentication: Authentication{
+					APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}},
+					OIDC: OIDC{
+						Enabled:              tc.oidcEnabled,
+						NamespaceClaim:       runtime.NewDynamicValue(tc.nsClaim),
+						GlobalPrincipalClaim: runtime.NewDynamicValue(tc.globalClaim),
+					},
+				},
+				// RBAC is required whenever NS is on; enable in lockstep.
+				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.namespacesEnabled}},
+				DisableGraphQL: runtime.NewDynamicValue(true),
+				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
+			}
+			err := c.Validate()
+			if tc.want.want {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.want.substr)
+			} else if err != nil {
+				assert.NotContains(t, err.Error(), "AUTHENTICATION_OIDC_NAMESPACE_CLAIM")
+				assert.NotContains(t, err.Error(), "AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM")
+			}
+		})
+	}
+}
+
+// TestConfigValidation_Namespaces covers the two cross-field requirements that
+// NAMESPACES_ENABLED=true mandates: DISABLE_GRAPHQL=true and RBAC enabled. We
+// assert on the error substring to distinguish these from downstream validation
+// noise. The graphql check runs before the RBAC check, so each row isolates a
+// single expected failure.
+func TestConfigValidation_Namespaces(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		disableGraphQL    bool
+		rbacEnabled       bool
+		// wantErrSubstr is empty when no namespace cross-field error is expected.
+		wantErrSubstr string
+	}{
+		{
+			name:              "namespaces disabled — no namespace error",
+			namespacesEnabled: false,
+			disableGraphQL:    true,
+			rbacEnabled:       false,
+			wantErrSubstr:     "",
+		},
+		{
+			name:              "namespaces enabled without RBAC — requires RBAC error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			rbacEnabled:       false,
+			wantErrSubstr:     "NAMESPACES_ENABLED=true requires RBAC to be enabled",
+		},
+		{
+			name:              "namespaces enabled without DISABLE_GRAPHQL — requires DISABLE_GRAPHQL error",
+			namespacesEnabled: true,
+			disableGraphQL:    false,
+			rbacEnabled:       true,
+			wantErrSubstr:     "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true",
+		},
+		{
+			name:              "namespaces enabled with DISABLE_GRAPHQL and RBAC — no namespace error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			rbacEnabled:       true,
+			wantErrSubstr:     "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{
+				Authentication: Authentication{APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}}},
+				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.rbacEnabled}},
+				DisableGraphQL: runtime.NewDynamicValue(tc.disableGraphQL),
+				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
+			}
+			err := c.Validate()
+			if tc.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrSubstr)
+			} else if err != nil {
+				// Validate may still fail on unrelated fields (e.g. Persistence);
+				// only assert it does NOT fail on either namespace cross-field check.
+				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires RBAC to be enabled")
 			}
 		})
 	}

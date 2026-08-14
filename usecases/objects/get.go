@@ -22,10 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
@@ -34,11 +32,12 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	class = schema.UppercaseClassName(class)
-	class, _ = m.resolveAlias(class)
-
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
+	class, _, err := m.resolveNS(principal, class)
 	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
+
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return nil, err
 	}
 
@@ -63,6 +62,10 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
+	if m.config.Config.Namespaces.Enabled {
+		return nil, NewErrEndpointGone("listing objects without a class is not supported; specify the ?class= query parameter")
+	}
+
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
@@ -80,7 +83,6 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config.Authorization.Rbac)
 	filteredObjects := resourceFilter.Filter(
 		ctx,
-		m.logger,
 		principal,
 		objects,
 		authorization.READ,
@@ -115,6 +117,10 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
+	className, _, err := m.resolveNS(principal, className)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	return class, err
 }
@@ -123,9 +129,6 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
-			class = cls
-		}
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
@@ -135,10 +138,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		case errors.As(err, &ErrMultiTenancy{}):
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return nil, fmt.Errorf("repo: object by id: %w", err)
-			}
-			return nil, NewErrInternal("repo: object by id: %v", err)
+			return nil, NewErrInternal("repo: object by id: %w", err)
 		}
 	}
 
@@ -162,7 +162,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 	if after != nil {
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
@@ -170,13 +170,13 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
 		nil, m.getSort(sort, order), additional, tenant)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 
 	if m.modulesProvider != nil {
 		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams)
 		if err != nil {
-			return nil, NewErrInternal("list extend: %v", err)
+			return nil, NewErrInternal("list extend: %w", err)
 		}
 	}
 
@@ -242,7 +242,9 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
-		return 0, 0, errors.New("query maximum results exceeded")
+		return 0, 0, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			offset, limit, m.config.Config.QueryMaximumResults)
 	}
 
 	return offset, limit, nil

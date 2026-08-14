@@ -218,6 +218,7 @@ func TestListInactiveShardFiles(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	var sd backup.ShardDescriptor
@@ -275,8 +276,73 @@ func TestIsImmutableFile(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := isImmutableFile(tc.relPath)
+			got := backup.IsImmutableFile(tc.relPath)
 			assert.Equal(t, tc.want, got, "isImmutableFile(%q)", tc.relPath)
+		})
+	}
+}
+
+// TestIsImmutableFile_CompactV2 audits isImmutableFile coverage for the file
+// types the compact-v2 commit-log subsystem produces.
+//
+// Filename patterns are sourced from
+// adapters/repos/db/vector/hnsw/compact/file_discovery.go:BuildMergedFilename
+// and adapters/repos/db/vector/hnsw/compact/file_info.go:FileType.Suffix.
+// Snapshot location is sourced from compact/compactor.go:writeSnapshot, which
+// writes into c.config.Dir — the commit log directory — *not* the legacy
+// .hnsw.snapshot.d sibling directory.
+//
+// isImmutableFile is consulted only on the inactive-shard backup path
+// (backupInactiveShardWithHardlinks). A miss here is a *performance*
+// regression, not a correctness bug: missing files fall back to copyFile
+// (full byte copy + fsync) instead of os.Link (instant hardlink). Compact-v2
+// makes .sorted the dominant post-compaction format, so a missing classifier
+// makes inactive-tenant backups noticeably slower than legacy.
+func TestIsImmutableFile_CompactV2(t *testing.T) {
+	tests := []struct {
+		name    string
+		relPath string
+		want    bool
+		why     string
+	}{
+		{
+			name:    "compact-v2 sorted file (single-source name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456.sorted",
+			want:    true,
+			why:     "produced by compact.SortedWriter via SafeFileWriter; atomically renamed in on commit, never reopened for writes",
+		},
+		{
+			name:    "compact-v2 sorted file (range-merged name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456_1709204000.sorted",
+			want:    true,
+			why:     "n-way merge of two or more sorted files; atomic write via SafeFileWriter",
+		},
+		{
+			name:    "compact-v2 snapshot lives in commitlog dir (single-source name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456.snapshot",
+			want:    true,
+			why:     "compact-v2 writes snapshots into the commitlog dir (compactor.writeSnapshot uses c.config.Dir), not the legacy .hnsw.snapshot.d sibling",
+		},
+		{
+			name:    "compact-v2 snapshot lives in commitlog dir (range-merged name)",
+			relPath: "myclass/shard1/main.hnsw.commitlog.d/1709203456_1709204000.snapshot",
+			want:    true,
+			why:     "n-way merge of snapshot + sorted files, atomic write",
+		},
+		{
+			name:    "compact-v2 sorted file under a named target vector",
+			relPath: "myclass/shard1/customVec.hnsw.commitlog.d/1709203456.sorted",
+			want:    true,
+			why:     "named target vectors get their own commitlog dir; classification is by extension and applies regardless of dir",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := backup.IsImmutableFile(tc.relPath)
+			if got != tc.want {
+				t.Errorf("isImmutableFile(%q) = %v, want %v\n\twhy it should be %v: %s",
+					tc.relPath, got, tc.want, tc.want, tc.why)
+			}
 		})
 	}
 }
@@ -318,6 +384,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	var sd backup.ShardDescriptor
@@ -381,6 +448,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 			backupLock:       esync.NewKeyRWLocker(),
 			shardCreateLocks: esync.NewKeyRWLocker(),
 			closingCtx:       context.Background(),
+			db:               stubDBWithNoLiveReindex(),
 		}
 	}
 
@@ -476,6 +544,7 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
@@ -521,6 +590,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		closingCtx:       context.Background(),
+		db:               stubDBWithNoLiveReindex(),
 	}
 }
 
@@ -750,6 +820,9 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		name := name
 		mockShard := NewMockShardLike(t)
 		files := hotFiles[name]
+		// preventShutdown is acquired by backupShardWithHardlinks on the active
+		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
+		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
 			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
@@ -804,4 +877,190 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	for _, name := range coldTenants {
 		assert.Contains(t, restoredState.Physical, name)
 	}
+}
+
+// Asserts shardCreateLocks is released before CreateBackupSnapshot so concurrent
+// queries (via Index.getOptInitLocalShard) don't stall for the snapshot duration.
+// See weaviate/0-weaviate-issues#234.
+func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	shardName := "test-shard"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	snapshotStarted := make(chan struct{})
+	releaseSnapshot := make(chan struct{})
+	releaseCalled := make(chan struct{})
+
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(func() {
+		close(releaseCalled)
+	}, nil)
+	mockShard.EXPECT().
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			sd.Name = shardName
+			sd.Node = "node1"
+			close(snapshotStarted)
+			<-releaseSnapshot
+			return []string{}, nil
+		})
+	idx.shards.Store(shardName, mockShard)
+
+	type backupResult struct {
+		sd  *backup.ShardDescriptor
+		err error
+	}
+	backupDone := make(chan backupResult, 1)
+	go func() {
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		backupDone <- backupResult{sd: sd, err: err}
+	}()
+
+	select {
+	case <-snapshotStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CreateBackupSnapshot was not invoked within 5s")
+	}
+
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
+		"shardCreateLocks must be released before CreateBackupSnapshot")
+	idx.shardCreateLocks.RUnlock(shardName)
+
+	require.False(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must remain held during CreateBackupSnapshot")
+
+	close(releaseSnapshot)
+	select {
+	case res := <-backupDone:
+		require.NoError(t, res.err)
+		require.NotNil(t, res.sd)
+		assert.Equal(t, shardName, res.sd.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("backupShardWithHardlinks did not return within 5s of releasing snapshot")
+	}
+
+	select {
+	case <-releaseCalled:
+	default:
+		t.Error("preventShutdown release callback was not invoked")
+	}
+	require.True(t, idx.backupLock.TryRLock(shardName), "backupLock must be released after return")
+	idx.backupLock.RUnlock(shardName)
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName), "shardCreateLocks must remain released after return")
+	idx.shardCreateLocks.RUnlock(shardName)
+}
+
+// Asserts the shard reference is dropped only after backupLock is unlocked, on
+// every return that follows preventShutdown. Dropping the last reference can run
+// the shard teardown inline, which under backupLock blocks all writes to the shard.
+func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
+	className := "TestClass"
+	shardName := "test-shard"
+	snapshotFile := "objects/segment-0001.db"
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		snapshotErr error
+		// missingBigFile makes FillFileInfo stat a file that is absent from the staging dir.
+		missingBigFile bool
+		expectedErr    string
+	}{
+		{name: "success"},
+		{name: "snapshot fails", snapshotErr: errors.New("out of disk"), expectedErr: "snapshot shard"},
+		{name: "file info fails", missingBigFile: true, expectedErr: "gather shard"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+
+			var released, backupLockFreeAtRelease bool
+			mockShard := NewMockShardLike(t)
+			mockShard.EXPECT().preventShutdown().Return(func() {
+				released = true
+				backupLockFreeAtRelease = idx.backupLock.TryRLock(shardName)
+				if backupLockFreeAtRelease {
+					idx.backupLock.RUnlock(shardName)
+				}
+			}, nil)
+			mockShard.EXPECT().
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+					if tt.snapshotErr != nil {
+						return nil, tt.snapshotErr
+					}
+					sd.Name = shardName
+					sd.Node = "node1"
+					return []string{snapshotFile}, nil
+				})
+			idx.shards.Store(shardName, mockShard)
+
+			var baseDescrs []*backup.ClassDescriptor
+			if tt.missingBigFile {
+				baseDescrs = []*backup.ClassDescriptor{{
+					BackupID: "base-backup",
+					Shards: []*backup.ShardDescriptor{{
+						Name:          shardName,
+						BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: 1}},
+					}},
+				}}
+			}
+
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			if tt.expectedErr != "" {
+				require.ErrorContains(t, err, tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.True(t, released, "shard reference must be released")
+			assert.True(t, backupLockFreeAtRelease,
+				"backupLock must be unlocked before the shard reference is dropped")
+		})
+	}
+}
+
+// Asserts both locks are released on the preventShutdown error path — guards
+// the shardCreateLocksHeld bookkeeping that supports the early-release.
+func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	shardName := "test-shard"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
+	idx.shards.Store(shardName, mockShard)
+
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prevent shutdown")
+
+	// Both locks must be released even on the error path.
+	require.True(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must be released after preventShutdown failure")
+	idx.backupLock.RUnlock(shardName)
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
+		"shardCreateLocks must be released after preventShutdown failure")
+	idx.shardCreateLocks.RUnlock(shardName)
 }

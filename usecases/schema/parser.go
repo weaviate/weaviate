@@ -109,6 +109,11 @@ func (p *Parser) parseVectorConfig(class *models.Class) error {
 
 	newVC := map[string]models.VectorConfig{}
 	for vector, config := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(config) {
+			newVC[vector] = config
+			continue
+		}
+
 		mapMC, ok := config.Vectorizer.(map[string]any)
 		if !ok {
 			return fmt.Errorf("vectorizer for %s is not a map, got %v", vector, config)
@@ -160,7 +165,12 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 }
 
 func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
-	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+	// A vector-less class (no named vectors AND no legacy fields — the state
+	// a class reaches once its last named vector is dropped and finalized)
+	// has no legacy index config to parse; parsing the empty type would
+	// error and make every reader treat the class as broken/absent.
+	vectorless := !hasTargetVectors(class) && class.VectorIndexType == "" && class.Vectorizer == ""
+	if !vectorless && (!hasTargetVectors(class) || class.VectorIndexType != "") {
 		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultQuantization)
 		if err != nil {
 			return err
@@ -202,6 +212,9 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 
 func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			continue
+		}
 		isMultiVector := false
 		vectorizerModuleName := ""
 		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
@@ -232,6 +245,14 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
+	// "none" is a sentinel for dropped indexes, not a real index type.
+	// Reject it explicitly rather than relying on the default branch.
+	if vectorIndexType == vectorindex.VectorIndexTypeNone {
+		return nil, errors.Errorf(
+			"parse vector index config: %q is not a valid vector index type; "+
+				"it is an internal sentinel for dropped indexes", vectorIndexType)
+	}
+
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
@@ -308,6 +329,14 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	if err := p.validator.ValidateInvertedIndexConfigUpdate(
 		class.InvertedIndexConfig,
 		update.InvertedIndexConfig); err != nil {
+		return nil, fmt.Errorf("inverted index config: %w", err)
+	}
+
+	var updatedPresets map[string][]string
+	if update.InvertedIndexConfig != nil {
+		updatedPresets = update.InvertedIndexConfig.StopwordPresets
+	}
+	if err := validateStopwordPresetsStillReferenced(class.Properties, updatedPresets); err != nil {
 		return nil, fmt.Errorf("inverted index config: %w", err)
 	}
 
@@ -538,7 +567,27 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 	for vecName, initialCfg := range initial.VectorConfig {
 		updatedCfg, ok := updated.VectorConfig[vecName]
 		if !ok {
+			// A dropped ("none") entry may be removed outright; the FSM-apply gate
+			// decides completion. Removing a live entry stays an error.
+			if modelsext.IsVectorIndexDropped(initialCfg) {
+				continue
+			}
 			return fmt.Errorf("missing config for vector %q", vecName)
+		}
+
+		// Skip entries that are already dropped in both initial and updated
+		// configs to avoid false immutability violations.
+		// Reject attempts to re-create a previously dropped vector index —
+		// the executor has no path to re-create the on-disk index structures.
+		if modelsext.IsVectorIndexDropped(initialCfg) {
+			if !modelsext.IsVectorIndexDropped(updatedCfg) {
+				return fmt.Errorf("vector %q: cannot re-create a dropped vector index; "+
+					"the index was removed and cannot be restored through a class update", vecName)
+			}
+			continue
+		}
+		if modelsext.IsVectorIndexDropped(updatedCfg) {
+			continue
 		}
 
 		// immutable vector type
@@ -569,6 +618,7 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -578,8 +628,14 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 	}
 
 	cfgs := map[string]schemaConfig.VectorIndexConfig{}
-	for vecName := range c.VectorConfig {
-		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	for vecName, vecCfg := range c.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vecCfg) {
+			continue
+		}
+		cfgs[vecName] = vecCfg.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	}
+	if len(cfgs) == 0 {
+		return nil
 	}
 	return cfgs
 }

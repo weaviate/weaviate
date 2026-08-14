@@ -15,7 +15,7 @@ package utils
 import (
 	"errors"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 // GraphQLNetworkFieldContents contains all objects regarding GraphQL fields

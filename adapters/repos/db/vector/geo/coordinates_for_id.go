@@ -34,6 +34,11 @@ func (cfid CoordinatesForID) VectorForID(ctx context.Context, id uint64) ([]floa
 	return geoCoordiantesToVector(coordinates)
 }
 
+// GeoCoordinatesToVector converts geo coordinates to a vector of [lat, lon].
+func GeoCoordinatesToVector(in *models.GeoCoordinates) ([]float32, error) {
+	return geoCoordiantesToVector(in)
+}
+
 func geoCoordiantesToVector(in *models.GeoCoordinates) ([]float32, error) {
 	if in.Latitude == nil {
 		return nil, fmt.Errorf("latitude must be set")

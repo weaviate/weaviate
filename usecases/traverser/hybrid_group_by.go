@@ -22,6 +22,12 @@ import (
 )
 
 func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, groupBy *searchparams.GroupBy) (search.Results, error) {
+	// Grouping rebuilds the result list, so carry the profile over from the old results[0].
+	var queryProfile interface{}
+	if len(sr) > 0 && sr[0].AdditionalProperties != nil {
+		queryProfile = sr[0].AdditionalProperties["queryProfile"]
+	}
+
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
@@ -113,6 +119,13 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 		first.AdditionalProperties["group"] = group
 
 		out = append(out, first)
+	}
+
+	if len(out) > 0 && queryProfile != nil {
+		if out[0].AdditionalProperties == nil {
+			out[0].AdditionalProperties = make(models.AdditionalProperties)
+		}
+		out[0].AdditionalProperties["queryProfile"] = queryProfile
 	}
 
 	return out, nil

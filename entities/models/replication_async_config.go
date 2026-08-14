@@ -28,9 +28,6 @@ import (
 // swagger:model ReplicationAsyncConfig
 type ReplicationAsyncConfig struct {
 
-	// Interval in milliseconds at which liveness of target nodes is checked.
-	AliveNodesCheckingFrequency *int64 `json:"aliveNodesCheckingFrequency,omitempty"`
-
 	// Maximum number of object keys included in a single diff batch.
 	DiffBatchSize *int64 `json:"diffBatchSize,omitempty"`
 
@@ -48,9 +45,6 @@ type ReplicationAsyncConfig struct {
 
 	// Interval in seconds at which async replication logs its status.
 	LoggingFrequency *int64 `json:"loggingFrequency,omitempty"`
-
-	// Maximum number of async replication workers.
-	MaxWorkers *int64 `json:"maxWorkers,omitempty"`
 
 	// Overall timeout in seconds for the pre-propagation phase.
 	PrePropagationTimeout *int64 `json:"prePropagationTimeout,omitempty"`

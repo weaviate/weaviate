@@ -32,13 +32,18 @@ import (
 )
 
 var (
-	ErrClassExists             = errors.New("class already exists")
-	ErrClassNotFound           = errors.New("class not found")
-	ErrShardNotFound           = errors.New("shard not found")
-	ErrAliasExists             = errors.New("alias already exists")
-	ErrAliasNotFound           = errors.New("alias not found")
-	ErrMTDisabled              = errors.New("multi-tenancy is not enabled")
-	ErrTenantTransitionalState = errors.New("tenant is in a transitional state")
+	ErrClassExists   = errors.New("class already exists")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
+	ErrAliasExists   = errors.New("alias already exists")
+	ErrAliasNotFound = errors.New("alias not found")
+	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	// ErrClassVersionConflict rejects an UpdateClass apply whose
+	// ExpectedClassVersion no longer matches — the proposer read stale state
+	// and must retry from a fresh read.
+	ErrClassVersionConflict      = errors.New("class changed concurrently")
+	ErrTenantTransitionalState   = errors.New("tenant is in a transitional state")
+	ErrReplicaMovementInProgress = errors.New("replica movement in progress")
 )
 
 // PartialUpdateError wraps one or more schema errors that represent a partial
@@ -248,11 +253,25 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
-func (s *schema) CollectionsCount() int {
+// CollectionsCount returns the number of stored classes. With an empty
+// namespace it is the cluster-global total. With a non-empty namespace it
+// counts only classes whose internal name carries that namespace prefix.
+func (s *schema) CollectionsCount(namespace string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return len(s.classes)
+	if namespace == "" {
+		return len(s.classes)
+	}
+
+	prefix := namespace + entSchema.NamespaceSeparator
+	count := 0
+	for name := range s.classes {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -466,6 +485,24 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	return meta.AddProperty(v, props...)
 }
 
+// updateProperty merges `property` into the named class. When `mask` is
+// non-empty, only the listed fields are merged onto an existing property
+// of the same name (see MergePropsMasked).
+//
+// Returns the merged property (post-merge view) so the FSM apply path can
+// pass it to the storage layer, which needs the full property to decide
+// which buckets to create / remove.
+func (s *schema) updateProperty(class string, v uint64, property *models.Property, mask []string) (*models.Property, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return nil, ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property, mask)
+}
+
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -505,6 +542,25 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 	return nil
 }
 
+// tenantCapUsage returns the current physical-tenant count for class and how
+// many of the incoming names are not yet present. ok is false if class is
+// unknown.
+func (s *schema) tenantCapUsage(class string, incoming []string) (current, additions int, ok bool) {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return 0, 0, false
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	current = len(meta.Sharding.Physical)
+	for _, name := range incoming {
+		if _, exists := meta.Sharding.Physical[name]; !exists {
+			additions++
+		}
+	}
+	return current, additions, true
+}
+
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
@@ -522,12 +578,12 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	return nil
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest, replicationFSM replicationFSM) error {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, preFreezeStatuses map[string]string) error {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return err
 	}
-	sc, err := meta.UpdateTenants(s.nodeID, req, replicationFSM, v)
+	sc, err := meta.UpdateTenants(s.nodeID, req, replicationFSM, v, preFreezeStatuses)
 	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.
@@ -730,16 +786,12 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return false
 }
 
+// canonicalAlias normalizes an alias name to its stored form. On
+// namespaced names ("<ns>:<Name>") only the class portion is uppercased;
+// the lowercase namespace prefix is preserved verbatim so namespace-prefix
+// matchers (e.g. AliasesInNamespace) and the canonical store key agree.
 func (s *schema) canonicalAlias(alias string) string {
-	if len(alias) < 1 {
-		return alias
-	}
-
-	if len(alias) == 1 {
-		return strings.ToUpper(alias)
-	}
-
-	return strings.ToUpper(string(alias[0])) + alias[1:]
+	return entSchema.UppercaseClassName(alias)
 }
 
 func (s *schema) GetAliasesForClass(class string) []*models.Alias {

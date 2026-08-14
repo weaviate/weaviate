@@ -43,16 +43,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
@@ -114,7 +105,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -148,7 +139,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -207,7 +198,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -232,7 +223,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("PatchedOnNode-1", func(t *testing.T) {
 			after, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(1),
-				"Article", articleIDs[0], "node1", tenantID.String())
+				"Article", articleIDs[0], docker.Weaviate0, tenantID.String())
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -242,7 +233,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -252,17 +243,18 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			common.StartNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
 			_, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(2),
-				"Article", articleIDs[0], "node2", tenantID.String())
+				"Article", articleIDs[0], docker.Weaviate1, tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -283,6 +275,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-2", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 2)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(2), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 }

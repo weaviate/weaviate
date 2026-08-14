@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -37,8 +36,10 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(object.Class)
-	className, _ = m.resolveAlias(className)
+	className, _, err := m.resolveNS(principal, object.Class)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	object.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
@@ -107,7 +108,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	class := fetchedClasses[object.Class].Class
 
-	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -123,6 +124,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, err
 	}
+
+	// Convert BlobHash properties from raw base64 to hashes after vectorization
+	// so that vectorizers see the original media data, but only hashes are stored.
+	schema.HashBlobHashProperties(class, object)
 
 	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {
@@ -142,7 +147,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if id == "" {
 		validatedID, err := generateUUID()
 		if err != nil {
-			return "", NewErrInternal("could not generate id: %v", err)
+			return "", NewErrInternal("could not generate id: %w", err)
 		}
 		return validatedID, err
 	}
@@ -169,10 +174,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return "", err
-			}
-			return "", NewErrInternal("%v", err)
+			return "", NewErrInternal("%w", err)
 		}
 	}
 
@@ -180,6 +182,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 }
 
 func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
+	principal *models.Principal,
 	repl *additional.ReplicationProperties,
 	incoming *models.Object, existing *models.Object, fetchedClasses map[string]versioned.Class,
 ) error {
@@ -193,7 +196,8 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	}
 	class := fetchedClasses[incoming.Class].Class
 
-	return validation.New(m.vectorRepo.Exists, m.config, repl).
+	return validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled).
 		Object(ctx, class, incoming, existing)
 }
 

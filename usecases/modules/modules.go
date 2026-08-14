@@ -21,10 +21,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -597,7 +598,7 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
-	return fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name)
+	return enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name))
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
@@ -903,7 +904,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 		}
 	}
 
-	return nil, fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
+	return nil, enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params))
 }
 
 // MultiVectorFromSearchParam gets a multi vector for a given argument. This is used in
@@ -924,7 +925,7 @@ func (p *Provider) MultiVectorFromSearchParam(ctx context.Context, className, ta
 		}
 	}
 
-	return nil, fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
+	return nil, enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params))
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -940,7 +941,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	return nil, "", fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params)
+	return nil, "", enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params))
 }
 
 // MultiCrossClassVectorFromSearchParam gets a multi vector for a given argument without
@@ -956,7 +957,7 @@ func (p *Provider) MultiCrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	return nil, "", fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params)
+	return nil, "", enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params))
 }
 
 func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]string, error) {
@@ -1112,21 +1113,24 @@ func (p *Provider) HasMultipleVectorizers() bool {
 	return p.hasMultipleVectorizers
 }
 
-func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+func (p *Provider) BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	module := p.GetByName(backend)
-	if module != nil {
-		if module.Type() == modulecapabilities.Backup {
-			module_backend, ok := module.(modulecapabilities.BackupBackend)
-			if ok {
-				return module_backend, nil
-			} else {
-				return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
-			}
-		} else {
-			return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
+	if module == nil {
+		return nil, errors.Errorf("backup: %s not found", backend)
+	}
+	if module.Type() != modulecapabilities.Backup {
+		return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
+	}
+	bb, ok := module.(modulecapabilities.BackupBackend)
+	if !ok {
+		return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
+	}
+	if useCase == modulecapabilities.BackendUseCaseExport {
+		if ep, ok := module.(modulecapabilities.ExportBackendProvider); ok {
+			return ep.ExportBackend(), nil
 		}
 	}
-	return nil, errors.Errorf("backup: %s not found", backend)
+	return bb, nil
 }
 
 func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool) {

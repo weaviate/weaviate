@@ -13,6 +13,8 @@ package oidc
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -23,6 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -38,7 +42,7 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	expectedErr := errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 
 	logger, _ := logrustest.NewNullLogger()
-	client, err := New(cfg, logger)
+	client, err := New(cfg, nil, false, logger)
 	require.Nil(t, err)
 
 	principal, err := client.ValidateAndExtract("token-doesnt-matter", []string{})
@@ -58,7 +62,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 		"missing required field 'username_claim', missing required field 'client_id': either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 
 	logger, _ := logrustest.NewNullLogger()
-	_, err := New(cfg, logger)
+	_, err := New(cfg, nil, false, logger)
 	assert.ErrorAs(t, err, &expectedErr)
 }
 
@@ -67,6 +71,7 @@ type claims struct {
 	Email         string   `json:"email"`
 	Groups        []string `json:"groups"`
 	GroupAsString string   `json:"group_as_string"`
+	Namespace     string   `json:"weaviate_namespace,omitempty"`
 }
 
 func Test_Middleware_WithValidToken(t *testing.T) {
@@ -88,7 +93,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := token(t, "best-user", server.URL, "best_client")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -115,7 +120,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithEmail(t, "best-user", server.URL, "best_client", "foo@bar.com")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -142,7 +147,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithGroups(t, "best-user", server.URL, "best_client", []string{"group1", "group2"})
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -170,7 +175,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithStringGroups(t, "best-user", server.URL, "best_client", "group1")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -178,6 +183,96 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1"}, principal.Groups)
 	})
+}
+
+// TestValidateAndExtract_NamespaceState uses real tokens because the state
+// check runs last: only a token that passes every other check reaches it.
+func TestValidateAndExtract_NamespaceState(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     api.NamespaceState // empty = namespace missing
+		rootUsers []string
+		wantAuthN bool
+		wantMsg   string
+	}{
+		{name: "active authenticates", state: api.NamespaceStateActive, wantAuthN: true},
+		{
+			// The state check runs after the root check, so a namespaced root
+			// principal is rejected as root and never learns the state.
+			name:      "namespaced root is rejected as root, not by state",
+			state:     api.NamespaceStateSuspended,
+			rootUsers: []string{"customer1:alice"},
+			wantMsg:   "unauthorized: namespaced OIDC principal cannot be granted the root role; remove the namespace claim or remove the principal from RBAC root configuration",
+		},
+		{
+			name:    "suspended is denied, distinguishably",
+			state:   api.NamespaceStateSuspended,
+			wantMsg: "unauthorized: instance suspended",
+		},
+		{
+			name:    "resuming is denied, distinguishably",
+			state:   api.NamespaceStateResuming,
+			wantMsg: "unauthorized: instance resuming, retry shortly",
+		},
+		{
+			// deleting must be denied too, not fall through to a default pass.
+			name:    "deleting is denied without confirming the namespace exists",
+			state:   api.NamespaceStateDeleting,
+			wantMsg: "unauthorized",
+		},
+		{
+			name:    "missing is denied without confirming the namespace exists",
+			wantMsg: "unauthorized",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newOIDCServer(t)
+			defer server.Close()
+
+			cfg := config.Config{
+				Authentication: config.Authentication{
+					OIDC: config.OIDC{
+						Enabled:           true,
+						Issuer:            runtime.NewDynamicValue(server.URL),
+						ClientID:          runtime.NewDynamicValue("best_client"),
+						SkipClientIDCheck: runtime.NewDynamicValue(false),
+						UsernameClaim:     runtime.NewDynamicValue("sub"),
+						NamespaceClaim:    runtime.NewDynamicValue("weaviate_namespace"),
+					},
+				},
+				Authorization: config.Authorization{
+					Rbac: rbacconf.Config{Enabled: true, RootUsers: tc.rootUsers},
+				},
+			}
+
+			exister := newFakeExister()
+			if tc.state != "" {
+				exister.markState("customer1", tc.state)
+			}
+
+			logger, _ := logrustest.NewNullLogger()
+			client, err := New(cfg, exister, true, logger)
+			require.NoError(t, err)
+
+			tok := tokenWithClaims(t, "alice", server.URL, "best_client", claims{Namespace: "customer1"})
+			principal, err := client.ValidateAndExtract(tok, []string{})
+
+			if tc.wantAuthN {
+				require.NoError(t, err)
+				require.NotNil(t, principal)
+				assert.Equal(t, "customer1:alice", principal.Username)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, principal, "a non-active namespace must never authenticate")
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Equal(t, tc.wantMsg, err.Error())
+		})
+	}
 }
 
 func token(t *testing.T, subject string, issuer string, aud string) string {
@@ -222,6 +317,127 @@ func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, cl
 	return token
 }
 
+func Test_Middleware_SkipTLSVerify_BuildsInsecureClient(t *testing.T) {
+	t.Run("InsecureSkipVerify is true when SkipTLSVerify is set", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				SkipTLSVerify: runtime.NewDynamicValue(true),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		httpClient, err := client.buildHTTPClient()
+		require.NoError(t, err)
+		require.NotNil(t, httpClient)
+
+		transport, ok := httpClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.TLSClientConfig)
+		assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+	})
+
+	t.Run("InsecureSkipVerify is false when SkipTLSVerify is not set", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				Certificate: runtime.NewDynamicValue(testingCertificate),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		httpClient, err := client.buildHTTPClient()
+		require.NoError(t, err)
+		require.NotNil(t, httpClient)
+
+		transport, ok := httpClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.TLSClientConfig)
+		assert.False(t, transport.TLSClientConfig.InsecureSkipVerify)
+	})
+}
+
+func Test_Middleware_ValidateConfig(t *testing.T) {
+	t.Run("certificate and SkipTLSVerify set simultaneously returns error", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		client := &Client{
+			Config: config.OIDC{
+				Issuer:        runtime.NewDynamicValue("https://issuer.example.com"),
+				ClientID:      runtime.NewDynamicValue("my-client"),
+				UsernameClaim: runtime.NewDynamicValue("sub"),
+				Certificate:   runtime.NewDynamicValue(testingCertificate),
+				SkipTLSVerify: runtime.NewDynamicValue(true),
+			},
+			logger: logger.WithField("component", "oidc"),
+		}
+
+		err := client.validateConfig()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "certificate and insecure_skip_tls_verify are mutually exclusive")
+	})
+}
+
+func Test_Middleware_SkipTLSVerify_WithTLSServer(t *testing.T) {
+	newTLSOIDCServer := func(t *testing.T) *httptest.Server {
+		t.Helper()
+		// We need to start with an empty handler so we can configure it once
+		// we know the URL (the issuer field must match).
+		s := httptest.NewUnstartedServer(nil)
+		s.StartTLS()
+		s.Config.Handler = oidcHandler(t, s.URL)
+		return s
+	}
+
+	t.Run("Init fails without SkipTLSVerify (self-signed cert rejected)", func(t *testing.T) {
+		server := newTLSOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					SkipTLSVerify:     runtime.NewDynamicValue(false),
+				},
+			},
+		}
+
+		logger, _ := logrustest.NewNullLogger()
+		_, err := New(cfg, nil, false, logger)
+		require.Error(t, err, "expected TLS error connecting to OIDC server with self-signed cert")
+	})
+
+	t.Run("Init succeeds and token validates with SkipTLSVerify=true", func(t *testing.T) {
+		server := newTLSOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					SkipTLSVerify:     runtime.NewDynamicValue(true),
+				},
+			},
+		}
+
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, nil, false, logger)
+		require.NoError(t, err)
+
+		tok := token(t, "best-user", server.URL, "best_client")
+		principal, err := client.ValidateAndExtract(tok, []string{})
+		require.NoError(t, err)
+		assert.Equal(t, "best-user", principal.Username)
+	})
+}
+
 func Test_Middleware_CertificateDownload(t *testing.T) {
 	newClientWithCertificate := func(certificate string) (*Client, *logrustest.Hook) {
 		logger, loggerHook := logrustest.NewNullLogger()
@@ -242,17 +458,21 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 	}
 
 	verifyLogs := func(t *testing.T, loggerHook *logrustest.Hook, certificateSource string) {
+		t.Helper()
 		for _, logEntry := range loggerHook.AllEntries() {
-			assert.Contains(t, logEntry.Message, "custom certificate is valid")
-			assert.Contains(t, logEntry.Data["source"], certificateSource)
-			assert.Contains(t, logEntry.Data["action"], "oidc_init")
-			assert.Contains(t, logEntry.Data["component"], "oidc")
+			if logEntry.Message == "custom certificate is valid" {
+				assert.Contains(t, logEntry.Data["source"], certificateSource)
+				assert.Contains(t, logEntry.Data["action"], "oidc_init")
+				assert.Contains(t, logEntry.Data["component"], "oidc")
+				return
+			}
 		}
+		t.Error("expected log entry 'custom certificate is valid' not found")
 	}
 
 	t.Run("certificate string", func(t *testing.T) {
 		client, loggerHook := newClientWithCertificate(testingCertificate)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, "environment variable")
@@ -263,7 +483,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		defer certificateServer.Close()
 		source := certificateURL(certificateServer)
 		client, loggerHook := newClientWithCertificate(source)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, source)
@@ -271,9 +491,348 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 
 	t.Run("unparseable string", func(t *testing.T) {
 		client, _ := newClientWithCertificate("unparseable")
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.Nil(t, clientWithCertificate)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "failed to decode certificate")
 	})
+}
+
+// fakeExister is a minimal namespaces.Exister stub. Names it does not hold
+// are missing; the rest report the state they were seeded with.
+type fakeExister struct {
+	states map[string]api.NamespaceState
+}
+
+func newFakeExister(names ...string) *fakeExister {
+	m := map[string]api.NamespaceState{}
+	for _, n := range names {
+		m[n] = api.NamespaceStateActive
+	}
+	return &fakeExister{states: m}
+}
+
+func (f *fakeExister) markState(name string, state api.NamespaceState) {
+	f.states[name] = state
+}
+
+func (f *fakeExister) GetNamespace(name string) (api.Namespace, bool) {
+	state, ok := f.states[name]
+	if !ok {
+		return api.Namespace{}, false
+	}
+	return api.Namespace{Name: name, State: state}, true
+}
+
+// TestClassifyPrincipal exercises the per-token classification matrix.
+// The fake exister recognizes only "customer1", covering the rejection path.
+func TestClassifyPrincipal(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+	)
+
+	type want struct {
+		namespace string
+		isGlobal  bool
+		errCode   int32 // 0 means no error
+		errSubstr string
+	}
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		username          string
+		claims            map[string]any
+		want              want
+	}{
+		{
+			name:              "NS-disabled short-circuits to global with empty namespace",
+			namespacesEnabled: false,
+			username:          "alice",
+			claims:            map[string]any{},
+			want:              want{namespace: "", isGlobal: false},
+		},
+		{
+			name:              "NS-disabled ignores claims even if present",
+			namespacesEnabled: false,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
+			want:              want{namespace: "", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, namespace claim resolves to existing namespace",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1"},
+			want:              want{namespace: "customer1", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, namespace + global=false → namespaced",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: false},
+			want:              want{namespace: "customer1", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, global=true alone → global operator",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: true},
+			want:              want{namespace: "", isGlobal: true},
+		},
+		{
+			name:              "NS-enabled, both claims → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
+			want:              want{errCode: 401, errSubstr: "must not carry both"},
+		},
+		{
+			name:              "NS-enabled, neither claim → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			name:              "NS-enabled, namespace empty + global absent → reject (empty == absent)",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: ""},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			name:              "NS-enabled, namespace absent + global=false → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: false},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			// Namespace state is not classifyPrincipal's job: an unknown
+			// namespace classifies fine and is denied later, by the gate
+			// TestValidateAndExtract_NamespaceState covers.
+			name:              "NS-enabled, namespace claim names unknown namespace → classifies",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "ghost"},
+			want:              want{namespace: "ghost"},
+		},
+		{
+			name:              "NS-enabled, namespace claim type mismatch → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: 42},
+			want:              want{errCode: 401, errSubstr: "namespace claim"},
+		},
+		{
+			name:              "NS-enabled, global-principal claim type mismatch → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: "yes"},
+			want:              want{errCode: 401, errSubstr: "global-principal claim"},
+		},
+		{
+			name:              "NS-enabled, username contains ':' → reject",
+			namespacesEnabled: true,
+			username:          "customer2:bob",
+			claims:            map[string]any{nsClaimKey: "customer1"},
+			want:              want{errCode: 401, errSubstr: "must not contain ':'"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exister := newFakeExister("customer1")
+			c := &Client{
+				Config: config.OIDC{
+					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+					GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+				},
+				nsExister:         exister,
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+			// On NS-disabled the classifier must work even if the claim
+			// names are unset (startup validation guarantees that).
+			if !tt.namespacesEnabled {
+				c.Config.NamespaceClaim = runtime.NewDynamicValue("")
+				c.Config.GlobalPrincipalClaim = runtime.NewDynamicValue("")
+			}
+
+			ns, isGlobal, err := c.classifyPrincipal(tt.claims, tt.username)
+			if tt.want.errCode != 0 {
+				require.Error(t, err)
+				var apiErr errors.Error
+				if assert.ErrorAs(t, err, &apiErr) {
+					assert.Equal(t, tt.want.errCode, apiErr.Code(), "error code mismatch: %v", err)
+				}
+				if tt.want.errSubstr != "" {
+					assert.Contains(t, err.Error(), tt.want.errSubstr)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.namespace, ns)
+			assert.Equal(t, tt.want.isGlobal, isGlobal)
+		})
+	}
+}
+
+// TestClassifyPrincipal_NoGroupNamespaceInference asserts that group
+// memberships never supply or override the namespace. The cases below
+// carry groups that look like real namespaces and assert they're
+// rejected the same as the "neither claim" case.
+func TestClassifyPrincipal_NoGroupNamespaceInference(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+		groupsClaimKey = "groups"
+	)
+
+	tests := []struct {
+		name   string
+		claims map[string]any
+	}{
+		{
+			name:   "groups names an existing namespace, no namespace claim",
+			claims: map[string]any{groupsClaimKey: []string{"customer1"}},
+		},
+		{
+			name:   "groups names an existing namespace, global=false present",
+			claims: map[string]any{groupsClaimKey: []string{"customer1"}, globalClaimKey: false},
+		},
+		{
+			name:   "single-group claim shape, no namespace claim",
+			claims: map[string]any{groupsClaimKey: "customer1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{
+				Config: config.OIDC{
+					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+					GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+				},
+				nsExister:         newFakeExister("customer1"),
+				namespacesEnabled: true,
+			}
+
+			_, _, err := c.classifyPrincipal(tt.claims, "alice")
+			require.Error(t, err, "groups must never substitute for the namespace claim")
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Contains(t, err.Error(), "must carry either",
+				"rejection must hit the same path as missing-claim, not a groups-derived path")
+		})
+	}
+}
+
+// TestClassifyPrincipal_SameGroupDifferentNamespaces asserts that a
+// namespace belongs to the principal, not the group: two tokens sharing
+// a group but carrying different namespace claims resolve distinctly.
+func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+		groupsClaimKey = "groups"
+		sharedGroup    = "AllUsers"
+	)
+
+	c := &Client{
+		Config: config.OIDC{
+			NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+			GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+		},
+		nsExister:         newFakeExister("customer1", "customer2"),
+		namespacesEnabled: true,
+	}
+
+	ns1, isGlobal1, err := c.classifyPrincipal(map[string]any{
+		nsClaimKey:     "customer1",
+		groupsClaimKey: []string{sharedGroup},
+	}, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, "customer1", ns1)
+	assert.False(t, isGlobal1)
+
+	ns2, isGlobal2, err := c.classifyPrincipal(map[string]any{
+		nsClaimKey:     "customer2",
+		groupsClaimKey: []string{sharedGroup},
+	}, "bob")
+	require.NoError(t, err)
+	assert.Equal(t, "customer2", ns2)
+	assert.False(t, isGlobal2)
+
+	assert.NotEqual(t, ns1, ns2,
+		"shared group membership must not collapse two namespace claims into one scope")
+}
+
+// TestRejectNamespacedRoot asserts that a namespaced OIDC principal
+// cannot also carry the root role (root is cluster-global).
+func TestRejectNamespacedRoot(t *testing.T) {
+	rbac := rbacconf.Config{
+		RootUsers:  []string{"customer1:bob", "alice"},
+		RootGroups: []string{"WeaviateOps"},
+	}
+
+	tests := []struct {
+		name              string
+		namespace         string
+		qualifiedUsername string
+		groups            []string
+		wantErr           bool
+		wantErrSubstr     string
+	}{
+		{
+			name:              "global principal is unaffected",
+			namespace:         "",
+			qualifiedUsername: "alice",
+			groups:            []string{"WeaviateOps"},
+			wantErr:           false,
+		},
+		{
+			name:              "namespaced principal with no root binding",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:carol",
+			groups:            []string{"engineers"},
+			wantErr:           false,
+		},
+		{
+			name:              "namespaced principal in RootGroups is rejected",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:carol",
+			groups:            []string{"WeaviateOps"},
+			wantErr:           true,
+			wantErrSubstr:     "namespaced OIDC principal cannot be granted the root role",
+		},
+		{
+			name:              "namespaced principal whose qualified username is in RootUsers is rejected",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:bob",
+			groups:            []string{"engineers"},
+			wantErr:           true,
+			wantErrSubstr:     "namespaced OIDC principal cannot be granted the root role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{rbac: rbac, namespacesEnabled: true}
+
+			err := c.rejectNamespacedRoot(tt.namespace, tt.qualifiedUsername, tt.groups)
+
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Contains(t, err.Error(), tt.wantErrSubstr)
+		})
+	}
 }

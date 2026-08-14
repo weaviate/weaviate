@@ -67,6 +67,25 @@ func Test_ValidateConfig(t *testing.T) {
 			globalConfig:  replication.GlobalConfig{MinimumFactor: 2},
 			expectedErr:   fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of 2: got 1"),
 		},
+		{
+			name:          "factor at MaximumFactor cap is allowed",
+			initialconfig: &models.ReplicationConfig{Factor: 1},
+			resultConfig:  &models.ReplicationConfig{Factor: 1},
+			globalConfig:  replication.GlobalConfig{MaximumFactor: 1},
+		},
+		{
+			name:          "factor above MaximumFactor cap is rejected",
+			initialconfig: &models.ReplicationConfig{Factor: 3},
+			resultConfig:  &models.ReplicationConfig{Factor: 3},
+			globalConfig:  replication.GlobalConfig{MaximumFactor: 1},
+			expectedErr:   fmt.Errorf("invalid replication factor: setup caps replication at 1: got 3"),
+		},
+		{
+			name:          "MaximumFactor <= 0 means no cap",
+			initialconfig: &models.ReplicationConfig{Factor: 7},
+			resultConfig:  &models.ReplicationConfig{Factor: 7},
+			globalConfig:  replication.GlobalConfig{MaximumFactor: 0},
+		},
 	}
 
 	for _, test := range tests {

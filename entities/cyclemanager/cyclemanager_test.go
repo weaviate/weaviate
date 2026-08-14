@@ -130,7 +130,7 @@ func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
 
 		err := cm.StopAndWait(timeoutCtx)
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		assert.Equal(t, "something wonderful...", <-p.results)
 	})
@@ -244,11 +244,46 @@ func TestCycleManager_doesNotStartMultipleTimesWithWait(t *testing.T) {
 
 		err := cm.StopAndWait(context.Background())
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		// just one result produced
 		assert.Equal(t, 1, len(p.results))
 	})
+}
+
+func TestCycleManager_handlesConcurrentStarts(t *testing.T) {
+	tests := []struct {
+		name    string
+		manager func() CycleManager
+	}{
+		{
+			name:    "noop",
+			manager: NewManagerNoop,
+		},
+		{
+			name: "ticking",
+			manager: func() CycleManager {
+				return NewManager("test", NewFixedTicker(5*time.Millisecond),
+					func(shouldAbort ShouldAbortCallback) bool { return false }, logger)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cm := test.manager()
+
+			var wg sync.WaitGroup
+			for range 8 {
+				wg.Go(cm.Start)
+			}
+			wg.Wait()
+
+			assert.True(t, cm.Running())
+			assert.NoError(t, cm.StopAndWait(context.Background()))
+			assert.False(t, cm.Running())
+		})
+	}
 }
 
 func TestCycleManager_handlesMultipleStops(t *testing.T) {
@@ -365,7 +400,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 
 		err := cm.StopAndWait(timeoutCtx)
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		assert.Equal(t, 0, len(p.results))
 	})

@@ -58,6 +58,12 @@ func (o *TenantsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewTenantsCreateTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewTenantsCreateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -318,6 +324,74 @@ func (o *TenantsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 func (o *TenantsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewTenantsCreateTooManyRequests creates a TenantsCreateTooManyRequests with default headers values
+func NewTenantsCreateTooManyRequests() *TenantsCreateTooManyRequests {
+	return &TenantsCreateTooManyRequests{}
+}
+
+/*
+TenantsCreateTooManyRequests describes a response with status code 429, with default header values.
+
+The configured tenant-per-collection usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+*/
+type TenantsCreateTooManyRequests struct {
+	Payload *models.UsageLimitExceededResponse
+}
+
+// IsSuccess returns true when this tenants create too many requests response has a 2xx status code
+func (o *TenantsCreateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this tenants create too many requests response has a 3xx status code
+func (o *TenantsCreateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this tenants create too many requests response has a 4xx status code
+func (o *TenantsCreateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this tenants create too many requests response has a 5xx status code
+func (o *TenantsCreateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this tenants create too many requests response a status code equal to that given
+func (o *TenantsCreateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the tenants create too many requests response
+func (o *TenantsCreateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *TenantsCreateTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *TenantsCreateTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *TenantsCreateTooManyRequests) GetPayload() *models.UsageLimitExceededResponse {
+	return o.Payload
+}
+
+func (o *TenantsCreateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.UsageLimitExceededResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

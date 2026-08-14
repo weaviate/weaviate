@@ -228,21 +228,21 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	})
 
 	t.Run("no references between different tenants", func(t *testing.T) {
+		from := strfmt.URI(crossref.NewSource(schema.ClassName(className1),
+			schema.PropertyName(mtRefProp2), mtObject1.ID).String())
+		to := strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String())
 		refs := []*models.BatchReference{
-			{
-				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
-					schema.PropertyName(mtRefProp2), mtObject1.ID).String()),
-				To:     strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String()),
-				Tenant: tenantName1,
-			},
+			{From: from, To: to, Tenant: tenantName1},
 		}
 
 		resp, err := helper.AddReferences(t, refs)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp, 1)
-		require.Empty(t, resp[0].To)
-		require.Empty(t, resp[0].From)
+		// A failed row still echoes the input beacons so clients correlate the
+		// failure back to the request by beacon, not slice index (#11528).
+		assert.Equal(t, from, resp[0].From)
+		assert.Equal(t, to, resp[0].To)
 		require.NotNil(t, resp[0].Result)
 		require.NotNil(t, resp[0].Result.Errors)
 		require.Len(t, resp[0].Result.Errors.Error, 1)
@@ -276,20 +276,21 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	})
 
 	t.Run("no references from single tenant class to MT class", func(t *testing.T) {
+		from := strfmt.URI(crossref.NewSource(schema.ClassName(className4),
+			schema.PropertyName(mtRefProp1), stObject2.ID).String())
+		to := strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String())
 		refs := []*models.BatchReference{
-			{
-				From: strfmt.URI(crossref.NewSource(schema.ClassName(className4),
-					schema.PropertyName(mtRefProp1), stObject2.ID).String()),
-				To: strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String()),
-			},
+			{From: from, To: to},
 		}
 
 		resp, err := helper.AddReferences(t, refs)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp, 1)
-		require.Empty(t, resp[0].To)
-		require.Empty(t, resp[0].From)
+		// A failed row still echoes the input beacons so clients correlate the
+		// failure back to the request by beacon, not slice index (#11528).
+		assert.Equal(t, from, resp[0].From)
+		assert.Equal(t, to, resp[0].To)
 		require.NotNil(t, resp[0].Result)
 		require.NotNil(t, resp[0].Result.Errors)
 		require.Len(t, resp[0].Result.Errors.Error, 1)

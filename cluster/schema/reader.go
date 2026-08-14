@@ -17,6 +17,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -119,7 +120,8 @@ func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func
 	return rs.retry(func(s *schema) error {
 		return s.Read(class, retryIfClassNotFound, func(class *models.Class, state *sharding.State) error {
 			if err := checkShardingState(state); err != nil {
-				return err
+				// an invalid sharding state does not become valid by waiting
+				return backoff.Permanent(err)
 			}
 			return reader(class, state)
 		})
@@ -156,6 +158,15 @@ func (rs SchemaReader) LocalShards(class string) ([]string, error) {
 		return nil
 	})
 	return shards, err
+}
+
+func (rs SchemaReader) LocalActiveShardsCount(class string) (int, error) {
+	var count int
+	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
+		count = state.LocalActivePhysicalShardsCount()
+		return nil
+	})
+	return count, err
 }
 
 // ReadOnlyClass returns a shallow copy of a class.

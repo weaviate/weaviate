@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
@@ -73,7 +74,10 @@ func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error 
 	if len(expectedStrategies) == 1 {
 		return fmt.Errorf("strategy %q expected, got %q", expectedStrategies[0], strategy)
 	}
-	return fmt.Errorf("one of strategies %v expected, got %q", expectedStrategies, strategy)
+	// the slice is joined rather than passed to Errorf: an Errorf argument would
+	// make every caller's variadic slice escape to the heap
+	return fmt.Errorf("one of strategies [%s] expected, got %q",
+		strings.Join(expectedStrategies, " "), strategy)
 }
 
 func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {

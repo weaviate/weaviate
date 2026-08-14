@@ -27,6 +27,11 @@ const (
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
 	VectorIndexTypeHFresh  = "hfresh"
+	// VectorIndexTypeNone is a sentinel value, NOT a real index type.
+	// It marks a named vector whose search index has been dropped via the
+	// DeleteClassVectorIndex API. It must never be accepted as a user-supplied
+	// index type in AddClass or UpdateClass requests.
+	VectorIndexTypeNone = "none"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further

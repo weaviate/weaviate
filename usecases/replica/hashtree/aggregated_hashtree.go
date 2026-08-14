@@ -11,21 +11,26 @@
 
 package hashtree
 
-import "io"
+import (
+	"fmt"
+	"io"
+)
 
 type AggregatedHashTree interface {
 	Height() int
 	AggregateLeafWith(i uint64, val []byte) error
 	Sync()
 	Root() Digest
+	// Level writes one digest per set discriminant bit into digests, densely
+	// from index 0 in ascending node order — the positional layout LevelDiff
+	// relies on. digests must hold at least discriminant.SetCount() entries.
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset()
 	Clone() AggregatedHashTree
 
 	Diff(ht AggregatedHashTree) (discriminant *Bitset, err error)
-	DiffUsing(ht AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error
 
-	NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader
+	NewRangeReader(discriminant *Bitset) (AggregatedHashTreeRangeReader, error)
 
 	Serialize(w io.Writer) (n int64, err error)
 }
@@ -34,39 +39,61 @@ type AggregatedHashTreeRangeReader interface {
 	Next() (uint64, uint64, error)
 }
 
-func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) (levelDiffCount int) {
-	offset := InnerNodesCount(l)
+// LevelDiff compares level-l digests1 and digests2, clearing matched bits in
+// discriminant. For l < height it returns a level-(l+1) discriminant with
+// the children of mismatched nodes set; at l == height it returns nil.
+func LevelDiff(l, height int, discriminant *Bitset, digests1, digests2 []Digest) (nextDiscriminant *Bitset, levelDiffCount int, err error) {
+	if l < 0 {
+		return nil, 0, fmt.Errorf("%w: invalid level(%d)", ErrIllegalArguments, l)
+	}
+	if l > height {
+		return nil, 0, fmt.Errorf("%w: level(%d) is too high for height(%d)", ErrIllegalState, l, height)
+	}
+	if discriminant == nil {
+		return nil, 0, fmt.Errorf("%w: nil discriminant provided", ErrIllegalArguments)
+	}
+
+	expected := nodesAtLevel(l)
+	if discriminant.Size() != expected {
+		return nil, 0, fmt.Errorf("%w: discriminant size %d, expected %d for level %d",
+			ErrIllegalArguments, discriminant.Size(), expected, l)
+	}
+
+	// digests1/digests2 hold one entry per set bit, not per Size().
+	setCount := discriminant.SetCount()
+	if len(digests1) < setCount || len(digests2) < setCount {
+		return nil, 0, fmt.Errorf("%w: digests slice too short for level %d (have %d/%d, need >= %d)",
+			ErrIllegalArguments, l, len(digests1), len(digests2), setCount)
+	}
+
+	if l < height {
+		nextDiscriminant = NewBitset(nodesAtLevel(l + 1))
+	}
 
 	n := 0
-
-	for j := 0; j < nodesAtLevel(l); j++ {
-		node := offset + j
-
-		if !discriminant.IsSet(node) {
+	for j := 0; j < discriminant.Size(); j++ {
+		if !discriminant.IsSet(j) {
 			continue
+		}
+
+		// bound reads even if the cached set count understates the bits
+		if n == len(digests1) || n == len(digests2) {
+			return nil, 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
 		}
 
 		if digests1[n] == digests2[n] {
+			discriminant.Unset(j)
 			n++
-			discriminant.Unset(node)
 			continue
-		} else {
-			levelDiffCount++
 		}
-
+		levelDiffCount++
 		n++
 
-		leftChild := 2*node + 1
-		rightChild := 2*node + 2
-
-		if discriminant.Size() <= rightChild {
-			// node is a leaf
-			continue
+		if nextDiscriminant != nil {
+			nextDiscriminant.Set(2 * j)
+			nextDiscriminant.Set(2*j + 1)
 		}
-
-		discriminant.Set(leftChild)
-		discriminant.Set(rightChild)
 	}
 
-	return levelDiffCount
+	return nextDiscriminant, levelDiffCount, nil
 }

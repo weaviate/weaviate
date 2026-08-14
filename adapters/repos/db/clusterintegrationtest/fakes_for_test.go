@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -93,7 +94,10 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
-	replicaClient := clients.NewReplicationClient(&http.Client{})
+	replicaClient, err := clients.NewReplicationClient(&http.Client{})
+	if err != nil {
+		t.Fatalf("failed to create replication client: %v", err)
+	}
 
 	// Create schema manager first so the mock can reference it
 	n.schemaManager = &fakeSchemaManager{
@@ -132,13 +136,14 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return shardState.Physical[shard].BelongsToNodes[0], nil
 	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(class string, shard string, replicas []string) []string {
 			return replicas
 		}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(class string, shard string, replicas []string) ([]string, []string) {
-			return replicas, []string{}
+		func(class string, shard string, replicas []string) []string {
+			return replicas
 		}).Maybe()
 
 	n.repo, err = db.New(logger, n.name, db.Config{
@@ -148,7 +153,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      asyncIndexEnabled,
 	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -161,12 +166,12 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -180,6 +185,18 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
+		// Return the real per-shard count, mirroring the production handler. A
+		// hardcoded value only matches when every shard is counted over HTTP;
+		// once local replica calls are short-circuited in-process (true count),
+		// a fabricated remote count makes the aggregated total flaky.
+		count, err := n.repo.CountObjects(r.Context(), r.PathValue("collection"), r.PathValue("shard"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, strconv.Itoa(count))
+	})
 
 	srv := httptest.NewServer(mux)
 	u, err := url.Parse(srv.URL)
@@ -199,11 +216,21 @@ func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]by
 	return nil
 }
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r fakeRbacBackupWrapper) Restore([]byte, bool) error {
+	return nil
+}
+
+type fakeDynUserBackupWrapper struct{}
+
+func (r fakeDynUserBackupWrapper) Snapshot(userIds ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
@@ -271,7 +298,7 @@ func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenan
 	return res, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -282,7 +309,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ss.Shard("", string(uuid))
 }
 
-func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool) error {
+func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool, stripNamespaces bool) error {
 	return nil
 }
 
@@ -305,6 +332,14 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
+}
+
+func (f *fakeSchemaManager) NamespacesEnabled() bool {
+	return false
+}
+
+func (f *fakeSchemaManager) ClassEqual(string) string {
+	return ""
 }
 
 type nodeResolver struct {
@@ -362,7 +397,7 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabilities.BackupBackend, error) {
+func (f *fakeBackupBackendProvider) BackupBackend(name string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	backend.setLocal(name == modstgfs.Name)
 	return backend, nil
 }
@@ -422,12 +457,6 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 
 	b, _ := json.Marshal(resp)
 	return b, nil
-}
-
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	f.Lock()
-	defer f.Unlock()
-	return nil
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {

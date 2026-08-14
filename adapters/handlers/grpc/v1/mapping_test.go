@@ -135,11 +135,12 @@ func TestNewPrimitiveValue(t *testing.T) {
 			name: "string",
 			in:   "a string",
 			tests: makeTestList(map[schema.DataType]*pb.Value{
-				schema.DataTypeDate:   {Kind: &pb.Value_DateValue{DateValue: "a string"}},
-				schema.DataTypeString: {Kind: &pb.Value_TextValue{TextValue: "a string"}},
-				schema.DataTypeText:   {Kind: &pb.Value_TextValue{TextValue: "a string"}},
-				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
-				schema.DataTypeBlob:   {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
+				schema.DataTypeDate:     {Kind: &pb.Value_DateValue{DateValue: "a string"}},
+				schema.DataTypeString:   {Kind: &pb.Value_TextValue{TextValue: "a string"}},
+				schema.DataTypeText:     {Kind: &pb.Value_TextValue{TextValue: "a string"}},
+				schema.DataTypeUUID:     {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+				schema.DataTypeBlob:     {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
+				schema.DataTypeBlobHash: {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
 			}),
 		},
 		{

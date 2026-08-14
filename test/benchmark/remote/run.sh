@@ -125,7 +125,7 @@ function benchmark() {
   echo_green "Copy results file to local machine"
   filename="${FILE_PREFIX}benchmark_results_$(date +%s).json"
   scp_command "$INSTANCE:~/weaviate/test/benchmark/benchmark_results.json" "$filename"
-  echo "Results file succesfully copied to ${PWD}/$filename"
+  echo "Results file successfully copied to ${PWD}/$filename"
 }
 
 

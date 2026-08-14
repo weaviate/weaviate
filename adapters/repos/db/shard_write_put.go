@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -35,6 +36,9 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
+		return err
+	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -43,6 +47,13 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	// Reject writes carrying a dropped vector before persisting anything.
+	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+		if err := rejectDroppedObjectVectors(s.index.getClass(), object); err != nil {
+			return err
+		}
+	}
+
 	status, err := s.putObjectLSM(ctx, object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -185,6 +196,23 @@ func (s *Shard) updateMultiVectorIndex(ctx context.Context, vector [][]float32,
 	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
+// localIsNewer reports whether the shard's stored state for idBytes, the live
+// object, or a tombstone's deletion time so an older entry can't resurrect a
+// deleted object, is strictly newer than incoming. Callers hold the docIdLock.
+func (s *Shard) localIsNewer(bucket *lsmkv.Bucket, idBytes []byte, prevObj *storobj.Object, incoming int64) (bool, error) {
+	if prevObj != nil {
+		return prevObj.LastUpdateTimeUnix() > incoming, nil
+	}
+	deleted, deletionTime, err := bucket.WasDeleted(idBytes)
+	if err != nil {
+		return false, err
+	}
+	if !deleted || deletionTime.IsZero() {
+		return false, nil
+	}
+	return deletionTime.UnixMilli() > incoming, nil
+}
+
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
 	objBytes, err := bucket.Get(idBytes)
 	if err != nil {
@@ -194,7 +222,12 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(objBytes)
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	obj, err := storobj.FromBinaryDisk(objBytes, className)
 	if err != nil {
 		return nil, err
 	}
@@ -240,15 +273,19 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
+	// Wait for hashtree initialization before acquiring the RLock.
+	// waitForMinimalHashTreeInitialization must not be called while holding
+	// RLock: if initHashtree fails and retries, it needs write-lock to replace
+	// minimalHashtreeInitializationCh; a caller blocking under RLock would
+	// deadlock with the retry until the caller's context expired.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return objectInsertStatus{}, err
+	}
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
 
 		lock.Lock()
 		defer lock.Unlock()
@@ -257,6 +294,17 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return err
+		}
+
+		if fromChangeLogReplay(ctx) {
+			lIsNewer, err := s.localIsNewer(bucket, idBytes, prevObj, obj.LastUpdateTimeUnix())
+			if err != nil {
+				return err
+			}
+			if lIsNewer {
+				status = objectInsertStatus{skipUpsert: true}
+				return nil
+			}
 		}
 
 		status, err = s.determineInsertStatus(prevObj, obj)
@@ -270,8 +318,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinary()
-		if err != nil {
+		var objBinary []byte
+		if obj.PrecomputedDiskBinary != nil {
+			// raw path: persist source bytes verbatim, only patching our docID.
+			objBinary = obj.PrecomputedDiskBinary
+			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
+				return errors.Wrapf(err, "patch docID for object %s", obj.ID())
+			}
+		} else if objBinary, err = obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk); err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
 
@@ -280,6 +334,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
+
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
 
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
@@ -323,26 +380,49 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	var objectDigest [16 + 8]byte
 	copy(objectDigest[:], uuidBytes)
 
+	// Update the live tree first so a checkpoint-fold error can never leave a torn leaf.
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	}
-
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	return nil
+	// Fold ≤cutoff changes into the checkpoint so it converges; >cutoff writes leave it frozen.
+	cpht := s.asyncCheckpointHashtree
+	if cpht == nil || object.Object.LastUpdateTimeUnix > s.asyncCheckpointCutoff {
+		return nil
+	}
+	// Erase old only if the clone holds it (old ≤ cutoff); erasing a >cutoff version injects a phantom.
+	if status.oldUpdateTime > 0 && status.oldUpdateTime <= s.asyncCheckpointCutoff {
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	}
+	return cpht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
-	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
-
-	if hashtreeHeight == 0 {
+	ht := s.hashtree
+	if ht == nil {
 		return 0
 	}
+	return hashtreeLeafForHeight(uuidBytes, ht.Height())
+}
 
-	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
+// hashtreeLeafForHeight computes the hashtree leaf index for the given UUID
+// bytes at the specified tree height. hashtreeLeafFor must be called under
+// asyncReplicationRWMux.RLock so that the height is consistent with the live
+// hashtree pointer and cannot race with a concurrent initAsyncReplication
+// replacing s.hashtree with a tree of a different height.
+func hashtreeLeafForHeight(uuidBytes []byte, height int) uint64 {
+	if height == 0 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - height)
 }
 
 type objectInsertStatus struct {
@@ -391,6 +471,14 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// any update of geo property needs new docID for updating geo index.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
+		// Content unchanged, but if the update time advanced, take the docID-preserved
+		// path instead of skipping: it refreshes the object row, hashtree leaf and
+		// inverted index (incl. timestamp postings) while leaving the unchanged vector
+		// index alone. Skipping would persist a stale update time and break
+		// timestamp-based reconciliation (async replication, read-repair).
+		if skip && nextObj.LastUpdateTimeUnix() > prevObj.LastUpdateTimeUnix() {
+			preserve, skip = true, false
+		}
 		out.docIDPreserved = preserve
 		out.skipUpsert = skip
 		return out, nil
@@ -447,21 +535,25 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
-	props, nilprops, err := s.AnalyzeObject(object)
+	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// One snapshot for the whole write, so the double-write pass below sees
+	// the same {add,del,scope} as the inline suppression above.
+	st := s.loadPropValueIndexState()
+
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
+	var prevNestedProps []inverted.NestedProperty
 
 	if prevObject != nil {
-		prevProps, prevNilprops, err = s.AnalyzeObject(prevObject)
+		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
 	}
-
 	// if object updated (with or without docID changed)
 	if status.docIDChanged || status.docIDPreserved {
 		if err := s.subtractPropLengths(prevProps); err != nil {
@@ -505,8 +597,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
+		}
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
 			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
@@ -522,8 +617,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
+		return fmt.Errorf("put nested inverted indices: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
@@ -537,6 +635,12 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
+	}
+
+	// Mirrors this write into the ingest bucket under the TARGET analysis for
+	// scope props suppressed above; no-op absent a migration.
+	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
+		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil

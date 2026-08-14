@@ -15,7 +15,7 @@ import (
 	"crypto/sha256"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/entities/dbuser"
 )
 
 const (
@@ -28,6 +28,7 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	Namespace          string
 	CreatedAt          time.Time
 	Version            int
 }
@@ -54,6 +55,12 @@ type DeleteUsersRequest struct {
 	Version int
 }
 
+// DeleteUsersInNamespaceRequest deletes every DB user bound to Namespace.
+type DeleteUsersInNamespaceRequest struct {
+	Namespace string
+	Version   int
+}
+
 type ActivateUsersRequest struct {
 	UserId  string
 	Version int
@@ -70,7 +77,7 @@ type QueryGetUsersRequest struct {
 }
 
 type QueryGetUsersResponse struct {
-	Users map[string]*apikey.User
+	Users map[string]*dbuser.View
 }
 
 type QueryUserIdentifierExistsRequest struct {

@@ -13,27 +13,24 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type BackupState struct {
@@ -46,23 +43,52 @@ var errShardNoLocalData = errors.New("shard has no local data")
 const (
 	lsmDir        = "lsm"
 	migrationsDir = ".migrations"
-	dbExt         = ".db"
-	bloomExt      = ".bloom"
 	tmpExt        = ".tmp"
-	cnaExt        = ".cna"
-	metadataExt   = ".metadata"
-	condensedExt  = ".condensed"
-	snapshotExt   = ".snapshot"
 )
 
 // Backupable returns whether all given class can be backed up.
+// Refuses if any shard has an in-flight runtime-reindex; this runs in
+// the coordinator's canCommit phase so no staging dir is created on
+// rejection.
+//
+// All per-class / per-shard failures are accumulated and joined into a
+// single error rather than short-circuiting on the first one. Joining
+// ensures that when several classes are blocked at once, the operator sees
+// the full list in a single canCommit round instead of fixing one,
+// retrying, fixing the next, retrying, and so on. The joined error still
+// satisfies errors.Is for any wrapped sentinel (e.g.
+// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
+// underlying error graph.
+//
+// Class-missing errors stop aggregation for that class but do not short
+// circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	nodeName := db.localNodeName
+	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
-			return fmt.Errorf("class %v doesn't exist", c)
+			// No node/class prefix here: the message already names the
+			// class, and the integration test casing-permutation case
+			// pins the bare wording so the coordinator's class-missing
+			// detection works the same as it did pre-Wave-2.
+			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
+			continue
 		}
+		shards, _, err := idx.readSchema()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
+			continue
+		}
+		for _, shardName := range shards {
+			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return stderrors.Join(errs...)
 	}
 	return nil
 }
@@ -84,12 +110,11 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				}
 				idx.dropIndex.RLock()
 				defer idx.dropIndex.RUnlock()
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-				if idx.closed {
+				if err := idx.enterRead(); err != nil {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
+				defer idx.exitRead()
 				var classBaseDescr []*backup.ClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
@@ -133,9 +158,13 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		// a class deleted mid-backup is unpublished before its drop runs, and that
+		// drop parks on backupLock until this call releases it.
+		idx = db.droppingIndex(indexID(schema.ClassName(class)))
+	}
+
 	if idx != nil {
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
 		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
@@ -212,34 +241,20 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 	return classNames
 }
 
-// probeHardlinkSupport tests whether the filesystem backing RootPath supports hardlinks.
-func (i *Index) probeHardlinkSupport() bool {
-	f, err := os.CreateTemp(i.Config.RootPath, ".hardlink-probe-*")
-	if err != nil {
-		return false
-	}
-	src := f.Name()
-	f.Close()
-	defer os.Remove(src)
-
-	dst := src + ".link"
-	defer os.Remove(dst)
-
-	return os.Link(src, dst) == nil
-}
-
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 
-	useHardlinks := i.probeHardlinkSupport()
+	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
 	}
+	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
+	// Removed in v1.40; bugs here are not fixed.
 	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
 }
 
@@ -284,9 +299,11 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 				return err
 			}
 			if sd != nil {
-				mu.Lock()
-				shards[name] = sd
-				mu.Unlock()
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					shards[name] = sd
+				}()
 			}
 			return nil
 		})
@@ -309,14 +326,29 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
 // it checks the shardMap to determine whether the shard is active (loaded in memory) or
 // inactive (on disk only), and uses the appropriate backup path.
+//
+// For active shards, shardCreateLocks is released early (after acquiring the
+// preventShutdown refcount) so concurrent queries — which RLock the same per-shard
+// key in getOptInitLocalShard — don't block for the snapshot duration. See
+// weaviate/0-weaviate-issues#234.
 func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
+	// Deferred before backupLock so it runs after the unlock: dropping the last
+	// shard reference can run the shard teardown inline, and doing that under
+	// backupLock blocks every write to the shard for the teardown's duration.
+	releaseShard := func() {}
+	defer func() { releaseShard() }()
+
 	i.backupLock.Lock(name)
+	defer i.backupLock.Unlock(name)
+
 	i.shardCreateLocks.Lock(name)
+	shardCreateLocksHeld := true
 	defer func() {
-		i.shardCreateLocks.Unlock(name)
-		i.backupLock.Unlock(name)
+		if shardCreateLocksHeld {
+			i.shardCreateLocks.Unlock(name)
+		}
 	}()
 
 	var sd backup.ShardDescriptor
@@ -353,8 +385,18 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		releaseBlock()
 	}
 
-	// Active path => shard is loaded in memory. Call through the ShardLike
-	// interface so both *Shard and loaded *LazyLoadShard work correctly.
+	// Acquire preventShutdown before releasing shardCreateLocks: UnloadLocalShard
+	// holds only shardCreateLocks (not backupLock), so without the refcount it could
+	// call Shard.Shutdown between our release and CreateBackupSnapshot.
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
+	}
+	releaseShard = release
+
+	i.shardCreateLocks.Unlock(name)
+	shardCreateLocksHeld = false
+
 	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
@@ -380,27 +422,41 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
+	}
+
 	files, err := i.listInactiveShardFiles(name, sd)
 	if err != nil {
 		return fmt.Errorf("list inactive shard %s files: %w", name, err)
 	}
 
+	var hardlinks []file.HardlinkPair
 	for _, relPath := range files {
 		src := filepath.Join(i.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
+		if backup.IsImmutableFile(relPath) {
+			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
+			continue
+		}
+		// Mutable files are copied, not hard-linked — a shared inode would let
+		// post-snapshot writes corrupt the staged copy. CopyFile, unlike
+		// HardlinkFiles, doesn't create the destination dir.
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if isImmutableFile(relPath) {
+		if backup.IsImmutableFile(relPath) {
 			if err := os.Link(src, dst); err != nil {
 				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
 			}
 		} else {
-			if err := copyFile(src, dst); err != nil {
+			if err := file.CopyFile(src, dst); err != nil {
 				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 			}
 		}
-
+	}
+	if err := file.HardlinkFiles(hardlinks); err != nil {
+		return fmt.Errorf("hardlink inactive shard %s files to staging: %w", name, err)
 	}
 
 	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
@@ -410,64 +466,10 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	return nil
 }
 
-// isImmutableFile reports whether a backup file (relative path) is guaranteed
-// never to be modified in place after a COLD/INACTIVE shard is activated.
-// Only these files are safe to hard-link during backup; all other files are
-// copied to avoid post-snapshot corruption from in-place writes.
-func isImmutableFile(relPath string) bool {
-	base := filepath.Base(relPath)
-	ext := filepath.Ext(base)
-
-	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
-		return true
-	}
-	// LSM segment companion files — written once during segment init, never modified.
-	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
-	if ext == bloomExt || ext == cnaExt || ext == metadataExt {
-		return true
-	}
-	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
-	if ext == condensedExt {
-		return true
-	}
-	// HNSW snapshots — point-in-time captures, never modified after creation.
-	if ext == snapshotExt {
-		return true
-	}
-	return false
-}
-
-// copyFile creates an independent copy of src at dst, fsyncing the destination.
-// Used instead of os.Link for mutable files where a shared inode would allow
-// post-snapshot writes to corrupt the backup copy.
-func copyFile(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("open source: %w", err)
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("create destination: %w", err)
-	}
-	defer func() {
-		if closeErr := out.Close(); err == nil && closeErr != nil {
-			err = fmt.Errorf("close destination: %w", closeErr)
-		}
-	}()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy data: %w", err)
-	}
-
-	return out.Sync()
-}
-
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
 // hardlinks. Compaction remains paused for the entire backup upload duration.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
@@ -511,6 +513,8 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
@@ -578,6 +582,8 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
 // its files directly from disk.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
@@ -587,6 +593,10 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 			return errShardNoLocalData
 		}
 		return fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
 	}
 
 	files, err := i.listInactiveShardFiles(name, sd)
@@ -635,34 +645,8 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	return nil
 }
 
-// snapshotNameMaxLabel is the maximum length of the human-readable label
-// in a snapshot directory name. The label is best-effort — it exists only
-// for operator convenience when inspecting the filesystem. Uniqueness is
-// guaranteed by the hash suffix, not the label.
-const snapshotNameMaxLabel = 20
-
-// safeSnapshotName builds a directory name that is guaranteed to fit within
-// filesystem path component limits (255 bytes). The prefix is prepended
-// verbatim; the remaining parts are joined with "-" to form a human-readable
-// label that is truncated to snapshotNameMaxLabel. A SHA-256 hash of the
-// full input (prefix + body) is appended for uniqueness.
-//
-// Example: safeSnapshotName(".backup-staging-", "backup1", "myclass")
-// → ".backup-staging-backup1-myclass-a1b2c3d4e5f6"
-func safeSnapshotName(prefix string, parts ...string) string {
-	body := strings.Join(parts, "-")
-	h := sha256.Sum256([]byte(prefix + body))
-	hashSuffix := hex.EncodeToString(h[:6]) // 12 hex chars
-
-	label := body
-	if len(label) > snapshotNameMaxLabel {
-		label = label[:snapshotNameMaxLabel]
-	}
-	return prefix + label + "-" + hashSuffix
-}
-
 func backupStagingDir(rootPath, backupID string, className schema.ClassName) string {
-	name := safeSnapshotName(backup.BackupStagingPrefix, backupID, indexID(className))
+	name := file.SafeStagingDirName(backup.BackupStagingPrefix, backupID, indexID(className))
 	return filepath.Join(rootPath, name)
 }
 
@@ -680,6 +664,8 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
+	//
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
 		i.backupLock.Unlock(name)
@@ -688,6 +674,14 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	})
 
 	i.resetBackupState()
+
+	// Releasing backupLock above unblocks a waiting index.drop(), which shuts the
+	// shard stores down. Resuming their cycles now would be a use-after-drop.
+	if err := i.enterRead(); err != nil {
+		return nil
+	}
+	defer i.exitRead()
+
 	// resumeMaintenanceCycles is still called for safety, but is a no-op since
 	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
 	// a snapshot creation failed mid-way.
@@ -721,7 +715,9 @@ func (i *Index) resetBackupState() {
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
+	// Only loaded shards have maintenance cycles to resume; a cold shard has
+	// none, so skip it rather than force-load every shard after a backup.
+	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)

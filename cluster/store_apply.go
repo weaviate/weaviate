@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -29,6 +32,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
+
+	// Serialize AddTenants per class so the pre-commit cap check can't race the
+	// apply that increments the count (Execute blocks until apply). Skipped when
+	// the cap is unlimited — nothing to make race-free.
+	if req.Type == api.ApplyRequest_TYPE_ADD_TENANT && st.schemaManager.TenantLimitEnforced() {
+		st.tenantAddLocks.Lock(req.Class)
+		defer st.tenantAddLocks.Unlock(req.Class)
+	}
 
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid
@@ -177,11 +188,19 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -217,12 +236,34 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		f = func() {
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
+			req := &api.CreateAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+				return
+			}
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
+			req := &api.ReplaceAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+				return
+			}
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
@@ -244,11 +285,25 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
+			// A namespace that is not active materializes no shard on the
+			// request path, and the schema commits before the DB does, so an
+			// ungated create leaves the tenant listed with nothing behind it.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
+			// A namespace that is not active holds its shards closed, so the
+			// node executing a status change has no shard to act on and none to
+			// read the tenant's current status from either.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
@@ -262,13 +317,23 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
 		}
 
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
-		f = func() {
-			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
-		}
-
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
+			// A role can't be upserted into a namespace that's gone or being
+			// deleted. Permission-only upserts re-mint the role row too, so gate
+			// every name regardless of RoleCreation.
+			req := &api.CreateRolesRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+				return
+			}
+			for name := range req.Roles {
+				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+					ret.Error = err
+					return
+				}
+			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
@@ -281,6 +346,23 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
+			// A role can't be assigned to a subject in a namespace that is not
+			// active; while deleting, a late assignment would also leave a
+			// grouping row behind after the cleanup cascade has emptied it.
+			req := &api.AddRolesForUsersRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+				return
+			}
+			subjectNS, err := subjectNamespace(req.User)
+			if err != nil {
+				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
+				return
+			}
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
@@ -312,6 +394,28 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Add(&cmd)
+		}
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Update(&cmd)
+		}
+	case api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:
+		f = func() {
+			ret.Error = st.namespaceManager.ChangeState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:
+		f = func() {
+			ret.Error = st.namespaceManager.RemoveEntity(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUsersInNamespace(&cmd)
+		}
+
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
@@ -323,6 +427,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.NodeReachedState(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
 		f = func() {
@@ -385,10 +493,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
 		}
-	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
-		f = func() {
-			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
-		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
@@ -397,10 +501,40 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordUnitCompletion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:
+		f = func() {
+			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
+		}
+	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
+		f = func() {
+			ret.Error = st.applyClusterIDSet(&cmd)
+		}
 
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// A command introduced by a newer app version. Log and no-op rather than
+		// panic: a crash would wedge the FSM on every unknown entry during a
+		// rolling upgrade. The applied index still advances, so the node stays
+		// consistent and skips the command's effect until it upgrades.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,
@@ -423,6 +557,15 @@ func (st *Store) Apply(l *raft.Log) any {
 	return ret
 }
 
-func (st *Store) numberOfNodesInTheCluster() int {
-	return len(st.raft.GetConfiguration().Configuration().Servers)
+// applyClusterIDSet applies a TYPE_CLUSTER_ID_SET log entry, set-once.
+func (st *Store) applyClusterIDSet(cmd *api.ApplyRequest) error {
+	req := &api.SetClusterIDRequest{}
+	if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("unmarshal cluster-id set command: %w", err)
+	}
+	if req.ClusterId == "" {
+		return fmt.Errorf("empty cluster_id in cluster-id set command")
+	}
+	st.setClusterID(req.ClusterId)
+	return nil
 }

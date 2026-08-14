@@ -27,40 +27,51 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type backupNoopBucketView struct{}
 
 func (n *backupNoopBucketView) ReleaseView() {}
 
-func TestBackup_SwitchCommitLogs(t *testing.T) {
-	ctx := context.Background()
+// After every PrepareForBackup, the log it just closed still has to show up in
+// ListFiles. Three rounds run back to back land within the same second, which is
+// what used to make a switch reopen the file the previous one had closed.
+func TestBackup_PrepareForBackup(t *testing.T) {
+	const backups = 3
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
 	dirName := t.TempDir()
 	indexID := "backup-switch-commitlogs-test"
 
 	idx, err := New(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
-	require.Nil(t, err)
-	idx.PostStartup(context.Background())
+	require.NoError(t, err)
+	idx.PostStartup(ctx)
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
+	for i := range backups {
+		require.NoError(t, idx.Add(ctx, uint64(i), testVectors[i]))
+		require.NoError(t, idx.PrepareForBackup(ctx))
 
-	err = idx.SwitchCommitLogs(ctx)
-	assert.Nil(t, err)
+		files, err := idx.ListFiles(ctx, dirName)
+		require.NoError(t, err)
+		assert.Len(t, files, i+1,
+			"a closed commit log went missing from the backup file list")
+	}
 
-	err = idx.Shutdown(ctx)
-	require.Nil(t, err)
+	require.NoError(t, idx.Shutdown(ctx))
 }
 
 func TestBackup_ListFiles(t *testing.T) {
@@ -76,8 +87,59 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(context.Background())
+
+	t.Run("assert expected index contents", func(t *testing.T) {
+		files, err := idx.ListFiles(ctx, dirName)
+		assert.Nil(t, err)
+
+		// should return empty, because the only file which
+		// exists in the commitlog root is the current active
+		// log file.
+		assert.Len(t, files, 0)
+
+		// checking to ensure that the commitlog root does
+		// contain a file. this is the one that was ignored
+		// in the check above.
+		ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
+		require.Nil(t, err)
+		require.Len(t, ls, 1)
+		// filename should just be a 10 digit int
+		matched, err := regexp.MatchString("[0-9]{10}", ls[0].Name())
+		assert.Nil(t, err)
+		assert.True(t, matched, "regex does not match")
+	})
+
+	t.Run("SnapshotMutableFiles returns nil (hnsw seals files in PrepareForBackup)", func(t *testing.T) {
+		relPaths, err := idx.SnapshotMutableFiles(ctx, dirName, t.TempDir())
+		assert.Nil(t, err)
+		assert.Nil(t, relPaths)
+	})
+
+	err = idx.Shutdown(ctx)
+	require.Nil(t, err)
+}
+
+func TestBackup_HFreshListFiles(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -106,4 +168,34 @@ func TestBackup_ListFiles(t *testing.T) {
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
+}
+
+func TestBackup_ListFilesWalkRootRemoved(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-root-removed-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(ctx)
+
+	require.Nil(t, os.RemoveAll(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID))))
+
+	_, err = idx.ListFiles(ctx, dirName)
+	require.ErrorContains(t, err, "failed to list files for hnsw commitlog")
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// the open commit-log fd survives the unlink; shutdown must not panic
+	_ = idx.Shutdown(ctx)
 }

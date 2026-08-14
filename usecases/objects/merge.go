@@ -49,7 +49,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
-	className, aliasName := m.resolveAlias(schema.UppercaseClassName(updates.Class))
+	className, aliasName, err := m.resolveNS(principal, updates.Class)
+	if err != nil {
+		return &Error{err.Error(), StatusUnprocessableEntity, err}
+	}
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
@@ -113,6 +116,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
+		// Extending the collection needs its own permission; reporting a denial
+		// as invalid input would hide the missing grant behind a 422.
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
@@ -127,7 +135,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	prevObj := obj.Object()
-	if err := m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClass); err != nil {
+	if err := m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClass); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
@@ -154,6 +162,10 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
+
+	// Convert BlobHash properties from raw base64 to hashes after vectorization
+	// so that vectorizers see the original media data, but only hashes are stored.
+	schema.HashBlobHashPrimitiveProperties(class, primitive)
 
 	// Only include vectors in the MergeDocument if they changed.
 	// This  reduces network bandwidth when replicating patches

@@ -64,6 +64,12 @@ func (o *ObjectsClassPutReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewObjectsClassPutTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewObjectsClassPutInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -382,6 +388,74 @@ func (o *ObjectsClassPutUnprocessableEntity) GetPayload() *models.ErrorResponse 
 func (o *ObjectsClassPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsClassPutTooManyRequests creates a ObjectsClassPutTooManyRequests with default headers values
+func NewObjectsClassPutTooManyRequests() *ObjectsClassPutTooManyRequests {
+	return &ObjectsClassPutTooManyRequests{}
+}
+
+/*
+ObjectsClassPutTooManyRequests describes a response with status code 429, with default header values.
+
+The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+*/
+type ObjectsClassPutTooManyRequests struct {
+	Payload *models.UsageLimitExceededResponse
+}
+
+// IsSuccess returns true when this objects class put too many requests response has a 2xx status code
+func (o *ObjectsClassPutTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class put too many requests response has a 3xx status code
+func (o *ObjectsClassPutTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class put too many requests response has a 4xx status code
+func (o *ObjectsClassPutTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class put too many requests response has a 5xx status code
+func (o *ObjectsClassPutTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class put too many requests response a status code equal to that given
+func (o *ObjectsClassPutTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the objects class put too many requests response
+func (o *ObjectsClassPutTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *ObjectsClassPutTooManyRequests) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *ObjectsClassPutTooManyRequests) String() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *ObjectsClassPutTooManyRequests) GetPayload() *models.UsageLimitExceededResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassPutTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.UsageLimitExceededResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

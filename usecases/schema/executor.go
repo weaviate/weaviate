@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
@@ -76,7 +77,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-				err := fmt.Errorf("failed to reload local index %q: %w", i, err)
+				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
 				errList = errors.Join(errList, err)
@@ -124,6 +125,10 @@ func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode
 	return e.migrator.DropShard(ctx, class, shard)
 }
 
+func (e *executor) ReconcileAsyncReplicationForShard(class string, shard string) error {
+	return e.migrator.ReconcileAsyncReplicationForShard(context.Background(), class, shard)
+}
+
 func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
 	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
@@ -163,8 +168,45 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	}
 
 	if cfgs := asVectorIndexConfigs(req.Class); cfgs != nil {
-		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
-			return fmt.Errorf("vector index configs update: %w", err)
+		// When a vector index is being dropped, skip UpdateVectorIndexConfigs
+		// for the remaining active vectors. A drop operation only clears
+		// VectorIndexType/Config for the dropped entry and never modifies
+		// active vectors. Re-applying unchanged quantized configs triggers
+		// async compression operations that corrupt the schema state in
+		// cluster setups.
+		hasDroppedVector := false
+		for _, vc := range req.Class.VectorConfig {
+			if modelsext.IsVectorIndexDropped(vc) {
+				hasDroppedVector = true
+				break
+			}
+		}
+
+		if !hasDroppedVector {
+			if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
+				return fmt.Errorf("vector index configs update: %w", err)
+			}
+		}
+	}
+
+	// Detect vector configs that have been explicitly dropped (VectorIndexType
+	// set to "none") and drop the corresponding indexes from disk. We read
+	// the current vector index names from the DB layer (not the schema, which
+	// has already been updated by this point in the RAFT apply flow). Skip the
+	// legacy vector (empty string key) — it is not managed through VectorConfig
+	// but through the class-level fields.
+	// NOTE: We only drop when the config is explicitly marked as dropped
+	// (IsVectorIndexDropped), not when it's merely absent from VectorConfig.
+	// A missing entry could be caused by serialization bugs or older clients
+	// that omit configs, and should not trigger silent data deletion.
+	for _, targetVector := range e.migrator.GetVectorIndexNames(className) {
+		if targetVector == "" {
+			continue
+		}
+		if cfg, exists := req.Class.VectorConfig[targetVector]; exists && modelsext.IsVectorIndexDropped(cfg) {
+			if err := e.migrator.DropVectorIndex(ctx, className, targetVector); err != nil {
+				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+			}
 		}
 	}
 
@@ -210,6 +252,19 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 	return nil
 }
 
+func (e *executor) UpdateProperty(className string, req api.UpdatePropertyRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateProperty(ctx, className, req.Property); err != nil {
+		return err
+	}
+
+	e.logger.WithFields(logrus.Fields{
+		"action": "update_property",
+		"class":  className,
+	}).Debug("updating property")
+	return nil
+}
+
 func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	if len(req.Tenants) == 0 {
 		return nil
@@ -232,7 +287,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
+func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
 	ctx := context.Background()
 	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
@@ -242,8 +297,9 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	updates := make([]*UpdateTenantPayload, 0, len(req.Tenants))
 	for _, tu := range req.Tenants {
 		updates = append(updates, &UpdateTenantPayload{
-			Name:   tu.Name,
-			Status: tu.Status,
+			Name:            tu.Name,
+			Status:          tu.Status,
+			PreFreezeStatus: preFreezeStatuses[tu.Name],
 		})
 	}
 

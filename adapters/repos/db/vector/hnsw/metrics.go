@@ -43,8 +43,8 @@ type Metrics struct {
 	memoryAllocationRejected      prometheus.Counter
 }
 
-func NewMetrics(prom *monitoring.PrometheusMetrics,
-	className, shardName string,
+func newMetrics(prom *monitoring.PrometheusMetrics,
+	className, shardName string, hfreshMode bool,
 ) *Metrics {
 	if prom == nil {
 		return &Metrics{enabled: false}
@@ -55,111 +55,52 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		shardName = "n/a"
 	}
 
-	tombstones := prom.VectorIndexTombstones.With(prometheus.Labels{
+	baseLabels := prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
-	})
+	}
+	opLabels := func(op string) prometheus.Labels {
+		return prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+			"operation":  op,
+		}
+	}
 
-	threads := prom.VectorIndexTombstoneCleanupThreads.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	tombstones := prom.VectorIndexTombstones.With(baseLabels)
+	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
+	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
-	cleaned := prom.VectorIndexTombstoneCleanedCount.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	// In HFresh mode, these metrics are reported by HFresh itself at the
+	// vector level. Registering them here would double-count because
+	// Prometheus returns the same collector for identical label sets.
+	var insert prometheus.Gauge
+	var insertTime prometheus.ObserverVec
+	var del prometheus.Gauge
+	var deleteTime prometheus.ObserverVec
+	var size prometheus.Gauge
 
-	insert := prom.VectorIndexOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "create",
-	})
+	if !hfreshMode {
+		insert = prom.VectorIndexOperations.With(opLabels("create"))
+		insertTime = prom.VectorIndexDurations.MustCurryWith(opLabels("create"))
+		del = prom.VectorIndexOperations.With(opLabels("delete"))
+		deleteTime = prom.VectorIndexDurations.MustCurryWith(opLabels("delete"))
+		size = prom.VectorIndexSize.With(baseLabels)
+	}
 
-	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "create",
-	})
+	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
+	startupProgress := prom.StartupProgress.With(opLabels("hnsw_read_commitlogs"))
+	startupDurations := prom.StartupDurations.MustCurryWith(baseLabels)
+	startupDiskIO := prom.StartupDiskIO.MustCurryWith(baseLabels)
 
-	del := prom.VectorIndexOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "delete",
-	})
-
-	deleteTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "delete",
-	})
-
-	size := prom.VectorIndexSize.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	grow := prom.VectorIndexMaintenanceDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "grow",
-	})
-
-	startupProgress := prom.StartupProgress.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "hnsw_read_commitlogs",
-	})
-
-	startupDurations := prom.StartupDurations.MustCurryWith(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	startupDiskIO := prom.StartupDiskIO.MustCurryWith(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneStart := prom.VectorIndexTombstoneCycleStart.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneEnd := prom.VectorIndexTombstoneCycleEnd.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
-
-	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(baseLabels)
+	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(baseLabels)
+	tombstoneStart := prom.VectorIndexTombstoneCycleStart.With(baseLabels)
+	tombstoneEnd := prom.VectorIndexTombstoneCycleEnd.With(baseLabels)
+	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
+	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
+	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
+	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(baseLabels)
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
@@ -304,7 +245,7 @@ func (m *Metrics) CleanedUp() {
 }
 
 func (m *Metrics) InsertVector() {
-	if !m.enabled {
+	if !m.enabled || m.insert == nil {
 		return
 	}
 
@@ -312,7 +253,7 @@ func (m *Metrics) InsertVector() {
 }
 
 func (m *Metrics) DeleteVector() {
-	if !m.enabled {
+	if !m.enabled || m.delete == nil {
 		return
 	}
 
@@ -320,7 +261,7 @@ func (m *Metrics) DeleteVector() {
 }
 
 func (m *Metrics) SetSize(size int) {
-	if !m.enabled {
+	if !m.enabled || m.size == nil {
 		return
 	}
 
@@ -343,7 +284,7 @@ func noOpObserver(start time.Time) {
 }
 
 func (m *Metrics) TrackInsertObserver(step string) Observer {
-	if !m.enabled {
+	if !m.enabled || m.insertTime == nil {
 		return noOpObserver
 	}
 
@@ -356,7 +297,7 @@ func (m *Metrics) TrackInsertObserver(step string) Observer {
 }
 
 func (m *Metrics) TrackDelete(start time.Time, step string) {
-	if !m.enabled {
+	if !m.enabled || m.deleteTime == nil {
 		return
 	}
 

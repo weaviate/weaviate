@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -31,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -93,7 +93,7 @@ func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenant
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -353,8 +353,8 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return nil, nil, nil, nil
 }
 
 func (f *FakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
@@ -370,7 +370,7 @@ func (f *FakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 }
 
 func (f *FakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -405,30 +405,6 @@ func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *FakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *FakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (file.FileMetadata, error) {
-	return file.FileMetadata{}, nil
-}
-
-func (f *FakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (io.ReadCloser, error) {
-	return nil, nil
-}
-
 func (f *FakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	return nil
 }
@@ -447,19 +423,48 @@ func (f *FakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return nodeName, true
 }
 
-type FakeRemoteNodeClient struct{}
+func (f *FakeNodeResolver) AllOtherClusterMembers(raftPort int) map[string]string {
+	return nil
+}
+
+func (f *FakeNodeResolver) NodeAddress(id string) string {
+	return ""
+}
+
+func (f *FakeNodeResolver) NodeCount() int {
+	return 0
+}
+
+// FakeRemoteNodeClient answers with Status, or fails with Err when it is set.
+type FakeRemoteNodeClient struct {
+	Status *models.NodeStatus
+	Err    error
+}
 
 func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	if f.Status != nil {
+		return f.Status, nil
+	}
 	return &models.NodeStatus{}, nil
 }
 
 func (f *FakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
 	return &models.Statistics{}, nil
 }
 
 type FakeReplicationClient struct{}
 
 var _ replica.Client = (*FakeReplicationClient)(nil)
+
+func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	return 0, nil
+}
 
 func (f *FakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
@@ -537,7 +542,7 @@ func (*FakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (*FakeReplicationClient) FindUUIDs(ctx context.Context,
-	hostName, indexName, shardName string, filters *filters.LocalFilter,
+	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int,
 ) (result []strfmt.UUID, err error) {
 	return nil, nil
 }
@@ -551,5 +556,29 @@ func (c *FakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 func (c *FakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
+	return nil, nil
+}
+
+func (c *FakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *FakeReplicationClient) GetAsyncCheckpointStatus(_ context.Context, _, _ string, _ []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	return map[string]replica.AsyncCheckpointShardStatus{}, nil
+}
+
+func (c *FakeReplicationClient) CreateAsyncCheckpoint(_ context.Context, _, _ string, _ []string, _ int64, _ time.Time) error {
+	return nil
+}
+
+func (c *FakeReplicationClient) DeleteAsyncCheckpoint(_ context.Context, _, _ string, _ []string) error {
+	return nil
+}
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
 	return nil, nil
 }

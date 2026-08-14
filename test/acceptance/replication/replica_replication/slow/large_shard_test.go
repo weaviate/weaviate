@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
+func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateOfLargeShard() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -34,7 +34,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "10485760"). // 10 MB
 		Start(mainCtx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start weaviate cluster: %+v", err)
 	defer func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -81,7 +81,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	t.Logf("Data loading took %s", time.Since(start))
 
 	nodes, err := helper.Client(t).Nodes.NodesGet(nil, nil)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get nodes: %+v", err)
 
 	nodeNames := make([]string, len(nodes.GetPayload().Nodes))
 	for i, node := range nodes.GetPayload().Nodes {
@@ -92,7 +92,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get collection sharding state: %+v", err)
 	require.Len(t, shardingState.GetPayload().ShardingState.Shards, 1)
 
 	sourceNode := shardingState.GetPayload().ShardingState.Shards[0].Replicas[0]
@@ -118,7 +118,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 				Type:       &move,
 			}), nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to create replication operation: %+v", err)
 	id := *res.GetPayload().ID
 
 	t.Logf("Replication started with ID: %s", id)
@@ -126,7 +126,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	t.Log("Waiting for replication to finish...")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get replication details: %+v", err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
@@ -135,7 +135,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	shardingState, err = helper.Client(t).Replication.GetCollectionShardingState(
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get collection sharding state: %+v", err)
 	require.Len(t, shardingState.GetPayload().ShardingState.Shards, 1)
 	require.Equal(t, targetNode, shardingState.GetPayload().ShardingState.Shards[0].Replicas[0])
 }

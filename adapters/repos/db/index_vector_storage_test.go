@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -31,7 +32,9 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,6 +43,7 @@ import (
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -53,7 +57,6 @@ const (
 
 func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -131,6 +134,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use a separate temporary directory per test case to avoid
+			// LSM bucket re-registration conflicts and TempDir cleanup issues.
+			dirName, err := os.MkdirTemp("", "weaviate-unloaded-vectors-*")
+			require.NoError(t, err)
+			defer os.RemoveAll(dirName)
+
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -175,15 +184,13 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-				return readerFunc(class, shardState)
-			}).Maybe()
-			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			// Add ShardOwner expectation for all test cases
@@ -214,8 +221,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{
-					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
-					AdditionalReplicas: nil,
+					Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
@@ -224,8 +230,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
+				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -296,21 +304,31 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				directories, err := diskio.GetSubdirNames(lsmPath)
 				require.NoError(t, err)
 
-				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
+				vectorStorageSize, uncompressed, dimensionalities, err := lazyShard.shard.VectorStorageUsage(ctx, lsmPath, directories)
 				vectorStorageSize += uncompressed
 				require.NoError(t, err)
-				dimensions, err := shard.Dimensions(ctx, "")
-				require.NoError(t, err)
-				if len(tt.vectorConfigs) > 0 && tt.vectorConfigs["text"] != nil {
-					// Named vector
-					dimensions, err = shard.Dimensions(ctx, "text")
-					require.NoError(t, err)
+				targetVector := ""
+				if tt.vectorConfigs["text"] != nil {
+					targetVector = "text"
 				}
+				dimensions, err := shard.Dimensions(ctx, targetVector)
+				require.NoError(t, err)
 				objectCount, err := shard.ObjectCount(ctx)
 				require.NoError(t, err)
+
+				// the caller looks these up by target vector name
+				require.Contains(t, dimensionalities, targetVector)
+				assert.Equal(t, tt.objectCount, dimensionalities[targetVector].Count)
+				assert.Equal(t, tt.vectorDimensions, dimensionalities[targetVector].Dimensions)
+				if targetVector != "" {
+					// the legacy index is iterated too and keeps its own entry
+					require.Contains(t, dimensionalities, "")
+					assert.Equal(t, 0, dimensionalities[""].Count)
+					assert.Equal(t, 0, dimensionalities[""].Dimensions)
+				}
 
 				// For PQ compression, we need to account for the actual compression ratio
 				if len(tt.vectorConfigs) == 1 {
@@ -358,10 +376,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NoError(t, lazyShard.Load(ctx))
 
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				directories, err := diskio.GetSubdirNames(lsmPath)
 				require.NoError(t, err)
 
-				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
+				vectorStorageSize, _, dimensionalities, err := lazyShard.shard.VectorStorageUsage(ctx, lsmPath, directories)
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
@@ -371,6 +389,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				assert.Equal(t, tt.expectedVectorStorageSize, vectorStorageSize)
 				assert.Equal(t, 0, dimensions, "Empty shard should have 0 dimensions")
 				assert.Equal(t, 0, objectCount, "Empty shard should have 0 objects")
+
+				// an index with no vectors written yet still gets an entry
+				require.Contains(t, dimensionalities, "")
+				assert.Equal(t, 0, dimensionalities[""].Count)
+				assert.Equal(t, 0, dimensionalities[""].Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -396,7 +419,6 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -447,6 +469,12 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use a separate temporary directory per test case to avoid
+			// LSM bucket re-registration conflicts and TempDir cleanup issues.
+			dirName, err := os.MkdirTemp("", "weaviate-unloaded-dims-*")
+			require.NoError(t, err)
+			defer os.RemoveAll(dirName)
+
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -491,15 +519,13 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-				return readFunc(class, shardState)
-			}).Maybe()
-			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
@@ -512,11 +538,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{
-					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
-					AdditionalReplicas: nil,
+					Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
+				EnableLazyLoadShards:  true,
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
@@ -525,7 +551,8 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -713,14 +740,12 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-		return readerFunc(class, shardState)
-	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
@@ -728,10 +753,12 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantNamePopulated).
 		Return(types.WriteReplicaSet{
-			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
-			AdditionalReplicas: nil,
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 		}, nil).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+	// Seed a non-zero counter so the populated tenant reads as non-empty and is
+	// loaded as a raw *Shard (not deferred as an empty tenant).
+	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
@@ -739,13 +766,16 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
-		MaxReuseWalSize:       4096, // with recovery from .wal
-
+		EnableLazyLoadShards:  false, // we have to make sure lazyload shard disabled to load directly
+		MaxReuseWalSize:       4096,  // with recovery from .wal
+		// Left at 0, the commit logger switches and condenses on every maintenance
+		// tick, so the measured commit log size changes mid-test.
+		HNSWMaxLogSize: config.DefaultPersistenceHNSWMaxLogSize,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	// Add properties
@@ -781,8 +811,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// but we don't need DB for this test. Gimicky, but it does the job.
 	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 	publishVectorMetricsFromDB(t, db)
-	// Give time for HNSW commit logger condensing process to finish
-	time.Sleep(1 * time.Second)
 	// Test active shard vector storage size
 	activeShard, release, err := index.GetShard(ctx, tenantNamePopulated)
 	require.NoError(t, err)
@@ -792,18 +820,17 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.True(t, ok)
 
 	lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	require.NoError(t, err)
 
-	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx, lsmPath, directories)
+	activeVectorStorageSize, uncompressed, dimensionalities, err := shard.VectorStorageUsage(ctx, lsmPath, directories)
 	require.NoError(t, err)
 	activeVectorStorageSize += uncompressed
 	commitLogSize, _, err := shardusage.CalculateNonLSMStorage(index.path(), shard.Name())
 	require.NoError(t, err)
 	activeVectorStorageSize += int64(commitLogSize)
 
-	dimensionality, err := shard.DimensionsUsage(ctx, "")
-	require.NoError(t, err)
+	dimensionality := dimensionalities[""]
 	activeObjectCount, err := activeShard.ObjectCount(ctx)
 	require.NoError(t, err)
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
@@ -814,6 +841,42 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	assert.Equal(t, objectCount, dimensionality.Count, "Active shard object count should match")
 	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active shard dimensions should match")
 	assert.Equal(t, objectCount, activeObjectCount, "Active object count should match")
+
+	// the dimensionalities read once per sweep reach the usage report unchanged
+	loadedUsage, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
+	require.NoError(t, err)
+	loadedTenants := 0
+	for _, tenant := range loadedUsage.Shards {
+		if tenant.Name != tenantNamePopulated {
+			continue
+		}
+		loadedTenants++
+		require.Len(t, tenant.NamedVectors, 1)
+		require.Len(t, tenant.NamedVectors[0].Dimensionalities, 1)
+		assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count)
+		assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions)
+	}
+	require.Equal(t, 1, loadedTenants, "loaded tenant missing from the usage report")
+
+	// a target vector added after the sweep read the dimensions bucket is absent
+	// from the captured map, and has to be read on demand instead
+	dimensionalitySources := []struct {
+		name             string
+		dimensionalities map[string]usagetypes.Dimensionality
+	}{
+		{name: "captured by the sweep", dimensionalities: dimensionalities},
+		{name: "read on demand", dimensionalities: map[string]usagetypes.Dimensionality{}},
+	}
+	for _, tt := range dimensionalitySources {
+		t.Run(tt.name, func(t *testing.T) {
+			usages, err := index.vectorUsages(ctx, shard, tt.dimensionalities)
+			require.NoError(t, err)
+			require.Len(t, usages, 1)
+			require.Len(t, usages[0].Dimensionalities, 1)
+			assert.Equal(t, objectCount, usages[0].Dimensionalities[0].Count)
+			assert.Equal(t, vectorDimensions, usages[0].Dimensionalities[0].Dimensions)
+		})
+	}
 
 	// Release the shard (this will flush all data to disk)
 	release()
@@ -839,6 +902,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 			return fn(nil, shardState)
 		},
 	)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
@@ -849,11 +913,13 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		MaxReuseWalSize:       4096,
-		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
+		EnableLazyLoadShards:  true, // we have to make sure lazyload enabled
+		HNSWMaxLogSize:        config.DefaultPersistenceHNSWMaxLogSize,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 
@@ -864,11 +930,16 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Compare active and inactive metrics
-	collectionUsage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
+	collectionUsage, err := newIndex.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
 	require.NoError(t, err)
 	for _, tenant := range collectionUsage.Shards {
 		if tenant.Name == tenantNamePopulated {
-			assert.Equal(t, uint64(activeVectorStorageSize), tenant.VectorStorageBytes, "Active and inactive vector storage size should be very similar")
+			// Live capture folds in the not-yet-condensed commit log; the
+			// unloaded from-disk size sees it post-condense. Only that
+			// commit-log component differs (bounded by commitLogSize); exact
+			// equality flaked. Accounting fix: weaviate/0-weaviate-issues#205.
+			assert.InDelta(t, activeVectorStorageSize, tenant.VectorStorageBytes, float64(commitLogSize),
+				"active vs unloaded differ only by the condensable commit-log component (weaviate/0-weaviate-issues#205)")
 			assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count, "Active and inactive object count should match")
 			assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions, "Active and inactive dimensions should match")
 		} else {

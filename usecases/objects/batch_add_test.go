@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -74,7 +75,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
@@ -188,9 +189,15 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
+		// auto-schema creates a "default" named vector rather than a legacy one,
+		// so the incoming legacy vector is carried over to it
+		assert.Empty(t, repoCalledWithObjects[0].Object.Vector)
+		assert.Empty(t, repoCalledWithObjects[1].Object.Vector)
+		assert.Equal(t, models.Vector([]float32{0.1, 0.1, 0.1111}),
+			repoCalledWithObjects[0].Object.Vectors[modelsext.DefaultNamedVectorName],
 			"the correct vector was used")
-		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
+		assert.Equal(t, models.Vector([]float32{0.2, 0.2, 0.2222}),
+			repoCalledWithObjects[1].Object.Vectors[modelsext.DefaultNamedVectorName],
 			"the correct vector was used")
 	})
 
@@ -327,7 +334,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	ctx := context.Background()
@@ -471,7 +478,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	objects := []*models.Object{

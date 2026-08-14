@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -22,10 +23,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
@@ -42,6 +43,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
+	params.Selection = nil
 
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
@@ -89,6 +92,9 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	}
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
+	// Selection (MMR) runs once post-fusion; a per-leg ANN pass would be discarded by fusion.
+	params.Selection = nil
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
@@ -162,6 +168,8 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
 	subsearchWrap.HybridSearch = nil
+	subsearchWrap.Boost = nil
+	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
@@ -192,6 +200,10 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64
@@ -209,24 +221,86 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// Sub-search sizing should reflect the user's actual limit, not any
+	// boost-inflated overfetch. Boost overfetch only needs to affect how many
+	// fused results Hybrid returns (controlled by origParams.Pagination.Limit).
+	subSearchLimit := params.Pagination.Limit
+	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
+		subSearchLimit = params.Boost.OriginalLimit
+	}
+	// Under MMR, fetch deep enough to reach the [offset:offset+limit] window (and
+	// Boost.Depth deep when boost is active so it re-ranks that deep).
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		windowEnd := origParams.Pagination.Offset + params.Pagination.Limit
+		if d := e.mmrFetchDepth(origParams.Boost, windowEnd); d > subSearchLimit {
+			subSearchLimit = d
+		}
+	}
+
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
 		return nil, err
+	}
+
+	// Force-load the target vector on both legs so post-fusion MMR can place every candidate; strip it afterwards if unrequested.
+	var selectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
+	var stripVector string
+	var stripDefaultVector bool
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		targetVector := ""
+		if len(targetVectors) > 0 {
+			targetVector = targetVectors[0]
+		}
+		if targetVector == "" {
+			stripDefaultVector = !origParams.AdditionalProperties.Vector
+			vectorParams.AdditionalProperties.Vector = true
+			keywordParams.AdditionalProperties.Vector = true
+		} else {
+			if !slices.Contains(origParams.AdditionalProperties.Vectors, targetVector) {
+				stripVector = targetVector
+			}
+			vectorParams.AdditionalProperties.Vectors = withVectorTarget(vectorParams.AdditionalProperties.Vectors, targetVector)
+			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
+		}
+
+		// Query Limit is the MMR window size; MMR.Limit is the page size. offset advances
+		// by Limit, so each page diversifies the disjoint [offset:offset+Limit] window.
+		pool := origParams.Pagination.Limit
+		if pool <= 0 {
+			pool = int(e.config.QueryHybridMaximumResults)
+		}
+		offset := origParams.Pagination.Offset
+		if offset < 0 {
+			offset = 0
+		}
+		selTargetVector := targetVector
+		boost := origParams.Boost
+		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
+			if boost != nil && boost.Weight > 0 {
+				// Boost re-ranks only the Depth-deep relevance pool. The fused list
+				// can be much deeper (both legs fetch ≥ QueryHybridMaximumResults),
+				// and candidates below Depth must not be promoted into the window.
+				fused = e.paginateResults(fused, 0, e.mmrFetchDepth(boost, offset+pool))
+				fused = boostScoreAndSort(fused, boost)
+			}
+			fused = e.paginateResults(fused, offset, pool)
+			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused, false)
+		}
 	}
 
 	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
@@ -267,8 +341,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
-				sch := e.schemaGetter.GetSchemaSkipAuth()
-				class := sch.FindClassByName(schema.ClassName(params.ClassName))
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 				if class == nil {
 					return fmt.Errorf("class %q not found", params.ClassName)
 				}
@@ -407,29 +480,54 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut:              origParams.Pagination.Autocut,
 		ModuleParams:         origParams.ModuleParams,
 		AdditionalProperties: origParams.AdditionalProperties,
+		SelectionFn:          selectionFn,
 	}, results, weights, names, e.logger, e.modulesProvider, postProcess)
 	if err != nil {
 		return nil, err
 	}
 
+	// Strip the target vector we force-loaded solely for the MMR computation.
+	if stripDefaultVector || stripVector != "" {
+		for i := range res {
+			if stripDefaultVector {
+				res[i].Vector = nil
+			}
+			if stripVector != "" {
+				delete(res[i].Vectors, stripVector)
+			}
+		}
+	}
+
 	var out []search.Result
 
-	if origParams.Pagination.Limit <= 0 {
-		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
+	offset := origParams.Pagination.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
-	if origParams.Pagination.Offset < 0 {
-		origParams.Pagination.Offset = 0
+	// Under MMR the query Limit was the window size, so MMR.Limit is the page size, and
+	// the [offset:offset+Limit] window was already applied before diversify — so the page
+	// is the diversified prefix (offset 0 here).
+	pageLimit := origParams.Pagination.Limit
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		pageLimit = int(origParams.Selection.MMR.Limit)
+		offset = 0
+	}
+	if pageLimit <= 0 {
+		pageLimit = int(e.config.QueryHybridMaximumResults)
 	}
 
-	if len(res) >= origParams.Pagination.Limit+origParams.Pagination.Offset {
-		out = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
-	}
-	if len(res) < origParams.Pagination.Limit+origParams.Pagination.Offset && len(res) > origParams.Pagination.Offset {
-		out = res[origParams.Pagination.Offset:]
-	}
-	if len(res) <= origParams.Pagination.Offset {
+	switch {
+	case len(res) >= offset+pageLimit:
+		out = res[offset : offset+pageLimit]
+	case len(res) > offset:
+		out = res[offset:]
+	default:
 		out = []search.Result{}
+	}
+
+	if origParams.AdditionalProperties.QueryProfile {
+		out = helpers.AttachQueryProfileToResults(ctx, out)
 	}
 
 	if origParams.GroupBy != nil {
@@ -440,4 +538,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return groupedResults, nil
 	}
 	return out, nil
+}
+
+func withVectorTarget(src []string, target string) []string {
+	if slices.Contains(src, target) {
+		return src
+	}
+	out := make([]string, len(src)+1)
+	copy(out, src)
+	out[len(src)] = target
+	return out
 }

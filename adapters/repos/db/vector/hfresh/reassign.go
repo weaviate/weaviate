@@ -21,19 +21,25 @@ import (
 type reassignOperation struct {
 	PostingID uint64
 	VectorID  uint64
-	Version   uint8
 }
 
 func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer h.metrics.ReassignDuration(start)
 
+	var markedAsDone bool
+	defer func() {
+		if !markedAsDone {
+			h.taskQueue.ReassignDone(op.VectorID)
+		}
+	}()
+
 	// check if the vector is still valid
 	version, err := h.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
-	if version.Deleted() || version.Version() > op.Version {
+	if version.Deleted() {
 		return nil
 	}
 
@@ -43,6 +49,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
+	q = h.normalizeVec(q)
 
 	replicas, needsReassign, err := h.RNGSelect(q, op.PostingID)
 	if err != nil {
@@ -52,51 +59,63 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return nil
 	}
 
-	// check again if the version is still valid
-	version, err = h.VersionMap.Get(ctx, op.VectorID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
-	}
-	if version.Deleted() || version.Version() > op.Version {
-		return nil
-	}
-
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
 	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
-	if err != nil {
+	if errors.Is(err, ErrVersionIncrementFailed) {
 		h.logger.WithField("vectorID", op.VectorID).
-			WithError(err).
-			Error("failed to increment version map for vector, skipping reassign operation")
+			Debug("version changed concurrently, skipping reassign operation")
 		return nil
+	}
+	if err != nil {
+		return errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, h.quantizer.Encode(q))
+	newVector := NewVector(op.VectorID, version, h.quantizer.CompressedBytes(h.quantizer.Encode(q)))
 
 	// append the vector to each replica
+	requeued, err := h.appendReassignReplicas(ctx, newVector, replicas)
+	if err != nil {
+		return err
+	}
+	if requeued {
+		markedAsDone = true
+	}
+
+	return nil
+}
+
+func (h *HFresh) appendReassignReplicas(ctx context.Context, newVector Vector, replicas *ResultSet) (bool, error) {
 	for id := range replicas.Iter() {
-		version, err = h.VersionMap.Get(ctx, newVector.ID())
+		version, err := h.VersionMap.Get(ctx, newVector.ID())
 		if err != nil {
-			return errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
+			return false, errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
 		}
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
-			h.logger.WithField("vectorID", op.VectorID).
+			h.logger.WithField("vectorID", newVector.ID()).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")
-			return nil
+			return false, nil
 		}
 
 		added, err := h.append(ctx, newVector, id, true)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !added {
 			// the posting has been deleted concurrently,
-			// append has enqueued a new reassign operation
-			// we can stop here
-			break
+			// re-enqueue the vector so it can be reassigned against
+			// the current centroid set.
+			// Clear the current task's in-flight marker before enqueueing the
+			// replacement task; otherwise duplicate suppression would drop it.
+			h.taskQueue.ReassignDone(newVector.ID())
+			err = h.taskQueue.EnqueueReassign(id, newVector.ID())
+			if err != nil {
+				return true, err
+			}
+			return true, nil
 		}
 	}
 
-	return nil
+	return false, nil
 }

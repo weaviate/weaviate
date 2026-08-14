@@ -14,7 +14,6 @@ package geo
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -25,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -48,11 +48,13 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Dump(...string)
 	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
+	ListFiles(ctx context.Context, basePath string) ([]string, error)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -65,12 +67,7 @@ type Config struct {
 
 	HNSWEF int
 
-	SnapshotDisabled                         bool
-	SnapshotOnStartup                        bool
-	SnapshotCreateInterval                   time.Duration
-	SnapshotMinDeltaCommitlogsNumer          int
-	SnapshotMinDeltaCommitlogsSizePercentage int
-	AllocChecker                             memwatch.AllocChecker
+	AllocChecker memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -89,14 +86,16 @@ func NewIndex(config Config,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
 		DistanceProvider:      distancer.NewGeoProvider(),
-		DisableSnapshots:      config.SnapshotDisabled,
-		SnapshotOnStartup:     config.SnapshotOnStartup,
 		AllocChecker:          config.AllocChecker,
 		GetViewThunk:          func() common.BucketView { return nil },
+		Logger:                config.Logger,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
+		// The cache drops every vector once its entry count reaches this maximum,
+		// so a zero here empties it every few seconds.
+		VectorCacheMaxObjects: vectorIndexCommon.DefaultVectorCacheMaxObjects,
 	}, tombstoneCleanupCallbacks, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
@@ -127,13 +126,8 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 ) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
-		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks,
-				hnsw.WithSnapshotDisabled(config.SnapshotDisabled),
-				hnsw.WithSnapshotCreateInterval(config.SnapshotCreateInterval),
-				hnsw.WithSnapshotMinDeltaCommitlogsNumer(config.SnapshotMinDeltaCommitlogsNumer),
-				hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(config.SnapshotMinDeltaCommitlogsSizePercentage),
-			)
+		makeCL = func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks, opts...)
 		}
 	}
 	return makeCL
@@ -177,4 +171,27 @@ func (i *Index) Flush() error {
 
 func (i *Index) Shutdown(ctx context.Context) error {
 	return i.vectorIndex.Shutdown(ctx)
+}
+
+// PrepareForBackup readies the geo graph for its files to be copied. The graph
+// is an HNSW in its own right, persisted beside the shard rather than inside its
+// LSM buckets, so a backup has to halt, list and resume it like any other vector
+// index.
+func (i *Index) PrepareForBackup(ctx context.Context) error {
+	return i.vectorIndex.PrepareForBackup(ctx)
+}
+
+func (i *Index) ResumeAfterBackup(ctx context.Context) error {
+	return i.vectorIndex.ResumeAfterBackup(ctx)
+}
+
+// ListFiles returns the index files a backup has to copy, relative to basePath.
+func (i *Index) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return i.vectorIndex.ListFiles(ctx, basePath)
+}
+
+// UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
+// so it can be wrapped in a VectorIndexQueue for async indexing.
+func (i *Index) UnderlyingVectorIndex() interface{} {
+	return i.vectorIndex
 }

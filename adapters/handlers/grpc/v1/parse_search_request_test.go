@@ -62,6 +62,8 @@ var (
 	singleNamedVecClass      = "SingleNamedVecClass"
 	regularWithColBERTClass  = "RegularWithColBERTClass"
 	mixedVectorsClass        = "MixedVectorsClass"
+	boostClass               = "BoostClass"
+	legacyMultiVecClass      = "LegacyMultiVecClass"
 
 	scheme = schema.Schema{
 		Objects: &models.Schema{
@@ -76,6 +78,17 @@ var (
 						{Name: "uuid", DataType: schema.DataTypeUUID.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+				},
+				{
+					Class: boostClass,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+						{Name: "int", DataType: schema.DataTypeInt.PropString()},
+						{Name: "number", DataType: schema.DataTypeNumber.PropString()},
+						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
+						{Name: "date", DataType: schema.DataTypeDate.PropString()},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
@@ -239,6 +252,15 @@ var (
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
+				},
+				{
+					Class: legacyMultiVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   "hnsw",
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine, Multivector: hnsw.MultivectorConfig{Enabled: true}},
 				},
 				{
 					Class: mixedVectorsClass,
@@ -942,7 +964,32 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
-
+		{
+			name: "hybrid with alpha_param set",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query", AlphaParam: ptr(float32(0.25)), UseAlphaParam: true},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: 0.25},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param unset",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query", UseAlphaParam: true},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: common_filters.DefaultAlpha},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
 		{
 			name: "bm25",
 			req: &pb.SearchRequest{
@@ -2670,6 +2717,85 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					TargetVectors:    []string{"custom"},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}, TargetVectors: []string{"custom"}},
+			},
+			error: false,
+		},
+		{
+			name: "two per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					TargetVectors: []string{"custom"},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{
+						{VectorBytes: byteVector([]float32{1, 2, 3})},
+						{VectorBytes: byteVector([]float32{2, 3, 4})},
+					}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}}, TargetVectors: []string{"custom", "custom"}},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vectors:       []models.Vector{[]float32{1, 2, 3}},
+						TargetVectors: []string{"custom"},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "mixed vector input near vector targeting legacy vector",
 			req: &pb.SearchRequest{
 				Collection: mixedVectorsClass,
@@ -2739,9 +2865,100 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "MMR selection with multi-vector target should error",
+			req: &pb.SearchRequest{
+				Collection: multiVecClassWithColBERT,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+					},
+					TargetVectors: []string{"custom_colbert"},
+					Selection:     &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR limit larger than default query limit should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(11))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR limit larger than explicit query limit should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Limit:      5,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(6))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR balance below 0 should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(-0.1))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR balance above 1 should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(1.1))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR limit equal to query limit is allowed",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Limit:      5,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(0.5))}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            classname,
+				Pagination:           &filters.Pagination{Limit: 5},
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				NearVector:           &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}},
+				Selection:            &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 5, Balance: 0.5}},
+			},
+			error: false,
+		},
 	}
 
-	parser := NewParser(false, getClass, getAlias)
+	parser := NewParser(false, getClass, nil, false)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -2760,16 +2977,69 @@ func TestGRPCSearchRequest(t *testing.T) {
 	}
 }
 
+func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
+	propertyValue := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_PropertyValue{
+			PropertyValue: &pb.Boost_PropertyValueFunction{Property: prop},
+		}}
+	}
+	timeDecay := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_TimeDecay{
+			TimeDecay: &pb.Boost_TimeDecayFunction{Property: prop, Scale: "7d"},
+		}}
+	}
+	numericDecay := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_NumericDecay{
+			NumericDecay: &pb.Boost_NumericDecayFunction{Property: prop, Scale: 10},
+		}}
+	}
+
+	tests := []struct {
+		name  string
+		cond  *pb.Boost_Condition
+		error bool
+	}{
+		{"property_value on number is valid", propertyValue("number"), false},
+		{"property_value on int is valid", propertyValue("int"), false},
+		{"property_value on text errors", propertyValue("name"), true},
+		{"property_value on number array errors", propertyValue("floats"), true},
+		{"property_value on nonexistent property errors", propertyValue("doesNotExist"), true},
+		{"property_value on nested path errors", propertyValue("number.foo"), true},
+		{"time_decay on date is valid", timeDecay("date"), false},
+		{"time_decay on number errors", timeDecay("number"), true},
+		{"time_decay on text errors", timeDecay("name"), true},
+		{"time_decay on nonexistent property errors", timeDecay("doesNotExist"), true},
+		{"time_decay on nested path errors", timeDecay("date.foo"), true},
+		{"numeric_decay on number is valid", numericDecay("number"), false},
+		{"numeric_decay on int is valid", numericDecay("int"), false},
+		{"numeric_decay on date errors", numericDecay("date"), true},
+		{"numeric_decay on nonexistent property errors", numericDecay("doesNotExist"), true},
+		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
+	}
+
+	parser := NewParser(false, getClass, nil, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &pb.SearchRequest{
+				Collection: boostClass,
+				Boost:      &pb.Boost{Conditions: []*pb.Boost_Condition{tt.cond}},
+			}
+			_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			if tt.error {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+			}
+		})
+	}
+}
+
 func getClass(name string) (*models.Class, error) {
 	class := scheme.GetClass(name)
 	if class == nil {
 		return nil, fmt.Errorf("class %s not found", name)
 	}
 	return class, nil
-}
-
-func getAlias(name string) string {
-	return ""
 }
 
 func sortNamedVecs(vecs []string) {

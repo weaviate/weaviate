@@ -20,11 +20,14 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	upperClassName := "RandomBlueTree"
@@ -59,7 +62,7 @@ func TestAutoschemaCasingClass(t *testing.T) {
 
 func TestAutoschemaCasingProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "RandomGreenBike"
@@ -106,7 +109,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 
 func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	objId := "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
@@ -153,7 +156,7 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	tests := []struct {
@@ -250,7 +253,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "Passage"
@@ -289,7 +292,18 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 		require.NotNil(t, resp[0].Result)
 		require.Nil(t, resp[0].Result.Errors)
 		require.NotNil(t, resp[0].Object)
-		assert.True(t, len(resp[0].Object.Vector) > 0)
+		// auto-schema creates a "default" named vector with the none vectorizer,
+		// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
+		assert.Empty(t, resp[0].Object.Vector)
+		assert.Empty(t, resp[0].Object.Vectors)
+
+		class, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
+		assert.Empty(t, class.Vectorizer)
+		require.Len(t, class.VectorConfig, 1)
+		defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
 
 		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
 		require.Nil(t, err)

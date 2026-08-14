@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,11 +33,15 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -62,6 +67,9 @@ func TestStoreApply(t *testing.T) {
 		}},
 		PartitioningEnabled: true, // multi-tenant collection
 	}
+
+	// captured by UpdateTenant/FreezeHandsPreFreezeStatusToTheDB
+	var preFreezeStatusesSeenByDB map[string]string
 
 	tests := []struct {
 		name     string
@@ -267,6 +275,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false)
 			},
 		},
 		{
@@ -463,17 +472,17 @@ func TestStoreApply(t *testing.T) {
 				})
 				// ErrShardNotFound (partial success), so the DB layer is invoked with the
 				// filtered (empty) tenant list before the schema error is propagated.
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
-			name: "UpdateTenant/HasOngoingReplication/true",
+			name: "UpdateTenant/HasActiveReplicationForShard/true",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
-			resp: Response{Error: nil},
+			resp: Response{Error: schema.ErrReplicaMovementInProgress},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -485,8 +494,8 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(true)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(true)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -504,7 +513,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "UpdateTenant/HasOngoingReplication/false",
+			name: "UpdateTenant/HasActiveReplicationForShard/false",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
@@ -521,8 +530,8 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(false)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(false)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -567,8 +576,8 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationFSM.EXPECT().HasOngoingReplication(Anything, Anything, Anything).Return(false)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -589,6 +598,49 @@ func TestStoreApply(t *testing.T) {
 				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
+			// The DB reports the pre-freeze status back if the freeze aborts, so the
+			// schema update must hand the DB update what it recorded.
+			name: "UpdateTenant/FreezeHandsPreFreezeStatusToTheDB",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusFROZEN},
+					{Name: "T2", Status: models.TenantActivityStatusFROZEN},
+				}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"THIS"},
+					Status:         models.TenantActivityStatusHOT,
+				}, "T2": {
+					Name:           "T2",
+					BelongsToNodes: []string{"THIS"},
+					Status:         models.TenantActivityStatusCOLD,
+				}}, PartitioningEnabled: true}
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				preFreezeStatusesSeenByDB = nil
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).
+					Run(func(args mock.Arguments) {
+						preFreezeStatusesSeenByDB = args.Get(2).(map[string]string)
+					}).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]string{
+					"T1": models.TenantActivityStatusHOT,
+					"T2": models.TenantActivityStatusCOLD,
+				}
+				if !reflect.DeepEqual(preFreezeStatusesSeenByDB, want) {
+					return fmt.Errorf("pre-freeze statuses want: %v got: %v", want, preFreezeStatusesSeenByDB)
 				}
 				return nil
 			},
@@ -1382,6 +1434,118 @@ func TestStoreMetrics(t *testing.T) {
 	})
 }
 
+func TestStoreDBLoadProgressFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress func() *db.StartupProgressSnapshot
+		want     logrus.Fields
+	}{
+		{
+			name:     "no progress source returns nil",
+			progress: nil,
+			want:     nil,
+		},
+		{
+			name:     "no shards to load returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 0} },
+			want:     nil,
+		},
+		{
+			name:     "negative total returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: -1} },
+			want:     nil,
+		},
+		{
+			name:     "nothing loaded yet",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(0), "shards_total": int64(10), "progress": "0%"},
+		},
+		{
+			name:     "partial progress rounds to whole percent",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 1, Total: 3} },
+			want:     logrus.Fields{"shards_loaded": int64(1), "shards_total": int64(3), "progress": "33%"},
+		},
+		{
+			name:     "partial progress",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 3, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(3), "shards_total": int64(10), "progress": "30%"},
+		},
+		{
+			name:     "fully loaded",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 10, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(10), "shards_total": int64(10), "progress": "100%"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &Store{cfg: Config{DBLoadProgress: tt.progress}}
+			assert.Equal(t, tt.want, st.dbLoadProgressFields())
+		})
+	}
+}
+
+// TestStoreDBLoadProgressFieldsRecomputesPerCall pins that each call re-reads
+// the progress source. The schema arrives from RAFT while the shards are still
+// loading, so a value read once would describe the pre-schema state for the
+// whole load.
+func TestStoreDBLoadProgressFieldsRecomputesPerCall(t *testing.T) {
+	var calls int64
+	st := &Store{cfg: Config{DBLoadProgress: func() *db.StartupProgressSnapshot {
+		calls++
+		return &db.StartupProgressSnapshot{Loaded: calls, Total: 10}
+	}}}
+
+	assert.Equal(t, "10%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, "20%", st.dbLoadProgressFields()["progress"])
+	assert.Equal(t, int64(2), calls)
+}
+
+// TestStoreReloadDBFromSchemaReportsProgressDuringReload pins that the reload is
+// bracketed by the progress tracker. The snapshot-path reload runs inside
+// raft.NewRaft, before WaitToRestoreDB starts its heartbeat, so a tracker
+// started any later reports nothing for that whole phase.
+func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), 9092)
+	logHook := logrustest.NewLocal(ms.logger)
+	logged := func(msg string) bool {
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				return true
+			}
+		}
+		return false
+	}
+
+	ms.store.cfg.DBLoadProgress = func() *db.StartupProgressSnapshot {
+		return &db.StartupProgressSnapshot{Loaded: 3, Total: 10}
+	}
+
+	st := ms.Store(func(m *MockStore) {
+		// TriggerSchemaUpdateCallbacks runs inside the reload. Holding it open
+		// until the tracker has logged proves the sampling happens while the
+		// reload is in flight, not after.
+		m.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+			if !tryNTimesWithWait(3000, 10*time.Millisecond, func() bool {
+				return logged("loading local DB from schema")
+			}) {
+				t.Error("no progress logged while the reload was in flight")
+			}
+		}).Return()
+	})
+
+	st.reloadDBFromSchema()
+
+	require.True(t, st.dbLoaded.Load())
+	require.True(t, logged("local DB loaded from schema"))
+	for _, e := range logHook.AllEntries() {
+		if e.Message == "local DB loaded from schema" {
+			assert.Equal(t, "30%", e.Data["progress"])
+		}
+	}
+}
+
 type MockStore struct {
 	indexer        *fakes.MockSchemaExecutor
 	parser         *fakes.MockParser
@@ -1415,11 +1579,13 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			NamespacesController:   usecasesNamespaces.NewController(logger),
+			TelemetryEnabled:       true,
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
 
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms
@@ -1478,4 +1644,48 @@ func cmdAsBytes(class string,
 	}
 
 	return data
+}
+
+// TestStoreWaitToRestoreDBAnnouncesOnce pins that the wait is reported as a
+// phase, not a heartbeat. Progress belongs to trackDBLoadProgress: on a restart
+// into a live cluster the waiter is still waiting while the load runs, so a
+// per-tick line here would report the same startup twice.
+func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	logHook := logrustest.NewLocal(ms.logger)
+	st := ms.store
+
+	countMsg := func(msg string) int {
+		n := 0
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		_ = st.WaitToRestoreDB(context.Background(), 10*time.Millisecond, make(chan struct{}))
+	}, ms.logger)
+
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, func() bool {
+		return countMsg("waiting for database to be restored") > 0
+	}), "the waiter must announce itself while the DB is not loaded")
+
+	// Many further ticks pass at 10ms; none of them may add another line.
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, 1, countMsg("waiting for database to be restored"),
+		"announced once, not once per tick")
+
+	st.dbLoaded.Store(true)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+	}
 }

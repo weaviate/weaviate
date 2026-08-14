@@ -64,6 +64,17 @@ func (m *KMeansEncoder) Fit(data [][]float32) error {
 	return err
 }
 
+func (m *KMeansEncoder) FitBalanced(data [][]float32) ([]uint32, error) {
+	km := kmeans.New(m.k, m.d, m.s)
+	km.DeltaThreshold = 0.01
+	km.IterationThreshold = 10
+	km.Initialization = kmeans.RandomInitialization
+	km.Assignment = kmeans.GraphPruning
+	centroidAssignments, err := km.FitBalanced(data)
+	m.centers = km.Centers
+	return centroidAssignments, err
+}
+
 func (m *KMeansEncoder) Encode(point []float32) byte {
 	var minDist float32 = math.MaxFloat32
 	idx := 0

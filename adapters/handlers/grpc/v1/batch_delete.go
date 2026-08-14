@@ -13,16 +13,18 @@ package v1
 
 import (
 	"fmt"
-	"math/big"
-	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -52,7 +54,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled, principal)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
@@ -65,7 +67,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 	return params, nil
 }
 
-func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool) (*pb.BatchDeleteReply, error) {
+func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool, principal *models.Principal) (*pb.BatchDeleteReply, error) {
 	var successful, failed int64
 
 	var objs []*pb.BatchDeleteObject
@@ -79,17 +81,22 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			failed += 1
 		}
 		if verbose {
-			hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(obj.UUID.String(), "-", ""), 16)
-			if !success {
-				return nil, fmt.Errorf("failed to parse hex string to integer")
+			// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
+			parsed, err := uuid.Parse(obj.UUID.String())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse id %q as uuid: %w", obj.UUID.String(), err)
+			}
+			uuidBytes, err := parsed.MarshalBinary()
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode id %q as bytes: %w", obj.UUID.String(), err)
 			}
 			errorString := ""
 			if obj.Err != nil {
-				errorString = obj.Err.Error()
+				errorString = namespacing.StripErrorMessage(principal, obj.Err.Error())
 			}
 
 			resultObj := &pb.BatchDeleteObject{
-				Uuid:       hexInteger.Bytes(),
+				Uuid:       uuidBytes,
 				Successful: obj.Err == nil,
 				Error:      &errorString,
 			}

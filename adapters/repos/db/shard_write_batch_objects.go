@@ -26,15 +26,22 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// PutObjectBatch returns one error per object, in input order, refusals of the
+// whole batch included. The caller maps position i onto that object's position
+// in its own batch, so a shorter slice reports the objects it omits as written.
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if err := s.isReadOnly(); err != nil {
-		return []error{err}
+		return duplicateErr(err, len(objects))
+	}
+
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		return duplicateErr(err, len(objects))
 	}
 
 	return s.putBatch(ctx, objects)
@@ -152,11 +159,15 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	eg := enterrors.NewErrorGroupWrapper(ob.shard.Index().logger)
 	eg.SetLimit(_NUMCPU)
 
+	// Read once and reuse: the class is invariant across the batch and
+	// getClass() clones on every call.
+	class := ob.shard.Index().getClass()
+
 	for j, object := range batch {
 		object := object
 		index := j
 		f := func() error {
-			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+			if err := ob.storeObjectOfBatchInLSM(ctx, class, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
@@ -172,11 +183,19 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 }
 
 func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
-	objectIndex int, object *storobj.Object,
+	class *models.Class, objectIndex int, object *storobj.Object,
 ) error {
 	if _, ok := ob.duplicates[objectIndex]; ok {
 		return nil
 	}
+
+	// Reject batch items carrying a dropped vector before persisting anything.
+	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+		if err := rejectDroppedObjectVectors(class, object); err != nil {
+			return err
+		}
+	}
+
 	uuidParsed, err := uuid.Parse(object.ID().String())
 	if err != nil {
 		return errors.Wrap(err, "invalid id")
@@ -228,6 +247,15 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
 			}
 		}
 		return nil
@@ -467,6 +495,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil

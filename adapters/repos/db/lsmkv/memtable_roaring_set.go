@@ -45,6 +45,43 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	return nil
 }
 
+// roaringSetAddBatch writes multiple key-values pairs under a single
+// memtable lock acquisition. Commit log nodes are pre-allocated outside the
+// lock to keep the critical section as short as possible.
+func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	// Pre-allocate all commit log nodes outside the lock.
+	nodes := make([]*roaringset.SegmentNodeList, len(entries))
+	for i, e := range entries {
+		node, err := roaringset.NewSegmentNodeList(e.Key, e.Values, []uint64{})
+		if err != nil {
+			return fmt.Errorf("create node for commit log: %w", err)
+		}
+		nodes[i] = node
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	var insertedValues int
+	for i, node := range nodes {
+		if err := m.roaringSetAddCommitLog(node); err != nil {
+			if insertedValues > 0 {
+				m.roaringSetAdjustMeta(insertedValues)
+			}
+			return err
+		}
+		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Additions: entries[i].Values})
+		insertedValues += len(entries[i].Values)
+	}
+
+	m.roaringSetAdjustMeta(insertedValues)
+	return nil
+}
+
 func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
@@ -94,6 +131,43 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
 
 	m.roaringSetAdjustMeta(len(values))
+	return nil
+}
+
+// roaringSetRemoveBatch removes multiple key-values pairs under a single
+// memtable lock acquisition. Commit log nodes are pre-allocated outside the
+// lock to keep the critical section as short as possible.
+func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	// Pre-allocate all commit log nodes outside the lock.
+	nodes := make([]*roaringset.SegmentNodeList, len(entries))
+	for i, e := range entries {
+		node, err := roaringset.NewSegmentNodeList(e.Key, []uint64{}, e.Values)
+		if err != nil {
+			return fmt.Errorf("create node for commit log: %w", err)
+		}
+		nodes[i] = node
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	var deletedValues int
+	for i, node := range nodes {
+		if err := m.roaringSetAddCommitLog(node); err != nil {
+			if deletedValues > 0 {
+				m.roaringSetAdjustMeta(deletedValues)
+			}
+			return err
+		}
+		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Deletions: entries[i].Values})
+		deletedValues += len(entries[i].Values)
+	}
+
+	m.roaringSetAdjustMeta(deletedValues)
 	return nil
 }
 

@@ -63,10 +63,43 @@ var (
 
 type ReplicationTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+// SetupSuite starts one shared 3-node cluster for every test in the suite.
+// The methods run sequentially and each restarts the nodes it stops, so the
+// cluster stays healthy between them.
+func (suite *ReplicationTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
+
+	compose, err := docker.New().
+		With3NodeCluster().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	suite.compose = compose
+}
+
+func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+// TearDownTest drops the shared classes so the next test starts from a clean
+// schema. Node 1 is never stopped, so it is always reachable here.
+func (suite *ReplicationTestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Article", "")
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
 }
 
 func TestReplicationTestSuite(t *testing.T) {
@@ -80,16 +113,8 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
+	var err error
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
@@ -115,7 +140,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
 					Object()
 			}
-			common.CreateObjects(t, compose.ContainerURI(3), batch)
+			common.CreateObjectsCL(t, compose.ContainerURI(3), batch, types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -145,7 +170,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					Object()
-				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelOne)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelAll)
 			}
 		})
 
@@ -179,7 +204,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		}
 
 		t.Run("OnNode-3", func(t *testing.T) {
-			common.AddReferences(t, compose.ContainerURI(3), refs)
+			common.AddReferencesCL(t, compose.ContainerURI(3), refs, types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -246,7 +271,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("PatchedOnNode-1", func(t *testing.T) {
-			after, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
+			after, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], docker.Weaviate0)
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -318,7 +343,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("VectorPreservedOnNode-1", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Article", testArticleID, "node1")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Article", testArticleID, docker.Weaviate0)
 			require.Nil(t, err)
 
 			// Verify reference was added
@@ -332,7 +357,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("VectorPreservedOnNode-2", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Article", testArticleID, "node2")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Article", testArticleID, docker.Weaviate1)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, originalVector, after.Vector)
@@ -343,7 +368,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("VectorPreservedOnNode-3AfterRestart", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Article", testArticleID, "node3")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Article", testArticleID, docker.Weaviate2)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, originalVector, after.Vector)
@@ -396,7 +421,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("CustomVectorPreservedOnNode-1", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Paragraph", customVecParagraphID, "node1")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Paragraph", customVecParagraphID, docker.Weaviate0)
 			require.Nil(t, err)
 
 			// Verify property was updated
@@ -410,7 +435,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("CustomVectorPreservedOnNode-2", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Paragraph", customVecParagraphID, "node2")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Paragraph", customVecParagraphID, docker.Weaviate1)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, customVector, []float32(after.Vector))
@@ -421,7 +446,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("CustomVectorPreservedOnNode-3AfterRestart", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Paragraph", customVecParagraphID, "node3")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Paragraph", customVecParagraphID, docker.Weaviate2)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, customVector, []float32(after.Vector))
@@ -487,7 +512,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorPropagatedToNode-1", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Article", testArticleID, "node1")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Article", testArticleID, docker.Weaviate0)
 			require.Nil(t, err)
 
 			// Verify property was updated
@@ -501,7 +526,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorPropagatedToNode-2", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Article", testArticleID, "node2")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Article", testArticleID, docker.Weaviate1)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, newVector, after.Vector)
@@ -512,7 +537,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorOnNode-3AfterRestart", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Article", testArticleID, "node3")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Article", testArticleID, docker.Weaviate2)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, newVector, after.Vector)
@@ -575,7 +600,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorPropagatedToNode-1", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Paragraph", testParagraphID, "node1")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Paragraph", testParagraphID, docker.Weaviate0)
 			require.Nil(t, err)
 
 			// Verify property was updated
@@ -589,7 +614,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorPropagatedToNode-2", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Paragraph", testParagraphID, "node2")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Paragraph", testParagraphID, docker.Weaviate1)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, newVector, []float32(after.Vector))
@@ -600,7 +625,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("NewVectorOnNode-3AfterRestart", func(t *testing.T) {
-			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Paragraph", testParagraphID, "node3")
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Paragraph", testParagraphID, docker.Weaviate2)
 			require.Nil(t, err)
 			require.NotEmpty(t, after.Vector)
 			require.Equal(t, newVector, []float32(after.Vector))
@@ -617,11 +642,11 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			_, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
+			_, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], docker.Weaviate0)
 			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 		t.Run("OnNode-2", func(t *testing.T) {
-			_, err := common.GetObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "node2")
+			_, err := common.GetObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], docker.Weaviate1)
 			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -68,59 +69,97 @@ type zip struct {
 	compressorWriter    compressor
 	pipeWriter          *io.PipeWriter
 	maxChunkSizeInBytes int64
-	bigFileThreshold    int64
+	bigFilesThreshold   int64
 	splitFileSizeBytes  int64
+	zstdEncoder         *zstd.Encoder
+	zstdEncoderPool     *sync.Pool
+}
+
+// One pool per compression level; only the zstd levels take one. Building an
+// encoder allocates about twice the chunk size. Backups run one at a time, but a
+// pooled encoder outlives one by up to two GC cycles, so a shared pool would give
+// the next backup encoders built for the previous one's level.
+var zstdEncoderPools [NoCompression + 1]sync.Pool
+
+func zstdEncoderLevel(level CompressionLevel) (zstd.EncoderLevel, error) {
+	switch level {
+	case ZstdBestSpeed:
+		return zstd.SpeedFastest, nil
+	case ZstdDefaultCompression:
+		return zstd.SpeedDefault, nil
+	case ZstdBestCompression:
+		return zstd.SpeedBetterCompression, nil
+	default:
+		return 0, fmt.Errorf("unknown zstd compression level %v", level)
+	}
+}
+
+// takeZstdEncoder returns an encoder for level writing to w, along with the pool
+// it has to be returned to.
+func takeZstdEncoder(level CompressionLevel, w io.Writer) (*zstd.Encoder, *sync.Pool, error) {
+	encoderLevel, err := zstdEncoderLevel(level)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pool := &zstdEncoderPools[level]
+	if enc, ok := pool.Get().(*zstd.Encoder); ok {
+		enc.Reset(w)
+		return enc, pool, nil
+	}
+	enc, err := zstd.NewWriter(w, zstd.WithEncoderLevel(encoderLevel))
+	if err != nil {
+		return nil, nil, fmt.Errorf("new zstd writer: %w", err)
+	}
+	return enc, pool, nil
 }
 
 // NewZip creates a new zip writer for backup chunks. There are three size thresholds:
 //
-//   - bigFileThreshold: files >= this size get their own dedicated chunk (auto-calculated
-//     from the 100 biggest files in the shard).
+//   - bigFilesThreshold: files >= this size get their own dedicated chunk (auto-calculated
+//     from the configured number of biggest files in the shard, see
+//     BACKUP_MAX_INDIVIDUAL_FILES).
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
-//     Must be >= bigFileThreshold.
+//     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
 	var gzw compressor
 	var tarW *tar.Writer
+	var zstdEnc *zstd.Encoder
+	var zstdPool *sync.Pool
 
 	switch CompressionLevel(level) {
 	case NoCompression:
 		// produce raw tar stream without compression
 		tarW = tar.NewWriter(pw)
 	case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression:
-		var zstdLevel zstd.EncoderLevel
-		switch CompressionLevel(level) {
-		case ZstdBestSpeed:
-			zstdLevel = zstd.SpeedFastest
-		case ZstdDefaultCompression:
-			zstdLevel = zstd.SpeedDefault
-		case ZstdBestCompression:
-			zstdLevel = zstd.SpeedBetterCompression
-		default: // makes linter happy
-			return zip{}, nil, fmt.Errorf("unknown zstd compression level %v", level)
+		enc, pool, err := takeZstdEncoder(CompressionLevel(level), pw)
+		if err != nil {
+			return zip{}, nil, err
 		}
-		gzw, _ = zstd.NewWriter(pw, zstd.WithEncoderLevel(zstdLevel))
-		tarW = tar.NewWriter(gzw)
+		zstdEnc, zstdPool = enc, pool
+		gzw = enc
+		tarW = tar.NewWriter(enc)
 	case GzipDefaultCompression, GzipBestSpeed, GzipBestCompression:
 		gzw, _ = gzip.NewWriterLevel(pw, zipLevel(level))
 		tarW = tar.NewWriter(gzw)
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
-	// splitFileSize must be at least bigFileThreshold, otherwise there would be no splitting.
+	// splitFileSize must be at least bigFilesThreshold, otherwise there would be no splitting.
 	// Check before zero-defaults turn disabled values into MaxInt64.
-	if bigFileThreshold > 0 && splitFileSize > 0 && splitFileSize < bigFileThreshold {
-		splitFileSize = bigFileThreshold
+	if bigFilesThreshold > 0 && splitFileSize > 0 && splitFileSize < bigFilesThreshold {
+		splitFileSize = bigFilesThreshold
 	}
 	chunkTargetSizeInBytes := chunkTargetSize
 	if chunkTargetSizeInBytes == 0 {
 		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
 	}
-	if bigFileThreshold == 0 {
-		bigFileThreshold = int64(1<<63 - 1) // effectively no big files
+	if bigFilesThreshold == 0 {
+		bigFilesThreshold = int64(1<<63 - 1) // effectively no big files
 	}
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
@@ -131,8 +170,10 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 		w:                   tarW,
 		pipeWriter:          pw,
 		maxChunkSizeInBytes: chunkTargetSizeInBytes,
-		bigFileThreshold:    bigFileThreshold,
+		bigFilesThreshold:   bigFilesThreshold,
 		splitFileSizeBytes:  splitFileSize,
+		zstdEncoder:         zstdEnc,
+		zstdEncoderPool:     zstdPool,
 	}, reader, nil
 }
 
@@ -150,6 +191,17 @@ func (z *zip) CloseWithError(err error) error {
 	}
 	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
 		err3 = closeErr
+	}
+	// A failed close leaves the encoder in an unknown state, so only a clean one
+	// goes back. Reset(nil) drops its reference to the pipe; clearing both fields
+	// keeps a second close off an encoder another chunk may already be using.
+	if z.zstdEncoder != nil {
+		if err1 == nil && err2 == nil {
+			z.zstdEncoder.Reset(nil)
+			z.zstdEncoderPool.Put(z.zstdEncoder)
+			z.compressorWriter = nil
+		}
+		z.zstdEncoder = nil
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
 		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
@@ -219,7 +271,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 
 		// File doesn't fit in current chunk: either it's a big file that needs its own chunk, or it would exceed the
 		// chunk target size. Fill remaining space with small files and return.
-		if !firstFile && (fileSize >= z.bigFileThreshold || preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes) {
+		if !firstFile && (fileSize >= z.bigFilesThreshold || preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes) {
 			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 			written += n
 			return written, nil, err
@@ -235,7 +287,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, splitFile, nil
 		}
 		// Big file was first and got its own chunk — return immediately.
-		if fileSize >= z.bigFileThreshold {
+		if fileSize >= z.bigFilesThreshold {
 			return written, nil, nil
 		}
 	}
@@ -271,9 +323,9 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 		// Also skip files that exceed the split threshold: WriteRegular
 		// would split them and return a SplitFile that we cannot propagate
 		// from here, so they must be handled by the main WriteRegulars loop.
-		// NewZip already enforces splitFileSize >= bigFileThreshold, so the
+		// NewZip already enforces splitFileSize >= bigFilesThreshold, so the
 		// first check normally covers this; the second is a defensive guard.
-		if fileSize >= z.bigFileThreshold || fileSize > z.splitFileSizeBytes {
+		if fileSize >= z.bigFilesThreshold || fileSize > z.splitFileSizeBytes {
 			continue
 		}
 		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
@@ -322,7 +374,10 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, remainingSplitFile, nil
 	}
 
-	if fileSize >= z.bigFileThreshold {
+	// Only immutable files are tracked for incremental dedup. Mutable files can be
+	// rewritten in place without a reliable size+mtime change signal, so they are
+	// re-uploaded on every incremental rather than deduplicated.
+	if fileSize >= z.bigFilesThreshold && entBackup.IsImmutableFile(relPath) {
 		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
 
@@ -410,8 +465,11 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 	splitFile.AlreadyWritten += amountToWrite
 	preCompressionSize.Add(amountToWrite)
 
-	// Track this chunk key in BigFilesChunk
-	sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
+	// Only immutable files are tracked for incremental dedup; a mutable file rewritten
+	// in place has no reliable size+mtime change signal, so it is re-uploaded every time.
+	if entBackup.IsImmutableFile(splitFile.RelPath) {
+		sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
+	}
 
 	if splitFile.AlreadyWritten < splitFile.FileInfo.Size() {
 		return splitFile, nil

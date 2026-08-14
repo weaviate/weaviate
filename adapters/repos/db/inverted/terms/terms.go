@@ -61,6 +61,16 @@ func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, isTombstone b
 	return nil
 }
 
+// Idf computes the BM25 idf for a term matching n of N documents, clamping
+// N to n: an approximate (undercounted) N would otherwise yield a negative
+// idf, corrupting scores and WAND pruning bounds.
+func Idf(n, N float64) float64 {
+	if N < n {
+		N = n
+	}
+	return math.Log(float64(1) + (N-n+0.5)/(n+0.5))
+}
+
 type SortedDocPointerWithScoreMerger struct {
 	input   [][]DocPointerWithScore
 	output  []DocPointerWithScore
@@ -338,7 +348,9 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += term.Idf()
+		// compared against minScore, a boosted score, so use idf*propertyBoost
+		// (CurrentBlockImpact); bare Idf skips top-K docs for boosted properties.
+		cumScore += float64(term.CurrentBlockImpact())
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}

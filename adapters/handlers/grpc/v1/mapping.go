@@ -84,10 +84,10 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
 			}
 			return NewGeoValue(val), nil
-		case schema.DataTypeBlob:
+		case schema.DataTypeBlob, schema.DataTypeBlobHash:
 			val, ok := v.(string)
 			if !ok {
-				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob/blobHash property", v)
 			}
 			return newBlobValue(val), nil
 		case schema.DataTypePhoneNumber:

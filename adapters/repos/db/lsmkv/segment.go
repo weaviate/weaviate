@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -36,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -61,18 +63,27 @@ type Segment interface {
 	exists(key []byte) error
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
+	getCollectionBytes(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
 	markForDeletion() error
+	markForDeletionExceptSegment() error
 	stripTmpExtensions(leftSegmentID, rightSegmentID string) error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() innerCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
 	newCursor() innerCursorReplaceAllKeys
 	newReplaceCursorReusable() *segmentCursorReplaceReusable
+	newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
+	// targeted-scan support (bucket_targeted_scan.go): index walk, index split
+	// for weighted task sizing, and a byte-range read that is zero-copy in mmap
+	// mode and fills *buf (grown in place as needed) via pread otherwise.
+	scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error
+	indexNodeSplits(parts int) [][2]int
+	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
@@ -80,18 +91,26 @@ type Segment interface {
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
-	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
+	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
+	isPropertyLengthsLoaded() bool
+	freePropertyLengths()
+	propLengthsView() (propLengthsView, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
-	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+	newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
 	// replace specific
 	getCountNetAdditions() int
-	existsKey(key []byte) (bool, error)
+	// indexContainsKey reports whether this segment holds an entry for the key,
+	// live or tombstoned — not whether the key is live. Callers deciding what a
+	// newer segment supersedes want exactly that: a tombstone hides a lower
+	// segment's row just as a value does.
+	indexContainsKey(key []byte) (bool, error)
 }
 
 type segment struct {
@@ -127,14 +146,22 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
-	refCount         int
+	refCount         atomic.Int64
 
 	deleteMarkerSuffix string
+
+	// set when the .db was overwritten in place by a newer segment, so drop must
+	// not look for a ".deleteme" copy of it. See markForDeletionExceptSegment.
+	segmentFileSuperseded bool
 }
 
 type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
+
+	// GetOffsets returns only the payload position (start, end) of the
+	// matching node; prefer it on hot paths that never read Node.Key.
+	GetOffsets(key []byte) (start, end uint64, err error)
 
 	// Seek returns lsmkv.NotFound in case the seek value is larger than
 	// the highest value in the collection, otherwise it returns the next highest
@@ -158,6 +185,19 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeInRange walks the serialized nodes packed in data[from:to) —
+	// on-disk order, not key order — without allocating. The key passed to fn is
+	// a subslice of the underlying data, valid only for the duration of fn.
+	ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error
+
+	// SplitNodeRanges returns node-aligned [from,to) byte ranges partitioning the
+	// whole index into at most parts pieces of roughly equal byte size, for use
+	// with ForEachNodeInRange.
+	SplitNodeRanges(parts int) [][2]int
+
+	// Contains reports whether key is present, without materializing it.
+	Contains(key []byte) (bool, error)
 }
 
 type segmentConfig struct {
@@ -166,12 +206,14 @@ type segmentConfig struct {
 	calcCountNetAdditions        bool
 	overwriteDerived             bool
 	enableChecksumValidation     bool
+	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
 	MinMMapSize                  int64
 	allocChecker                 memwatch.AllocChecker
 	fileList                     map[string]int64
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
 	deleteMarkerCounter          int64
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -196,6 +238,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	if cfg.sequentialAccess {
+		// Best-effort: hint the kernel to enable aggressive read-ahead.
+		// Errors are ignored — fadvise is purely advisory.
+		_ = fadviseSequential(file)
 	}
 
 	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
@@ -399,11 +447,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
-			return nil, fmt.Errorf("load property lengths: %w", err)
+		if cfg.lazyPropertyLengths.Get() {
+			if err := seg.loadPropertyLengthsStats(); err != nil {
+				return nil, fmt.Errorf("load property length stats: %w", err)
+			}
+		} else {
+			if err := seg.loadPropertyLengths(); err != nil {
+				return nil, fmt.Errorf("load property lengths: %w", err)
+			}
 		}
-
 	}
 
 	return seg, nil
@@ -431,27 +483,26 @@ func (s *segment) close() error {
 	return nil
 }
 
+// sidecarPaths returns the paths of the files derived from the segment: bloom
+// filters, count net additions and metadata.
+func (s *segment) sidecarPaths() []string {
+	paths := make([]string, 0, 3+int(s.secondaryIndexCount))
+	paths = append(paths, s.bloomFilterPath())
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		paths = append(paths, s.bloomFilterSecondaryPath(i))
+	}
+	return append(paths, s.countNetPath(), s.metadataPath())
+}
+
 func (s *segment) dropImmediately() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("drop %s: %w", filepath.Base(path), err)
 		}
-	}
-
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop count net additions file: %w", err)
-	}
-
-	if err := os.RemoveAll(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -469,22 +520,16 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := s.removeAllMarked(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop previously marked bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.removeAllMarked(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := s.removeAllMarked(path); err != nil {
+			return fmt.Errorf("drop previously marked %s: %w", filepath.Base(path), err)
 		}
 	}
 
-	if err := s.removeAllMarked(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop previously marked count net additions file: %w", err)
-	}
-
-	if err := s.removeAllMarked(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop previously marked metadata file: %w", err)
+	if s.segmentFileSuperseded {
+		// .db was overwritten in place; no ".deleteme" copy to remove, the old
+		// inode is freed by the preceding close().
+		return nil
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -512,33 +557,8 @@ func (s *segment) removeMarked(path string) error {
 }
 
 func (s *segment) markForDeletion() error {
-	// support for persisting bloom filters and cnas was added in v1.17,
-	// therefore the files may not be present on segments created with previous
-	// versions. If we get a not exist error, we ignore it.
-	if err := s.markDeleted(s.bloomFilterPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark bloom filter deleted: %w", err)
-		}
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
-			}
-		}
-	}
-
-	if err := s.markDeleted(s.countNetPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark count net additions file deleted: %w", err)
-		}
-	}
-
-	if err := s.markDeleted(s.metadataPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark metadata file deleted: %w", err)
-		}
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
 	}
 
 	// for the segment itself, we're not accepting a NotExists error. If there
@@ -546,6 +566,32 @@ func (s *segment) markForDeletion() error {
 	// don't want to ignore it.
 	if err := s.markDeleted(s.path); err != nil {
 		return fmt.Errorf("mark segment deleted: %w", err)
+	}
+
+	return nil
+}
+
+// markForDeletionExceptSegment marks the sidecars for deletion but leaves the
+// .db in place, for the in-place cleanup switch where the new segment overwrites
+// the old .db at the same path (see segment_group_replacer.go switchOnDisk).
+func (s *segment) markForDeletionExceptSegment() error {
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
+	}
+	s.segmentFileSuperseded = true
+	return nil
+}
+
+// markSidecarsForDeletion renames the derived files (bloom filters, CNA,
+// metadata) to their ".deleteme" markers.
+func (s *segment) markSidecarsForDeletion() error {
+	// support for persisting bloom filters and cnas was added in v1.17,
+	// therefore the files may not be present on segments created with previous
+	// versions. If we get a not exist error, we ignore it.
+	for _, path := range s.sidecarPaths() {
+		if err := s.markDeleted(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("mark %s deleted: %w", filepath.Base(path), err)
+		}
 	}
 
 	return nil
@@ -660,6 +706,19 @@ type nodeOffset struct {
 	start, end uint64
 }
 
+// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
+// per call allocates, and read paths that fetch a few bytes per row do this once
+// a row, so the operations used there are pre-joined.
+func readMetricName(operation string) string {
+	switch operation {
+	case targetedScanPeekOp:
+		return "ReadFromSegment" + targetedScanPeekOp
+	case targetedScanRangeOp:
+		return "ReadFromSegment" + targetedScanRangeOp
+	}
+	return "ReadFromSegment" + operation
+}
+
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r       io.Reader
@@ -674,7 +733,7 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
+		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
@@ -757,32 +816,22 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	return observer
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
+// refCount is an atomic, so incRef/decRef/getRefs are individually thread-safe
+// and need no external lock. Acquiring a consistent view of refs across ALL
+// segments in a group is still serialized against compaction via the
+// SegmentGroup.maintenanceLock: incRef happens under its RLock, segment swaps
+// under its write lock, and segments awaiting drop only ever see refs decrease.
 func (s *segment) incRef() {
-	s.refCount++
+	s.refCount.Add(1)
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) decRef() {
-	if s.refCount <= 0 {
+	if s.refCount.Add(-1) < 0 {
+		s.refCount.Add(1) // restore: a recovered panic must not pin the counter negative
 		panic("refCount already zero")
 	}
-	s.refCount--
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) getRefs() int {
-	return s.refCount
+	return int(s.refCount.Load())
 }

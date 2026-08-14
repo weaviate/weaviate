@@ -16,19 +16,20 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -39,26 +40,43 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
-	DefaultHNSWAcornFilterRatio = 0.4
+	DefaultRaftBootstrapTimeout         = 600
+	DefaultRaftBootstrapExpect          = 1
+	DefaultRaftDir                      = "raft"
+	DefaultHNSWAcornFilterRatio         = 0.4
+	DefaultBM25FilterTombMergeGateRatio = 1.0
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+	// The interval caps are operational sanity bounds on fat-fingered
+	// overrides (a multi-year tick or TTL disables its subsystem in all but
+	// name). They also sit far below the ~292-year point where the
+	// int-to-duration multiply would overflow negative — a negative tick
+	// interval panics time.NewTicker after boot, and a negative TTL silently
+	// expires every completed task record.
+	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
+	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
+	// DefaultDropVectorReconcileInterval paces the drop-vector marker
+	// reconciliation loop; a safety net, so infrequent by default.
+	DefaultDropVectorReconcileInterval = 15 * time.Minute
+	// maxDropVectorReconcileIntervalSeconds caps the override at 7 days.
+	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
+	DefaultReindexConcurrency             = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
-	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultHaltForTransferTimeout    = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
+
+	DefaultNamespaceCleanupInterval = 30 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -123,7 +141,43 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
+	}
+
+	// Lazy load shard count threshold for auto-detection
+	// Determines at what shard count auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
+		}
+		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			v := true
+			config.EnableLazyLoadShards = &v
+		}
+	} else {
+		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Lazy load shard size threshold for auto-detection (in GB)
+	// Determines at what total shard size auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB as float: %w", err)
+		}
+		if asFloat < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB must be >= 0")
+		}
+		config.LazyLoadShardSizeThresholdGB = asFloat
+	} else {
+		config.LazyLoadShardSizeThresholdGB = DefaultLazyLoadShardSizeThresholdGB
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -140,6 +194,15 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
+	err := parsePositiveDuration(
+		"HALT_FOR_TRANSFER_TIMEOUT",
+		func(val time.Duration) { config.HaltForTransferTimeout = val },
+		DefaultHaltForTransferTimeout,
+	)
+	if err != nil {
+		return err
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
@@ -153,21 +216,48 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
-	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTtlAllowSeconds = true
+	{
+		if err := parser.ParseDynamicFloatWithValidation("OBJECTS_TTL_CONCURRENCY_FACTOR",
+			DefaultObjectsTTLConcurrencyFactor,
+			parser.ValidateFloatGreaterThan0,
+			func(val *configRuntime.DynamicValue[float64]) { config.ObjectsTTLConcurrencyFactor = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_BATCH_SIZE",
+			DefaultObjectsTTLBatchSize,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLBatchSize = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_PAUSE_EVERY_NO_BATCHES",
+			DefaultObjectsTTLPauseEveryNoBatches,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLPauseEveryNoBatches = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicDurationWithValidation("OBJECTS_TTL_PAUSE_DURATION",
+			DefaultObjectsTTLPauseDuration,
+			parser.ValidateDurationGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[time.Duration]) { config.ObjectsTTLPauseDuration = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicStringWithValidation("OBJECTS_TTL_DELETE_SCHEDULE",
+			DefaultObjectsTTLDeleteSchedule,
+			parser.ValidateGocronSchedule,
+			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
+			return err
+		}
 	}
-	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
-		parser := cron.StandardParser()
-		if config.ObjectsTtlAllowSeconds {
-			// equivalent of cron.WithSeconds() option
-			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-		}
-		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
-		}
-		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
+
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -212,18 +302,25 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 		var (
-			skipClientCheck bool
-			issuer          string
-			clientID        string
-			scopes          []string
-			userClaim       string
-			groupsClaim     string
-			certificate     string
-			jwksUrl         string
+			skipClientCheck      bool
+			issuer               string
+			clientID             string
+			scopes               []string
+			userClaim            string
+			groupsClaim          string
+			namespaceClaim       string
+			globalPrincipalClaim string
+			certificate          string
+			jwksUrl              string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			skipClientCheck = true
+		}
+
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
@@ -246,6 +343,14 @@ func FromEnv(config *Config) error {
 			groupsClaim = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_NAMESPACE_CLAIM"); v != "" {
+			namespaceClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM"); v != "" {
+			globalPrincipalClaim = v
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
 			certificate = v
 		}
@@ -260,8 +365,11 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.Scopes = configRuntime.NewDynamicValue(scopes)
 		config.Authentication.OIDC.UsernameClaim = configRuntime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.NamespaceClaim = configRuntime.NewDynamicValue(namespaceClaim)
+		config.Authentication.OIDC.GlobalPrincipalClaim = configRuntime.NewDynamicValue(globalPrincipalClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -395,6 +503,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED")) {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -453,46 +565,49 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
-	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
-		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
-	}
-
-	if err := parseNonNegativeInt(
+	//
+	// These variables were meaningful back when HNSW snapshots were an
+	// optional add-on layered on top of the commit log. In the compactv2
+	// world the compactor owns the full on-disk lifecycle — snapshots are
+	// first-class, not an optional speedup — and there is no safe or useful
+	// interpretation for "disable snapshots" or for the interval / delta
+	// thresholds that used to throttle their creation.
+	//
+	// The environment variables are still recognized so existing deployments
+	// parse without error. If any is set we emit a one-line warning so the
+	// operator is not silently misled into thinking their setting has an
+	// effect. Unset means no warning. See RFC / commit message for context.
+	for _, envVar := range []string{
+		"PERSISTENCE_HNSW_DISABLE_SNAPSHOTS",
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
-		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
-		DefaultHNSWSnapshotIntervalSeconds,
-	); err != nil {
-		return err
-	}
-
-	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
-	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
-		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
-	}
-
-	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP",
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
-		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
-		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
-	); err != nil {
-		return err
-	}
-
-	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
-		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
-		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
-	); err != nil {
-		return err
+	} {
+		if _, set := os.LookupEnv(envVar); set {
+			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+		}
 	}
 	// ---- HNSW snapshots ----
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
+		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
+
+	defaultVectorIndexType := ""
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
+		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
+	}
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -508,9 +623,7 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
-		config.HFreshEnabled = true
-	}
+	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -540,6 +653,30 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// One validator for both the startup value and, via NewDynamicValueWithValidation,
+	// runtime config updates — SetValue rejects an invalid new value instead of
+	// silently applying it.
+	bm25GateValidate := func(val float64) error {
+		if math.IsNaN(val) || val < 0 {
+			return fmt.Errorf("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", val)
+		}
+		return nil
+	}
+	bm25GateRatio := DefaultBM25FilterTombMergeGateRatio
+	if err := parseFloatVerify(
+		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
+		DefaultBM25FilterTombMergeGateRatio,
+		func(val float64) { bm25GateRatio = val },
+		func(val float64, _ string) error { return bm25GateValidate(val) },
+	); err != nil {
+		return err
+	}
+	bm25GateDV, err := configRuntime.NewDynamicValueWithValidation(bm25GateRatio, bm25GateValidate)
+	if err != nil {
+		return err
+	}
+	config.BM25FilterTombMergeGateRatio = bm25GateDV
+
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",
 		func(val int) { config.HNSWGeoIndexEF = val },
@@ -566,48 +703,17 @@ func FromEnv(config *Config) error {
 		func(val float64) { config.ReindexerGoroutinesFactor = val },
 		DefaultReindexerGoroutinesFactor)
 
-	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
-		config.ReindexMapToBlockmaxAtStartup = true
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ReloadShards = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.Rollback = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
-		}
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
-			DefaultMapToBlockmaxProcessingDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
-			DefaultMapToBlockmaxPauseDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
-			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
-
-		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
-		if err != nil {
-			return err
-		}
-		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
-	}
-
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
 	}
 
 	if err := config.parseCORSConfig(); err != nil {
+		return err
+	}
+
+	config.parseExportConfig()
+
+	if err := config.parseBackupGCSConfig(); err != nil {
 		return err
 	}
 
@@ -665,6 +771,17 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("BACKUP_MAX_INDIVIDUAL_FILES",
+		DefaultBackupMaxIndividualFiles,
+		parser.ValidateIntGreaterThan0,
+		func(val *configRuntime.DynamicValue[int]) { config.Backup.MaxIndividualFiles = val }); err != nil {
+		return err
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
+	}
+
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -697,6 +814,19 @@ func FromEnv(config *Config) error {
 		config.QueryHybridMaximumResults = int64(asInt)
 	} else {
 		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_BOOST_DEFAULT_DEPTH"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_BOOST_DEFAULT_DEPTH as int: %w", err)
+		}
+		if asInt <= 0 {
+			return fmt.Errorf("QUERY_BOOST_DEFAULT_DEPTH must be a positive integer, got %d", asInt)
+		}
+		config.QueryBoostDefaultDepth = asInt
+	} else {
+		config.QueryBoostDefaultDepth = DefaultQueryBoostDepth
 	}
 
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
@@ -869,6 +999,9 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	if config.GRPC.GrpcWebEnabled == nil {
+		config.GRPC.GrpcWebEnabled = configRuntime.NewDynamicValue(true)
+	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -886,7 +1019,32 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	// MCP Server Configuration
+	config.MCP.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED")))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	mcpWriteAccess := DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		mcpWriteAccess = entcfg.Enabled(v)
+	}
+	config.MCP.WriteAccessEnabled = configRuntime.NewDynamicValue(mcpWriteAccess)
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
+	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
+
+	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+	if config.Namespaces.Enabled {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
+
+	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
+		DefaultNamespaceCleanupInterval,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -900,14 +1058,167 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseInt(
+		"REPLICATION_MAXIMUM_FACTOR",
+		func(val int) { config.Replication.MaximumFactor = val },
+		DefaultMaximumReplicationFactor,
+	); err != nil {
+		return err
+	}
+
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
-	if err := parsePositiveInt(
-		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
+	if err := parseIntVerify(
+		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
+		DefaultAsyncReplicationSchedulerWorkers,
 		func(val int) {
-			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
+			config.Replication.AsyncReplicationSchedulerWorkers = configRuntime.NewDynamicValue(val)
 		},
-		DefaultAsyncReplicationClusterMaxWorkers,
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxAsyncReplicationSchedulerWorkers {
+				return fmt.Errorf("%s must be <= %d (hard channel-buffer ceiling), got %d",
+					envName, MaxAsyncReplicationSchedulerWorkers, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"ASYNC_REPLICATION_HASHTREE_INIT_CONCURRENCY",
+		func(val int) {
+			config.Replication.AsyncReplicationHashtreeInitConcurrency = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationHashtreeInitConcurrency,
+	); err != nil {
+		return err
+	}
+
+	// Out-of-range values are clamped (and warned) by the scheduler on read, so
+	// only a non-numeric override fails here.
+	if err := parseInt(
+		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationRootPrefilterBatchSize,
+	); err != nil {
+		return err
+	}
+
+	// Per-shard async replication knobs. Default 0 means "not configured at the
+	// cluster level"; per-class API override or hardcoded code defaults apply.
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_HASHTREE_HEIGHT",
+		func(val int) { config.Replication.AsyncReplicationHashtreeHeight = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequencyWhilePropagating = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_LOGGING_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationLoggingFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_DIFF_BATCH_SIZE",
+		func(val int) { config.Replication.AsyncReplicationDiffBatchSize = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationDiffPerNodeTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPrePropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_LIMIT",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationLimit = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_CONCURRENCY",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationConcurrency = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationBatchSize = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PROPAGATION_DELAY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPropagationDelay = configRuntime.NewDynamicValue(val)
+		},
+		0,
 	); err != nil {
 		return err
 	}
@@ -916,19 +1227,49 @@ func FromEnv(config *Config) error {
 		config.Replication.DeletionStrategy = v
 	}
 
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
 	}
 
-	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
-		config.HNSWStartupWaitForVectorCache = true
+	// Telemetry URL override (useful for local development with telemetry dashboard)
+	if v := os.Getenv("TELEMETRY_URL"); v != "" {
+		config.TelemetryURL = v
+	}
+
+	// Telemetry push interval override
+	if v := os.Getenv("TELEMETRY_PUSH_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
+		}
+		config.TelemetryPushInterval = interval
+	}
+
+	{
+		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
+		switch {
+		// flag: still honored, environment always wins over auto-detection.
+		case waitEnvSet:
+			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
+
+		default:
+			config.HNSWStartupWaitForVectorCache = true
+
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
 		config.AsyncIndexingEnabled = true
 	}
 
+	// Free-Tier guardrail env vars. See docs/usage_limits.md for the full
+	// design (chokepoint location, supported deployment shapes, runtime
+	// override semantics). Defaults are -1 / "" / unlimited so the feature
+	// is opt-in and existing deployments are unaffected.
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
@@ -938,6 +1279,67 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_OBJECTS_COUNT",
+		func(val int) {
+			config.UsageLimits.MaxObjectsCount = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedObjectsCount,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxTenantsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedTenantsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxShardsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedShardsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	parseString("USAGE_LIMITS_ERROR_MESSAGE", func(val string) {
+		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultUsageLimitsErrorMessage)
+
+	// Allow-list env vars. Empty = no restriction. Cross-field validation
+	// runs in validateRestrictions; per-entry runs at SetValue time so
+	// runtime YAML pushes of unknown entries are rejected before they hit
+	// the schema layer. DynamicValues are initialized even when unset so
+	// the runtime-overrides merger has a non-nil pointer to mutate.
+	var allowVector []string
+	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
+		allowVector = strings.Split(v, ",")
+	}
+	allowVectorDV, err := configRuntime.NewDynamicValueWithValidation(allowVector, NewRestrictionVectorIndexTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_VECTOR_INDEX_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedVectorIndexTypes = allowVectorDV
+	var allowCompression []string
+	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
+		allowCompression = strings.Split(v, ",")
+	}
+	allowCompressionDV, err := configRuntime.NewDynamicValueWithValidation(allowCompression, NewRestrictionCompressionTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_COMPRESSION_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedCompressionTypes = allowCompressionDV
+	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
+		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultRestrictionsErrorMessage)
 
 	// explicitly reset sentry config
 	sentry.Config = nil
@@ -977,42 +1379,59 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
-	if err = parsePositiveInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
-		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDistributedTasksSchedulerTickIntervalSeconds),
 	); err != nil {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		validateIntRange(0, maxDistributedTasksCompletedTaskTTLHours),
 	); err != nil {
 		return err
 	}
 
-	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
-		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	if err = parseIntVerify(
+		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+		int(DefaultDropVectorReconcileInterval.Seconds()),
+		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDropVectorReconcileIntervalSeconds),
+	); err != nil {
+		return err
+	}
+
+	if err = parser.ParseDynamicIntWithValidation(
+		"REINDEX_CONCURRENCY", DefaultReindexConcurrency,
+		func(val int) error {
+			if val < 1 {
+				return fmt.Errorf("must be >= 1")
+			}
+			return nil
+		},
+		func(val *configRuntime.DynamicValue[int]) { config.DistributedTasks.ReindexConcurrency = val },
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
-		}
-		if duration < 0 {
-			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
-		}
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(duration)
-	} else {
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
+	// Assign only when set, so an absent env var does not overwrite a
+	// value loaded from the config file.
+	if v := os.Getenv("RUNTIME_REINDEX_ENABLED"); v != "" {
+		config.RuntimeReindexEnabled = entcfg.Enabled(v)
 	}
+
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
@@ -1057,6 +1476,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
+	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
 
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
@@ -1343,26 +1768,50 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 	return nil
 }
 
+func validatePositiveInt(val int, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
+func validateNonNegativeInt(val int, envName string) error {
+	if val < 0 {
+		return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
+	}
+	return nil
+}
+
 func parseInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
+}
+
+// parsePositiveIntOrZero parses envName as a positive integer and invokes cb
+// with the result. When the variable is unset, cb is called with 0 as an
+// explicit "not configured" sentinel so that callers wrapping the value in a
+// DynamicValue always receive an initialized pointer. Validation (must be >0)
+// is only applied when the env var is explicitly set; a zero default is
+// intentional and means "fall through to the per-class or code default".
+func parsePositiveIntOrZero(envName string, cb func(val int)) error {
+	return parseIntVerify(envName, 0, cb, validatePositiveInt)
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
+	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
+}
+
+// validateIntRange builds a parseIntVerify verifier enforcing min <= val <= max.
+func validateIntRange(min, max int) func(val int, envName string) error {
+	return func(val int, envName string) error {
+		if val < min || val > max {
+			return fmt.Errorf("%s must be between %d and %d, got %d", envName, min, max, val)
 		}
 		return nil
-	})
+	}
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
@@ -1383,39 +1832,45 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	return nil
 }
 
-// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
-// applies a default when unset, and validates it is > 0.
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration
+// and applies defaultValue when the variable is unset. Validation (must be > 0) only applies
+// when the env var is explicitly set; defaultValue may be 0 as an explicit "not configured"
+// sentinel. The callback is always called so that callers that wrap the value in a DynamicValue
+// pointer always get an initialized pointer. Callers that use DynamicValue treat a Get() result
+// of 0 as "fall through to the per-class or code default".
 func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	asDuration := defaultValue
 	if v := os.Getenv(envName); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse %s as duration: %w", envName, err)
 		}
-		asDuration = d
+		if d <= 0 {
+			return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, d)
+		}
+		cb(d)
+		return nil
 	}
-	if asDuration <= 0 {
-		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
+	cb(defaultValue)
+	return nil
+}
+
+func validatePositiveFloat(val float64, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
 	}
-	cb(asDuration)
 	return nil
 }
 
 // func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error { return nil })
 // }
 
 func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
-	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseFloatVerify(envName, defaultValue, cb, validatePositiveFloat)
 }
 
 // func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error {
 // 		if val < 0 {
 // 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
 // 		}
@@ -1423,7 +1878,7 @@ func parsePositiveFloat(envName string, cb func(val float64), defaultValue float
 // 	})
 // }
 
-func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64, envName string) error) error {
 	var err error
 	asFloat := defaultValue
 
@@ -1432,7 +1887,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 		if err != nil {
 			return fmt.Errorf("parse %s as float: %w", envName, err)
 		}
-		if err = verify(asFloat); err != nil {
+		if err = verify(asFloat, envName); err != nil {
 			return err
 		}
 	}
@@ -1444,6 +1899,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
+	DefaultQueryBoostDepth           = 100
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
@@ -1464,10 +1920,29 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 15
-	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
+	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
+	DefaultAsyncReplicationSchedulerWorkers    = 1
+	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
+	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
+	// scaleDownCh) are all sized relative to this value; exceeding it requires
+	// a code change, so we enforce it at config parse time rather than silently
+	// capping.
+	MaxAsyncReplicationSchedulerWorkers            = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
+	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
+	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
+	DefaultAsyncReplicationRootPrefilterBatchSize = 128
+	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
+	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount             = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection     = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
@@ -1478,6 +1953,18 @@ const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
+
+// parseString reads a string env var, applying defaultValue when unset.
+// Mirrors the parseInt family but for plain strings; no validation hook
+// here on purpose — callers (e.g. Config.Validate()) are the right place
+// to enforce semantic rules so all errors surface together at startup.
+func parseString(envName string, cb func(val string), defaultValue string) {
+	if v := os.Getenv(envName); v != "" {
+		cb(v)
+		return
+	}
+	cb(defaultValue)
+}
 
 func parseStringList(varName string, cb func(val []string), defaultValue []string) {
 	if v := os.Getenv(varName); v != "" {
@@ -1627,22 +2114,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }
@@ -1835,4 +2306,70 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
+	}
+}
+
+const (
+	gcsModuleTransportEnv  = "GCS_MODULE_TRANSPORT"
+	gcsModuleTransportHTTP = "http"
+	gcsModuleTransportGRPC = "grpc"
+)
+
+func (c *Config) parseBackupGCSConfig() error {
+	// An unset GCS_MODULE_TRANSPORT keeps whatever the config file set, an
+	// explicit one overrides it in either direction.
+	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
+	case "": // keep the config file value
+	case gcsModuleTransportHTTP:
+		c.BackupGCS.UseGRPC = false
+	case gcsModuleTransportGRPC:
+		c.BackupGCS.UseGRPC = true
+	default:
+		return fmt.Errorf("%s must be %q or %q. Got: %v",
+			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)
+	}
+
+	// parseIntVerify always writes the default back, so seed it from the config
+	// file value to keep an unset variable from overwriting it.
+	connPool := DefaultBackupGCSGRPCConnPool
+	if c.BackupGCS.GRPCConnPool != 0 {
+		connPool = c.BackupGCS.GRPCConnPool
+	}
+	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", connPool,
+		func(val int) { c.BackupGCS.GRPCConnPool = val },
+		validateBackupGCSConnPool); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateBackupGCSConnPool(val int, setting string) error {
+	if val < 1 || val > MaxBackupGCSGRPCConnPool {
+		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
 }

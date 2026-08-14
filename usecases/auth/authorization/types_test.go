@@ -13,12 +13,15 @@ package authorization
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestUsers(t *testing.T) {
@@ -215,6 +218,171 @@ func TestTenants(t *testing.T) {
 	}
 }
 
+func TestNamespaces(t *testing.T) {
+	tests := []struct {
+		name     string
+		names    []string
+		expected []string
+	}{
+		{"No names", []string{}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single empty string", []string{""}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single wildcard", []string{"*"}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single name", []string{"customer1"}, []string{fmt.Sprintf("%s/customer1", NamespacesDomain)}},
+		{"Multiple names", []string{"customer1", "customer2"}, []string{fmt.Sprintf("%s/customer1", NamespacesDomain), fmt.Sprintf("%s/customer2", NamespacesDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Namespaces(tt.names...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestBuiltInPermissions_NamespaceManageOnly asserts that the manage_namespaces
+// action is granted only to admin-level built-in roles. The viewer/read-only
+// roles rely on the convention that availableWeaviateActions entries starting
+// with a letter other than 'R' are filtered out of viewerPermissions(); this
+// test locks in that the namespaces domain exposes no read-prefixed action,
+// so viewers get none of it.
+func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
+	hasNamespaceAction := func(perms []*models.Permission) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if strings.HasSuffix(*p.Action, "_namespaces") {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasBackupAction := func(perms []*models.Permission) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if strings.HasSuffix(*p.Action, "_backups") {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasExactAction := func(perms []*models.Permission, action string) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if *p.Action == action {
+				return true
+			}
+		}
+		return false
+	}
+
+	builtIn := BuiltInPermissionsFor(false)
+	admin := builtIn[Admin]
+	root := builtIn[Root]
+	viewer := builtIn[Viewer]
+	readOnly := builtIn[ReadOnly]
+
+	assert.True(t, hasExactAction(admin, ManageNamespaces), "Admin must include manage_namespaces")
+	assert.True(t, hasExactAction(root, ManageNamespaces), "Root must include manage_namespaces")
+	assert.False(t, hasNamespaceAction(viewer), "Viewer must not include any *_namespaces action")
+	assert.False(t, hasNamespaceAction(readOnly), "ReadOnly must not include any *_namespaces action")
+	// Regression guard for the "only R-prefixed actions survive viewer filter"
+	// convention: backups has no read-prefixed action either, so viewers get none.
+	assert.False(t, hasBackupAction(viewer), "Viewer must not include any *_backups action")
+}
+
+// TestBuiltInPermissions_NamespacesEnabled asserts the narrowed admin/viewer
+// shape on NS-enabled clusters: CRUD/READ over collections/data/tenants/
+// aliases plus MCP, no cluster-only domains. Root/read-only keep wildcard
+// permissions regardless of NAMESPACES_ENABLED.
+func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
+	builtIn := BuiltInPermissionsFor(true)
+	admin := builtIn[Admin]
+	viewer := builtIn[Viewer]
+	root := builtIn[Root]
+	readOnly := builtIn[ReadOnly]
+
+	allowedAdminActions := map[string]struct{}{
+		CreateCollections: {}, ReadCollections: {}, UpdateCollections: {}, DeleteCollections: {},
+		CreateData: {}, ReadData: {}, UpdateData: {}, DeleteData: {},
+		CreateTenants: {}, ReadTenants: {}, UpdateTenants: {}, DeleteTenants: {},
+		CreateAliases: {}, ReadAliases: {}, UpdateAliases: {}, DeleteAliases: {},
+		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
+		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
+		CreateUsers: {}, ReadUsers: {}, UpdateUsers: {}, DeleteUsers: {},
+		// Role management at MATCH scope, plus role assignment to users.
+		CreateRoles: {}, ReadRoles: {}, UpdateRoles: {}, DeleteRoles: {},
+		AssignAndRevokeUsers: {},
+	}
+	allowedViewerActions := map[string]struct{}{
+		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
+		ReadMcp:   {},
+		ReadUsers: {},
+		ReadRoles: {},
+	}
+
+	collectActions := func(perms []*models.Permission) map[string]struct{} {
+		out := map[string]struct{}{}
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			out[*p.Action] = struct{}{}
+		}
+		return out
+	}
+
+	gotAdmin := collectActions(admin)
+	gotViewer := collectActions(viewer)
+	gotRoot := collectActions(root)
+	gotReadOnly := collectActions(readOnly)
+
+	assert.Equal(t, allowedAdminActions, gotAdmin, "Admin (NS-enabled) must contain only CRUD over namespace-bearing domains")
+	assert.Equal(t, allowedViewerActions, gotViewer, "Viewer (NS-enabled) must contain only READ over namespace-bearing domains")
+
+	// Cluster-only domains excluded from both narrowed roles.
+	for _, action := range []string{
+		ManageBackups, ManageNamespaces,
+		ReadNodes, ReadCluster,
+		AssignAndRevokeGroups, ReadGroups,
+		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,
+	} {
+		_, hasAdmin := gotAdmin[action]
+		_, hasViewer := gotViewer[action]
+		assert.False(t, hasAdmin, "Admin (NS-enabled) must not include %s", action)
+		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
+	}
+
+	// Role writes and assignment are admin-only — the viewer is read-only.
+	for _, action := range []string{CreateRoles, UpdateRoles, DeleteRoles, AssignAndRevokeUsers} {
+		_, hasViewer := gotViewer[action]
+		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
+	}
+
+	// Admin's role permissions are MATCH-scoped (reads route through the
+	// content-scope path, not the role-name gate).
+	for _, p := range admin {
+		if p.Roles != nil {
+			require.NotNil(t, p.Roles.Scope)
+			assert.Equal(t, models.PermissionRolesScopeMatch, *p.Roles.Scope, "admin role perm %s must be MATCH-scoped", *p.Action)
+		}
+	}
+
+	// Operator roles keep wildcard shape regardless of NAMESPACES_ENABLED.
+	_, ok := gotRoot[ManageNamespaces]
+	assert.True(t, ok, "Root must include manage_namespaces on NS-enabled")
+	_, ok = gotRoot[ManageBackups]
+	assert.True(t, ok, "Root must include manage_backups on NS-enabled")
+	_, ok = gotReadOnly[ReadNodes]
+	assert.True(t, ok, "ReadOnly must include read_nodes on NS-enabled")
+}
+
 func TestGetWildcardPath(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -282,6 +450,28 @@ func TestGetWildcardPath(t *testing.T) {
 			result := WildcardPath(tt.resource)
 			assert.Equal(t, tt.expected, result, "WildcardPath(%q) = %q, want %q",
 				tt.resource, result, tt.expected)
+		})
+	}
+}
+
+func TestIsOperatorReservedRoleName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"operator_ prefix", "operator_backup", true},
+		{"global_ prefix", "global_admin", true},
+		{"no prefix", "admin", false},
+		{"suffix not prefix", "backup-operator", false},
+		{"missing underscore", "operatorx", false},
+		{"wrong case", "Operator_x", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsOperatorReservedRoleName(tt.input))
 		})
 	}
 }

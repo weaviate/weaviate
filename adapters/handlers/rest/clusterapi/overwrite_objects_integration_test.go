@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -119,7 +118,6 @@ func TestOverwriteObjectsClientServerIntegration(t *testing.T) {
 		cap,
 		clusterapi.NewNoopAuthHandler(),
 		func() bool { return false },
-		cluster.RequestQueueConfig{},
 		logger,
 		func() bool { return true },
 	)
@@ -130,7 +128,8 @@ func TestOverwriteObjectsClientServerIntegration(t *testing.T) {
 
 	// Use the real replication client with the test server's HTTP client so
 	// requests are routed to the in-process server without TLS.
-	c := clients.NewReplicationClient(server.Client())
+	c, err := clients.NewReplicationClient(server.Client())
+	require.NoError(t, err)
 
 	// server.URL is "http://host:port"; strip the scheme for the client which
 	// constructs the URL itself.

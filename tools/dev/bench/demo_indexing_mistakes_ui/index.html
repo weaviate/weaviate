@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Common Indexing Mistakes Demo</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css"
+      integrity="sha384-oaMLBGEzBOJx3UHwac0cVndtX5fxGQIfnAeFZ35RTgqPcYlbprH9o9PUV/F8Le07"
+      crossorigin="anonymous" />
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+        integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"
+        integrity="sha384-FWJTgPmIGm1+zpNhubuHRC/ulS1UK7hAZ7qiUUmKD8yGfPcn5ZXYBd2qRgi6L8Tu"
+        crossorigin="anonymous"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="title-block">
+      <h1>Common Indexing Mistakes</h1>
+      <p class="subtitle">
+        One million product-catalog objects, three deliberately wrong schema
+        choices. Run each card to see the failure mode. Fix it from the
+        Weaviate console, then re-run to see the difference.
+      </p>
+    </div>
+    <div class="conn-status-bar">
+      <span id="conn-light" class="conn-light"></span>
+      <span id="conn-status-text">connecting...</span>
+      <button id="reset-btn" class="btn-secondary" title="Re-apply the broken schema (DELETE rangeable on price_cents, DELETE filterable on category, change-tokenization on spec_sheet_path back to word). Fires all three in parallel.">Reset broken state</button>
+    </div>
+    <div id="reset-status" class="reset-status hidden"></div>
+  </div>
+</header>
+
+<main class="cards">
+  <!-- Mistake 1: price_cents range query is slow without rangeable -->
+  <section class="card" data-card="price_cents">
+    <header>
+      <h2>1. Range query without a rangeable index</h2>
+      <p class="explainer">
+        <code>price_cents</code> has a filterable inverted bucket but no
+        rangeable one. The range query works - but the engine has to walk
+        the bucket value by value to satisfy <code>BETWEEN 30000 AND 40000</code>.
+        On a 1M-object catalog that lands in the hundreds-of-ms range. Enable
+        <code>indexRangeFilters</code> and the same query gets a sorted
+        bitmap structure to consult, ending in single-digit ms.
+      </p>
+      <p class="schema-state">
+        <code>price_cents</code> <span class="type-pill">int</span>
+        <span class="flag neutral">filterable=true</span>
+        <span class="flag bad">rangeable=false</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="language-python">products.query.fetch_objects(
+    filters=(
+        Filter.by_property("price_cents").greater_or_equal(30000)
+        &amp; Filter.by_property("price_cents").less_or_equal(40000)
+    ),
+    limit=10,
+    return_properties=["name", "brand", "category", "price_cents", "sku"],
+)</code></pre>
+        <button class="btn-primary run-btn" data-action="run-price-range">Run query</button>
+      </div>
+      <div class="result" id="result-price_cents">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 2: spec_sheet_path "any of" with word tokenization -->
+  <section class="card" data-card="spec_sheet_path">
+    <header>
+      <h2>2. "Any of" filter on a WORD-tokenized path</h2>
+      <p class="explainer">
+        Filter <code>spec_sheet_path</code> against any of five known GoPro
+        spec-sheet paths. With FIELD tokenization the engine compares each
+        stored path as one opaque token and returns exactly the five matches.
+        Under WORD tokenization each value splinters on <code>/</code> and
+        <code>-</code> and <code>.</code>, so the filter degenerates into
+        "does the path contain any of these tokens" — sweeping in accessory,
+        comparison, and review URLs that merely share <code>gopro</code> or
+        <code>spec</code> or <code>products</code> with the genuine paths.
+      </p>
+      <p class="schema-state">
+        <code>spec_sheet_path</code> <span class="type-pill">text</span>
+        <span class="flag bad">tokenization=word</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="language-python">products.query.fetch_objects(
+    filters=Filter.by_property("spec_sheet_path").contains_any([
+        "/products/cameras/gopro/hero-12-black/spec.pdf",
+        "/products/cameras/gopro/hero-11-silver/spec.pdf",
+        "/products/cameras/gopro/max-360/spec.pdf",
+        "/products/cameras/gopro/hero-mini/spec.pdf",
+        "/products/cameras/gopro/fusion-4k/spec.pdf",
+    ]),
+    limit=10,
+    return_properties=["spec_sheet_path", "category", "brand", "name"],
+)</code></pre>
+        <button class="btn-primary run-btn" data-action="run-path-any-of">Run query</button>
+      </div>
+      <div class="result" id="result-spec_sheet_path">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 3: category equality filter, not filterable -->
+  <section class="card" data-card="category">
+    <header>
+      <h2>3. Equality filter on a non-filterable property</h2>
+      <p class="explainer">
+        Filter <code>category == "Cameras &gt; Action"</code> against a property
+        with no inverted filterable bucket. Weaviate refuses upfront with
+        <code>requires inverted index</code> - the category facet on the
+        storefront stops working entirely.
+      </p>
+      <p class="schema-state">
+        <code>category</code> <span class="type-pill">text</span>
+        <span class="flag bad">filterable=false</span>
+        <span class="flag neutral">tokenization=field</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="language-python">products.query.fetch_objects(
+    filters=Filter.by_property("category").equal("Cameras &gt; Action"),
+    limit=10,
+    return_properties=["name", "brand", "category", "sku", "price_cents"],
+)</code></pre>
+        <button class="btn-primary run-btn" data-action="run-category-equal">Run query</button>
+      </div>
+      <div class="result" id="result-category">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>
+    Fix each mistake in the Weaviate console, then re-run the same card. The
+    UI never caches results.
+  </p>
+</footer>
+
+<script src="app.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

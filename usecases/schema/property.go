@@ -13,20 +13,35 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, newProps); err != nil {
+		return nil, 0, err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
@@ -34,6 +49,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
+	// DataType is pre-qualified; used as-is for authz + schema lookup.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -41,8 +57,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+		return nil, 0, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if len(newProps) == 0 {
@@ -72,6 +89,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 			return nil, 0, err
 		}
 	}
+	// Strip RAFT-internal fields unconditionally (including merge-existing
+	// props, which the loop above skips) so a client can never seed them.
+	clearInternalPropertyFields(newProps...)
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
 		return nil, 0, err
@@ -103,12 +123,226 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
+// DeleteClassPropertyIndex deletes collection's property index. The bool
+// return reports whether a RAFT write occurred (false for a node-local no-op,
+// when the flag was already off) — callers use it to avoid synthesizing state
+// for a write that never reached RAFT.
+func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
+	className, propertyName, indexName string,
+) (bool, error) {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return false, err
+	}
+
+	// Collections (data+metadata), matching the REST pre-authz and the other
+	// index write verbs: dropping an index rewrites data, not metadata only.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+		return false, err
+	}
+
+	class := h.schemaReader.ReadOnlyClass(className)
+	if class == nil {
+		return false, fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+
+	if propertyName == "" {
+		return false, fmt.Errorf("property name cannot be empty")
+	}
+
+	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
+	// FSM class — the class.Properties slice contains pointers to the
+	// FSM's actual *models.Property structs. Mutating the index flags
+	// through that pointer would change FSM state OUTSIDE RAFT, so a
+	// later apply-time rejection (e.g. the in-flight-reindex
+	// MutationGuard, or any existing rejection like a RAFT timeout)
+	// would leave the local node's in-memory schema diverged from the
+	// cluster-wide RAFT state.
+	//
+	// Defensive copy: copy the located property struct by value, then
+	// take the address of the local copy. *models.Property has nested
+	// pointer fields (IndexFilterable, IndexSearchable, etc.) — those
+	// inner pointers are SHARED with the FSM, but the index-flag
+	// mutations below replace the pointer outright
+	// (`prop.IndexFilterable = &notExists`) instead of writing
+	// through the existing one, so the FSM's pointer values stay
+	// untouched. Same pattern applyPerPropertySchemaUpdate
+	// (adapters/repos/db/inverted_reindex_strategy.go) uses for the
+	// reindex strategies' schema flips.
+	var prop *models.Property
+	for i := range class.Properties {
+		if class.Properties[i].Name == propertyName {
+			propCopy := *class.Properties[i]
+			prop = &propCopy
+			break
+		}
+	}
+	if prop == nil {
+		return false, fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+	}
+
+	// We track the *single* field being mutated so we can pass a
+	// field mask to UpdateProperty below. Without the mask, the RAFT
+	// FSM falls back to "replace every field" semantics
+	// (MergePropsMasked with no mask), which means a read-modify-write
+	// off a follower whose local FSM lags one RAFT entry behind the
+	// leader will clobber the leader's value of OTHER index flags on
+	// commit.
+	//
+	// Concrete failure shape (reproduces in
+	// test/acceptance/alter_schema/delete_property_index_empty_test.go
+	// on a 3-node cluster):
+	//
+	//   t=0  delete title.filterable on node A
+	//        → RAFT replicates, all FSMs converge IndexFilterable=false
+	//   t=1  delete title.searchable hits node B before B applies t=0
+	//        → propCopy reads IndexFilterable=true off B's stale FSM
+	//        → propCopy.IndexSearchable=false (local mutation)
+	//        → UpdateProperty(prop) with NO mask
+	//        → RAFT commits a property-replace command that carries
+	//          IndexFilterable=true forward, undoing t=0 on every node
+	//
+	// The mask scopes the RAFT merge to only the flag this REST call
+	// touched, so the leader's current value of unmasked flags is
+	// preserved. See cluster/proto/api.PropertyField* constants.
+	var updateFields []string
+	switch indexName {
+	case "filterable":
+		if prop.IndexFilterable != nil && *prop.IndexFilterable {
+			notExists := false
+			prop.IndexFilterable = &notExists
+			updateFields = []string{command.PropertyFieldIndexFilterable}
+		} else {
+			// nothing to do — no RAFT write
+			return false, nil
+		}
+	case "searchable":
+		if prop.IndexSearchable != nil && *prop.IndexSearchable {
+			notExists := false
+			prop.IndexSearchable = &notExists
+			// Clear the blockmax stamp in the same masked write: it must not
+			// outlive its index, or a re-enable resolves stale blockmax truth.
+			prop.SearchableBlockmax = nil
+			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
+		} else {
+			// nothing to do — no RAFT write
+			return false, nil
+		}
+	case "rangeFilters":
+		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+			notExists := false
+			prop.IndexRangeFilters = &notExists
+			updateFields = []string{command.PropertyFieldIndexRangeFilters}
+		} else {
+			// nothing to do — no RAFT write
+			return false, nil
+		}
+	default:
+		return false, fmt.Errorf("invalid property index type: %s", indexName)
+	}
+
+	if err := h.validatePropertyIndexing(prop); err != nil {
+		return false, err
+	}
+	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	className, vectorIndexName string,
+) error {
+	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
+		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
+	}
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	// Collections (data+metadata), matching DeleteClassPropertyIndex: dropping
+	// a vector index irreversibly rewrites every object in the collection
+	// (vectors stripped cluster-wide), not metadata only — a metadata-only
+	// principal must not be able to trigger it.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+		return err
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
+	}
+
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return fmt.Errorf("querying class %q: %w", className, err)
+	}
+	vcls, ok := vclasses[className]
+	if !ok {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+	class := vcls.Class
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
+	}
+
+	cfg, exists := class.VectorConfig[vectorIndexName]
+	if !exists {
+		return fmt.Errorf("%w: vector index %q not found in class %q", ErrNotFound, vectorIndexName, className)
+	}
+
+	if modelsext.IsVectorIndexDropped(cfg) {
+		// Marker already set: handle a re-issued drop (no-op while the cleanup is in
+		// flight, re-enqueue if it failed) rather than a blanket no-op, so a
+		// stuck/failed cleanup can be retried.
+		return h.retriggerDropVectorIndexCleanup(ctx, className, vectorIndexName)
+	}
+
+	// Keep the vector entry in the schema but set VectorIndexType to "none".
+	// This signals that the vector data still exists in the objects bucket but
+	// the search index has been removed. The executor's UpdateClass will detect
+	// the "none" type and call the migrator to drop the index from disk.
+	class.VectorConfig[vectorIndexName] = models.VectorConfig{
+		Vectorizer:      cfg.Vectorizer,
+		VectorIndexType: vectorindex.VectorIndexTypeNone,
+	}
+
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+		// The FSM's retryable refusals (e.g. the previous drop of this name is
+		// still completing) arrive wrapped in the cluster-layer bad-request
+		// sentinel; translate to the domain sentinel so the REST handler
+		// answers 422, not 500.
+		if errors.Is(err, clusterSchema.ErrBadRequest) {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+		return err
+	}
+
+	// Enqueue the distributed cleanup task that strips the dropped vector from
+	// stored objects and finalizes the schema removal. The marker above is already
+	// durably applied — the drop IS in effect — so an enqueue failure must not
+	// surface as a failed drop; periodic reconciliation retries the cleanup.
+	if err := h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName); err != nil {
+		h.logger.WithField("class", className).WithField("targetVector", vectorIndexName).
+			Warnf("drop vector index: marker applied but cleanup enqueue failed; reconciliation will retry: %v", err)
+	}
+	return nil
+}
+
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
+		return err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 

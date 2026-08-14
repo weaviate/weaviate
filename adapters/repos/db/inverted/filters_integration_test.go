@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -91,8 +93,9 @@ func Test_Filters_String(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -369,8 +372,9 @@ func Test_Filters_Int(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -1152,8 +1156,9 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -1303,6 +1308,13 @@ func createSchema() *schema.Schema {
 							Name:              "inverted-text-roaringset",
 							DataType:          schema.DataTypeText.PropString(),
 							Tokenization:      models.PropertyTokenizationField,
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-uuid-roaringset",
+							DataType:          schema.DataTypeUUID.PropString(),
 							IndexFilterable:   &vTrue,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,

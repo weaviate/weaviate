@@ -19,7 +19,9 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -80,14 +82,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = docIDs
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(docIDs, concurrencyBudget)
+			out.docIDs.OrConc(docIDs, mergeConc)
 			release()
 		}
 
@@ -97,7 +99,12 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	var rr *RowReaderRoaringSet
+	if pv.nested.isNested {
+		rr = NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, invnested.PathPrefix(pv.nested.relPath))
+	} else {
+		rr = NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	}
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -135,14 +142,14 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(ids, concurrencyBudget)
+			out.docIDs.OrConc(ids, mergeConc)
 			release()
 		}
 
@@ -169,14 +176,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
 		if isEmpty {
 			out.docIDs = ids
 			out.release = release
 			isEmpty = false
 		} else {
-			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
-			out.docIDs.OrConc(ids, concurrencyBudget)
+			out.docIDs.OrConc(ids, mergeConc)
 			release()
 		}
 
@@ -196,6 +203,202 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return newDocBitmap(), nil
 	}
 	return out, nil
+}
+
+// containsBatchBucket is the minimal surface docBitmapContainsBatch needs
+// from a roaringset bucket; *lsmkv.Bucket satisfies it.
+type containsBatchBucket interface {
+	GetConsistentView() lsmkv.BucketConsistentView
+	RoaringSetGetFromView(ctx context.Context, view lsmkv.BucketConsistentView, key []byte) (*sroar.Bitmap, func(), error)
+}
+
+// mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
+// ContainsAll -> intersection) and returns the result bitmap plus its release,
+// releasing whichever operand does not become the result. Both operands must
+// be allowlists. It picks the fold direction the same way
+// mergeBitmapsAndOrWithDenyList does: union the smaller bitmap into the
+// larger, intersect the larger into the smaller, to minimize container
+// operations. NumContainers is an O(1) header read.
+func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
+	a *sroar.Bitmap, aRelease func(), b *sroar.Bitmap, bRelease func(),
+) (*sroar.Bitmap, func(), error) {
+	switch op {
+	case filters.ContainsAny:
+		if a.NumContainers() < b.NumContainers() {
+			a, aRelease, b, bRelease = b, bRelease, a, aRelease
+		}
+		a.OrConc(b, maxConc)
+	case filters.ContainsAll:
+		if a.NumContainers() > b.NumContainers() {
+			a, aRelease, b, bRelease = b, bRelease, a, aRelease
+		}
+		a.AndConc(b, maxConc)
+	default:
+		aRelease()
+		bRelease()
+		return nil, nil, fmt.Errorf("unsupported operator %q for batched contains", op.Name())
+	}
+	bRelease()
+	return a, aRelease, nil
+}
+
+// containsAnyAccumulatorMinKeys gates the ContainsAny fold: below this many
+// keys the plain incremental Or fold is used — an Accumulator's staging
+// blocks and finalize scan are not worth setting up to union a handful of
+// rows. Package var so benchmarks can sweep it
+// (BenchmarkDocIDs_ContainsAnyAccumulatorGate).
+//
+// The crossover is shape-dependent — clustered result doc IDs favor the
+// Accumulator at far fewer keys than doc IDs spread across the ID space —
+// so 256 is deliberately conservative; the large-N folds this path exists
+// for sit far above it either way.
+var containsAnyAccumulatorMinKeys = 256
+
+// docBitmapContainsBatch folds every key in pv.containsValues into a single
+// docBitmap under one consistent view of b: a dense Accumulator fold for
+// ContainsAny and ContainsNone, an incremental intersection with empty-result
+// early exit for ContainsAll. Every per-key fetch is an OperatorEqual read on
+// a roaringset bucket, so it is always an allowlist (never a denylist), which
+// is why all folds can skip mergeBitmapsAndOrWithDenyList's deny-list algebra
+// entirely.
+//
+// ContainsNone is NOT(ContainsAny): it computes the same union and marks the
+// result a deny list, exactly as the desugared NOT(OR(Equal...)) tree does in
+// resolveDocIDsNot. The flag composes through AND/OR merges and is inverted
+// against the universe once at the top of Searcher.docIDs.
+func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBucket,
+	pv *propValuePair,
+) (docBitmap, error) {
+	isDenyList := pv.operator == filters.ContainsNone
+	if len(pv.containsValues) == 0 {
+		dbm := newDocBitmap()
+		dbm.isDenyList = isDenyList
+		return dbm, nil
+	}
+
+	before := time.Now()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
+	var acc *sroar.Bitmap
+	var accRelease func()
+	var err error
+	switch pv.operator {
+	case filters.ContainsAll:
+		acc, accRelease, err = foldContainsIncremental(ctx, b, view, pv.containsValues, filters.ContainsAll, maxConc)
+	case filters.ContainsAny, filters.ContainsNone:
+		// ContainsNone folds the same union as ContainsAny; the deny flag is
+		// applied to the result, not the fold. Below
+		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
+		// and finalize scan are not worth it — union incrementally instead.
+		if len(pv.containsValues) < containsAnyAccumulatorMinKeys {
+			acc, accRelease, err = foldContainsIncremental(ctx, b, view, pv.containsValues, filters.ContainsAny, maxConc)
+		} else {
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues,
+				s.bitmapFactory.BufPool(), maxConc)
+		}
+	default:
+		// defensive: a non-Contains operator must never pick a fold — a
+		// silent union here would return plausible but wrong results
+		return docBitmap{}, fmt.Errorf("unsupported operator %q for batched contains", pv.operator.Name())
+	}
+	if err != nil {
+		return docBitmap{}, err
+	}
+	took := time.Since(before)
+	helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
+		return map[string]any{
+			"prop":           pv.prop,
+			"operator":       pv.operator.Name(),
+			"took":           took,
+			"took_string":    took.String(),
+			"count":          acc.GetCardinality(),
+			"strategy":       lsmkv.StrategyRoaringSet,
+			"batched_values": len(pv.containsValues),
+		}
+	})
+	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
+}
+
+// foldContainsAnyAccumulator unions the rows of all keys through a
+// sroar.Accumulator: each fetched row is deposited into the accumulator's
+// dense per-64K-range staging blocks and its buffer released immediately, and
+// the final bitmap is assembled once, exactly sized, into a pooled buffer
+// (the returned release puts it back). This
+// replaces one structural Or per key (an O(container) memmove even for a
+// single-doc row) with O(1) bit deposits, and bounds peak memory at the
+// staging blocks (proportional to the doc-ID spread of the result, not to
+// the number of keys) plus a single row in flight.
+func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
+	view lsmkv.BucketConsistentView, keys [][]byte, pool roaringset.BitmapBufPool, maxConc int,
+) (*sroar.Bitmap, func(), error) {
+	// TODO aliszka:gh12242 wire maxConc into the accumulator's Or once sroar
+	// supports concurrent deposits; today the accumulator is single-threaded
+	// and the budget goes unused here.
+	acc := sroar.NewAccumulator()
+	for _, key := range keys {
+		if err := ctxExpired(ctx); err != nil {
+			return nil, nil, err
+		}
+		bm, release, err := b.RoaringSetGetFromView(ctx, view, key)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read row: %w", err)
+		}
+		// Or never retains bm, so the row's buffer goes straight back.
+		acc.Or(bm)
+		release()
+	}
+
+	result, put := pool.AccumulatorToBuf(acc)
+	return result, put, nil
+}
+
+// foldContainsIncremental merges rows one key at a time under op: union for
+// ContainsAny (used below containsAnyAccumulatorMinKeys keys, where the
+// Accumulator's staging is not worth its setup), intersection for
+// ContainsAll. mergeAllowlistBitmaps picks which operand to fold into by
+// container count, so merge cost tracks the smaller operand.
+//
+// ContainsAll additionally stops as soon as the intersection is empty: no
+// remaining key can change an empty result (the intersection only shrinks),
+// so this only skips reads that cannot matter, never the result. On
+// disjoint-ish data the early exit reads a handful of keys, which no
+// batch-read grouping can beat — hence ContainsAll deliberately has no
+// accumulator path.
+func foldContainsIncremental(ctx context.Context, b containsBatchBucket,
+	view lsmkv.BucketConsistentView, keys [][]byte, op filters.Operator, maxConc int,
+) (*sroar.Bitmap, func(), error) {
+	var acc *sroar.Bitmap
+	accRelease := noopRelease
+	for _, key := range keys {
+		if err := ctxExpired(ctx); err != nil {
+			accRelease()
+			return nil, nil, err
+		}
+
+		bm, release, err := b.RoaringSetGetFromView(ctx, view, key)
+		if err != nil {
+			accRelease()
+			return nil, nil, fmt.Errorf("read row: %w", err)
+		}
+
+		if acc == nil {
+			acc, accRelease = bm, release
+		} else {
+			acc, accRelease, err = mergeAllowlistBitmaps(op, maxConc, acc, accRelease, bm, release)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		if op == filters.ContainsAll && acc.IsEmpty() {
+			break
+		}
+	}
+	// keys is non-empty (docBitmapContainsBatch returns early otherwise) and
+	// the first iteration always adopts its fetched bitmap, so acc is non-nil.
+	return acc, accRelease, nil
 }
 
 func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitmap, error) {

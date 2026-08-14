@@ -28,16 +28,17 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -78,7 +79,23 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, nil, successCode)
+	return rehydrateUsageLimit(err)
+}
+
+// rehydrateUsageLimit returns a *LimitExceededError when err is a 429
+// carrying the USAGE_LIMIT_EXCEEDED payload, else err unchanged.
+func rehydrateUsageLimit(err error) error {
+	if err == nil {
+		return nil
+	}
+	he, ok := AsHTTPError(err)
+	if !ok || he.Code != http.StatusTooManyRequests {
+		return err
+	}
+	if le, ok := usagelimits.FromBodyJSON(he.Body); ok {
+		return le
+	}
 	return err
 }
 
@@ -114,7 +131,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, decode, successCode, MAX_RETRIES); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -241,7 +258,7 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 		return false, fmt.Errorf("create http request: %w", err)
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, ok)
+	code, err := c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, nil, ok)
 	return code != http.StatusNotFound, err
 }
 
@@ -376,34 +393,35 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
 	req, err := setupRequest(ctx, http.MethodPost, host,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 		"", bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create http request: %w", err)
+		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
-	return resp.Objects, resp.Distributions, err
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
+	QueryProfiles []helpers.ShardQueryProfile
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.QueryProfiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 
@@ -434,14 +452,14 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	return resp.Result, err
 }
 
 func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter,
+	shardName string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}
@@ -574,7 +592,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, 9, try)
+	return size, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
@@ -615,7 +633,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, 9, try)
+	return status, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -651,7 +669,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
@@ -685,7 +703,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 12, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -711,7 +729,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
@@ -738,183 +756,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
-}
-
-// PauseFileActivity pauses the collection's shard replica background processes on the specified
-// host. You should explicitly resume the background processes once you're done with the
-// files.
-func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64,
-) error {
-	value := []string{strconv.FormatUint(schemaVersion, 10)}
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName),
-		url.Values{replica.SchemaVersionKey: value}.Encode(),
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
-
-	try := func(ctx context.Context) (bool, error) {
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-		return false, nil
-	}
-	return c.retry(ctx, 9, try)
-}
-
-// ResumeFileActivity resumes the collection's shard replica background processes on the specified host
-func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
-	hostName, indexName, shardName string,
-) error {
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/background:resume", indexName, shardName),
-		"", nil)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
-
-	try := func(ctx context.Context) (bool, error) {
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-		return false, nil
-	}
-	return c.retry(ctx, 9, try)
-}
-
-// ListFiles returns a list of files that can be used to get the shard data at the time the pause
-// was requested. The returned relative file paths are relative to the shard's root directory.
-// indexName is the collection name.
-func (c *RemoteIndex) ListFiles(ctx context.Context,
-	hostName, indexName, shardName string,
-) ([]string, error) {
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/background:list", indexName, shardName),
-		"", nil)
-	if err != nil {
-		return []string{}, fmt.Errorf("create http request: %w", err)
-	}
-
-	var relativeFilePaths []string
-	clusterapi.IndicesPayloads.ShardFilesResults.SetContentTypeHeaderReq(req)
-	try := func(ctx context.Context) (bool, error) {
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-		resBytes, err := io.ReadAll(res.Body)
-		if err != nil {
-			return false, errors.Wrap(err, "read body")
-		}
-
-		relativeFilePaths, err = clusterapi.IndicesPayloads.ShardFilesResults.Unmarshal(resBytes)
-		if err != nil {
-			return false, errors.Wrap(err, "unmarshal body")
-		}
-		return false, nil
-	}
-	return relativeFilePaths, c.retry(ctx, 9, try)
-}
-
-// GetFileMetadata returns file info to the file relative to the
-// shard's root directory.
-func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
-	shardName, relativeFilePath string,
-) (file.FileMetadata, error) {
-	req, err := setupRequest(ctx, http.MethodGet, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/files:metadata/%s", indexName, shardName, relativeFilePath),
-		"", nil)
-	if err != nil {
-		return file.FileMetadata{}, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
-
-	var md file.FileMetadata
-
-	try := func(ctx context.Context) (bool, error) {
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-
-		if res.StatusCode != http.StatusOK {
-			defer res.Body.Close()
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(res.StatusCode), fmt.Errorf(
-				"unexpected status code %d (%s)", res.StatusCode, body)
-		}
-
-		resBytes, err := io.ReadAll(res.Body)
-		if err != nil {
-			return false, errors.Wrap(err, "read body")
-		}
-
-		md, err = clusterapi.IndicesPayloads.ShardFileMetadataResults.Unmarshal(resBytes)
-		if err != nil {
-			return false, errors.Wrap(err, "unmarshal body")
-		}
-
-		return false, nil
-	}
-	return md, c.retry(ctx, 9, try)
-}
-
-// GetFile caller must close the returned io.ReadCloser if no error is returned.
-// indexName is the collection name. relativeFilePath is the path to the file relative to the
-// shard's root directory.
-func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
-	shardName, relativeFilePath string,
-) (io.ReadCloser, error) {
-	req, err := setupRequest(ctx, http.MethodGet, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, relativeFilePath),
-		"", nil)
-	if err != nil {
-		return nil, fmt.Errorf("create http request: %w", err)
-	}
-	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
-	var file io.ReadCloser
-	try := func(ctx context.Context) (bool, error) {
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-
-		if res.StatusCode != http.StatusOK {
-			defer res.Body.Close()
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(res.StatusCode), fmt.Errorf(
-				"unexpected status code %d (%s)", res.StatusCode, body)
-		}
-
-		file = res.Body
-		return false, nil
-	}
-	return file, c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // AddAsyncReplicationTargetNode configures and starts async replication for the given
@@ -953,7 +795,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // RemoveAsyncReplicationTargetNode removes the given target node override for async replication.
@@ -988,7 +830,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // setupRequest is a simple helper to create a new http request with the given method, host, path,

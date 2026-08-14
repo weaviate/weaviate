@@ -30,6 +30,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.openai.com"
+	DefaultEndpoint              = "/v1/embeddings"
 	DefaultApiVersion            = "2024-02-01"
 	LowerCaseInput               = false
 )
@@ -138,6 +139,10 @@ func (cs *classSettings) ResourceName() string {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
+}
+
+func (cs *classSettings) Endpoint() string {
+	return cs.BaseClassSettings.GetPropertyAsString("endpoint", DefaultEndpoint)
 }
 
 func (cs *classSettings) DeploymentID() string {

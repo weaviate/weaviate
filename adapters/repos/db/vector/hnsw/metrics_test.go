@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -39,6 +40,34 @@ func (r rejectingAllocChecker) CheckMappingAndReserve(numberMappings int64, rese
 }
 
 func (r rejectingAllocChecker) Refresh(updateMappings bool) {}
+
+func TestHFreshModeDisablesVectorIndexSize(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+
+	className := "HFreshMetricsTest"
+	shardName := "hfresh-shard"
+
+	sizeGauge := metrics.VectorIndexSize.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	sizeGauge.Set(0)
+	require.Equal(t, float64(0), testutil.ToFloat64(sizeGauge))
+
+	// Create metrics in HFresh mode
+	// SetSize should be a no-op
+	m := newMetrics(metrics, className, shardName, true)
+	m.SetSize(42)
+	require.Equal(t, float64(0), testutil.ToFloat64(sizeGauge),
+		"VectorIndexSize should not change when HFreshMode is true")
+
+	// SetSize should work
+	m2 := newMetrics(metrics, className, shardName, false)
+	m2.SetSize(42)
+	require.Equal(t, float64(42), testutil.ToFloat64(sizeGauge),
+		"VectorIndexSize should change when HFreshMode is false")
+}
 
 func TestAddBatchMemoryAllocationMetric(t *testing.T) {
 	ctx := context.Background()

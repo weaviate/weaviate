@@ -19,13 +19,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_AutoSchema(t *testing.T) {
 	ctx := context.Background()
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	id1 := strfmt.UUID("00000000-0000-0000-0000-000000000001")
@@ -292,6 +297,96 @@ func TestObjectProperty_AutoSchema(t *testing.T) {
 					}).Do(ctx)
 				require.NoError(t, err)
 				assertDataMerged(t, tc.className, id1.String())
+			})
+		})
+	}
+}
+
+func TestAutoSchema_DefaultNamedVector(t *testing.T) {
+	ctx := context.Background()
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
+	require.Nil(t, err)
+
+	require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+
+	vector := []float32{0.1, 0.2, 0.3}
+
+	tests := []struct {
+		name      string
+		className string
+		id        strfmt.UUID
+		create    func(t *testing.T, className string, id strfmt.UUID)
+	}{
+		{
+			name:      "legacy vector field",
+			className: "AutoSchemaLegacyVector",
+			id:        strfmt.UUID("00000000-0000-0000-0000-00000000000a"),
+			create: func(t *testing.T, className string, id strfmt.UUID) {
+				_, err := client.Data().Creator().
+					WithClassName(className).
+					WithID(id.String()).
+					WithProperties(map[string]interface{}{"company": "BestOne"}).
+					WithVector(vector).
+					Do(ctx)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:      "default named vector",
+			className: "AutoSchemaNamedVector",
+			id:        strfmt.UUID("00000000-0000-0000-0000-00000000000b"),
+			create: func(t *testing.T, className string, id strfmt.UUID) {
+				_, err := client.Data().Creator().
+					WithClassName(className).
+					WithID(id.String()).
+					WithProperties(map[string]interface{}{"company": "BestOne"}).
+					WithVectors(map[string]models.Vector{modelsext.DefaultNamedVectorName: vector}).
+					Do(ctx)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.create(t, tt.className, tt.id)
+
+			class, err := client.Schema().ClassGetter().WithClassName(tt.className).Do(ctx)
+			require.NoError(t, err)
+
+			// auto-schema creates a single "default" named vector and no legacy vector
+			assert.Empty(t, class.Vectorizer)
+			assert.Empty(t, class.VectorIndexType)
+			assert.Nil(t, class.VectorIndexConfig)
+			require.Len(t, class.VectorConfig, 1)
+			defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+			require.True(t, ok)
+			assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
+			assert.Equal(t, "hnsw", defaultVector.VectorIndexType)
+
+			objs, err := client.Data().ObjectsGetter().
+				WithClassName(tt.className).
+				WithID(tt.id.String()).
+				WithVector().
+				Do(ctx)
+			require.NoError(t, err)
+			require.Len(t, objs, 1)
+			// reads never fill the legacy vector field, the value only comes back
+			// under the named vector it was stored as
+			assert.Empty(t, objs[0].Vector)
+			require.Contains(t, objs[0].Vectors, modelsext.DefaultNamedVectorName)
+			assert.Equal(t, models.Vector(vector), objs[0].Vectors[modelsext.DefaultNamedVectorName])
+
+			t.Run("nearVector without target vector", func(t *testing.T) {
+				res, err := client.GraphQL().Get().
+					WithClassName(tt.className).
+					WithNearVector(client.GraphQL().NearVectorArgBuilder().WithVector(vector)).
+					WithFields(graphql.Field{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}}).
+					WithLimit(1).
+					Do(ctx)
+				require.NoError(t, err)
+				require.Empty(t, res.Errors)
+				require.Equal(t, []string{tt.id.String()}, acceptance_with_go_client.GetIds(t, res, tt.className))
 			})
 		})
 	}

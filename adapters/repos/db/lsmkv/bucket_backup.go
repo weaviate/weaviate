@@ -21,7 +21,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
@@ -32,8 +31,8 @@ import (
 // Method should be run only if flushCycle is not running
 // (was not started, is stopped, or noop impl is provided)
 func (b *Bucket) FlushMemtable() error {
-	if b.isReadOnly() {
-		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
+	if err := b.readOnlyErr(); err != nil {
+		return fmt.Errorf("flush memtable: %w", err)
 	}
 
 	return b.FlushAndSwitch()
@@ -84,6 +83,14 @@ func (b *Bucket) listFiles(bucketRoot, basePath string) ([]string, error) {
 		// ignore .tmp files because they are temporary files created during compaction or flushing
 		// and are not part of the stable state of the bucket
 		if ext == ".wal" || ext == ".tmp" {
+			continue
+		}
+
+		// The edit-ops sidecar is live-writable bolt state — streaming it mid-write
+		// yields a torn copy — and it is derived: after a restore, reconciliation
+		// re-enqueues the cleanup task from the schema marker and the op re-registers
+		// with a fresh snapshot.
+		if entry.Name() == segmentEditOpsFileName {
 			continue
 		}
 

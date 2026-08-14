@@ -144,6 +144,51 @@ func (o *ObjectsHeadNotFound) WriteResponse(rw http.ResponseWriter, producer run
 	rw.WriteHeader(404)
 }
 
+// ObjectsHeadGoneCode is the HTTP code returned for type ObjectsHeadGone
+const ObjectsHeadGoneCode int = 410
+
+/*
+ObjectsHeadGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsHeadGone
+*/
+type ObjectsHeadGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsHeadGone creates ObjectsHeadGone with default headers values
+func NewObjectsHeadGone() *ObjectsHeadGone {
+
+	return &ObjectsHeadGone{}
+}
+
+// WithPayload adds the payload to the objects head gone response
+func (o *ObjectsHeadGone) WithPayload(payload *models.ErrorResponse) *ObjectsHeadGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects head gone response
+func (o *ObjectsHeadGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsHeadGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsHeadInternalServerErrorCode is the HTTP code returned for type ObjectsHeadInternalServerError
 const ObjectsHeadInternalServerErrorCode int = 500
 

@@ -21,8 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -54,6 +54,7 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	AddClassPropertyErr     error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
@@ -149,9 +150,19 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	class.VectorIndexConfig = hnsw.UserConfig{}
-	class.VectorIndexType = "hnsw"
-	class.Vectorizer = "none"
+	// mimic the parts of (*schema.Handler).setClassDefaults that callers care about
+	if len(class.VectorConfig) == 0 {
+		class.VectorIndexConfig = hnsw.UserConfig{}
+		class.VectorIndexType = "hnsw"
+		class.Vectorizer = "none"
+	}
+	for targetVector, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			vectorConfig.VectorIndexType = "hnsw"
+			vectorConfig.VectorIndexConfig = hnsw.UserConfig{}
+			class.VectorConfig[targetVector] = vectorConfig
+		}
+	}
 	classes := f.GetSchemaResponse.Objects.Classes
 	if classes != nil {
 		classes = append(classes, class)
@@ -163,12 +174,16 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	if f.AddClassPropertyErr != nil {
+		return nil, 0, f.AddClassPropertyErr
+	}
+
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
-		if c.Class == class.Class {
+		if c.Class == className {
 			existedClass = c
 			for idx, p := range c.Properties {
 				existing[strings.ToLower(p.Name)] = idx
@@ -188,7 +203,7 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return class, f.AutoSchemaVersion, nil
+	return existedClass, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
@@ -380,6 +395,8 @@ type fakeModulesProvider struct {
 	mock.Mock
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
+	// test control
+	ExtendErr error
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -446,6 +463,10 @@ func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, capability string,
 ) (search.Results, error) {
+	if p.ExtendErr != nil {
+		return nil, p.ExtendErr
+	}
+
 	txt2vec := newNearCustomTextModule(p.getExtender(), p.getProjector(), &fakePathBuilder{})
 	additionalProperties := txt2vec.AdditionalProperties()
 	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
@@ -817,7 +838,7 @@ func getFakeModulesProviderWithCustomExtenders(
 	customProjector *fakeProjector,
 	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	p := &fakeModulesProvider{mock.Mock{}, customExtender, customProjector}
+	p := &fakeModulesProvider{customExtender: customExtender, customProjector: customProjector}
 	p.applyOptions(opts...)
 	return p
 }

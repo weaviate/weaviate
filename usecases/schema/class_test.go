@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -39,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
@@ -46,6 +49,7 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 	ctx := context.Background()
 
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 
 	class := &models.Class{
 		Class:      "TTLClass",
@@ -58,7 +62,7 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 	classValidated, _, err := handler.AddClass(ctx, nil, class)
 	assert.NoError(t, err)
@@ -90,7 +94,7 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
@@ -117,7 +121,7 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.NoError(t, err)
@@ -148,6 +152,27 @@ func Test_AddClass(t *testing.T) {
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
+	})
+
+	t.Run("reject none vector index type on new class", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: vectorindex.VectorIndexTypeNone,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "internal sentinel for dropped indexes")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
@@ -230,7 +255,7 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -265,7 +290,7 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -326,7 +351,7 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -503,36 +528,18 @@ func Test_AddClassWithLimits(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with max collections limit", func(t *testing.T) {
+		// Asserts the typed *usagelimits.LimitExceededError on miss; the
+		// REST/gRPC layer maps it to HTTP 429 / RESOURCE_EXHAUSTED.
 		tests := []struct {
 			name          string
 			existingCount int
 			maxAllowed    int
-			expectedError error
+			expectExceed  bool
 		}{
-			{
-				name:          "under the limit",
-				existingCount: 5,
-				maxAllowed:    10,
-				expectedError: nil,
-			},
-			{
-				name:          "at the limit",
-				existingCount: 10,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "over the limit",
-				existingCount: 11,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "no limit set",
-				existingCount: 100,
-				maxAllowed:    -1,
-				expectedError: nil,
-			},
+			{name: "under the limit", existingCount: 5, maxAllowed: 10, expectExceed: false},
+			{name: "at the limit", existingCount: 10, maxAllowed: 10, expectExceed: true},
+			{name: "over the limit", existingCount: 11, maxAllowed: 10, expectExceed: true},
+			{name: "no limit set", existingCount: 100, maxAllowed: -1, expectExceed: false},
 		}
 
 		for _, tt := range tests {
@@ -540,7 +547,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 				// Mock the schema count
-				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
 
 				// Set the max collections limit in config
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.maxAllowed)
@@ -551,15 +558,19 @@ func Test_AddClassWithLimits(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 
-				if tt.expectedError == nil {
+				if !tt.expectExceed {
 					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, class)
-				if tt.expectedError != nil {
+				if tt.expectExceed {
 					require.NotNil(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError.Error())
+					le, ok := usagelimits.AsLimitExceeded(err)
+					require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+					assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+					assert.Equal(t, int64(tt.maxAllowed), le.Value)
+					assert.NotEmpty(t, le.RenderedMessage)
 				} else {
 					require.Nil(t, err)
 				}
@@ -592,7 +603,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 				if tt.expectError == "" {
 					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					schemaManager.On("QueryCollectionsCount").Return(0, nil)
+					schemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					defer schemaManager.AssertExpectations(t)
 				}
 
@@ -720,20 +731,18 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
-				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -889,7 +898,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -897,6 +906,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("add properties to existing class", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					prop := &models.Property{
@@ -907,7 +917,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeSchemaManager.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -994,8 +1004,9 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 				_, _, err := handler.AddClass(context.Background(), nil, collection)
 
@@ -1088,7 +1099,7 @@ func Test_Defaults_NestedProperties(t *testing.T) {
 								require.NotNil(t, np.IndexSearchable)
 								assert.True(t, *np.IndexSearchable)
 								assert.Equal(t, models.PropertyTokenizationWord, np.Tokenization)
-							case schema.DataTypeBlob:
+							case schema.DataTypeBlob, schema.DataTypeBlobHash:
 								require.NotNil(t, np.IndexFilterable)
 								assert.False(t, *np.IndexFilterable)
 								require.NotNil(t, np.IndexSearchable)
@@ -1180,7 +1191,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1202,7 +1213,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1300,7 +1311,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -1326,7 +1337,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1355,7 +1366,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+					fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1366,7 +1378,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, _, err = handler.AddClassProperty(context.Background(), nil, class, class.Class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class.Class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1390,7 +1402,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1408,7 +1420,6 @@ func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
@@ -2352,8 +2363,9 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
@@ -2365,6 +2377,7 @@ func Test_UpdateClass(t *testing.T) {
 				store.AddClass(test.initial)
 
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
 					err = store.UpdateClass(test.update)
@@ -2445,12 +2458,15 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			t.Helper()
 
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 			store := NewFakeStore()
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -2514,11 +2530,15 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				tc.reconfigure(updated)
 
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 				store := NewFakeStore()
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(context.Background(), nil, initial)
@@ -2602,10 +2622,120 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
 		fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
-		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false)
+		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
 		assert.Nil(t, err, "class passes validation")
 		fakeSchemaManager.AssertExpectations(t)
 	}
+}
+
+// TestRestoreClass_StripNamespaces asserts graduation restore strips cross-ref
+// DataTypes, not just the class name. The assertion captures the class handed
+// to schemaManager.RestoreClass, so the call wiring is pinned too.
+func TestRestoreClass_StripNamespaces(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	classRaw := &models.Class{
+		Class: "ns1:Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "directedBy", DataType: []string{"ns1:Directors"}},
+			{Name: "related", DataType: []string{"ns1:Directors", "ns1:Movies"}},
+		},
+		Vectorizer: "none",
+	}
+
+	schemaBytes, err := json.Marshal(classRaw)
+	require.Nil(t, err)
+
+	shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+	require.Nil(t, err)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+	require.Nil(t, err)
+	shardingBytes, err := shardingState.JSON()
+	require.Nil(t, err)
+
+	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+
+	var applied *models.Class
+	var appliedState *sharding.State
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			applied = args.Get(0).(*models.Class)
+			appliedState = args.Get(1).(*sharding.State)
+		}).
+		Return(nil)
+
+	descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, true)
+	require.NoError(t, err)
+	fakeSchemaManager.AssertExpectations(t)
+
+	require.NotNil(t, applied)
+	assert.Equal(t, "Movies", applied.Class, "class name must be stripped")
+	require.NotNil(t, appliedState)
+	assert.Equal(t, "Movies", appliedState.IndexID, "sharding-state IndexID must be re-pointed to the stripped class name")
+	byName := map[string][]string{}
+	for _, p := range applied.Properties {
+		byName[p.Name] = p.DataType
+	}
+	assert.Equal(t, []string{"text"}, byName["title"], "primitive DataType untouched")
+	assert.Equal(t, []string{"Directors"}, byName["directedBy"], "cross-ref DataType stripped")
+	assert.Equal(t, []string{"Directors", "Movies"}, byName["related"], "every entry of a multi-target ref stripped")
+}
+
+// TestRestoreClass_StripNamespaces_StripsAlias pins the alias-strip branch of
+// RestoreClass: a graduated restore must create the alias under its bare name,
+// not the namespaced name carried in the backup artefact. Without the strip the
+// alias would be created as "ns1:MoviesAlias" and dangle against the now-bare
+// class on the target.
+func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	classRaw := &models.Class{Class: "ns1:Movies", Vectorizer: "none"}
+	schemaBytes, err := json.Marshal(classRaw)
+	require.Nil(t, err)
+
+	shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+	require.Nil(t, err)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+	require.Nil(t, err)
+	shardingBytes, err := shardingState.JSON()
+	require.Nil(t, err)
+
+	aliasBytes, err := json.Marshal([]*models.Alias{{Alias: "ns1:MoviesAlias", Class: "ns1:Movies"}})
+	require.Nil(t, err)
+
+	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+
+	// ResolveAlias returns "" (fake default), so restore takes the create path.
+	var createdAlias string
+	var aliasClass *models.Class
+	fakeSchemaManager.On("CreateAlias", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			createdAlias = args.Get(1).(string)
+			aliasClass = args.Get(2).(*models.Class)
+		}).
+		Return(nil)
+
+	descriptor := backup.ClassDescriptor{
+		Name:            classRaw.Class,
+		Schema:          schemaBytes,
+		ShardingState:   shardingBytes,
+		AliasesIncluded: true,
+		Aliases:         aliasBytes,
+	}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, true)
+	require.NoError(t, err)
+	fakeSchemaManager.AssertExpectations(t)
+
+	assert.Equal(t, "MoviesAlias", createdAlias, "alias name must be stripped on graduation restore")
+	require.NotNil(t, aliasClass)
+	assert.Equal(t, "Movies", aliasClass.Class, "restored alias must target the stripped class")
 }
 
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
@@ -2635,7 +2765,7 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		expectedShardingState.ApplyNodeMapping(map[string]string{"node1": "new-node1"})
 		expectedShardingState.SetLocalName("")
 		fakeSchemaManager.On("RestoreClass", mock.Anything, shardingState).Return(nil)
-		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"}, false)
+		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"}, false, false)
 		assert.NoError(t, err)
 	}
 }
@@ -2803,7 +2933,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2825,7 +2955,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2843,7 +2973,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -2859,7 +2989,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -2922,6 +3052,127 @@ func Test_SetClassDefaults(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
+		})
+	}
+}
+
+func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		classIndexType    string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no class type => hnsw default",
+			defaultIndexType:  "",
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to flat, no class type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to dynamic, no class type => dynamic",
+			defaultIndexType:  vectorindex.VectorIndexTypeDYNAMIC,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeDYNAMIC,
+		},
+		{
+			name:              "env set to hfresh, no class type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, class explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hnsw, no class type => hnsw",
+			defaultIndexType:  vectorindex.VectorIndexTypeHNSW,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorIndexType:   tt.classIndexType,
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
+		})
+	}
+}
+
+func Test_SetClassDefaults_DefaultVectorIndexType_NamedVectors(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		vectorIndexType   string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no vector type => hnsw default",
+			defaultIndexType:  "",
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hfresh, no vector type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, no vector type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to flat, vector explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"my_vector": {
+						VectorIndexType: tt.vectorIndexType,
+						Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+					},
+				},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorConfig["my_vector"].VectorIndexType)
 		})
 	}
 }
@@ -3078,4 +3329,462 @@ func Test_deepEqualVectorizerSettings(t *testing.T) {
 			assert.Equal(t, tt.want, deepEqualVectorizerSettings(tt.initial, tt.updated))
 		})
 	}
+}
+
+func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
+	searchable := true
+	intPDT := newFakePrimitivePDT(schema.DataTypeInt)
+	textPDT := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("empty textAnalyzer on non-text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "count",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, intPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty textAnalyzer on text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty ignore list with asciiFold=false is normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{},
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "zero-value config should be normalized to nil")
+	})
+
+	t.Run("non-empty config is NOT normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold: true,
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.NotNil(t, prop.TextAnalyzer, "active config should be preserved")
+	})
+}
+
+func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name         string
+		tokenization string
+		expectError  bool
+	}{
+		{
+			name:         "word tokenization accepted",
+			tokenization: models.PropertyTokenizationWord,
+			expectError:  false,
+		},
+		{
+			name:         "lowercase tokenization accepted",
+			tokenization: models.PropertyTokenizationLowercase,
+			expectError:  false,
+		},
+		{
+			name:         "whitespace tokenization accepted",
+			tokenization: models.PropertyTokenizationWhitespace,
+			expectError:  false,
+		},
+		{
+			name:         "field tokenization accepted",
+			tokenization: models.PropertyTokenizationField,
+			expectError:  false,
+		},
+		{
+			name:         "trigram tokenization accepted",
+			tokenization: models.PropertyTokenizationTrigram,
+			expectError:  false,
+		},
+		{
+			name:         "empty tokenization accepted",
+			tokenization: "",
+			expectError:  false,
+		},
+		{
+			name:         "gse tokenization rejected",
+			tokenization: models.PropertyTokenizationGse,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_kr tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeKr,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_ja tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeJa,
+			expectError:  true,
+		},
+		{
+			name:         "gse_ch tokenization rejected",
+			tokenization: models.PropertyTokenizationGseCh,
+			expectError:  true,
+		},
+		{
+			name:         "unknown tokenization rejected",
+			tokenization: "unknown",
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				Tokenization:    tt.tokenization,
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt, nil)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported tokenization")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name        string
+		ignore      []string
+		expectError bool
+	}{
+		{
+			name:        "single NFC character accepted",
+			ignore:      []string{"é"},
+			expectError: false,
+		},
+		{
+			name:        "multiple single characters accepted",
+			ignore:      []string{"é", "ñ", "ü"},
+			expectError: false,
+		},
+		{
+			name:        "NFD character normalized to single codepoint accepted",
+			ignore:      []string{"e\u0301"}, // é in NFD form
+			expectError: false,
+		},
+		{
+			name:        "multi-character string rejected",
+			ignore:      []string{"ab"},
+			expectError: true,
+		},
+		{
+			name:        "empty ignore list accepted",
+			ignore:      nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: tt.ignore,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt, nil)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "single character")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("valid preset en is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("valid preset none is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid preset is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "invalid_language",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
+		assert.Contains(t, err.Error(), "invalid_language")
+	})
+
+	t.Run("empty preset is accepted and config normalized to nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty stopwordPreset means empty config -> normalized to nil")
+	})
+
+	t.Run("stopwordPreset combined with asciiFold is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:      true,
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("stopwordPreset only keeps config non-nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+		require.NotNil(t, prop.TextAnalyzer, "config with stopwordPreset should not be normalized to nil")
+		assert.Equal(t, "none", prop.TextAnalyzer.StopwordPreset)
+	})
+
+	t.Run("user-defined preset is accepted", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis", "treatment"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "medical",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.NoError(t, err)
+	})
+
+	t.Run("unknown preset rejected even with user presets", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "nonexistent",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
+	})
+
+	t.Run("stopwordPreset with non-word tokenization is rejected", func(t *testing.T) {
+		for _, tok := range []string{
+			models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField,
+			models.PropertyTokenizationTrigram,
+		} {
+			t.Run(tok, func(t *testing.T) {
+				prop := &models.Property{
+					Name:            "test",
+					IndexSearchable: &searchable,
+					Tokenization:    tok,
+					TextAnalyzer: &models.TextAnalyzerConfig{
+						StopwordPreset: "en",
+					},
+				}
+				err := validatePropertyProcessing(prop, pdt, nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "stopwordPreset is only supported with tokenization")
+			})
+		}
+	})
+}
+
+func TestValidateStopwordPresetsStillReferenced(t *testing.T) {
+	propWithPreset := func(name, preset string) *models.Property {
+		return &models.Property{
+			Name:         name,
+			Tokenization: models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: preset},
+		}
+	}
+
+	t.Run("removed preset still referenced by top-level property is rejected", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "title"`)
+	})
+
+	t.Run("removed preset replaced by built-in is rejected", func(t *testing.T) {
+		// 'en' is built-in so even an empty updated map should be fine for it.
+		props := []*models.Property{propWithPreset("title", "en")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("preset still present in updated config is accepted", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		updated := map[string][]string{"fr": {"le", "la"}}
+		err := validateStopwordPresetsStillReferenced(props, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("property with no stopwordPreset is ignored", func(t *testing.T) {
+		props := []*models.Property{
+			{Name: "title", Tokenization: models.PropertyTokenizationWord},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("removed preset still referenced by nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:         "body",
+						Tokenization: models.PropertyTokenizationWord,
+						TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "doc.body"`)
+	})
+
+	t.Run("removed preset still referenced by deeply nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name: "section",
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:         "title",
+								Tokenization: models.PropertyTokenizationWord,
+								TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+							},
+						},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `property "doc.section.title"`)
+	})
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("ignore with fold disabled is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "asciiFoldIgnore requires asciiFold to be enabled")
+	})
+
+	t.Run("ignore with fold enabled is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       true,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
 }

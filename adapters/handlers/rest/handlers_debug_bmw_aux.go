@@ -66,7 +66,17 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 			func(shardName string, shard db.ShardLike) error {
 				alreadyDid := false
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", "searchable_map_to_blockmax")
+					// Migration dirs are per-generation suffixed. Pick the
+					// highest existing gen for this shard's map-to-blockmax
+					// migration; operate on that one. If none exist, fall
+					// through to the existing "shard not found or not ready"
+					// error path below — matches pre-gen behaviour.
+					lsmPath := filepath.Join(rootPath, classNameString, shardName, "lsm")
+					gen := db.MaxMigrationGenerationForDebug(lsmPath, db.MigrationDirSearchableMapToBlockmax, "")
+					if gen == 0 {
+						return fmt.Errorf("shard not found or not ready")
+					}
+					shardPath := filepath.Join(lsmPath, ".migrations", db.MigrationDirSearchableMapToBlockmax+db.GenSuffixForDebug(gen))
 					filenameShard := filepath.Join(shardPath, filename)
 					_, err := os.Stat(shardPath)
 					if err != nil {

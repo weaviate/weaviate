@@ -14,31 +14,56 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
+	flatSearchCutoff      = 5_000
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := k + 5
 	vector = h.normalizeVec(vector)
-	queryVector := NewAnonymousVector(h.quantizer.Encode(vector))
 
-	var selected []uint64
+	// this must run before any search path reads the quantizer or distancer,
+	// including flatSearch, which uses the distancer
+	_, quantizer := h.loadQuantizer()
+	if quantizer == nil {
+		return nil, nil, nil
+	}
+
+	if allowList != nil && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(ctx, vector, k, allowList)
+	}
+
+	rescoreLimit := int(h.rescoreLimit)
+	queryDistancer := quantizer.NewDistancer(vector)
+
+	var selectedCentroids []uint64
 	var postings []Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(rescoreLimit, int(h.searchProbe))
+	candidateCentroidNum := max(k, int(h.searchProbe))
 
-	centroids, err := h.Centroids.Search(vector, candidateNum)
+	nAllowList := allowList
+	if allowList != nil {
+		nAllowList = h.wrapAllowList(ctx, allowList)
+		defer nAllowList.Close()
+	}
+	beforeCentroids := time.Now()
+	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,8 +77,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
-	selected = make([]uint64, 0, candidateNum)
-	for i := 0; i < len(centroids.data) && len(selected) < candidateNum; i++ {
+	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
+	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
@@ -65,11 +90,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			continue
 		}
 
-		selected = append(selected, centroids.data[i].ID)
+		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
 	}
 
 	// read all the selected postings
-	postings, err = h.PostingStore.MultiGet(ctx, selected)
+	beforeRead := time.Now()
+	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -77,7 +104,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
-	totalVectors := 0
+	var decompressBuf []uint64
+
+	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -85,7 +114,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// keep track of the posting size
 		postingSize := len(p)
-		totalVectors += postingSize
 
 		for _, v := range p {
 			id := v.ID()
@@ -109,7 +137,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				continue
 			}
 
-			dist, err := v.Distance(h.distancer, queryVector)
+			decompressBuf = quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
@@ -120,24 +149,80 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(h.minPostingSize) {
-			err = h.taskQueue.EnqueueMerge(selected[i])
+			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_scan_took", time.Since(beforeScan))
+
+	beforeRescore := time.Now()
+	candidates := make([]uint64, 0, q.Len())
+	for id := range q.Iter() {
+		candidates = append(candidates, id)
+	}
+
+	// Budget-aware fan-out: the context budget caps the worker count under
+	// concurrent load; without one we default to 2*GOMAXPROCS (IO-bound).
+	workers := concurrency.NumWorkers(ctx, len(candidates), concurrency.GOMAXPROCSx2)
+
+	// One bucket view shared by all workers avoids a lock acquisition per
+	// candidate; pooled buffers avoid allocating per fetched vector.
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	view := h.objectsBucketView()
+	defer view.ReleaseView()
+
+	// Workers compute distances in parallel; results are inserted after,
+	// in candidate order, so ties resolve the same way on every run.
+	candidateDists := make([]float32, len(candidates))
+	skipped := make([]bool, len(candidates))
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := range workers {
+		eg.Go(func() error {
+			slice := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+			defer h.tempVectors.Put(slice)
+
+			for pos := workerID; pos < len(candidates); pos += workers {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				vec, err := h.fetchNormalizedVector(ctx, candidates[pos], slice, view)
+				if err != nil {
+					// The object may have been deleted between the posting scan
+					// and the rescore step (race condition). Skip stale entries
+					// gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						skipped[pos] = true
+						continue
+					}
+					return err
+				}
+				dist, err := h.distancer.distancer.SingleDist(vector, vec)
+				if err != nil {
+					return err
+				}
+				candidateDists[pos] = dist
+			}
+			return nil
+		})
+	}
+	err = eg.Wait()
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_rescore_took", time.Since(beforeRescore))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	rescored := NewResultSet(k)
-	for id := range q.Iter() {
-		vec, err := h.vectorForId(ctx, id)
-		if err != nil {
-			return nil, nil, err
+	for pos, id := range candidates {
+		if skipped[pos] {
+			continue
 		}
-		dist, err := h.distancer.distancer.SingleDist(vector, vec)
-		if err != nil {
-			return nil, nil, err
-		}
-		rescored.Insert(id, dist)
+		rescored.Insert(id, candidateDists[pos])
 	}
 
 	ids := make([]uint64, rescored.Len())
@@ -150,6 +235,26 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	return ids, dists, nil
+}
+
+// objectsBucketView returns a consistent view of the objects bucket, valid
+// until ReleaseView. A missing objects bucket is a wiring bug — the shard
+// creates it before any vector index — and panics rather than degrading.
+func (h *HFresh) objectsBucketView() common.BucketView {
+	return h.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+}
+
+// fetchNormalizedVector reads the full vector for id into the pooled slice
+// through the shared bucket view, normalized for the index distance. The
+// read is allocation-free.
+func (h *HFresh) fetchNormalizedVector(ctx context.Context, id uint64, slice *common.VectorSlice, view common.BucketView) ([]float32, error) {
+	vec, err := h.tempVectorForIDThunk(ctx, id, slice, view)
+	if err != nil {
+		return nil, err
+	}
+	// safe in place: vec lives in the pooled slice owned by this caller
+	h.normalizeVecInPlace(vec)
+	return vec, nil
 }
 
 func (h *HFresh) SearchByVectorDistance(

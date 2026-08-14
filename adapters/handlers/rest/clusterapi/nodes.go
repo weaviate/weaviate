@@ -40,7 +40,7 @@ func NewNodes(manager nodesManager, auth auth) *nodes {
 
 var (
 	regxNodes      = regexp.MustCompile(`/status`)
-	regxNodesClass = regexp.MustCompile(`/status/(` + entschema.ClassNameRegexCore + `)`)
+	regxNodesClass = regexp.MustCompile(`/status/(` + entschema.IndexNameRegexCore + `)`)
 	regxStatistics = regexp.MustCompile(`/statistics`)
 )
 

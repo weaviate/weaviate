@@ -12,13 +12,14 @@
 package v1
 
 import (
+	"context"
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type mapper interface {
@@ -47,6 +49,7 @@ type generativeReplier interface {
 type Replier struct {
 	generative generativeReplier
 	mapper     mapper
+	principal  *models.Principal
 	logger     logrus.FieldLogger
 }
 
@@ -61,16 +64,18 @@ type generativeQueryParams interface {
 func NewReplier(
 	uses127 bool,
 	generativeQueryParams generativeQueryParams,
+	principal *models.Principal,
 	logger logrus.FieldLogger,
 ) *Replier {
 	return &Replier{
 		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
 		mapper:     &Mapper{},
+		principal:  principal,
 		logger:     logger,
 	}
 }
 
-func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
+func (r *Replier) Search(ctx context.Context, res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:                    float32(tookSeconds),
@@ -80,7 +85,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := r.extractGroup(raw, searchParams, scheme)
+			group, generativeGroupResponse, err := r.extractGroup(raw, searchParams, resolver)
 			if err != nil {
 				return nil, err
 			}
@@ -90,7 +95,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupedResult, generativeGroupedResults, err := r.extractObjectsToResults(res, searchParams, scheme, false)
+		objects, generativeGroupedResult, generativeGroupedResults, err := r.extractObjectsToResults(res, searchParams, resolver, false)
 		if err != nil {
 			return nil, err
 		}
@@ -98,10 +103,37 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
+	if searchParams.AdditionalProperties.QueryProfile {
+		out.QueryProfile = r.extractQueryProfile(ctx)
+	}
 	return out, nil
 }
 
-func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
+// extractQueryProfile reads from ctx, not the returned objects: a query that matched
+// nothing still profiled every shard it visited.
+func (r *Replier) extractQueryProfile(ctx context.Context) *pb.QueryProfile {
+	queryProfiles := helpers.ExtractQueryProfiles(ctx)
+	if len(queryProfiles) == 0 {
+		return nil
+	}
+	shards := make([]*pb.QueryProfile_ShardProfile, len(queryProfiles))
+	for i, p := range queryProfiles {
+		searches := make(map[string]*pb.QueryProfile_SearchProfile, len(p.Searches))
+		for searchType, sp := range p.Searches {
+			searches[searchType] = &pb.QueryProfile_SearchProfile{Details: sp.Details}
+		}
+		shards[i] = &pb.QueryProfile_ShardProfile{
+			// shard.ID() embeds the qualified class name, so the name carries
+			// the caller's "<namespace>:" prefix; strip it (no-op for globals).
+			Name:     namespacing.StripOwnNamespace(r.principal, p.Name),
+			Node:     p.Node,
+			Searches: searches,
+		}
+	}
+	return &pb.QueryProfile{Shards: shards}
+}
+
+func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, resolver *schemaResolver, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturnDeprecated := ""
 	var generativeGroupResults *pb.GenerativeResult
@@ -115,7 +147,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(resolver, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -157,11 +189,16 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(idStrfmtStr, "-", ""), 16)
-	if !success {
-		return nil, "", fmt.Errorf("failed to parse hex string to integer")
+	// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
+	parsed, err := uuid.Parse(idStrfmtStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse id %q as uuid: %w", idStrfmtStr, err)
 	}
-	return hexInteger.Bytes(), idStrfmtStr, nil
+	idBytes, err := parsed.MarshalBinary()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode id %q as bytes: %w", idStrfmtStr, err)
+	}
+	return idBytes, idStrfmtStr, nil
 }
 
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
@@ -373,7 +410,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	return addProps, nil
 }
 
-func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
+func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, resolver *schemaResolver) (*pb.GroupByResult, string, error) {
 	generativeSearchRaw, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
 	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
 	asMap, ok := raw.(map[string]interface{})
@@ -470,7 +507,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, _, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
+	objects, _, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, resolver, true)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
@@ -480,7 +517,33 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	return ret, groupedGenerativeResults, nil
 }
 
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+// extractPropertiesAnswer fills the top-level result for one hit.
+// TargetCollection is the resolved class name, stripped of the caller's own
+// namespace prefix.
+func (r *Replier) extractPropertiesAnswer(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(resolver, results, properties, className, additionalPropsParams)
+	if err != nil {
+		return nil, err
+	}
+	props.TargetCollection = namespacing.StripOwnNamespace(r.principal, className)
+	return props, nil
+}
+
+// extractRefPropertiesAnswer fills the result for a nested reference hit.
+// Strips the caller's own NS from the ref target class — symmetric with
+// extractPropertiesAnswer above.
+func (r *Replier) extractRefPropertiesAnswer(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(resolver, results, properties, className, additionalPropsParams)
+	if err != nil {
+		return nil, err
+	}
+	props.TargetCollection = namespacing.StripOwnNamespace(r.principal, className)
+	return props, nil
+}
+
+// buildPropertiesResult assembles the per-hit non-ref + ref properties.
+// TargetCollection is set by the calling wrapper.
+func (r *Replier) buildPropertiesResult(resolver *schemaResolver, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
@@ -495,11 +558,11 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			continue
 		}
 		if prop.IsPrimitive {
-			class := scheme.GetClass(className)
-			if class == nil {
-				return nil, fmt.Errorf("could not find class %s in schema", className)
+			class, err := resolver.resolve(className)
+			if err != nil {
+				return nil, err
 			}
-			dataType, err := schema.GetPropertyDataType(class, prop.Name)
+			dataType, err := class.primitiveDataType(prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting primitive property datatype")
 			}
@@ -511,11 +574,11 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			continue
 		}
 		if prop.IsObject {
-			class := scheme.GetClass(className)
-			if class == nil {
-				return nil, fmt.Errorf("could not find class %s in schema", className)
+			class, err := resolver.resolve(className)
+			if err != nil {
+				return nil, err
 			}
-			nested, err := schema.GetPropertyByName(class, prop.Name)
+			nested, err := class.property(prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting nested property")
 			}
@@ -536,7 +599,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, "", additionalPropsParams)
+			extractedRefProp, err := r.extractRefPropertiesAnswer(resolver, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
@@ -554,7 +617,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
-	props := pb.PropertiesResult{}
+	props := &pb.PropertiesResult{}
 	if len(nonRefProps.Fields) != 0 {
 		props.NonRefProps = nonRefProps
 	}
@@ -562,12 +625,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 		props.RefProps = refProps
 	}
 	props.RefPropsRequested = properties.HasRefs()
-	if alias != "" {
-		props.TargetCollection = alias
-	} else {
-		props.TargetCollection = className
-	}
-	return &props, nil
+	return props, nil
 }
 
 func extractGenerateResult(additionalPropertiesMap map[string]interface{}) (*additionalModels.GenerateResult, error) {

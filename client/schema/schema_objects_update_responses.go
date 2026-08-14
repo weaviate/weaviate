@@ -346,7 +346,7 @@ SchemaObjectsUpdateUnprocessableEntity describes a response with status code 422
 Invalid update attempt.
 */
 type SchemaObjectsUpdateUnprocessableEntity struct {
-	Payload *models.ErrorResponse
+	Payload *models.RestrictionViolationResponse
 }
 
 // IsSuccess returns true when this schema objects update unprocessable entity response has a 2xx status code
@@ -387,13 +387,13 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
-func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.RestrictionViolationResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.RestrictionViolationResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

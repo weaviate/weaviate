@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -111,23 +112,44 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 			wantIndexSize: cache.InitialSize + 1 + 2*cache.MinimumIndexGrowthDelta,
 			changed:       true,
 		},
+		{
+			name: "corruption safety check (Issue #9918)",
+			args: args{
+				// The exact huge ID from the issue report (approx 5.4 Trillion)
+				id:    uint64(0x4ec00000000),
+				index: createVertexSlice(100),
+			},
+			wantIndexSize: 0,     // Should NOT grow
+			changed:       false, // Should NOT change
+			err:           fmt.Errorf("corruption detected"),
+		},
 	}
 	for _, tt := range tests {
 		logger, _ := test.NewNullLogger()
 		t.Run(tt.name, func(t *testing.T) {
 			newNodes, changed, err := growIndexToAccomodateNode(tt.args.index, tt.args.id, logger)
-			assert.Len(t, newNodes, tt.wantIndexSize)
-			assert.Equal(t, tt.changed, changed)
-			if err != nil {
-				require.NotNil(t, tt.err)
-				assert.EqualError(t, err, tt.err.Error())
+
+			if tt.err != nil {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.err.Error())
+				assert.Nil(t, newNodes)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, newNodes, tt.wantIndexSize)
 			}
+
+			assert.Equal(t, tt.changed, changed)
+
 			// check the newly grown index
 			index := tt.args.index
 			if changed {
 				index = newNodes
 			}
-			assert.Greater(t, len(index), int(tt.args.id))
+
+			// Only check index length if we didn't expect an error
+			if tt.err == nil {
+				assert.Greater(t, len(index), int(tt.args.id))
+			}
 		})
 	}
 }

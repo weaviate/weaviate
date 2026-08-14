@@ -26,11 +26,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// AddReferencesBatch returns one error per reference, in input order, refusals
+// of the whole batch included. The caller maps position i onto that reference's
+// position in its own batch, so a shorter slice reports the references it omits
+// as written.
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
-		return []error{err}
+		return duplicateErr(err, len(refs))
 	}
 
 	return newReferencesBatcher(s).References(ctx, refs)
@@ -41,12 +44,12 @@ func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 // operations)
 type referencesBatcher struct {
 	sync.Mutex
-	shard ShardLike
+	shard *Shard
 	errs  []error
 	refs  objects.BatchReferences
 }
 
-func newReferencesBatcher(s ShardLike) *referencesBatcher {
+func newReferencesBatcher(s *Shard) *referencesBatcher {
 	return &referencesBatcher{
 		shard: s,
 	}
@@ -134,6 +137,17 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			continue
 		}
 
+		// The merge above bumped the object past a live reindex watermark; mirror
+		// its co-located props so the backfill scan's skip stays lossless.
+		if err := b.mirrorColocatedPropsForReindex(res); err != nil {
+			func() {
+				errLock.Lock()
+				defer errLock.Unlock()
+				errs[i] = err
+			}()
+			continue
+		}
+
 		prop, ok := propsByName[ref.From.Property.String()]
 		if !ok {
 			errLock.Lock()
@@ -161,6 +175,36 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 	}
 
 	return errs
+}
+
+// mirrorColocatedPropsForReindex mirrors the merged object's scope-property
+// postings into any in-flight reindex ingest bucket. The batch-ref writers
+// touch only the reference's own buckets and never funnel through
+// updateInvertedIndexLSM's migrationDoubleWrite, so without this a reindex of a
+// co-located primitive property loses the object: mutableMergeObjectLSM bumps
+// its LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it,
+// yet its target value was never mirrored (weaviate/0-weaviate-issues#318).
+//
+// Analyzes under the TARGET overlay and fires only scope props — exactly what
+// migrationDoubleWrite's add leg does on the object write path — so a
+// retokenizing migration mirrors target-tokenized terms (not source-tokenized)
+// into the ingest bucket (weaviate/0-weaviate-issues#298). No-op when no
+// migration scope is armed.
+func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResult) error {
+	st := b.shard.loadPropValueIndexState()
+	if len(st.scope.props) == 0 {
+		return nil
+	}
+	migAdd, err := b.shard.analyzeForDoubleWrite(res.next, st)
+	if err != nil {
+		return fmt.Errorf("analyze merged object for reindex mirror: %w", err)
+	}
+	for i := range migAdd {
+		if err := b.shard.fireAddToPropertyValueIndex(st, res.status.docID, &migAdd[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {
@@ -311,10 +355,16 @@ func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
 }
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
+	// Use the coordinator-assigned stamp so all replicas converge on the
+	// same LastUpdateTime; fall back when the field is unset.
+	updateTime := ref.UpdateTime
+	if updateTime == 0 {
+		updateTime = time.Now().UnixMilli()
+	}
 	return objects.MergeDocument{
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
-		UpdateTime: time.Now().UnixMilli(),
+		UpdateTime: updateTime,
 		References: objects.BatchReferences{ref},
 	}
 }

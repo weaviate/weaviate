@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzConv "github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type authNHandlers struct {
@@ -62,7 +63,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		for roleName, policies := range existingRoles {
 			perms, err := authzConv.PoliciesToPermission(policies...)
 			if err != nil {
-				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
 			roles = append(roles, &models.Role{
 				Name:        &roleName,
@@ -78,9 +79,10 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		"user":      principal.Username,
 	}).Info("own info requested")
 
+	username := namespacing.StripOwnNamespace(principal, principal.Username)
 	return users.NewGetOwnInfoOK().WithPayload(&models.UserOwnInfo{
 		Groups:   principal.Groups,
-		Roles:    roles,
-		Username: &principal.Username,
+		Roles:    namespacing.StripRolesForCaller(principal, roles),
+		Username: &username,
 	})
 }

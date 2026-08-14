@@ -23,6 +23,23 @@ const (
 	DateNanoSecondsTimeZone    = ".451235Z"
 )
 
+func TestDateAggregatorPreEpoch(t *testing.T) {
+	// Regression test for https://github.com/weaviate/weaviate/issues/11125:
+	// maximum returned empty string for pre-1970 DATE values because the
+	// initial max sentinel was 0 (epoch), causing negative unix nanoseconds to
+	// never satisfy the > comparison.
+	earlier := "1969-12-31T23:59:58Z"
+	later := "1969-12-31T23:59:59Z"
+
+	agg := newDateAggregator()
+	assert.Nil(t, agg.AddTimestamp(earlier))
+	assert.Nil(t, agg.AddTimestamp(later))
+	agg.buildPairsFromCounts()
+
+	assert.Equal(t, later, agg.Max(), "maximum of two pre-1970 dates should be the later one")
+	assert.Equal(t, earlier, agg.Min(), "minimum of two pre-1970 dates should be the earlier one")
+}
+
 func TestDateAggregator(t *testing.T) {
 	tests := []struct {
 		name           string

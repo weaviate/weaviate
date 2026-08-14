@@ -25,12 +25,14 @@ import (
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 
+	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -89,7 +91,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context, telemeter *telemetry.Telemeter) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
@@ -107,9 +109,14 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
+		// Add client tracking middleware early in the chain to capture all requests
+		if telemeter != nil {
+			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker(), telemeter.GetIntegrationTracker())(handler)
+		}
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
+		handler = addClientIdentifierToContext(handler)
 		handler = addOperationalMode(appState, handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
@@ -256,19 +263,22 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// search requests are POSTs (an HTTP write method) but are semantically reads
+		isSearch := restsearch.IsSearchRoute(r.URL.Path)
+		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !searchReadAllowed {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !searchReadAllowed {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
 		case config.WRITE_ONLY:
-			if config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
+			if (config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist)) || isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}

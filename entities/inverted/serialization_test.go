@@ -20,6 +20,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestLexicographicallySortableFloat64NegativeZero verifies that -0.0 and 0.0
+// produce identical byte representations, satisfying IEEE 754 equality.
+func TestLexicographicallySortableFloat64NegativeZero(t *testing.T) {
+	negZeroBytes, err := LexicographicallySortableFloat64(math.Copysign(0, -1))
+	require.Nil(t, err)
+
+	posZeroBytes, err := LexicographicallySortableFloat64(0.0)
+	require.Nil(t, err)
+
+	assert.Equal(t, posZeroBytes, negZeroBytes, "-0.0 and 0.0 must encode identically")
+
+	// Also verify ordering: -1000000.0 must sort below 0.0
+	negBigBytes, err := LexicographicallySortableFloat64(-1000000.0)
+	require.Nil(t, err)
+
+	// negBigBytes < posZeroBytes lexicographically
+	assert.True(t, string(negBigBytes) < string(posZeroBytes),
+		"-1000000.0 must sort before 0.0")
+	// negZeroBytes must not sort before negBigBytes
+	assert.False(t, string(negZeroBytes) < string(negBigBytes),
+		"-0.0 must not sort before -1000000.0")
+}
+
 // TestSerialization makes sure that writing and reading into the
 // lexicographically sortable types byte slices ends up with the same values as
 // original. There is no focus on the sortability itself, as that is already

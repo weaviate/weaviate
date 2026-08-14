@@ -112,6 +112,33 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 	return getResp.Payload, nil
 }
 
+func GetObjectAuth(t *testing.T, class string, uuid strfmt.UUID, key string, include ...string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().WithID(uuid)
+	if class != "" {
+		req.WithClassName(class)
+	}
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
+	}
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
+func GetObjectAuthWithTenant(t *testing.T, class string, uuid strfmt.UUID, tenant string, key string, include ...string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().WithID(uuid).WithClassName(class).WithTenant(&tenant)
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
+	}
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func GetObjects(t *testing.T, class string, include ...string) ([]*models.Object, error) {
 	req := objects.NewObjectsListParams().WithClass(&class)
 	if len(include) > 0 {
@@ -148,6 +175,17 @@ func AssertCreateObjectTenantVector(t *testing.T, className string, schema map[s
 func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
+func TenantObjectCL(t *testing.T, class string, id strfmt.UUID, tenant string, cl types.ConsistencyLevel) (*models.Object, error) {
+	cls := string(cl)
+	req := objects.NewObjectsClassGetParams().
+		WithClassName(class).WithID(id).WithTenant(&tenant).WithConsistencyLevel(&cls)
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err

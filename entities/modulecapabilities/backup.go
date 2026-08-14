@@ -18,6 +18,22 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
+// BackendUseCase distinguishes callers so a module can return
+// a differently-configured backend for backup vs export.
+type BackendUseCase int
+
+const (
+	BackendUseCaseBackup BackendUseCase = iota
+	BackendUseCaseExport
+)
+
+// ExportBackendProvider is optionally implemented by backup modules
+// that provide a separate BackupBackend for export operations
+// (e.g., with different STS credentials for cross-account access).
+type ExportBackendProvider interface {
+	ExportBackend() BackupBackend
+}
+
 type BackupBackend interface {
 	// IsExternal returns whether the storage is an external storage (e.g. gcs, s3)
 	IsExternal() bool
@@ -30,11 +46,6 @@ type BackupBackend interface {
 	GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error)
 	// AllBackups returns the top level metadata for all attempted backups
 	AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error)
-
-	// WriteToFile writes an object in the specified file with path destPath
-	// The file will be created if it doesn't exist
-	// The file will be overwritten if it exists
-	WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error
 
 	// SourceDataPath is data path of all source files
 	SourceDataPath() string

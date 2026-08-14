@@ -1,0 +1,1235 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+// Package reindex_concurrent — parallel-conflict matrix.
+//
+// Root cause: two parallel index writes on the SAME property (e.g.
+// enable-filterable + enable-rangeFilters) can race — strategy selection
+// reads stale state and the sentinel-dir lifecycle collides between
+// concurrent migrations on the same property.
+//
+// This file pins every realistic adjacent parallel-conflict scenario on the
+// same (collection, property) tuple as RED tests. When the primary fix
+// lands, the matrix tells us which combinations the fix actually covers vs.
+// which still leak.
+//
+// Test contract for each subtest:
+//
+//   - Pre-state: create a class with property config that makes both
+//     operations legal in isolation.
+//   - Seed enough objects (~2000) that the migrations overlap in time.
+//   - Fire both PUTs in parallel via enterrors.GoWrapper. Collect both
+//     responses.
+//   - Accept any of: 202+task FINISHED, or 409 (conflict, in-flight task on
+//     this property). 4xx validator rejections are also acceptable when
+//     the scenario design expects them. 5xx is NEVER acceptable.
+//   - Assert at least one operation succeeded.
+//   - Assert no silent data loss: whichever bucket(s) ended up indexed must
+//     be queryable. The expected hit count is the same as a sequential
+//     ground-truth run.
+//
+// Scope: same (collection, property). Different properties / different
+// classes are out of scope — see PRD.
+package reindex_concurrent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+)
+
+const matrixObjectCount = 2000
+
+// TestParallelConflictMatrix enumerates parallel (op_A, op_B) pairs on the
+// SAME (collection, property) tuple. Each subtest is one cell of the matrix.
+//
+// Time budget note: each subtest spins a fresh class on a SHARED container.
+// Total runtime is dominated by ingest+migration of ~2k objects per cell.
+func TestParallelConflictMatrix(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := reindexhelpers.StartSingleNode(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	restURI := compose.GetWeaviate().URI()
+	helper.SetupClient(restURI)
+
+	container := compose.GetWeaviate().Container()
+	defer func() {
+		if t.Failed() {
+			reader, err := container.Logs(ctx)
+			if err != nil {
+				t.Logf("failed to get container logs: %v", err)
+				return
+			}
+			defer reader.Close()
+			logs, _ := io.ReadAll(reader)
+			lines := strings.Split(string(logs), "\n")
+			if len(lines) > 400 {
+				lines = lines[len(lines)-400:]
+			}
+			t.Logf("=== Container logs (last 400 lines) ===\n%s", strings.Join(lines, "\n"))
+		}
+	}()
+
+	// Scenario 1: the primary Sev 1 repro.
+	t.Run("enable_filterable__enable_rangeFilters", func(t *testing.T) {
+		testParallel_EnableFilterableEnableRangeable(t, restURI)
+	})
+
+	// Scenario 2: filterable + searchable on a text property.
+	t.Run("enable_filterable__enable_searchable", func(t *testing.T) {
+		testParallel_EnableFilterableEnableSearchable(t, restURI)
+	})
+
+	// Scenario 3: enable-searchable + enable-rangeFilters on text[]. The
+	// rangeFilters PUT is validator-rejected (text isn't numeric). Pins that
+	// the validator rejection doesn't corrupt the searchable enable's
+	// sentinel state.
+	t.Run("enable_searchable__enable_rangeFilters_textArray", func(t *testing.T) {
+		testParallel_EnableSearchableEnableRangeable(t, restURI)
+	})
+
+	// Scenario 4: enable-filterable + change-tokenization on text.
+	t.Run("enable_filterable__change_tokenization", func(t *testing.T) {
+		testParallel_EnableFilterableChangeTokenization(t, restURI)
+	})
+
+	// Scenario 5: change-tok-both + enable-rangeFilters on a SINGLE text
+	// property. The rangeFilters PUT is validator-rejected. Pins that
+	// rejection doesn't corrupt the change-tok task.
+	t.Run("change_tokenization_both__enable_rangeFilters_text_rejected", func(t *testing.T) {
+		testParallel_ChangeTokBothEnableRangeableOnText(t, restURI)
+	})
+
+	// Scenario 6: change-tok-filterable + change-tokenization (both) in
+	// parallel. Both touch filterable → never two distinct writers on it.
+	t.Run("change_tok_filterable__change_tokenization_both", func(t *testing.T) {
+		testParallel_ChangeTokFilterableChangeTokBoth(t, restURI)
+	})
+
+	// Scenario 7: repair-filterable + repair-rangeFilters on same property.
+	t.Run("repair_filterable__repair_rangeFilters", func(t *testing.T) {
+		testParallel_RepairFilterableRepairRangeable(t, restURI)
+	})
+
+	// Scenario 8: repair-filterable + enable-rangeFilters on same property.
+	t.Run("repair_filterable__enable_rangeFilters", func(t *testing.T) {
+		testParallel_RepairFilterableEnableRangeable(t, restURI)
+	})
+
+	// Scenario 9: enable-filterable + DELETE-rangeFilters.
+	t.Run("enable_filterable__delete_rangeFilters", func(t *testing.T) {
+		testParallel_EnableFilterableDeleteRangeable(t, restURI)
+	})
+
+	// Scenario 10: change-tokenization-both + DELETE-searchable.
+	t.Run("change_tokenization_both__delete_searchable_parallel", func(t *testing.T) {
+		testParallel_ChangeTokBothDeleteSearchable(t, restURI)
+	})
+
+	// Scenario 11: enable-filterable + immediate cancel of that same
+	// enable.
+	t.Run("enable_filterable__cancel_enable_filterable", func(t *testing.T) {
+		testParallel_EnableFilterableCancelSame(t, restURI)
+	})
+
+	// Scenario 12: two identical enable-filterable PUTs.
+	t.Run("enable_filterable__enable_filterable_idempotency", func(t *testing.T) {
+		testParallel_EnableFilterableTwiceIdempotency(t, restURI)
+	})
+}
+
+// =============================================================================
+// Scenario 1: enable-filterable + enable-rangeFilters (PRIMARY REPRO)
+// =============================================================================
+//
+// Pre-state: int property with both flags disabled. Per typesConflict the
+// two migrations do NOT conflict (they touch disjoint bucket types), so
+// the conflict checker accepts both. The Sev 1 comes from strategy
+// selection reading stale state and sentinel dirs colliding on the
+// property.
+func testParallel_EnableFilterableEnableRangeable(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltEnRange"
+	falseVal := false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:              "score",
+				DataType:          []string{"int"},
+				IndexFilterable:   &falseVal,
+				IndexRangeFilters: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
+	fireParallelPUTs(t, restURI, class, "score", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "enable-filterable+enable-rangeFilters", rA, rB)
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[enable-filterable+enable-rangeFilters] Equal(score=0) after FINISHED must hit; "+
+				"got %d. Empty bucket = Sev 1 silent data loss", hits)
+	}
+	if rB.terminal == "FINISHED" {
+		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
+		assert.Greater(t, hits, 0,
+			"[enable-filterable+enable-rangeFilters] LessThan(score=%d) after FINISHED must hit; "+
+				"got %d. Empty rangeFilters bucket = Sev 1 silent data loss", matrixObjectCount/2, hits)
+	}
+	if rA.terminal == "FINISHED" && rB.terminal == "FINISHED" {
+		eventualBothFlags(t, class, "score", true, true)
+	}
+}
+
+// =============================================================================
+// Scenario 2: enable-filterable + enable-searchable on text
+// =============================================================================
+func testParallel_EnableFilterableEnableSearchable(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltEnSearch"
+	falseVal := false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        []string{"text"},
+				Tokenization:    "word",
+				IndexFilterable: &falseVal,
+				IndexSearchable: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextObjects(t, class, "name", matrixObjectCount)
+
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("enable-searchable", "searchable", `{"tokenization":"word"}`)
+	fireParallelPUTs(t, restURI, class, "name", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "enable-filterable+enable-searchable", rA, rB)
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalTextFilterHits(t, class, "name", "word_0")
+		assert.Greater(t, hits, 0,
+			"[enable-filterable+enable-searchable] Equal(name=word_0) after FINISHED must hit; got %d", hits)
+	}
+	if rB.terminal == "FINISHED" {
+		hits := bm25HitsForProp(t, class, "name", "word_0")
+		assert.Greater(t, hits, 0,
+			"[enable-filterable+enable-searchable] bm25(word_0) after FINISHED must hit; got %d", hits)
+	}
+}
+
+// =============================================================================
+// Scenario 3: enable-searchable + enable-rangeFilters on text[]
+// =============================================================================
+//
+// Same-property parallel: enable-searchable on text[] accepted +
+// enable-rangeFilters rejected (text[] not numeric). Pins that rejection
+// doesn't corrupt the searchable enable's sentinel state.
+func testParallel_EnableSearchableEnableRangeable(t *testing.T, restURI string) {
+	const class = "ParallelEnSearchEnRange"
+	falseVal := false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "tags",
+				DataType:        []string{"text[]"},
+				Tokenization:    "word",
+				IndexFilterable: &falseVal,
+				IndexSearchable: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextArrayObjects(t, class, "tags", matrixObjectCount)
+
+	rA := newUpsertPR("enable-searchable", "searchable", `{"tokenization":"word"}`)
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
+	fireParallelPUTs(t, restURI, class, "tags", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assert.False(t, rB.accepted,
+		"[enable-searchable+enable-rangeFilters] enable-rangeFilters on text[] must be rejected by validator; "+
+			"got status=%d body=%s", rB.statusCode, rB.body)
+	assert.True(t, rA.accepted,
+		"[enable-searchable+enable-rangeFilters] enable-searchable on text[] must be accepted; "+
+			"got status=%d body=%s", rA.statusCode, rA.body)
+
+	awaitTerminalP(t, restURI, rA)
+
+	if rA.terminal == "FINISHED" {
+		hits := bm25HitsForProp(t, class, "tags", "word_0")
+		assert.Greater(t, hits, 0,
+			"[enable-searchable+enable-rangeFilters] bm25(tags=word_0) after FINISHED must hit; got %d", hits)
+	}
+}
+
+// =============================================================================
+// Scenario 4: enable-filterable + change-tokenization on text
+// =============================================================================
+//
+// Both touch the filterable bucket. They conflict per typesConflict; one
+// 409 is expected. The hazard is the conflict checker missing the
+// overlap, or the change-tokenization migration colliding with the from-
+// scratch enable.
+func testParallel_EnableFilterableChangeTokenization(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltChangeTok"
+	trueVal, falseVal := true, false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        []string{"text"},
+				Tokenization:    "word",
+				IndexFilterable: &falseVal,
+				IndexSearchable: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextObjects(t, class, "name", matrixObjectCount)
+
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("change-tokenization", "searchable", `{"tokenization":"field"}`)
+	fireParallelPUTs(t, restURI, class, "name", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "enable-filterable+change-tokenization", rA, rB)
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalTextFilterHits(t, class, "name", "word_0")
+		hitsFieldFallback := equalTextFilterHits(t, class, "name", "word_0 word_0")
+		assert.True(t, hits+hitsFieldFallback > 0,
+			"[enable-filterable+change-tok] after FINISHED on filterable side, "+
+				"at least one Equal(word_0) or Equal('word_0 word_0') must hit; "+
+				"both zero = empty filterable bucket (Sev 1)")
+	}
+	if rB.terminal == "FINISHED" {
+		// Mirror the rA dual-query pattern at line 369-374: under the
+		// Journey 3 canonical wiring (Journey-3 OnTaskCompleted schema
+		// flip), change-tokenization's word→field flip actually lands by
+		// the time the task transitions to FINISHED. seedTextObjects
+		// stored "word_<i> word_<i>" per object; under FIELD tokenization
+		// the stored term is the whole "word_0 word_0", so bm25(word_0)
+		// tokenized as FIELD = ["word_0"] does NOT match. Either form
+		// hitting proves the searchable bucket is populated (the bug
+		// being pinned is "empty searchable bucket = Sev 1 data loss").
+		hits := bm25HitsForProp(t, class, "name", "word_0")
+		hitsFieldFallback := bm25HitsForProp(t, class, "name", "word_0 word_0")
+		assert.Greater(t, hits+hitsFieldFallback, 0,
+			"[enable-filterable+change-tok] after FINISHED on change-tok side, "+
+				"at least one bm25(word_0) or bm25('word_0 word_0') must hit; "+
+				"both zero = empty searchable bucket (Sev 1 silent data loss)")
+	}
+}
+
+// =============================================================================
+// Scenario 5: change-tok-both + enable-rangeFilters on a SINGLE text property
+// =============================================================================
+func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI string) {
+	const class = "ParallelChangeTokBothEnRangeText"
+	trueVal := true
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        []string{"text"},
+				Tokenization:    "word",
+				IndexFilterable: &trueVal,
+				IndexSearchable: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextObjects(t, class, "name", matrixObjectCount)
+
+	rA := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
+	rB := newUpsertPR("enable-rangeFilters-text", "rangeFilters", `{}`)
+	fireParallelPUTs(t, restURI, class, "name", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assert.False(t, rB.accepted,
+		"[change-tok-both+enable-rangeFilters-text] enable-rangeFilters on text must be 4xx; "+
+			"got status=%d body=%s", rB.statusCode, rB.body)
+	assert.True(t, rA.accepted,
+		"[change-tok-both+enable-rangeFilters-text] change-tok-both must be accepted; "+
+			"got status=%d body=%s", rA.statusCode, rA.body)
+
+	awaitTerminalP(t, restURI, rA)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalTextFilterHits(t, class, "name", "word_0 word_0")
+		assert.Greater(t, hits, 0,
+			"[change-tok-both+enable-rangeFilters-text] post change-tok, Equal('word_0 word_0') "+
+				"under field tokenization must hit; got %d. "+
+				"Empty filterable bucket after rejected sibling = sentinel collision (Sev 1)", hits)
+	}
+}
+
+// =============================================================================
+// Scenario 6: change-tok-filterable + change-tok-both in parallel
+// =============================================================================
+//
+// Both touch filterable on the same property. Either order is legal: whichever
+// request loses the submit lock either 409s or converges on the winner's
+// target, so only two distinct writers on the bucket is a failure.
+func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string) {
+	const class = "ParallelChangeTokFiltBoth"
+	trueVal := true
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        []string{"text"},
+				Tokenization:    "word",
+				IndexFilterable: &trueVal,
+				IndexSearchable: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextObjects(t, class, "name", matrixObjectCount)
+
+	rA := newUpsertPR("change-tok-filterable", "filterable", `{"tokenization":"field"}`)
+	rB := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
+	fireParallelPUTs(t, restURI, class, "name", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "change-tok-filt+change-tok-both", rA, rB)
+
+	// Two accepted requests naming different tasks means two writers race the
+	// same filterable bucket. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[change-tok-filt+change-tok-both] BOTH accepted with distinct tasks — "+
+			"two writers race the same filterable bucket. taskIDs: A=%s B=%s",
+			rA.taskID, rB.taskID)
+	}
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" || rB.terminal == "FINISHED" {
+		hits := equalTextFilterHits(t, class, "name", "word_0 word_0")
+		assert.Greater(t, hits, 0,
+			"[change-tok-filt+change-tok-both] post FINISHED, Equal('word_0 word_0') "+
+				"under field tok must hit; got %d. Empty bucket = Sev 1", hits)
+	}
+}
+
+// =============================================================================
+// Scenario 7: repair-filterable + repair-rangeFilters on same property
+// =============================================================================
+func testParallel_RepairFilterableRepairRangeable(t *testing.T, restURI string) {
+	const class = "ParallelRepairFiltRepairRange"
+	trueVal := true
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:              "score",
+				DataType:          []string{"int"},
+				IndexFilterable:   &trueVal,
+				IndexRangeFilters: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	rA := newRebuildPR("repair-filterable", "filterable")
+	rB := newRebuildPR("repair-rangeFilters", "rangeFilters")
+	fireParallelPUTs(t, restURI, class, "score", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "repair-filterable+repair-rangeFilters", rA, rB)
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[repair-filt+repair-range] after FINISHED, Equal(score=0) must hit; got %d. "+
+				"Empty filterable post-rebuild = Sev 1 silent data loss", hits)
+	}
+	if rB.terminal == "FINISHED" {
+		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
+		assert.Greater(t, hits, 0,
+			"[repair-filt+repair-range] after FINISHED, LessThan(score=%d) must hit; got %d. "+
+				"Empty rangeFilters post-rebuild = Sev 1 silent data loss", matrixObjectCount/2, hits)
+	}
+}
+
+// =============================================================================
+// Scenario 8: repair-filterable + enable-rangeFilters on same property
+// =============================================================================
+//
+// Repair tears the existing filterable bucket while enable-rangeFilters
+// backfills from it. Shared lifecycle hazard even though typesConflict
+// considers them non-overlapping.
+func testParallel_RepairFilterableEnableRangeable(t *testing.T, restURI string) {
+	const class = "ParallelRepairFiltEnRange"
+	trueVal, falseVal := true, false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:              "score",
+				DataType:          []string{"int"},
+				IndexFilterable:   &trueVal,
+				IndexRangeFilters: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	rA := newRebuildPR("repair-filterable", "filterable")
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
+	fireParallelPUTs(t, restURI, class, "score", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "repair-filterable+enable-rangeFilters", rA, rB)
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" {
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[repair-filt+en-range] post FINISHED on filterable, Equal(score=0) must hit; got %d", hits)
+	}
+	if rB.terminal == "FINISHED" {
+		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
+		assert.Greater(t, hits, 0,
+			"[repair-filt+en-range] post FINISHED on rangeFilters, LessThan(%d) must hit; got %d. "+
+				"If 0, enable-rangeFilters backfill ran against a torn filterable bucket (Sev 1)",
+			matrixObjectCount/2, hits)
+	}
+}
+
+// =============================================================================
+// Scenario 9: enable-filterable + DELETE-rangeFilters
+// =============================================================================
+//
+// DELETE is NOT a distributed task — it bypasses checkReindexConflict. The
+// hazard is that DELETE flips IndexRangeFilters to false while
+// enable-filterable is scanning, potentially while shared property cache
+// state is mutating.
+func testParallel_EnableFilterableDeleteRangeable(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltDelRange"
+	trueVal, falseVal := true, false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:              "score",
+				DataType:          []string{"int"},
+				IndexFilterable:   &falseVal,
+				IndexRangeFilters: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	rEnable := newUpsertPR("enable-filterable", "filterable", `{}`)
+	var deleteStatus int
+	var deleteBody []byte
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		executePR(restURI, class, "score", rEnable)
+	}, logger)
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		url := fmt.Sprintf("http://%s/v1/schema/%s/properties/score/index/rangeFilters", restURI, class)
+		req, err := http.NewRequest(http.MethodDelete, url, nil)
+		if err != nil {
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		deleteStatus = resp.StatusCode
+		deleteBody = body
+	}, logger)
+
+	wg.Wait()
+	t.Logf("enable result: status=%d body=%s", rEnable.statusCode, rEnable.body)
+	t.Logf("DELETE rangeFilters result: status=%d body=%s", deleteStatus, string(deleteBody))
+
+	assertNoFiveXX(t, rEnable)
+	assert.Less(t, deleteStatus, 500,
+		"[en-filt+del-range] DELETE rangeFilters must NOT 5xx; got %d body=%s", deleteStatus, string(deleteBody))
+
+	awaitTerminalP(t, restURI, rEnable)
+
+	if rEnable.terminal == "FINISHED" {
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[en-filt+del-range] post FINISHED, Equal(score=0) must hit; got %d. "+
+				"If 0, DELETE ran against the same property's bucket lifecycle and "+
+				"corrupted the enable-filterable backfill (Sev 1)", hits)
+	}
+}
+
+// =============================================================================
+// Scenario 10: change-tokenization-both + DELETE-searchable in parallel
+// =============================================================================
+func testParallel_ChangeTokBothDeleteSearchable(t *testing.T, restURI string) {
+	const class = "ParallelChangeTokBothDelSearch"
+	trueVal := true
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        []string{"text"},
+				Tokenization:    "word",
+				IndexFilterable: &trueVal,
+				IndexSearchable: &trueVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedTextObjects(t, class, "name", matrixObjectCount)
+
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	rChangeTok := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
+	var deleteStatus int
+	var deleteBody []byte
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		executePR(restURI, class, "name", rChangeTok)
+	}, logger)
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		url := fmt.Sprintf("http://%s/v1/schema/%s/properties/name/index/searchable", restURI, class)
+		req, err := http.NewRequest(http.MethodDelete, url, nil)
+		if err != nil {
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		deleteStatus = resp.StatusCode
+		deleteBody = body
+	}, logger)
+
+	wg.Wait()
+	t.Logf("change-tok-both result: status=%d body=%s", rChangeTok.statusCode, rChangeTok.body)
+	t.Logf("DELETE searchable result: status=%d body=%s", deleteStatus, string(deleteBody))
+
+	assertNoFiveXX(t, rChangeTok)
+	assert.Less(t, deleteStatus, 500,
+		"[change-tok-both+del-search] DELETE searchable must NOT 5xx; got %d body=%s", deleteStatus, string(deleteBody))
+
+	awaitTerminalP(t, restURI, rChangeTok)
+
+	c := helper.GetClass(t, class)
+	require.NotNil(t, c, "class must still exist")
+	var nameProp *models.Property
+	for _, p := range c.Properties {
+		if p.Name == "name" {
+			nameProp = p
+			break
+		}
+	}
+	require.NotNil(t, nameProp, "name property must still exist")
+	require.True(t, nameProp.IndexFilterable != nil && *nameProp.IndexFilterable,
+		"[change-tok-both+del-search] filterable index must survive — it was not the DELETE target")
+
+	hitsWord := equalTextFilterHits(t, class, "name", "word_0")
+	hitsField := equalTextFilterHits(t, class, "name", "word_0 word_0")
+	assert.True(t, hitsWord+hitsField > 0,
+		"[change-tok-both+del-search] at least one of Equal('word_0') or Equal('word_0 word_0') "+
+			"must hit; both zero means torn filterable bucket (Sev 1)")
+}
+
+// =============================================================================
+// Scenario 11: enable-filterable + cancel that same enable in parallel
+// =============================================================================
+func testParallel_EnableFilterableCancelSame(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltCancelSame"
+	falseVal := false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "score",
+				DataType:        []string{"int"},
+				IndexFilterable: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	rSubmit := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rCancel := newCancelPR("cancel-filterable", "filterable")
+
+	// submitted is closed once the submit PUT has returned, which publishes
+	// rSubmit.taskID to the cancel goroutine (channel close provides the
+	// happens-before edge, avoiding a data race on rSubmit.taskID).
+	submitted := make(chan struct{})
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		executePR(restURI, class, "score", rSubmit)
+		close(submitted)
+	}, logger)
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		// Deterministically wait until the submit's task is registered in
+		// GET /v1/tasks before issuing the cancel, so "cancel targets a live
+		// task" is no longer timing-dependent (a fixed stagger could race the
+		// cancel ahead of registration, making the scenario trivially green).
+		<-submitted
+		if rSubmit.taskID != "" {
+			require.Eventually(t, func() bool {
+				resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+				if err != nil {
+					return false
+				}
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				var tasks models.DistributedTasks
+				if err := json.Unmarshal(body, &tasks); err != nil {
+					return false
+				}
+				for _, task := range tasks["reindex"] {
+					if task.ID == rSubmit.taskID {
+						return true
+					}
+				}
+				return false
+			}, 5*time.Second, 50*time.Millisecond,
+				"submit task %s must be registered before cancel", rSubmit.taskID)
+		}
+		executePR(restURI, class, "score", rCancel)
+	}, logger)
+
+	wg.Wait()
+	t.Logf("submit result: status=%d body=%s", rSubmit.statusCode, rSubmit.body)
+	t.Logf("cancel result: status=%d body=%s", rCancel.statusCode, rCancel.body)
+
+	assertNoFiveXX(t, rSubmit)
+	assertNoFiveXX(t, rCancel)
+
+	awaitTerminalP(t, restURI, rSubmit)
+
+	switch rSubmit.terminal {
+	case "FINISHED":
+		eventualSingleFlag(t, class, "score", "filterable", true)
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[en-filt+cancel-same] after FINISHED, Equal(score=0) must hit; got %d. "+
+				"Empty bucket but flag flipped = Sev 1 silent data loss", hits)
+	case "CANCELLED", "FAILED":
+		eventualSingleFlag(t, class, "score", "filterable", false)
+	}
+}
+
+// =============================================================================
+// Scenario 12: two identical enable-filterable PUTs (idempotency)
+// =============================================================================
+func testParallel_EnableFilterableTwiceIdempotency(t *testing.T, restURI string) {
+	const class = "ParallelEnFiltTwice"
+	falseVal := false
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{
+				Name:            "score",
+				DataType:        []string{"int"},
+				IndexFilterable: &falseVal,
+			},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	seedIntObjects(t, class, "score", matrixObjectCount)
+
+	rA := newUpsertPR("enable-filterable-A", "filterable", `{}`)
+	rB := newUpsertPR("enable-filterable-B", "filterable", `{}`)
+	fireParallelPUTs(t, restURI, class, "score", rA, rB)
+
+	assertNoFiveXX(t, rA)
+	assertNoFiveXX(t, rB)
+	assertAtLeastOneAccepted(t, "enable-filterable-twice", rA, rB)
+
+	// Two accepted requests naming different tasks means the conflict checker
+	// missed the overlap. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[en-filt-twice] BOTH PUTs accepted with distinct tasks — conflict checker "+
+			"missed identical-op overlap. taskIDs: A=%s B=%s. This races two writers "+
+			"against the same filterable bucket", rA.taskID, rB.taskID)
+	}
+
+	awaitTerminalP(t, restURI, rA)
+	awaitTerminalP(t, restURI, rB)
+
+	if rA.terminal == "FINISHED" || rB.terminal == "FINISHED" {
+		eventualSingleFlag(t, class, "score", "filterable", true)
+		hits := equalIntFilterHits(t, class, "score", 0)
+		assert.Greater(t, hits, 0,
+			"[en-filt-twice] post FINISHED, Equal(score=0) must hit; got %d", hits)
+	}
+}
+
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+// parallelResult is the captured outcome of one index-write request fired
+// against the GA per-index-type endpoint
+// .../properties/{prop}/index/{indexType}[/rebuild|/cancel].
+type parallelResult struct {
+	label       string
+	indexType   string // "filterable" | "searchable" | "rangeFilters"
+	verb        string // "" → PUT upsert; "rebuild"/"cancel" → POST sub-resource
+	requestBody string // JSON upsert body; empty for rebuild/cancel
+	statusCode  int
+	body        string
+	taskID      string // populated only when statusCode==202
+	accepted    bool   // statusCode == 202
+	terminal    string // populated by awaitTerminalP: FINISHED/FAILED/CANCELLED/""
+}
+
+// newUpsertPR builds a PUT .../index/{indexType} upsert op carrying the GA
+// declarative body (e.g. `{}` or `{"tokenization":"field"}`).
+func newUpsertPR(label, indexType, body string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, requestBody: body}
+}
+
+// newRebuildPR builds a POST .../index/{indexType}/rebuild op.
+func newRebuildPR(label, indexType string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, verb: "rebuild"}
+}
+
+// newCancelPR builds a POST .../index/{indexType}/cancel op.
+func newCancelPR(label, indexType string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, verb: "cancel"}
+}
+
+// fireParallelPUTs issues the two ops against
+// .../properties/{prop}/index/{indexType}[/rebuild|/cancel] in parallel via
+// enterrors.GoWrapper. Populates the two parallelResult pointers in place.
+func fireParallelPUTs(t *testing.T, restURI, class, prop string, rA, rB *parallelResult) {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		executePR(restURI, class, prop, rA)
+	}, logger)
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		executePR(restURI, class, prop, rB)
+	}, logger)
+
+	wg.Wait()
+	t.Logf("parallel A %s: status=%d body=%s", rA.label, rA.statusCode, rA.body)
+	t.Logf("parallel B %s: status=%d body=%s", rB.label, rB.statusCode, rB.body)
+}
+
+// executePR issues the stored request and populates statusCode/body/taskID/
+// accepted. verb=="" is a PUT upsert with r.requestBody; "rebuild"/"cancel"
+// is a bodyless POST to the matching sub-resource.
+func executePR(restURI, class, prop string, r *parallelResult) {
+	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, class, prop, r.indexType)
+	method := http.MethodPut
+	var reader io.Reader
+	switch r.verb {
+	case "rebuild", "cancel":
+		url += "/" + r.verb
+		method = http.MethodPost
+	default:
+		reader = bytes.NewReader([]byte(r.requestBody))
+	}
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		r.statusCode = 0
+		r.body = err.Error()
+		return
+	}
+	if r.verb == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		r.statusCode = 0
+		r.body = err.Error()
+		return
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	r.statusCode = resp.StatusCode
+	r.body = string(raw)
+	if resp.StatusCode == http.StatusAccepted {
+		r.accepted = true
+		var parsed map[string]string
+		if json.Unmarshal(raw, &parsed) == nil {
+			r.taskID = parsed["taskId"]
+		}
+	}
+}
+
+// assertNoFiveXX requires that the response is not a 5xx. 0 (network
+// failure) is also disallowed.
+func assertNoFiveXX(t *testing.T, r *parallelResult) {
+	t.Helper()
+	require.NotEqual(t, 0, r.statusCode, "[%s] network-level failure: %s", r.label, r.body)
+	require.Less(t, r.statusCode, 500,
+		"[%s] response is 5xx (structural bug): status=%d body=%s", r.label, r.statusCode, r.body)
+}
+
+// assertAtLeastOneAccepted requires that at least one of the two parallel
+// PUTs was accepted (202). Both rejected is a failure — the system MUST
+// make forward progress on at least one of the two operations.
+func assertAtLeastOneAccepted(t *testing.T, label string, rA, rB *parallelResult) {
+	t.Helper()
+	if !rA.accepted && !rB.accepted {
+		t.Errorf("[%s] BOTH parallel PUTs rejected: A=(%d %s) B=(%d %s). "+
+			"At least one operation must make progress; otherwise the user is "+
+			"unable to make any change to this property (Sev 1)",
+			label, rA.statusCode, rA.body, rB.statusCode, rB.body)
+	}
+}
+
+// awaitTerminalP polls /v1/tasks until r's task reaches a terminal state.
+// Mutates r.terminal in place. No-op for non-accepted PUTs.
+func awaitTerminalP(t *testing.T, restURI string, r *parallelResult) {
+	t.Helper()
+	if !r.accepted || r.taskID == "" {
+		return
+	}
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID == r.taskID {
+				switch task.Status {
+				case "FINISHED", "FAILED", "CANCELLED":
+					r.terminal = task.Status
+					t.Logf("task %s reached terminal=%s", r.taskID, task.Status)
+					return true
+				}
+			}
+		}
+		return false
+	}, 3*time.Minute, 50*time.Millisecond,
+		"task %s must reach a terminal state", r.taskID)
+}
+
+// =============================================================================
+// Seeders
+// =============================================================================
+
+func seedIntObjects(t *testing.T, class, propName string, n int) {
+	t.Helper()
+	objects := make([]*models.Object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = &models.Object{
+			Class:      class,
+			Properties: map[string]interface{}{propName: i},
+		}
+	}
+	helper.CreateObjectsBatch(t, objects)
+}
+
+func seedTextObjects(t *testing.T, class, propName string, n int) {
+	t.Helper()
+	objects := make([]*models.Object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = &models.Object{
+			Class:      class,
+			Properties: map[string]interface{}{propName: fmt.Sprintf("word_%d word_%d", i, i)},
+		}
+	}
+	helper.CreateObjectsBatch(t, objects)
+}
+
+func seedTextArrayObjects(t *testing.T, class, propName string, n int) {
+	t.Helper()
+	objects := make([]*models.Object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = &models.Object{
+			Class:      class,
+			Properties: map[string]interface{}{propName: []string{fmt.Sprintf("word_%d", i), "shared"}},
+		}
+	}
+	helper.CreateObjectsBatch(t, objects)
+}
+
+// =============================================================================
+// Query helpers
+// =============================================================================
+
+func equalIntFilterHits(t *testing.T, class, prop string, value int) int {
+	t.Helper()
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(where: {path: [%q], operator: Equal, valueInt: %d}, limit: 10000) {
+				_additional { id }
+			}
+		}
+	}`, class, prop, value)
+	ids, err := runMatrixGraphQL(t, class, gqlQuery)
+	if err != nil {
+		t.Logf("equal int filter %s=%d errored: %v", prop, value, err)
+		return 0
+	}
+	return len(ids)
+}
+
+func equalTextFilterHits(t *testing.T, class, prop, value string) int {
+	t.Helper()
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(where: {path: [%q], operator: Equal, valueText: %q}, limit: 10000) {
+				_additional { id }
+			}
+		}
+	}`, class, prop, value)
+	ids, err := runMatrixGraphQL(t, class, gqlQuery)
+	if err != nil {
+		t.Logf("equal text filter %s=%q errored: %v", prop, value, err)
+		return 0
+	}
+	return len(ids)
+}
+
+func rangeIntFilterHits(t *testing.T, class, prop string, lessThan int) int {
+	t.Helper()
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(where: {path: [%q], operator: LessThan, valueInt: %d}, limit: 10000) {
+				_additional { id }
+			}
+		}
+	}`, class, prop, lessThan)
+	ids, err := runMatrixGraphQL(t, class, gqlQuery)
+	if err != nil {
+		t.Logf("range int filter %s<%d errored: %v", prop, lessThan, err)
+		return 0
+	}
+	return len(ids)
+}
+
+func bm25HitsForProp(t *testing.T, class, prop, query string) int {
+	t.Helper()
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(bm25: {query: %q, properties: [%q]}, limit: 10000) {
+				_additional { id }
+			}
+		}
+	}`, class, query, prop)
+	ids, err := runMatrixGraphQL(t, class, gqlQuery)
+	if err != nil {
+		t.Logf("bm25 %s=%q errored: %v", prop, query, err)
+		return 0
+	}
+	return len(ids)
+}
+
+func runMatrixGraphQL(t *testing.T, className, gqlQuery string) ([]string, error) {
+	t.Helper()
+	resp, err := graphqlhelper.QueryGraphQL(t, nil, "", gqlQuery, nil)
+	if err != nil {
+		return nil, fmt.Errorf("graphql request: %w", err)
+	}
+	if len(resp.Errors) > 0 {
+		return nil, fmt.Errorf("graphql errors: %v", resp.Errors[0].Message)
+	}
+	data := make(map[string]interface{})
+	for key, value := range resp.Data {
+		data[key] = value
+	}
+	getMap, ok := data["Get"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no Get in graphql data")
+	}
+	items, ok := getMap[className].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no items for %s", className)
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		additional, ok := m["_additional"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if id, ok := additional["id"].(string); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// eventualBothFlags polls until both index flags reach expected values.
+func eventualBothFlags(t *testing.T, class, prop string, wantFilt, wantRange bool) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c := helper.GetClass(t, class)
+		if c == nil {
+			return false
+		}
+		for _, p := range c.Properties {
+			if p.Name != prop {
+				continue
+			}
+			gotFilt := p.IndexFilterable != nil && *p.IndexFilterable
+			gotRange := p.IndexRangeFilters != nil && *p.IndexRangeFilters
+			return gotFilt == wantFilt && gotRange == wantRange
+		}
+		return false
+	}, 60*time.Second, 50*time.Millisecond,
+		"flags on %s.%s must reach filt=%v range=%v", class, prop, wantFilt, wantRange)
+}
+
+// eventualSingleFlag polls a single index flag.
+func eventualSingleFlag(t *testing.T, class, prop, flag string, want bool) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c := helper.GetClass(t, class)
+		if c == nil {
+			return false
+		}
+		for _, p := range c.Properties {
+			if p.Name != prop {
+				continue
+			}
+			switch flag {
+			case "filterable":
+				return p.IndexFilterable != nil && *p.IndexFilterable == want
+			case "searchable":
+				return p.IndexSearchable != nil && *p.IndexSearchable == want
+			case "rangeFilters":
+				return p.IndexRangeFilters != nil && *p.IndexRangeFilters == want
+			}
+		}
+		return false
+	}, 60*time.Second, 50*time.Millisecond,
+		"flag %s on %s.%s must reach %v", flag, class, prop, want)
+}

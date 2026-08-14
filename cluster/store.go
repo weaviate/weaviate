@@ -21,17 +21,21 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	googleproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/namespaces"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -39,12 +43,14 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const (
@@ -153,6 +159,9 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
+	// TelemetryEnabled reports whether telemetry is enabled on this node.
+	TelemetryEnabled bool
+
 	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
 	// unnecessary
 	EnableOneNodeRecovery bool
@@ -168,6 +177,9 @@ type Config struct {
 
 	DynamicUserController *apikey.DBUser
 
+	NamespacesController *usecasesNamespaces.Controller
+	NamespacesEnabled    bool
+
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
@@ -177,15 +189,34 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	ReplicaMovementEnabled bool
+	// DistributedTaskCollectionExtractors are registered on the
+	// distributed-task Manager at FSM construction time, BEFORE RAFT
+	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
+	// (schemaOnly) apply too. Late post-construction registration would
+	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
+	// and weaviate/0-weaviate-issues#231.
+	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
+	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
+	// per-target cascade deletion (drop-vector marker introduction).
+	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 
-	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
-	// async replication can complete.
-	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
+	ReplicaMovementEnabled bool
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
+
+	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
+	// unlimited), enforced pre-commit on the leader.
+	MaxTenantsPerCollection *runtime.DynamicValue[int]
+
+	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
+	// tenant-cap rejection, matching the handler fast-path.
+	UsageLimitsErrorMessage *runtime.DynamicValue[string]
+
+	// DBLoadProgress reports local shard-loading progress (loaded,
+	// total) while the DB is being restored on startup.
+	DBLoadProgress func() *db.StartupProgressSnapshot
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -234,6 +265,9 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	dynUserManager *dynusers.Manager
 
+	// namespaceManager is responsible for applying/querying changes committed by RAFT to the namespace control-plane state
+	namespaceManager *namespaces.Manager
+
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
 
@@ -245,13 +279,17 @@ type Store struct {
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 
-	// snapshotter is the snapshotter for the store
-	snapshotter fsm.Snapshotter
+	// tenantAddLocks serializes AddTenants per class on the leader so the
+	// pre-commit tenant-cap check cannot race the apply that increments the count.
+	tenantAddLocks *entsync.KeyLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
 	metrics *storeMetrics
+
+	// clusterID is the stable UUID committed once per cluster lifetime via raft.
+	clusterID atomic.Pointer[string]
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -306,10 +344,50 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	if dv := cfg.MaxTenantsPerCollection; dv != nil {
+		errTemplate := func() string { return "" }
+		if t := cfg.UsageLimitsErrorMessage; t != nil {
+			errTemplate = t.Get
+		}
+		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
+
+	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
+	// cascade-delete (weaviate/0-weaviate-issues#231).
+	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Clock:            clockwork.NewRealClock(),
+		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		Logger:           cfg.Logger,
+	})
+
+	schemaManager.SetMutationGuard(distributedTasksManager)
+	schemaManager.SetDistributedTaskManager(distributedTasksManager)
+
+	// Register collection extractors BEFORE RAFT.Apply replay can fire.
+	// The DELETE_CLASS cascade lives in updateSchema (runs even on
+	// schemaOnly replay), but with no extractor registered for the
+	// reindex namespace the cascade is a no-op and the resurrected task
+	// records survive. weaviate/0-weaviate-issues#231.
+	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
+		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+	}
+	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
+		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
+	}
+
+	var dynusersLister namespaces.DynusersNamespaceLister
+	if cfg.DynamicUserController != nil {
+		dynusersLister = cfg.DynamicUserController
+	}
+
+	var rbacLister namespaces.RBACNamespaceLister
+	if cfg.RBAC != nil {
+		rbacLister = cfg.RBAC
+	}
 
 	return Store{
 		cfg:          cfg,
@@ -322,24 +400,56 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 			LocalName:          cfg.NodeID,
-			LocalAddress:       fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
-		schemaManager:      schemaManager,
-		snapshotter:        snapshotter,
-		authZController:    authZController,
-		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replicationManager,
-		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
-			Clock:            clockwork.NewRealClock(),
-			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		schemaManager:           schemaManager,
+		tenantAddLocks:          entsync.NewKeyLocker(),
+		authZController:         authZController,
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
+		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
+		replicationManager:      replicationManager,
+		distributedTasksManager: distributedTasksManager,
+		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
+
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the distributed task FSM Manager so it can poke the Scheduler from
+// RAFT-apply paths (see [distributedtask.SchedulerNotifier] for the
+// rationale). Called once at startup after both Store and Scheduler
+// exist, from MakeAppState's wiring.
+func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	st.distributedTasksManager.SetSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the distributed task FSM Manager. Called
+// once at startup from MakeAppState. See
+// [distributedtask.ConflictDetector] for the contract.
+func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	st.distributedTasksManager.SetConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// detectors consulted from the schema FSM's UpdateProperty apply path
+// via the Manager's CheckPropertyUpdate method. Called once at startup
+// from MakeAppState, after the providers exist. See
+// [distributedtask.SchemaMutationDetector] for the FSM-determinism
+// contract and motivating failure mode.
+func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
+}
+
+// RegisterDistributedTaskCollectionExtractor opts a task namespace into
+// [SchemaManager.DeleteClass]'s cascade-delete of task records.
+// weaviate/0-weaviate-issues#231.
+func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
+	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+}
 
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
@@ -413,6 +523,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
 	enterrors.GoWrapper(f, st.log)
+	st.schemaManager.SetShouldLogSlowApply(st.shouldLogSlowApply)
 	return nil
 }
 
@@ -441,13 +552,13 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+	advertiseAddress := net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RaftPort))
 	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
+	bindAddress := net.JoinHostPort(st.cfg.BindAddr, fmt.Sprintf("%d", st.cfg.RaftPort))
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -512,6 +623,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			} else {
 				st.log.Info("migration from the old schema has been successfully completed")
 			}
+		}
+
+		if st.IsLeader() {
+			st.maybeCommitClusterID()
 		}
 		return
 	}
@@ -600,6 +715,70 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 			}
 		}
 	}
+}
+
+// dbLoadProgressFields recomputes shard-loading progress, which also refreshes
+// the startup gauges, and returns it as log fields. It returns nil when no
+// progress source is configured or there are no shards to load.
+func (st *Store) dbLoadProgressFields() logrus.Fields {
+	if st.cfg.DBLoadProgress == nil {
+		return nil
+	}
+
+	snapshot := st.cfg.DBLoadProgress()
+	if snapshot == nil {
+		return nil
+	}
+
+	if snapshot.Total <= 0 {
+		return nil
+	}
+
+	return logrus.Fields{
+		"shards_loaded": snapshot.Loaded,
+		"shards_total":  snapshot.Total,
+		"progress":      fmt.Sprintf("%.0f%%", float64(snapshot.Loaded)/float64(snapshot.Total)*100),
+	}
+}
+
+const (
+	// dbLoadProgressInterval is how often shard-loading progress is recomputed
+	// and published to the startup gauges while the DB reloads from the schema.
+	dbLoadProgressInterval = 5 * time.Second
+	// dbLoadProgressLogInterval is how often that progress is written to the log.
+	dbLoadProgressLogInterval = time.Minute
+)
+
+// trackDBLoadProgress republishes local shard-loading progress every
+// dbLoadProgressInterval and logs it every dbLoadProgressLogInterval, until the
+// returned stop function is called.
+//
+// This is the authoritative signal: it covers every path the load takes, while
+// WaitToRestoreDB only announces that it is waiting — never on a single node,
+// where the bootstrap join is serialised behind the load.
+func (st *Store) trackDBLoadProgress() func() {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(dbLoadProgressInterval)
+		defer t.Stop()
+		var lastLog time.Time
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				fields := st.dbLoadProgressFields()
+				if fields == nil {
+					continue
+				}
+				if time.Since(lastLog) >= dbLoadProgressLogInterval {
+					st.log.WithFields(fields).Info("loading local DB from schema")
+					lastLog = time.Now()
+				}
+			}
+		}
+	}, st.log)
+	return func() { close(done) }
 }
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
@@ -816,7 +995,12 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
-		st.schemaManager.ReloadDBFromSchema()
+		func() {
+			stop := st.trackDBLoadProgress()
+			defer stop()
+			st.schemaManager.ReloadDBFromSchema()
+		}()
+		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
@@ -842,6 +1026,12 @@ func (st *Store) reloadDBFromSchema() {
 
 func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
+}
+
+// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
+// emitted: current leader, store ready, and past startup FSM catch-up.
+func (st *Store) shouldLogSlowApply() bool {
+	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {
@@ -887,7 +1077,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	exNode := servers[0]
 	newNode := raft.Server{
 		ID:       raft.ServerID(st.cfg.NodeID),
-		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Address:  raft.ServerAddress(net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RPCPort))),
 		Suffrage: raft.Voter,
 	}
 
@@ -914,7 +1104,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	tempFSM := NewFSM(recoveryConfig, st.authZController, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,
@@ -944,4 +1134,61 @@ func (st *Store) recoverSingleNode(force bool) error {
 	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
+}
+
+// setClusterID records the cluster identity in memory, set-once (first
+// writer wins; a duplicate from replay or snapshot restore is a logged no-op).
+func (st *Store) setClusterID(clusterID string) {
+	id := clusterID
+	if !st.clusterID.CompareAndSwap(nil, &id) {
+		st.log.WithFields(logrus.Fields{"existing_cluster_id": st.ClusterID(), "duplicate_cluster_id": clusterID}).Debug("duplicate cluster-id set, no-op (set-once)")
+	}
+}
+
+// ClusterID returns the committed cluster identity, or "" if not yet set.
+func (st *Store) ClusterID() string {
+	if p := st.clusterID.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// maybeCommitClusterID commits a fresh UUID cluster identity via raft if one
+// isn't set yet. Caller must be the raft leader.
+//
+// No-op when telemetry is disabled. This is a leader-local decision: a cluster
+// with mixed settings still gets an identity if any leader has telemetry on,
+// and an already committed id is never removed by opting out later.
+func (st *Store) maybeCommitClusterID() {
+	if !st.cfg.TelemetryEnabled {
+		return
+	}
+
+	if st.ClusterID() != "" {
+		return
+	}
+
+	uid, err := uuid.NewV7()
+	if err != nil {
+		// fall back to v4 if the monotonic-random source fails
+		uid = uuid.New()
+	}
+	id := uid.String()
+	req := &api.SetClusterIDRequest{
+		ClusterId: id,
+	}
+	subCmd, err := googleproto.Marshal(req)
+	if err != nil {
+		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("marshal cluster-id set subcommand: %v", err)
+		return
+	}
+	applyReq := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_CLUSTER_ID_SET,
+		SubCommand: subCmd,
+	}
+	// A new leader may commit a duplicate before replaying the existing entry;
+	// harmless, since applyClusterIDSet is set-once.
+	if _, err := st.Execute(applyReq); err != nil {
+		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("commit cluster-id set command: %v", err)
+	}
 }

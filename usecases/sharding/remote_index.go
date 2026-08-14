@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -33,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -89,12 +89,12 @@ type RemoteIndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
@@ -104,19 +104,6 @@ type RemoteIndexClient interface {
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
 
-	// PauseFileActivity pauses the shard replica background processes on the specified node.
-	// You should explicitly resume the background processes once you're done.
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
-	// ResumeFileActivity resumes the shard replica background processes on the specified node.
-	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
-	// ListFiles returns a list of files that can be used to get the shard data at the time the pause was
-	// requested.
-	ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
-	// GetFileMetadata returns file info at the given path in the shard's root directory.
-	GetFileMetadata(ctx context.Context, hostName, indexName, shardName, fileName string) (file.FileMetadata, error)
-	// GetFile returns a reader for the file at the given path in the shard's root directory.
-	// The caller must close the returned io.ReadCloser if no error is returned.
-	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 	// AddAsyncReplicationTargetNode adds the async replication target node for a shard.
 	AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
 	// RemoveAsyncReplicationTargetNode removes the async replication target node for a shard.
@@ -270,6 +257,9 @@ type ReplicasSearchResult struct {
 	Objects []*storobj.Object
 	Scores  []float32
 	Node    string
+	// QueryProfiles contains per-shard profiling data returned from the remote node.
+	// Only populated when additional.QueryProfile is true.
+	QueryProfiles []helpers.ShardQueryProfile
 }
 
 func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
@@ -290,12 +280,12 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	properties []string,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
-		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
+		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node, QueryProfiles: queryProfiles}, nil
 	}
 	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }
@@ -313,25 +303,26 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, string, error) {
-	type pair struct {
-		first  []*storobj.Object
-		second []float32
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, string, error) {
+	type result struct {
+		objects       []*storobj.Object
+		scores        []float32
+		queryProfiles []helpers.ShardQueryProfile
 	}
 	f := func(node, host string) (interface{}, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return nil, err
 		}
-		return pair{objs, scores}, err
+		return result{objs, scores, queryProfiles}, err
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, node, err
+		return nil, nil, nil, node, err
 	}
-	r := rr.(pair)
-	return r.first, r.second, node, err
+	r := rr.(result)
+	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
 func (ri *RemoteIndex) Aggregate(
@@ -354,7 +345,7 @@ func (ri *RemoteIndex) Aggregate(
 }
 
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -366,7 +357,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters)
+	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, limit)
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,

@@ -44,7 +44,7 @@ type fakeBackupBackendProvider struct {
 	err     error
 }
 
-func (bsp *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+func (bsp *fakeBackupBackendProvider) BackupBackend(backend string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return bsp.backend, bsp.err
 }
 
@@ -88,6 +88,12 @@ func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
 	return fb.meta.Status, fb.meta.Error
 }
 
+func (fb *fakeBackend) getMetaBaseBackupID() string {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.BaseBackupID
+}
+
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
 		doneChan: make(chan bool),
@@ -124,6 +130,11 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)
+	if args.Error(0) != nil {
+		// A write that fails leaves the previous object in place, which is the
+		// whole point of the tests that make one fail.
+		return args.Error(0)
+	}
 	switch key {
 	case BackupFile:
 		json.Unmarshal(bytes, &fb.meta)
@@ -141,6 +152,20 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	fb.RLock()
 	defer fb.RUnlock()
+
+	// For GlobalRestoreFile, dynamically return current glMeta state if it has been set
+	// by PutObject during an active restore. This allows coordinator code to read the
+	// current status (e.g., to check for cancellation) without requiring explicit mock
+	// expectations for each read. Falls back to mock expectations for tests that
+	// explicitly set them (like status check tests).
+	if key == GlobalRestoreFile && fb.glMeta.ID != "" {
+		bytes, err := json.Marshal(fb.glMeta)
+		if err != nil {
+			return nil, err
+		}
+		return bytes, nil
+	}
+
 	args := fb.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
@@ -168,13 +193,6 @@ func (fb *fakeBackend) IsExternal() bool {
 
 func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
-}
-
-func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	fb.Lock()
-	defer fb.Unlock()
-	args := fb.Called(ctx, backupID, key, destPath)
-	return args.Error(0)
 }
 
 func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {

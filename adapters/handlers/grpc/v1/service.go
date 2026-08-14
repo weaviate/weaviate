@@ -20,11 +20,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -33,10 +37,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaEnt "github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -47,7 +50,7 @@ type Service struct {
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
-	schemaManager        *schemaManager.Manager
+	schemaManager        *schema.Manager
 	batchManager         *objects.BatchManager
 	config               *config.Config
 	authorizer           authorization.Authorizer
@@ -58,23 +61,19 @@ type Service struct {
 	batchStreamHandler *batch.StreamHandler
 }
 
-func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
-	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger,
-) (*Service, batch.Drain) {
-	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
-	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, 2*NUMCPU, logger)
+func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
+	authenticator := auth.NewHandler(allowAnonymous, authComposer)
+	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger, state.ServerConfig.Config.Namespaces.Enabled)
 	return &Service{
-		traverser:            traverser,
+		traverser:            state.Traverser,
 		authComposer:         authComposer,
-		allowAnonymousAccess: allowAnonymousAccess,
-		schemaManager:        schemaManager,
-		batchManager:         batchManager,
-		config:               config,
-		logger:               logger,
-		authorizer:           authorization,
+		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
+		config:               &state.ServerConfig.Config,
+		logger:               state.Logger,
+		authorizer:           state.Authorizer,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -85,10 +84,6 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	var result *pb.AggregateReply
 	var errInner error
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
@@ -98,17 +93,25 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return result, errInner
 }
 
-func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
+	}
+
+	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
 	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		getClass,
+		s.config.Namespaces.Enabled,
+		principal,
 	)
 
 	params, err := parser.Aggregate(req)
@@ -122,10 +125,11 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		principal,
+		getClass,
 		params,
 	)
-	reply, err := replier.Aggregate(res, params.GroupBy != nil)
+	reply, err = replier.Aggregate(res, params.GroupBy != nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)
 	}
@@ -134,17 +138,14 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return reply, nil
 }
 
-func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (reply *pb.TenantsGetReply, retErr error) {
 	before := time.Now()
-
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	retTenants, err := s.tenantsGet(ctx, principal, req)
@@ -172,12 +173,13 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	return result, errInner
 }
 
-func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (reply *pb.BatchDeleteReply, retErr error) {
 	before := time.Now()
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
@@ -187,15 +189,15 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
 	}
 
 	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -205,7 +207,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, fmt.Errorf("batch delete: %w", err)
 	}
 
-	result, err := batchDeleteReplyFromObjects(response, req.Verbose)
+	result, err := batchDeleteReplyFromObjects(response, req.Verbose, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete reply: %w", err)
 	}
@@ -272,10 +274,6 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	var result *pb.SearchReply
 	var errInner error
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)
 	}, s.logger); err != nil {
@@ -285,23 +283,31 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
+	}
+
+	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-		s.aliasGetter(),
+		getClass,
+		principal,
+		s.config.Namespaces.Enabled,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,
 		parser.generative,
+		principal,
 		s.logger,
 	)
 
@@ -310,8 +316,14 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	if err := s.validateClassAndProperty(searchParams); err != nil {
+	if err := s.validateClassAndProperty(getClass, searchParams); err != nil {
 		return nil, err
+	}
+
+	// Own the collector here so the profile outlives the result set: the deeper inits
+	// are idempotent and will write into this one.
+	if searchParams.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
 	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
@@ -319,18 +331,17 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-	return replier.Search(res, before, searchParams, scheme)
+	return replier.Search(ctx, res, before, searchParams, newSchemaResolver(getClass))
 }
 
-func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
-	class := s.schemaManager.ReadOnlyClass(searchParams.ClassName)
-	if class == nil {
-		return fmt.Errorf("could not find class %s in schema", searchParams.ClassName)
+func (s *Service) validateClassAndProperty(getClass classGetterWithAuthzFunc, searchParams dto.GetParams) error {
+	class, err := getClass(searchParams.ClassName)
+	if err != nil {
+		return err
 	}
 
 	for _, prop := range searchParams.Properties {
-		_, err := schema.GetPropertyByName(class, prop.Name)
+		_, err := schemaEnt.GetPropertyByName(class, prop.Name)
 		if err != nil {
 			return err
 		}
@@ -341,6 +352,10 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
+// classGetterWithAuthzFunc returns a getter that memoizes each (class, tenant)
+// lookup for one request. A cache hit skips the RBAC Authorize call, so the memo
+// key must fully identify the authorized resource or one class's decision leaks
+// to another. Not concurrency-safe; scoped to a single request.
 func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -357,23 +372,12 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
-			authorizedCollections[name] = class
+			authorizedCollections[classTenantName] = class
 		}
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
-	}
-}
-
-type aliasGetter func(string) string
-
-func (s *Service) aliasGetter() aliasGetter {
-	return func(name string) string {
-		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
-			return name // name is an alias
-		}
-		return ""
 	}
 }
 

@@ -20,11 +20,12 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 type RotationalQuantizer struct {
 	inputDim  uint32
-	rotation  *FastRotation
+	rotation  *compression.FastRotation
 	distancer distancer.Provider
 	bits      uint32 // The number of bits per entry used by Encode() to encode data vectors.
 
@@ -74,7 +75,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer dista
 	return rq
 }
 
-func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
+func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
@@ -170,7 +171,9 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 }
 
 func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
-	return rq.UnRotate(rq.Restore(compressed))
+	// restore the vector from its compressed form, creating a new slice
+	// then un-rotate in place and return
+	return rq.rotation.UnRotateInPlace(rq.Restore(compressed))
 }
 
 func dotProduct(x, y []float32) float32 {
@@ -190,8 +193,8 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 
 	rx := rq.rotation.Rotate(x)
 	var maxCode uint8 = (1 << bits) - 1
-	lower := slices.Min(rx)
-	step := (slices.Max(rx) - lower) / float32(maxCode)
+	lower, upper, _ := rq4MinMaxSumImpl(rx)
+	step := (upper - lower) / float32(maxCode)
 
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
@@ -360,22 +363,16 @@ func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDis
 
 func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {}
 
-type RQData struct {
-	InputDim uint32
-	Bits     uint32
-	Rotation FastRotation
-}
-
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddRQCompression(RQData{
+	logger.AddRQCompression(compression.RQData{
 		InputDim: rq.inputDim,
 		Bits:     rq.bits,
 		Rotation: *rq.rotation,
 	})
 }
 
-func (rq *RotationalQuantizer) Data() RQData {
-	return RQData{
+func (rq *RotationalQuantizer) Data() compression.RQData {
+	return compression.RQData{
 		InputDim: rq.inputDim,
 		Bits:     rq.bits,
 		Rotation: *rq.rotation,

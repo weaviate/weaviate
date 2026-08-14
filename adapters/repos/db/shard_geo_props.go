@@ -15,10 +15,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,18 +32,13 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                                       geoPropID(prop.Name),
-		RootPath:                                 s.path(),
-		CoordinatesForID:                         s.makeCoordinatesForID(prop.Name),
-		DisablePersistence:                       false,
-		Logger:                                   s.index.logger,
-		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
-		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
-		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
-		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
-		SnapshotMinDeltaCommitlogsNumer:          s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber,
-		SnapshotMinDeltaCommitlogsSizePercentage: s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-		AllocChecker:                             s.index.allocChecker,
+		ID:                 geoPropID(prop.Name),
+		RootPath:           s.path(),
+		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
+		DisablePersistence: false,
+		Logger:             s.index.logger,
+		HNSWEF:             s.index.Config.HNSWGeoIndexEF,
+		AllocChecker:       s.index.allocChecker,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
@@ -62,14 +57,30 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 
 	idx.PostStartup(s.shutCtx)
 
+	// Create a geo queue wrapping the underlying HNSW for async indexing
+	if underlyingVI, ok := idx.UnderlyingVectorIndex().(VectorIndex); ok {
+		geoQueue, err := NewGeoIndexQueue(s, prop.Name, underlyingVI)
+		if err != nil {
+			return errors.Wrapf(err, "create geo index queue for prop %q", prop.Name)
+		}
+		s.propertyIndicesLock.Lock()
+		s.geoQueues[prop.Name] = geoQueue
+		s.propertyIndicesLock.Unlock()
+	}
+
 	return nil
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
+	// read-only once built, so all lookups can share it
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
 	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
-		obj, err := s.objectByIndexID(ctx, id, true)
+		obj, err := s.objectByIndexIDWithProps(ctx, id, propExtraction)
 		if err != nil {
-			return nil, storobj.NewErrNotFoundf(id, "retrieve object")
+			// reporting a read or decode failure as a not-found would make the
+			// geo index tombstone a doc that is still there
+			return nil, err
 		}
 
 		if obj.Properties() == nil {
@@ -142,7 +153,7 @@ func (s *Shard) updateGeoIndex(ctx context.Context, propName string,
 	}
 
 	if status.docIDChanged {
-		if err := s.deleteFromGeoIndex(index, status.oldDocID); err != nil {
+		if err := s.deleteFromGeoIndex(propName, index, status.oldDocID); err != nil {
 			return errors.Wrap(err, "delete old doc id from geo index")
 		}
 	}
@@ -188,6 +199,16 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 			&models.GeoCoordinates{}, propValue)
 	}
 
+	if s.index.AsyncIndexingEnabled {
+		if geoQueue, ok := s.geoQueues[propName]; ok {
+			vec, err := geo.GeoCoordinatesToVector(asGeo)
+			if err != nil {
+				return errors.Wrapf(err, "convert geo coordinates to vector")
+			}
+			return geoQueue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vec})
+		}
+	}
+
 	if err := index.GeoIndex.Add(ctx, status.docID, asGeo); err != nil {
 		return errors.Wrapf(err, "insert into geo index")
 	}
@@ -195,11 +216,17 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 	return nil
 }
 
-func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
+func (s *Shard) deleteFromGeoIndex(propName string, index propertyspecific.Index,
 	docID uint64,
 ) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
+	}
+
+	if s.index.AsyncIndexingEnabled {
+		if geoQueue, ok := s.geoQueues[propName]; ok {
+			return geoQueue.Delete(docID)
+		}
 	}
 
 	if err := index.GeoIndex.Delete(docID); err != nil {

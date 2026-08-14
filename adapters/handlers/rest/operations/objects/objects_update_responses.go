@@ -164,6 +164,51 @@ func (o *ObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer r
 	rw.WriteHeader(404)
 }
 
+// ObjectsUpdateGoneCode is the HTTP code returned for type ObjectsUpdateGone
+const ObjectsUpdateGoneCode int = 410
+
+/*
+ObjectsUpdateGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsUpdateGone
+*/
+type ObjectsUpdateGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsUpdateGone creates ObjectsUpdateGone with default headers values
+func NewObjectsUpdateGone() *ObjectsUpdateGone {
+
+	return &ObjectsUpdateGone{}
+}
+
+// WithPayload adds the payload to the objects update gone response
+func (o *ObjectsUpdateGone) WithPayload(payload *models.ErrorResponse) *ObjectsUpdateGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects update gone response
+func (o *ObjectsUpdateGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsUpdateGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsUpdateUnprocessableEntityCode is the HTTP code returned for type ObjectsUpdateUnprocessableEntity
 const ObjectsUpdateUnprocessableEntityCode int = 422
 

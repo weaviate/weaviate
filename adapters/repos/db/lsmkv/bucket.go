@@ -23,11 +23,13 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -64,6 +66,12 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
+// ErrImmutable is returned by write operations on a structurally immutable
+// bucket (e.g. a snapshot bucket opened via NewSnapshotBucket). This is
+// distinct from storagestate.ErrStatusReadOnly which indicates a transient
+// operational state set by the parent shard.
+var ErrImmutable = errors.New("bucket is immutable")
+
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
 
@@ -75,16 +83,43 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock sync.RWMutex
+
+	// lifetimeLock pins this bucket for a whole read (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() first, draining all
+	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
+	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
+	lifetimeLock sync.RWMutex
+	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
+	// designed assuming a single triggerer at a time (the periodic flush
+	// callback or a control-plane caller — backup, runtime migration,
+	// startup finalize); the data hot path never invokes
+	// [FlushAndSwitch] directly (writes go through memtable.put without
+	// it). When two callers overlap — most visibly seen on the objects
+	// bucket with concurrent runtime-reindex migrations — the second
+	// caller's atomicallySwitchMemtable observes `active.Size() == 0`
+	// and returns early, racing the first caller's still-in-flight
+	// flush. Any follow-up `CursorOnDisk` would miss data parked in
+	// `b.flushing`. Serializing here gives every caller the invariant
+	// "after FlushAndSwitch returns, all data written before the call
+	// is durably in segments." See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C+D.
+	//
+	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
+	// FlushAndSwitch takes flushAndSwitchMu for its full duration and
+	// internally takes flushLock during atomicallySwitchMemtable +
+	// atomicallyAddDiskSegmentAndRemoveFlushing. Reverse-order callers
+	// would deadlock.
+	flushAndSwitchMu sync.Mutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	minWalThreshold   uint64
@@ -122,7 +157,14 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
+	// pauseCompactionMu ref-counts reindex pause/resume (weaviate/0-weaviate-issues#251).
+	pauseCompactionMu    sync.Mutex
+	pauseCompactionCount int
+
+	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
+	pauseTimerMu    sync.Mutex
+	pauseTimerCount int
+	pauseTimer      *prometheus.Timer
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
@@ -148,9 +190,24 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction  bool
-	lazySegmentLoading bool
+	forceCompaction     bool
+	disableCompaction   bool
+	lazySegmentLoading  bool
+	lazyPropertyLengths *configRuntime.DynamicValue[bool]
+
+	// Block-max WAND filter/tombstone-fold gate, read in createDiskTermFromCV
+	// (see WithBM25FilterTombMergeGateRatio). Runtime-tunable via Get().
+	bm25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
+
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
+	className string
 
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
@@ -179,6 +236,27 @@ type Bucket struct {
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
 
+	// rangeableInMemoryDeferred marks a bucket whose rep was intentionally left
+	// unbuilt (reindex ingest path). Selects a diagnostic log line only;
+	// rangeableServesFromMemory alone governs read-path selection.
+	rangeableInMemoryDeferred bool
+
+	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
+	// publishes a rep. Atomic and read unlocked; the false->true store
+	// happens under flushLock after the rep is fully built, so a reader
+	// observing true is guaranteed a populated rep.
+	rangeableRepRebuilt atomic.Bool
+
+	// shuttingDown flips at Shutdown entry and never resets: registering a
+	// NEW edit op on a closing bucket must hard-fail (see RegisterEditOp) —
+	// the snapshot would race the dismantling and could record "nothing to
+	// clean" for a bucket full of data.
+	shuttingDown atomic.Bool
+
+	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
+	rangeableDeferredLogOnce  sync.Once
+	rangeableFallbackWarnOnce sync.Once
+
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool
@@ -194,9 +272,24 @@ type Bucket struct {
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
 	skipSecondaryKeyCheck bool
+
+	// immutable prevents all write operations. Set via WithImmutable, used by
+	// snapshot buckets to guarantee they never modify data. This is distinct
+	// from the shard-level read-only status (storagestate.StatusReadOnly)
+	// checked by isReadOnly().
+	immutable bool
+
+	// sequentialAccess hints the kernel (via fadvise) that segment files will
+	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
+	sequentialAccess bool
 }
 
-func NewBucketCreator() *Bucket { return &Bucket{} }
+// bucketCreator satisfies BucketCreator without being a Bucket itself: a Bucket
+// that has not been through NewBucket has no logger, no memtables and no
+// segment group, so it must never be handed out as one.
+type bucketCreator struct{}
+
+func NewBucketCreator() BucketCreator { return bucketCreator{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -204,11 +297,44 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+// newBucketPostDiskInitHook is a test-only fault-injection point between the
+// segment-group init and the rest of NewBucket. Nil in production.
+var newBucketPostDiskInitHook func(*Bucket) error
+
+func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
 	beforeAll := time.Now()
+
+	// Claim the registry entry BEFORE touching any file: a second open of a
+	// still-live bucket (e.g. re-init after a shard teardown failed deep and
+	// leaked this bucket open) must be refused up front. Checking last let a
+	// doomed re-open run WAL recovery first — deleting the live instance's
+	// active WAL, whose buffered writes then flushed into an unlinked inode
+	// on shutdown: silent data loss.
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		return nil, err
+	}
+	var constructed *Bucket // named return b is nil'd by error returns; keep our own handle
+	defer func() {
+		if err == nil {
+			return
+		}
+		// A failure after newSegmentGroup succeeded leaves mmapped segments
+		// and flocked bolt handles behind disk; tear them down before
+		// releasing the claim — freeing the slot over live handles re-opens
+		// the exact double-open the front claim prevents. If the teardown
+		// itself fails, keep the claim: re-open stays refused until restart.
+		if constructed != nil && constructed.disk != nil {
+			if serr := constructed.disk.shutdown(context.Background()); serr != nil {
+				logger.WithField("dir", dir).
+					Errorf("close partially initialized bucket: %v — keeping registry claim; re-open refused until restart", serr)
+				return
+			}
+		}
+		GlobalBucketRegistry.Remove(dir)
+	}()
 
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -218,8 +344,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultStrategy := unsetStrategy
 
 	b = &Bucket{
-		dir:                          dir,
-		rootDir:                      rootDir,
+		dir:     dir,
+		rootDir: rootDir,
+		// The actual path of the bucket can change, e.g. on delete, without
+		// updating the registry. Keep the registered path (claimed at the top
+		// of this function) so shutdown can release the right entry.
+		registeredPath:               dir,
 		memtableThreshold:            defaultMemTableThreshold,
 		walThreshold:                 defaultWalThreshold,
 		flushDirtyAfter:              defaultFlushAfterDirty,
@@ -244,6 +374,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
+	if !b.immutable && IsSnapshotDir(dir) {
+		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
+	}
+
 	if b.memtableResizer != nil {
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
@@ -251,6 +385,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if b.disableCompaction {
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
+
+	constructed = b
 
 	b.desiredStrategy = b.strategy
 
@@ -294,16 +430,25 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
+			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
+			className:                    b.className,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
 	b.disk = sg
+
+	if newBucketPostDiskInitHook != nil {
+		if err := newBucketPostDiskInitHook(b); err != nil {
+			return nil, err
+		}
+	}
 
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()
@@ -317,11 +462,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
-
 	return b, nil
 }
 
@@ -333,6 +473,123 @@ func (b *Bucket) GetDir() string {
 
 func (b *Bucket) GetRootDir() string {
 	return b.rootDir
+}
+
+// HasEditOps reports whether this bucket has an edit-ops sidecar (the objects
+// bucket).
+func (b *Bucket) HasEditOps() bool {
+	return b.disk != nil && b.disk.editOps != nil
+}
+
+// RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
+// current segments as pending for the compaction/cleanup transformer to rewrite.
+// It flushes the active memtable first so in-memory data is captured. Idempotent:
+// an op that already has a snapshot (resume) skips the flush and the snapshot,
+// keeping the recorded pending set as the progress marker; it only requeues
+// segments an earlier round quarantined, granting them a fresh retry budget.
+func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	// Hold flushAndSwitchMu across [flag check -> flush -> snapshot]:
+	// Shutdown sets shuttingDown and then passes a barrier on this mutex, so
+	// either this registration observed the flag and refused, or it completes
+	// its flush AND snapshot before the shutdown proceeds — a shutdown flush
+	// can never land between our flush and our snapshot (a segment outside
+	// the pending set is exactly the resurrection this guard exists to stop).
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+	// flushAndSwitchLocked skips FlushAndSwitch's read-only guard; re-check
+	// here — arming triggers a flush, the exact write StatusReadOnly blocks.
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+	if b.shuttingDown.Load() {
+		// Arming against a closing bucket is unsound: the flush + segment
+		// snapshot race the dismantling, and an empty or partial snapshot
+		// would let the drop record completion without stripping. Fail the
+		// unit instead; a later round re-arms on a live instance.
+		return fmt.Errorf("bucket is shutting down; refusing to register edit op %q", opID)
+	}
+	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
+	if err != nil {
+		return err
+	}
+	if snapshotted {
+		// Resume: the recorded pending set IS the progress, so no new snapshot
+		// and no flush. A re-arm marks a new round, though, so segments
+		// quarantined by an earlier round get a fresh retry budget — otherwise
+		// a single exhausted budget would wedge the drop permanently (the op
+		// and its quarantine rows outlive FAILED rounds by design).
+		return b.disk.requeueQuarantinedEditOps(opID)
+	}
+	if err := b.flushAndSwitchLocked(); err != nil {
+		return fmt.Errorf("flush before edit-op snapshot: %w", err)
+	}
+	return b.disk.registerEditOpAndSnapshot(opID, desc)
+}
+
+// EditOpPending returns the segment IDs still awaiting rewrite for opID. An empty
+// result means the operation has been fully applied on this bucket.
+func (b *Bucket) EditOpPending(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.Pending(opID)
+}
+
+// DeleteEditOpIfDrained removes opID and its bookkeeping from the sidecar
+// once this bucket's work for it is finished for good: task success
+// (delivered as SWAPPING or a replayed FINISHED), or a terminal round whose
+// unit here COMPLETED (the shard enters the epoch's inherited coverage, so no
+// later round returns). A lingering op would re-decode every object on every
+// future compaction and — once the dropped name is freed for re-creation —
+// strip the re-created vector (the dropped-target fence is the runtime guard
+// against exactly that). The delete is gated, in one transaction, on the op
+// having no pending and no quarantined rows — the caller's "this op is
+// drained" belief is verified atomically instead of across separate reads,
+// because a pending row may be unstripped data's only cover. Reports whether
+// the op was deleted and, when kept, the row counts that vetoed it.
+// Idempotent; this is the ONLY delete the provider gets — an unguarded
+// variant existed and was removed so it cannot be reached for.
+func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
+	if !b.HasEditOps() {
+		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.DeleteOpIfDrained(opID)
+}
+
+// EditOpsHaveRows reports whether ANY edit op on this bucket still has
+// pending or quarantined segments — i.e. an in-place edit (drop-vector strip)
+// is mid-flight on this bucket's data. Replica movement consults this: the
+// sidecar is excluded from copied file lists, so moving a bucket with rows
+// would land the unstripped bytes at the target with no record they exist.
+func (b *Bucket) EditOpsHaveRows() (bool, error) {
+	if !b.HasEditOps() {
+		return false, nil
+	}
+	pending, err := b.disk.editOps.AllPending()
+	if err != nil {
+		return false, err
+	}
+	if len(pending) > 0 {
+		return true, nil
+	}
+	quarantined, err := b.disk.editOps.Quarantined()
+	if err != nil {
+		return false, err
+	}
+	return len(quarantined) > 0, nil
+}
+
+// EditOpQuarantined returns the segment IDs the cleanup driver quarantined
+// (retry budget exhausted) for opID; they still carry the dropped data, so the
+// caller must fail rather than treat empty pending as success.
+func (b *Bucket) EditOpQuarantined(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.QuarantinedFor(opID)
 }
 
 func (b *Bucket) GetStrategy() string {
@@ -372,8 +629,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -387,77 +648,104 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+// pauseCompaction / resumeCompaction are ref-counted at the bucket level so
+// snapshot, ApplyToObjectDigests, and runtime-reindex callers share one pause
+// (weaviate/0-weaviate-issues#251 + weaviate/weaviate#11486 review).
 func (b *Bucket) pauseCompaction(ctx context.Context) error {
-	return b.disk.pauseCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	b.pauseCompactionCount++
+	if b.pauseCompactionCount > 1 {
+		return nil
+	}
+	if err := b.disk.pauseCompaction(ctx); err != nil {
+		b.pauseCompactionCount--
+		return err
+	}
+	b.doStartPauseTimer()
+	return nil
 }
 
 func (b *Bucket) resumeCompaction(ctx context.Context) error {
-	return b.disk.resumeCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	if b.pauseCompactionCount == 0 {
+		return nil
+	}
+	if b.pauseCompactionCount > 1 {
+		b.pauseCompactionCount--
+		return nil
+	}
+	if err := b.disk.resumeCompaction(ctx); err != nil {
+		return err
+	}
+	b.doStopPauseTimer()
+	b.pauseCompactionCount--
+	return nil
 }
 
-// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
-// and on disk, and applies the given function to each object.
-// The afterInMemCallback is called after the in-memory memtable has been processed.
-// This allows the caller to perform actions that need to happen after the in-memory
-// objects have been processed.
-// The function f is called for each object, and if it returns an error, the
-// processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// ApplyToObjectDigests applies f to every live object (memtable and disk) once per
+// UUID, stopping on the first error. Dedup is keyed by UUID, not docID (a
+// vector-changed update reuses the UUID under a new docID); memtable-only tombstones
+// suppress their stale on-disk value. afterInMemCallback fires once the in-memory
+// scan is done.
+//
+// The on-disk cursor is created while the in-mem cursor holds the flush lock, so both
+// snapshots are taken at a single consistent point with no flush in between. Compaction
+// is not paused: the on-disk cursor pins its segments via reference counting.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
+	var onDiskCursor *CursorReplace
 
-		if err != nil {
-			ec.AddWrap(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
-	defer onDiskCursor.Close()
-
-	inmemProcessedDocIDs := make(map[uint64]struct{})
+	inmemProcessedUUIDs := make(map[[16]byte]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
-		inMemCursor := b.CursorInMem()
+		inMemCursor := b.CursorInMemWithTombstones()
 		defer inMemCursor.Close()
+
+		// created under the in-mem cursor's flush lock, so it is consistent with the
+		// memtable view: no flush can run between the two snapshots.
+		// Digest mode: only the header is read below, so skip the full value copy.
+		onDiskCursor = b.CursorOnDiskDigest(storobj.MarshallerV1HeaderLen)
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-				if err != nil {
-					return fmt.Errorf("cannot unmarshal object: %w", err)
-				}
-				if err := f(k, updateTime); err != nil {
-					return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-				}
+			}
 
-				inmemProcessedDocIDs[docID] = struct{}{}
+			if len(k) != 16 {
+				return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+			}
+
+			// record every UUID (live or tombstone) so the disk pass skips its stale value
+			inmemProcessedUUIDs[[16]byte(k)] = struct{}{}
+
+			if v == nil {
+				continue // tombstone: recorded, not folded
+			}
+
+			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+			}
+			if err := f(k, updateTime); err != nil {
+				return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 			}
 		}
 
 		return nil
 	}()
+	if onDiskCursor != nil {
+		defer onDiskCursor.Close()
+	}
 	if err != nil {
 		return err
 	}
@@ -467,18 +755,22 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
+		}
 
-			if _, ok := inmemProcessedDocIDs[docID]; ok {
-				continue
-			}
+		if len(k) != 16 {
+			return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+		}
 
-			if err := f(k, updateTime); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-			}
+		if _, ok := inmemProcessedUUIDs[[16]byte(k)]; ok {
+			continue
+		}
+
+		_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+		if err != nil {
+			return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+		}
+		if err := f(k, updateTime); err != nil {
+			return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 		}
 	}
 
@@ -500,7 +792,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
@@ -571,6 +863,24 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
+}
+
+// Exists checks whether the given key exists and is not deleted without reading
+// the full value.
+//
+// Exists is specific to ReplaceStrategy.
+func (b *Bucket) Exists(key []byte) (bool, error) {
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	err := b.existsWithConsistentView(key, view)
+	if err != nil {
+		if lsmkv.IsDeletedOrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
@@ -679,6 +989,23 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
+}
+
+// SecondaryViewLookup acquires a single consistent view and returns a lookup
+// function bound to it, together with a release function. Reusing one view
+// across many secondary-key lookups avoids acquiring a fresh view (flush lock,
+// segment snapshot, and per-segment refcount churn) for every lookup. The
+// returned lookup is safe for concurrent use; call release exactly once, after
+// all lookups are done.
+func (b *Bucket) SecondaryViewLookup() (
+	func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error),
+	func(),
+) {
+	view := b.GetConsistentView()
+	lookup := func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error) {
+		return b.GetBySecondaryWithBufferAndView(ctx, pos, seckey, buffer, view)
+	}
+	return lookup, view.ReleaseView
 }
 
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
@@ -946,7 +1273,10 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.put(key, value, opts...)
@@ -959,7 +1289,11 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
+func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
+	if err := b.readOnlyErr(); err != nil {
+		return nil, nil, err
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -970,7 +1304,7 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 		active.decWriterCount()
 	}
 
-	return active, release
+	return active, release, nil
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -989,7 +1323,10 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, newSetEncoder().Do(values))
@@ -1008,7 +1345,10 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, []value{
@@ -1047,6 +1387,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
+	skipPropertyLengths        bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -1060,6 +1401,14 @@ func MapListAcceptDuplicates() MapListOption {
 func MapListLegacySortingRequired() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.legacyRequireManualSorting = true
+	}
+}
+
+// MapListSkipPropertyLengths skips loading an inverted segment's per-document
+// property length map, for callers that read only keys (e.g. filter resolution).
+func MapListSkipPropertyLengths() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.skipPropertyLengths = true
 	}
 }
 
@@ -1107,9 +1456,9 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
-		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+		var propLengths propLengthsView
+		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -1132,7 +1481,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 					}
 				}
 				// put the property length in the value from the "external" property lengths
-				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths.get(docId))))
 
 			} else {
 				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -1237,7 +1586,10 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.appendMapSorted(rowKey, kv)
@@ -1246,7 +1598,10 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	for _, kv := range kvs {
@@ -1270,7 +1625,10 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	pair := MapPair{
@@ -1312,7 +1670,10 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
 		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstone(key, opts...)
@@ -1335,7 +1696,10 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
@@ -1416,6 +1780,27 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
+// CountApproximate is a cheap O(#segments) alternative to Count: exact
+// per-segment counts plus each memtable's approximate counter (see
+// Memtable.netCountAdditions for the drift bounds).
+func (b *Bucket) CountApproximate() (int, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
+		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	count := b.disk.countWithSegmentList(view.Disk) + view.Active.netCount()
+	if view.Flushing != nil {
+		count += view.Flushing.netCount()
+	}
+	if count < 0 {
+		count = 0
+	}
+	return count, nil
+}
+
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (int, error) {
@@ -1466,7 +1851,43 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	b.shuttingDown.Store(true)
+	// Barrier: any RegisterEditOp that passed the flag check holds
+	// flushAndSwitchMu until its snapshot is durable — wait it out, so no
+	// arm is mid-flight once the teardown below starts. Later arms see the
+	// flag and refuse.
+	b.flushAndSwitchMu.Lock()
+	b.flushAndSwitchMu.Unlock() //nolint:staticcheck // empty critical section IS the barrier
+	// Drain all in-flight read pins first (see the lifetimeLock doc); the
+	// heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}, b.logger)
+	b.lifetimeLock.Lock()
+	close(drained)
+	defer b.lifetimeLock.Unlock()
+
+	defer func() {
+		// Release the registry claim only on a COMPLETED teardown: a failed
+		// one may leave open handles, and the claim is what makes a re-open
+		// over them refuse up front instead of racing a still-live instance
+		// (see the claim in NewBucket). A retried or restart shutdown clears
+		// it once the teardown actually finishes.
+		if err == nil {
+			GlobalBucketRegistry.Remove(b.registeredPath)
+		}
+	}()
 
 	start := time.Now()
 
@@ -1621,10 +2042,30 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 }
 
 func (b *Bucket) isReadOnly() bool {
+	if b.immutable {
+		return true
+	}
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
 	return b.status == storagestate.StatusReadOnly
+}
+
+// readOnlyErr returns the appropriate error when the bucket is read-only, or
+// nil if the bucket is writable. This preserves the distinction between
+// structurally immutable buckets (snapshots → ErrImmutable) and operationally
+// read-only buckets (shard status → storagestate.ErrStatusReadOnly).
+func (b *Bucket) readOnlyErr() error {
+	if b.immutable {
+		return ErrImmutable
+	}
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	if b.status == storagestate.StatusReadOnly {
+		return storagestate.ErrStatusReadOnly
+	}
+	return nil
 }
 
 // FlushAndSwitch is the main way to flush a memtable, replace it with a new
@@ -1675,6 +2116,27 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+
+	// Serialize against any other in-flight FlushAndSwitch on this bucket.
+	// See the [flushAndSwitchMu] godoc and GH https://github.com/weaviate/0-weaviate-issues/issues/212
+	// Issues C+D for the rationale. This ensures the invariant
+	// "after FlushAndSwitch returns, all data written before the call is
+	// durably in segments" holds even when two callers race — the second
+	// caller waits for the first's flush to land before its own
+	// atomicallySwitchMemtable runs.
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+
+	return b.flushAndSwitchLocked()
+}
+
+// flushAndSwitchLocked is FlushAndSwitch's body; the caller must hold
+// flushAndSwitchMu (RegisterEditOp holds it across flush + snapshot so a
+// concurrent Shutdown cannot interleave between them).
+func (b *Bucket) flushAndSwitchLocked() error {
 	before := time.Now()
 	var err error
 
@@ -1683,6 +2145,22 @@ func (b *Bucket) FlushAndSwitch() error {
 	b.logger.WithField("action", "lsm_memtable_flush_start").
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
+
+	// A non-nil b.flushing here is the aftermath of a FAILED earlier flush
+	// (flushAndSwitchLocked returned mid-way and nothing else retries that
+	// memtable). Its acknowledged, fsynced writes are readable only through
+	// the flushing memtable — switching over it would orphan them until a
+	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
+	// snapshot). Complete the leftover flush first; if it fails again, this
+	// attempt fails too and the data stays readable where it is.
+	if b.flushing != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Warn("a previous memtable flush did not complete; retrying it before switching")
+		if err := b.flushFlushingLocked(); err != nil {
+			return fmt.Errorf("retry incomplete previous flush: %w", err)
+		}
+	}
 
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
@@ -1698,6 +2176,30 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	if err := b.flushFlushingLocked(); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil
+}
+
+// flushFlushingLocked completes the flush of the memtable currently in
+// b.flushing (steps 2-4 of FlushAndSwitch): wait out its writers, flush it to
+// a segment, precompute metadata, and atomically add the segment while
+// clearing b.flushing. Split out so flushAndSwitchLocked can also drain a
+// memtable a FAILED earlier flush left behind before switching. The caller
+// must hold flushAndSwitchMu.
+func (b *Bucket) flushFlushingLocked() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -1778,16 +2280,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	took := time.Since(before)
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		Trace("finish flush and switch")
-
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		WithField("took", took).
-		Debugf("flush and switch took %s\n", took)
-
 	return nil
 }
 
@@ -1798,6 +2290,13 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing != nil {
+		// Overwriting a leftover flushing memtable would orphan its
+		// acknowledged writes (unreadable until a restart's WAL replay).
+		// Callers must drain it first — flushAndSwitchLocked does.
+		return false, fmt.Errorf("previous flushing memtable still present; refusing to overwrite it")
+	}
 
 	if b.active.Size() == 0 {
 		return false, nil
@@ -1872,18 +2371,14 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.rangeableServesFromMemory() {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		// update property length only on flush
-		// we don't need to do it on compactions,
-		// as it is not currently tracking deletions
-		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
-		if count > 0 {
-			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
-			b.disk.averagePropCount.Add(count)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength).
+		b.disk.countSegmentAveragePropLength(seg)
 	}
 
 	return nil
@@ -1895,6 +2390,21 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
@@ -1943,9 +2453,9 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -1955,7 +2465,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 		for j, v := range plist {
 			if segmentStrategy == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
-				propLen := propLengths[docId]
+				propLen := propLengths.get(docId)
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}
@@ -2018,7 +2528,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 
-func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, bm25Config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
@@ -2055,70 +2565,110 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	memTombstones := sroar.NewBitmap()
+	// Memtable tombstones are invariant within a consistent view. ReadOnlyTombstones
+	// returns a shared immutable snapshot, so reuse it directly when only one memtable
+	// carries tombstones; allocate a merged bitmap only when both are present.
+	var activeTombstones, flushingTombstones *sroar.Bitmap
+	if view.Active != nil {
+		activeTombstones, err = view.Active.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
+		}
+	}
+	if view.Flushing != nil {
+		flushingTombstones, err = view.Flushing.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+		}
+	}
+	var memTombstones *sroar.Bitmap
+	switch {
+	case activeTombstones != nil && flushingTombstones != nil:
+		memTombstones = sroar.Or(activeTombstones, flushingTombstones)
+	case activeTombstones != nil:
+		memTombstones = activeTombstones
+	case flushingTombstones != nil:
+		memTombstones = flushingTombstones
+	default:
+		memTombstones = sroar.NewBitmap()
+	}
+
+	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node
+	// and doc count for reuse by both the count below and term construction.
+	// diskSkip marks inverted segments where the key is absent, so construction
+	// is skipped.
+	qn := len(query)
+	diskNodes := make([]segmentindex.Node, len(view.Disk)*qn)
+	diskNodeOk := make([]bool, len(view.Disk)*qn)
+	diskSkip := make([]bool, len(view.Disk)*qn)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-
-		var activeTombstones *sroar.Bitmap
+		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
-			n2, _ := fillTerm(view.Active, key, active, filterDocIds)
-			if active.Count() > 0 {
-				output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
-			}
-			n += n2
+			if mapPairs, err := view.Active.getMap(key); err == nil {
+				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); active != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
+					if active.Count() > 0 {
+						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
+					}
+					n += n2
 
-			activeTombstones, err = view.Active.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
-			}
-			memTombstones.Or(activeTombstones)
-
-			if !active.Exhausted() {
-				active.advanceOnTombstoneOrFilter()
+					if !active.Exhausted() {
+						active.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
 		}
 
 		if view.Flushing != nil {
-			n2, _ := fillTerm(view.Flushing, key, flushing, filterDocIds)
-			if flushing.Count() > 0 {
-				output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
-			}
-			n += n2
+			if mapPairs, err := view.Flushing.getMap(key); err == nil {
+				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); flushing != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
+					if flushing.Count() > 0 {
+						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
+					}
+					n += n2
 
-			tombstones, err := view.Flushing.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+					if !flushing.Exhausted() {
+						flushing.setTombstones(activeTombstones)
+						flushing.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
-			memTombstones.Or(tombstones)
-
-			if !flushing.Exhausted() {
-				flushing.tombstones = activeTombstones
-				flushing.advanceOnTombstoneOrFilter()
-			}
-
 		}
 
-		for _, segment := range view.Disk {
-			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+		for j, segment := range view.Disk {
+			if segment.getStrategy() != segmentindex.StrategyInverted {
+				continue
+			}
+			if node, docCount, ok := segment.getInvertedNodeAndDocCount(key); ok {
+				n += docCount
+				diskNodes[j*qn+i] = node
+				diskNodeOk[j*qn+i] = true
+			} else {
+				diskSkip[j*qn+i] = true
 			}
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
-		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		idfs[i] = terms.Idf(float64(n), N) * float64(duplicateTextBoosts[i])
 
-		active.idf = idfs[i]
-		active.currentBlockImpact = float32(idfs[i])
-
-		flushing.idf = idfs[i]
-		flushing.currentBlockImpact = float32(idfs[i])
+		// currentBlockImpact is a max-score upper bound, so it must carry
+		// propertyBoost like Score and computeCurrentBlockImpact; bare idf
+		// under-counts boosted terms and prunes genuine top-K docs.
+		if active != nil {
+			active.idf = idfs[i]
+			active.currentBlockImpact = float32(idfs[i] * active.propertyBoost)
+		}
+		if flushing != nil {
+			flushing.idf = idfs[i]
+			flushing.currentBlockImpact = float32(idfs[i] * flushing.propertyBoost)
+		}
 
 		idfCounts[queryTerm] = n
 	}
@@ -2127,6 +2677,71 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		view.ReleaseView()
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
+
+	// Fold tombstones into the filter when it pays: one membership check per
+	// candidate instead of up to three, against an upfront AndNot per segment.
+	// The AndNot clones the whole filter once per disk segment, so amortize scan
+	// volume against the segment count, not a single clone — otherwise a broad
+	// filter over many segments merges for a marginal per-doc saving at a large
+	// per-query allocation. Skipped under deferTombstoneToScore, which deliberately
+	// keeps tombstones out of the advance-time checks the merge would fold into.
+	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
+	mergeFilterAndTombstones := false
+	if filterBl != nil && !deferTombstoneToScore {
+		// An empty filter already admits nothing, so folding would only burn
+		// AndNots on a query that returns no results.
+		if filterCard := filterBl.Bm.GetCardinality(); filterCard > 0 {
+			var sumDf uint64
+			for _, n := range idfCounts {
+				sumDf += n
+			}
+			// nSeg (>=1) prices the per-segment clone into the gate: the fold runs
+			// an AndNot only where a segment's tombstones shadow the next-older one
+			// (Disk[1:], never the oldest), so count tombstone-carrying segments —
+			// not len(view.Disk), which over-prices a broad filter over many
+			// tombstone-free segments and skips folds that would have been cheap.
+			// These reads warm the snapshot cache the fold loop reads again below.
+			tombSegs := 0
+			for k := 1; k < len(view.Disk); k++ {
+				segTomb, tombErr := view.Disk[k].ReadOnlyTombstones()
+				if tombErr != nil {
+					view.ReleaseView()
+					return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", tombErr)
+				}
+				if !segTomb.IsEmpty() { // IsEmpty is nil-safe
+					tombSegs++
+				}
+			}
+			nSeg := float64(tombSegs)
+			if nSeg < 1 {
+				nSeg = 1
+			}
+			gateRatio := config.DefaultBM25FilterTombMergeGateRatio
+			if b.bm25FilterTombMergeGateRatio != nil {
+				gateRatio = b.bm25FilterTombMergeGateRatio.Get()
+			}
+			mergeFilterAndTombstones = float64(sumDf) >= gateRatio*float64(filterCard)*nSeg
+		}
+	}
+
+	// Memtable tombstones are loop-invariant, so fold them out of the filter once
+	// (filter \ memTombstones) and reuse that as the base every segment subtracts
+	// its own tombstones from (or uses directly when it has none).
+	memHasTomb := mergeFilterAndTombstones && !memTombstones.IsEmpty()
+	var filterBase *sroar.Bitmap
+	if mergeFilterAndTombstones {
+		filterBase = filterBl.Bm
+		if memHasTomb {
+			// Clone-then-subtract rather than a fresh AndNot: memtable tombstones
+			// are the small in-flight-deletes set, where removing bits from a copy
+			// beats building the result from scratch (~10-20% faster, one alloc
+			// fewer). Clone keeps the shared filter untouched.
+			filterBase = filterBl.Bm.Clone().AndNot(memTombstones)
+		}
+	}
+	// Wraps filterBase for segments with no tombstones of their own; built lazily
+	// so it costs nothing when every segment has tombstones.
+	var filterBaseList helpers.AllowList
 
 	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
@@ -2140,8 +2755,39 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 
+		// Fold this segment's tombstones into a private filter clone. The free
+		// function sroar.AndNot returns a fresh filter \ tombstones and never
+		// mutates the shared filter, which concurrent readers depend on (unlike
+		// the in-place method).
+		segFilter, segTomb, segMemTomb := filterDocIds, segTombstones, memTombstones
+		if mergeFilterAndTombstones { // implies filterBl != nil
+			switch {
+			case !segTombstones.IsEmpty(): // IsEmpty is nil-safe
+				// filter \ memTombstones \ segTombstones, off the shared base.
+				segFilter = helpers.NewAllowListFromBitmap(sroar.AndNot(filterBase, segTombstones))
+			case memHasTomb:
+				if filterBaseList == nil {
+					filterBaseList = helpers.NewAllowListFromBitmap(filterBase)
+				}
+				segFilter = filterBaseList
+			}
+			// The fold moved tombstones into segFilter, so the term no longer
+			// checks them separately.
+			segTomb, segMemTomb = nil, nil
+		}
+
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
+			idx := j*qn + i
+			if diskSkip[idx] {
+				continue
+			}
+			// non-inverted segments have no prefetched node; nil makes the
+			// constructor do its own index lookup.
+			var node *segmentindex.Node
+			if diskNodeOk[idx] {
+				node = &diskNodes[idx]
+			}
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTomb, segMemTomb, segFilter, averagePropLength, bm25Config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -2173,6 +2819,12 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	}
 	term.propLengths = make(map[uint64]uint32)
 
+	// SetIdf later recomputes currentBlockImpact from MaxImpactTf/PropLength. If
+	// those fields are left at zero, the recomputed impact — the WAND upper bound
+	// — is zero too, so record the posting list's max-impact pair here.
+	maxImpact := float64(0)
+	var maxImpactTf, maxImpactPropLength uint32
+
 	for _, v := range mem {
 		if v.Tombstone {
 			continue
@@ -2194,15 +2846,24 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
+		tf := float64(d.Frequency)
+		pl := float64(d.PropLength)
+		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
+			maxImpact = impact
+			maxImpactTf = uint32(d.Frequency)
+			maxImpactPropLength = uint32(d.PropLength)
+		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
 	term.exhausted = false
-	term.blockEntries = make([]*terms.BlockEntry, 1)
-	term.blockEntries[0] = &terms.BlockEntry{
-		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
-		Offset: 0,
+	term.blockEntries = make([]terms.BlockEntry, 1)
+	term.blockEntries[0] = terms.BlockEntry{
+		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset:              0,
+		MaxImpactTf:         maxImpactTf,
+		MaxImpactPropLength: maxImpactPropLength,
 	}
 
 	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]
@@ -2365,4 +3026,11 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 		return "", err
 	}
 	return defaultStrategy, nil
+}
+
+// PrependSegmentsFromBucket copies all segments from srcDir and prepends them
+// into this bucket's segment group. See SegmentGroup.PrependSegmentsFromBucket
+// for full semantics and preconditions.
+func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
+	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }

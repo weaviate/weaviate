@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -34,8 +35,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -61,6 +64,10 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
+	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
+	// The prefiller reads the shard's objects bucket, and the shard tears that
+	// bucket down as soon as the vector indexes report they are shut.
+	prefillWg sync.WaitGroup
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -117,6 +124,7 @@ type hnsw struct {
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
+	releaseVectorsOnce  sync.Once
 
 	commitLog CommitLogger
 
@@ -166,13 +174,13 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
-
-	disableSnapshots  bool
-	snapshotOnStartup bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -193,8 +201,9 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
-	allocChecker            memwatch.AllocChecker
-	tombstoneCleanupRunning atomic.Bool
+	allocChecker              memwatch.AllocChecker
+	tombstoneMemCheckInterval time.Duration
+	tombstoneCleanupRunning   atomic.Bool
 
 	visitedListPoolMaxSize int
 
@@ -219,6 +228,21 @@ func (h *hnsw) Get(id uint64) ([]float32, error) {
 	return h.compressor.Get(id)
 }
 
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
@@ -235,17 +259,21 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
-	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
-
-	CreateSnapshot() (bool, int64, error)
-	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
-	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -254,7 +282,7 @@ type BufferedLinksLogger interface {
 	Close() error // Close should Flush and Close
 }
 
-type MakeCommitLogger func() (CommitLogger, error)
+type MakeCommitLogger func(opts ...CommitlogOption) (CommitLogger, error)
 
 type HNSW = hnsw
 
@@ -322,8 +350,6 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		disableSnapshots:      cfg.DisableSnapshots,
-		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -349,7 +375,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
 		shardName: cfg.ShardName,
 
 		randFunc:                          rand.Float64,
@@ -368,10 +394,11 @@ func New(cfg Config, uc ent.UserConfig,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
-		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
+		store:                     store,
+		allocChecker:              cfg.AllocChecker,
+		tombstoneMemCheckInterval: 500 * time.Millisecond,
+		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
@@ -648,6 +675,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "distToNode")
+			}
 			return 0, err
 		}
 
@@ -663,7 +694,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
-			return 0, nil
+			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
@@ -686,14 +717,37 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.isEmptyUnlocked()
+	empty := func() bool {
+		h.shardedNodeLocks.RLock(h.entryPointID)
+		defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+
+		return h.isEmptyUnlocked()
+	}()
+	if !empty {
+		return false
+	}
+
+	// a nil entrypoint slot is not proof of emptiness: cleanup can remove a
+	// stranded entrypoint while live nodes remain
+	h.shardedNodeLocks.RLockAll()
+	defer h.shardedNodeLocks.RUnlockAll()
+
+	return !h.hasLiveNodesUnlocked()
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+	return h.entryPointID >= uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+}
+
+// callers must hold h.RLock and all sharded node locks
+func (h *hnsw) hasLiveNodesUnlocked() bool {
+	for _, node := range h.nodes {
+		if node != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -713,20 +767,16 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// Drop stops the index exactly as Shutdown does, then removes the commit log's
+// files. Dropping before stopping would leave the maintenance cycles and the
+// tombstone cleanup running against state being torn down underneath them.
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
+	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-	} else {
-		// cancel vector cache goroutine
-		h.cache.Drop()
+	if err := h.releaseVectors(); err != nil {
+		return err
 	}
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
@@ -741,25 +791,32 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+	h.prefillWg.Wait()
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	ec := errorcompounder.New()
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
 
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	// release the vectors even if the steps above failed, otherwise a failed
+	// teardown keeps the whole cache in memory
+	ec.Add(h.releaseVectors())
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
+	return ec.ToError()
+}
+
+// releaseVectors frees the vectors held in memory. Only the first call does the
+// work: dropping a cache notifies a goroutine that exits on the first
+// notification, so a repeated drop would block forever.
+func (h *hnsw) releaseVectors() error {
+	var err error
+	h.releaseVectorsOnce.Do(func() {
+		if h.compressed.Load() {
+			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
+		} else {
+			h.cache.Drop()
 		}
-	} else {
-		h.cache.Drop()
-	}
-
-	return nil
+	})
+	return err
 }
 
 func (h *hnsw) Flush() error {
@@ -894,6 +951,10 @@ func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }
 
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
+}
+
 func (h *hnsw) AlreadyIndexed() uint64 {
 	if h.compressed.Load() {
 		return uint64(h.compressor.CountVectors())
@@ -915,6 +976,26 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecForInsert normalizes vec for cosine indexes, using a pooled
+// buffer when the vector's lifetime allows it. The normalized vector is only
+// retained beyond the insert by the uncompressed float vector cache; once
+// the index is compressed — a one-way transition — Preload merely encodes
+// the vector, so the buffer can be reused. The returned release func (nil
+// when no pooled buffer was taken) must be called once the insert no longer
+// references the vector.
+func (h *hnsw) normalizeVecForInsert(vec []float32) ([]float32, func()) {
+	if h.distancerProvider.Type() != "cosine-dot" {
+		return vec, nil
+	}
+	if !h.compressed.Load() {
+		return distancer.Normalize(vec), nil
+	}
+	bufPtr := h.pools.normalizeBufs.Get().(*[]float32)
+	normalized := distancer.NormalizeInto(*bufPtr, vec)
+	*bufPtr = normalized
+	return normalized, func() { h.pools.normalizeBufs.Put(bufPtr) }
 }
 
 // normalizeVecInPlace normalizes the vector in-place without allocating.

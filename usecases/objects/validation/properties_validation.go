@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -114,9 +115,18 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						return err
 					}
 					if len(prop.DataType) > 1 {
+						// Classless beacon on a multi-target prop: existence
+						// check would hit DB.anyExists (cross-namespace oracle)
+						// and the stored beacon would be wildcard-deletable.
+						if v.namespacesEnabled {
+							return fmt.Errorf(
+								"'cref' %s:%s: multi-target references require the class name in the target beacon url",
+								className, propertyKey)
+						}
 						continue
 					}
-					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+					// Storage-shape rule: short class in the beacon.
+					toClass := namespacing.StripQualification(prop.DataType[0])
 					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
 					propertyValueMap["beacon"] = toBeacon
 				}
@@ -296,6 +306,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		data, err = blobVal(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %w", propertyName, className, err)
+		}
+	case schema.DataTypeBlobHash:
+		data, err = blobVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blobHash property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")
@@ -597,11 +612,24 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
+	// NS handling for inline-payload refs. className is already qualified
+	// (caller's resolveNS); QualifyRefTarget is the shared policy.
+	if ref.Class != "" {
+		qualifiedTarget, shortTarget, qerr := namespacing.QualifyRefTarget(
+			v.principal, v.namespacesEnabled, className, ref.Class)
+		if qerr != nil {
+			return nil, qerr
+		}
+		// Existence check uses qualified; stored beacon stays short.
+		refQualified := *ref
+		refQualified.Class = qualifiedTarget
+		if err = v.ValidateExistence(ctx, &refQualified, errVal, tenant); err != nil {
+			return nil, err
+		}
+		ref.Class = shortTarget
+	} else if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
-
-	// Validate whether reference exists based on given Type
 	return ref.SingleRef(), nil
 }
 

@@ -25,23 +25,29 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	bolterrors "go.etcd.io/bbolt/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// baseLayerHeadroomFactor sizes the base layer's pooled buffer with 25%
+// headroom so the in-place merges of later layers usually fit without
+// reallocating off-pool.
+const baseLayerHeadroomFactor = 1.25
+
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -96,18 +102,36 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
+	// editOps tracks in-place segment edit operations and the segments still
+	// pending rewrite. It also builds the per-pass value transformer (see
+	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
+	// group.
+	editOps *SegmentEditOps
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	bm25config                     *schema.BM25Config
-	writeSegmentInfoIntoFileName   bool
-	writeMetadata                  bool
+	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
+	// base layer; built once at construction
+	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
+	bm25config                   *schema.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
+	writeSegmentInfoIntoFileName bool
+	writeMetadata                bool
+	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
-	// Store the average property length for segments in this sg,
-	// to be used for BM25 scoring.
-	// This avoids recalculating the average property length for each segment during scoring.
-	averagePropSum   atomic.Uint64
-	averagePropCount atomic.Uint64
+	// averagePropLength caches the live-set property-length sum and count for BM25
+	// scoring, avoiding a per-segment recalculation on every query. Published as a
+	// single pointer so a reader never observes a torn sum/count pair while a flush
+	// or compaction updates the accounting.
+	averagePropLength atomic.Pointer[avgPropLengthStats]
+}
+
+// avgPropLengthStats is an immutable (sum, count) snapshot; updates swap in a new
+// value rather than mutating the fields.
+type avgPropLengthStats struct {
+	sum   uint64
+	count uint64
 }
 
 type sgConfig struct {
@@ -127,14 +151,17 @@ type sgConfig struct {
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
+	className                    string
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
-) (*SegmentGroup, error) {
+) (_ *SegmentGroup, err error) {
 	now := time.Now()
 	deleteMarkerCounter := new(atomic.Int64)
 	deleteMarkerCounter.Store(now.UnixMilli())
@@ -161,7 +188,10 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		sequentialAccess:             cfg.sequentialAccess,
+		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
+		bitmapBufPoolWithHeadroom:    roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, baseLayerHeadroomFactor),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -196,7 +226,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
-			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			// A non-.db segment .tmp (e.g. a precomputed segment-X.bloom.tmp) is a
+			// leftover from a crash during a compaction/cleanup switch — no such
+			// work runs during init — so remove it. The derived files are
+			// recomputed on load.
+			if strings.HasPrefix(entry, "segment-") {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					return nil, fmt.Errorf("delete leftover segment temp file %q: %w", entry, err)
+				}
+			}
 			continue
 		}
 
@@ -252,11 +290,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					sequentialAccess:         sg.sequentialAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
 					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+					lazyPropertyLengths:      sg.lazyPropertyLengths,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -295,6 +335,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 			delete(files, rightSegmentFilename)
+			// the compacted segment is renamed to the same name below and would
+			// otherwise try to load the derived files that were just deleted
+			for _, path := range rightSegment.sidecarPaths() {
+				delete(files, filepath.Base(path))
+			}
 
 			err = diskio.Fsync(sg.dir)
 			if err != nil {
@@ -320,6 +365,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	}
 
 	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
+	// Any init failure from here on discards sg without a shutdown — mid-loop
+	// load errors, WAL recovery, the sidecar-recovery hard-fail, cleaner init.
+	// Close whatever segments were already opened or every reload retry leaks
+	// their mmaps. Nil entries: the slice is pre-sized and truncated after the
+	// loop.
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, seg := range sg.segments {
+			if seg == nil {
+				continue
+			}
+			if closeErr := seg.close(); closeErr != nil {
+				sg.logger.WithField("path", cfg.dir).
+					Warnf("close segment after failed segment-group init: %v", closeErr)
+			}
+			sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+		}
+	}()
+
 	fileList := make([]string, 0, len(files))
 	for entry := range files {
 		fileList = append(fileList, entry)
@@ -375,11 +441,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -452,12 +520,60 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.strategy = StrategyInverted
 	}
 
+	// Construct the edit-ops sidecar BEFORE WAL recovery: the recovery must
+	// know whether ops exist — a last-WAL memtable kept live under a pending
+	// drop would hold pre-strip bytes outside the pending-segment bookkeeping
+	// (see mayRecoverFromCommitLogs). Recovery of the sidecar itself runs
+	// after the WALs, over the final segment set.
+	if cfg.className != "" && cfg.strategy == StrategyReplace {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
+		sg.editOps.logger = sg.logger
+		// Any later init failure discards sg without a shutdown — the probe
+		// or recovery may have opened the sidecar's bolt (flock held), and a
+		// leaked handle wedges every reload retry until process restart.
+		defer func() {
+			if err != nil {
+				if closeErr := sg.editOps.Close(); closeErr != nil {
+					sg.logger.WithField("path", cfg.dir).
+						Warnf("close edit-ops sidecar after failed init: %v", closeErr)
+				}
+			}
+		}()
+	}
+
 	if err := b.mayRecoverFromCommitLogs(ctx, sg, files); err != nil {
 		return nil, err
 	}
 
 	if sg.monitorCount {
 		sg.metrics.ObjectCount(sg.count())
+	}
+
+	// Recover the sidecar AFTER WAL recovery so it judges the settled segment
+	// set — it prunes rows whose segments are gone from disk, and must not run
+	// while WAL replay is still creating segments (construction happened above,
+	// before recovery — still ahead of the cleaner, which consults sg.editOps,
+	// and of the compaction cycle registration: published before any pass reads
+	// it). The bolt file opens lazily on the first registered op, so an objects
+	// bucket that never sees a drop carries no sidecar. Closed in shutdown.
+	if sg.editOps != nil {
+		if err := sg.recoverEditOps(ctx); err != nil {
+			if errors.Is(err, bolterrors.ErrTimeout) {
+				// The sidecar's bolt file is still locked — a previous instance of
+				// this shard has not finished closing. Its ops and pending sets are
+				// unreadable, so cleanup could neither arm transformers nor tell
+				// stripped segments from unstripped ones (running blind here is how
+				// a completed drop's data once got resurrected); fail the load so
+				// the shard lifecycle retries once the old instance is gone.
+				return nil, fmt.Errorf("segment edit ops sidecar still locked by a previous instance: %w", err)
+			}
+			// Other failures are not fatal: bricking the shard over drop-progress
+			// bookkeeping (e.g. a torn sidecar copy) would trade data availability
+			// for cleanup state. The drop stalls and every cleanup pass logs until
+			// repaired.
+			sg.logger.WithField("path", cfg.dir).
+				Errorf("recover segment edit ops failed; drop-vector cleanup on this shard is stalled: %v", err)
+		}
 	}
 
 	sc, err := newSegmentCleaner(sg)
@@ -479,11 +595,12 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		if len(sg.segments) == 0 {
 			break
 		}
+		var stats avgPropLengthStats
 		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
 
 		if count > 0 {
-			sg.averagePropSum.Store(uint64(avg * float64(count)))
-			sg.averagePropCount.Store(count)
+			stats.sum += uint64(avg * float64(count))
+			stats.count += count
 		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
@@ -499,10 +616,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
 
 			if count > 0 {
-				sg.averagePropSum.Add(uint64(avg * float64(count)))
-				sg.averagePropCount.Add(count)
+				stats.sum += uint64(avg * float64(count))
+				stats.count += count
 			}
 		}
+		sg.averagePropLength.Store(&stats)
 
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
@@ -536,6 +654,103 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
+// buildRoaringSetRangeRep merges the current disk segments (ref-counted,
+// oldest to newest) into a fresh unpublished rep. Caller must have paused
+// compaction so the merged segments stay a stable prefix for
+// installRoaringSetRangeRep's catch-up.
+//
+// Caller must not call the returned release until installRoaringSetRangeRep
+// returns: holding the ref keeps a concurrent shutdown() from closing these
+// segments mid-merge. The release is deferred and only suppressed on
+// success, so a panic mid-merge still releases it instead of leaking a ref
+// that would hang the next shutdown() forever.
+func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
+	segments, release := sg.getConsistentViewOfSegments()
+	ownershipTransferred := false
+	defer func() {
+		if !ownershipTransferred {
+			release()
+		}
+	}()
+
+	if sg.allocChecker != nil {
+		// Unbounded full-property build; refuse on memory pressure so the
+		// caller degrades to disk serving instead of risking an OOM kill.
+		var totalSize int64
+		for _, seg := range segments {
+			totalSize += seg.Size()
+		}
+		if err := sg.allocChecker.CheckAlloc(totalSize); err != nil {
+			sg.logger.WithFields(logrus.Fields{
+				"action":   "rangeable_inmemory_rebuild",
+				"event":    "rebuild_skipped_oom",
+				"bucket":   filepath.Base(sg.dir),
+				"segments": len(segments),
+			}).Warnf("skipping rangeable in-memory rebuild due to memory pressure: %v", err)
+			return nil, nil, nil, err
+		}
+	}
+
+	t := time.Now()
+	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
+	for _, seg := range segments {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return nil, nil, nil, fmt.Errorf("merge segment into rangeable rep: %w", err)
+		}
+	}
+	sg.logger.WithFields(logrus.Fields{
+		"took":     time.Since(t).String(),
+		"bucket":   filepath.Base(sg.dir),
+		"segments": len(segments),
+		"size_mb":  fmt.Sprintf("%.3f", float64(rep.Size())/1024/1024),
+	}).Debug("rangeable segment-in-memory rebuilt")
+	ownershipTransferred = true
+	return rep, segments, release, nil
+}
+
+// installRoaringSetRangeRep merges segments appended after the bulk build
+// (flush appends only; compaction must stay paused) and publishes the rep.
+// Caller must hold the bucket's flushLock so no flush races the catch-up
+// with the publish. releaseBuilt always runs via defer, so a group shut
+// down mid-rebuild is never blocked past this call.
+//
+// Compaction staying paused for the whole span means appends only grow the
+// tail, so the catch-up view is always a superset of alreadyMerged. The
+// publish assignment pairs maintenanceLock.Lock() here with the RLock()
+// guard in PrependSegmentsFromBucket.
+func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged []Segment, releaseBuilt func()) error {
+	defer releaseBuilt()
+
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	catchUpFrom := len(alreadyMerged)
+	if catchUpFrom > len(segments) {
+		// Should be unreachable while compaction stays paused (segments
+		// only grow); guard defensively against a slice-bounds panic.
+		sg.logger.WithFields(logrus.Fields{
+			"bucket":         filepath.Base(sg.dir),
+			"already_merged": catchUpFrom,
+			"current":        len(segments),
+		}).Debug("rangeable rep catch-up: segment count shrank since bulk build, skipping catch-up merge")
+		catchUpFrom = len(segments)
+	}
+
+	for _, seg := range segments[catchUpFrom:] {
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
+		}
+	}
+
+	sg.maintenanceLock.Lock()
+	sg.roaringSetRangeSegmentInMemory = rep
+	sg.maintenanceLock.Unlock()
+	return nil
+}
+
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
@@ -565,10 +780,12 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -578,7 +795,115 @@ func (sg *SegmentGroup) add(path string) error {
 	sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
 
+	// this path adds a segment post-init (WAL recovery flushing a recovered
+	// memtable), so it owns the same accounting a flush does
+	sg.countSegmentAveragePropLength(segment)
+
 	return nil
+}
+
+// segmentAtPositionHasID reports, under maintenanceLock, whether the in-memory
+// segment at pos still has the given id. Used to re-validate a position-based
+// swap before it runs, so a wrong-segment swap fails loudly instead of corrupting
+// data if the compaction/cleanup serialization invariant is ever broken.
+func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
+}
+
+// recoverEditOps runs startup recovery for the edit-ops sidecar: sweep ops whose
+// task is gone (load-bearing: re-arming an orphaned op would strip a re-created
+// same-name vector), then prune rows for segments gone from disk
+// (SegmentEditOps.Recover). Surviving pending sets are kept as recorded — they
+// are the resume point of an interrupted strip; see Recover for why absence
+// from pending firmly means "clean" across every rewrite and crash window
+// (segments born from WAL replay were already durably pended by the recovery
+// itself; see mayRecoverFromCommitLogs). Runs before the compaction cycle
+// registers, so no pass races the segment-set read.
+func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
+	if sg.editOps == nil {
+		return nil
+	}
+	sg.maintenanceLock.RLock()
+	ids := sg.currentSegmentIDsLocked()
+	sg.maintenanceLock.RUnlock()
+	return sg.editOps.Recover(ids,
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, false) },
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) })
+}
+
+// liveEditOpIDs resolves the live-op set for the orphan sweep via the package
+// provider (editops.SetLivenessProvider), or nil to skip it (no provider, or a
+// lookup failure — sweeping on a bad read could drop a still-live op, so we
+// prefer to re-arm and let a later load reconcile).
+func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context, fresh bool) map[string]struct{} {
+	if !editops.LivenessProviderInstalled() {
+		// Only reached with edit ops present: a missing provider silently disables
+		// the orphan sweep, which the startup wiring is supposed to prevent — warn
+		// loudly instead of hiding it.
+		sg.logger.Warnf("drop-vector: no edit-op liveness provider installed; orphan sweep disabled for this load")
+		return nil
+	}
+	var live map[string]struct{}
+	var err error
+	if fresh {
+		live, err = editops.LiveOpsFresh(ctx)
+	} else {
+		live, err = editops.LiveOps(ctx)
+	}
+	if err != nil {
+		sg.logger.Warnf("drop-vector: live edit-op lookup failed; skipping orphan sweep this load: %v", err)
+		return nil
+	}
+	return live
+}
+
+// registerEditOpAndSnapshot registers opID and snapshots the current on-disk
+// segments in one write. Idempotent via the snapshot guard (not the descriptor),
+// so a resume completes an interrupted register rather than skipping it, and one
+// that already snapshotted does not re-queue completed segments. The segment IDs
+// are read and written under maintenanceLock so the snapshot stays coherent with
+// the in-memory segment set.
+func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
+	if sg.editOps == nil {
+		return fmt.Errorf("edit ops not enabled for this segment group")
+	}
+	snapshotted, err := sg.editOps.HasPendingSnapshot(opID)
+	if err != nil {
+		return err
+	}
+	if snapshotted {
+		return nil
+	}
+
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+}
+
+// requeueQuarantinedEditOps returns opID's quarantined segments to pending with
+// a fresh retry budget (see SegmentEditOps.RequeueQuarantined). Called when a
+// new round re-arms an already-snapshotted op. The live-segment set is read and
+// used under maintenanceLock so a concurrent merge cannot swap segments between
+// the read and the write.
+func (sg *SegmentGroup) requeueQuarantinedEditOps(opID string) error {
+	if sg.editOps == nil {
+		return fmt.Errorf("edit ops not enabled for this segment group")
+	}
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return sg.editOps.RequeueQuarantined(opID, sg.currentSegmentIDsLocked())
+}
+
+// currentSegmentIDsLocked snapshots the in-memory segment IDs. Caller must hold
+// maintenanceLock (read).
+func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
+	ids := make([]string, len(sg.segments))
+	for i, seg := range sg.segments {
+		ids[i] = segmentID(seg.getPath())
+	}
+	return ids
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
@@ -586,19 +911,18 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
@@ -749,6 +1073,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	return out, nil
 }
 
+func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionBytes(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
 func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
@@ -779,43 +1127,50 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+// roaringSetGet folds all disk segments holding key into a single BitmapLayer:
+// the first segment with the key becomes the base (additions cloned into a
+// pooled buffer with headroom), every later segment merges into it in place.
+// If no segment has the key, a zero BitmapLayer and noop release are returned.
+// Only Additions is fully folded; Deletions is the first segment's deletions,
+// retained solely so its buffer gets released — not the flattened deletions.
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
-		return nil, noopRelease, nil
+		return out, noopRelease, nil
 	}
 
-	release = noopRelease
-	// use bigger buffer for first layer, to make space for further merges
-	// with following layers
-	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
+	// acquired (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a mid-merge disk read error
+	// can't leak the first layer's pooled buffer.
+	acquired := noopRelease
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err == nil {
-			out = append(out, layer)
-			release = layerRelease
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		if getErr == nil {
+			out = layer
+			acquired = layerRelease
 			i++
 			break
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, noopRelease, err
+		if !errors.Is(getErr, lsmkv.NotFound) {
+			return roaringset.BitmapLayer{}, noopRelease, getErr
 		}
 	}
 	defer func() {
 		if err != nil {
-			release()
+			acquired()
 		}
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
-			return nil, noopRelease, err
+		if mergeErr := segments[i].roaringSetMergeWith(key, out, sg.bitmapBufPool, maxConc); mergeErr != nil {
+			err = mergeErr
+			return roaringset.BitmapLayer{}, noopRelease, err
 		}
 	}
 
-	return out, release, nil
+	return out, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {
@@ -823,6 +1178,15 @@ func (sg *SegmentGroup) count() int {
 	defer release()
 
 	return sg.countWithSegmentList(segments)
+}
+
+// roaringSetRangeDiskSegmentCount returns the on-disk segment count via a
+// cheap read lock only. Must not be held while bitmapsLock is held.
+func (sg *SegmentGroup) roaringSetRangeDiskSegmentCount() int {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return len(sg.segments)
 }
 
 func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
@@ -840,6 +1204,11 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
+	}
+	if sg.editOps != nil {
+		if err := sg.editOps.Close(); err != nil {
+			return err
+		}
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
@@ -867,6 +1236,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}
@@ -893,6 +1271,20 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	defer sg.statusLock.Unlock()
 
 	return sg.status == storagestate.StatusReadOnly
+}
+
+// traceEnabled reports whether the logger emits trace entries, so callers can
+// skip building WithField chains a normal log level would discard. A logger of
+// unknown type is treated as enabled rather than silently losing the line.
+func traceEnabled(logger logrus.FieldLogger) bool {
+	switch l := logger.(type) {
+	case *logrus.Logger:
+		return l.IsLevelEnabled(logrus.TraceLevel)
+	case *logrus.Entry:
+		return l.Logger.IsLevelEnabled(logrus.TraceLevel)
+	default:
+		return true
+	}
 }
 
 func fileExists(path string) (bool, error) {
@@ -924,41 +1316,15 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	// bridge shouldAbort → ctx for the compactor inner loops
-	compactCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-compactCtx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, sg.logger)
-		}
-	}
-
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
-		compacted, err := sg.compactOnce(compactCtx)
+		compacted, err := sg.compactOnceAbortable(context.Background(), shouldAbort)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("compaction failed")
-		} else if !compacted {
+		} else if !compacted && traceEnabled(sg.logger) {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				Trace("no segments eligible for compaction")
@@ -1009,10 +1375,65 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	count := sg.averagePropCount.Load()
-	if count == 0 {
+	stats := sg.averagePropLength.Load()
+	if stats == nil || stats.count == 0 {
 		return 0, 0
 	}
-	sum := sg.averagePropSum.Load()
-	return float64(sum) / float64(count), count
+	return float64(stats.sum) / float64(stats.count), stats.count
+}
+
+// countSegmentAveragePropLength folds a segment that has just become live in
+// the group into the average-property-length accounting. Every path that makes a
+// segment live must call it — flush, add (WAL recovery) and prepend — because
+// reconcileAveragePropertyLength subtracts a retired segment's contribution at
+// compaction: a segment that is live but uncounted would have a contribution
+// subtracted that was never added, underflowing the running total.
+func (sg *SegmentGroup) countSegmentAveragePropLength(segment Segment) {
+	if sg.strategy != StrategyInverted {
+		return
+	}
+	inv := segment.getInvertedData()
+	if inv.avgPropertyLengthsCount == 0 {
+		return
+	}
+	sg.addAveragePropLength(uint64(inv.avgPropertyLengthsAvg*float64(inv.avgPropertyLengthsCount)),
+		inv.avgPropertyLengthsCount)
+}
+
+// addAveragePropLength applies a (sum, count) delta to the published snapshot.
+// Deltas may wrap for subtraction; the running total always covers what is being
+// removed, so the result never underflows.
+func (sg *SegmentGroup) addAveragePropLength(deltaSum, deltaCount uint64) {
+	for {
+		cur := sg.averagePropLength.Load()
+		next := avgPropLengthStats{}
+		if cur != nil {
+			next = *cur
+		}
+		next.sum += deltaSum
+		next.count += deltaCount
+		if sg.averagePropLength.CompareAndSwap(cur, &next) {
+			return
+		}
+	}
+}
+
+// reconcileAveragePropertyLength moves the average-property-length accounting
+// from the two retired segments to the merged one after an inverted compaction,
+// so the group's avgdl denominator tracks the live set. Reusing the flush and
+// init paths' uint64(avg*count) accumulation makes the running total cancel
+// exactly and match a restart's recompute-from-segments.
+func (sg *SegmentGroup) reconcileAveragePropertyLength(retiredLeft, retiredRight, merged Segment) {
+	contribution := func(inv *segmentInvertedData) (sum, count uint64) {
+		if inv.avgPropertyLengthsCount == 0 {
+			return 0, 0
+		}
+		return uint64(inv.avgPropertyLengthsAvg * float64(inv.avgPropertyLengthsCount)), inv.avgPropertyLengthsCount
+	}
+
+	oldSumL, oldCountL := contribution(retiredLeft.getInvertedData())
+	oldSumR, oldCountR := contribution(retiredRight.getInvertedData())
+	newSum, newCount := contribution(merged.getInvertedData())
+
+	sg.addAveragePropLength(newSum-oldSumL-oldSumR, newCount-oldCountL-oldCountR)
 }

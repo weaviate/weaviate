@@ -52,6 +52,9 @@ type DBUserInfo struct {
 	// Format: date-time
 	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
 
+	// The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.
+	Namespace string `json:"namespace,omitempty"`
+
 	// The roles associated with the user.
 	// Required: true
 	Roles []string `json:"roles"`

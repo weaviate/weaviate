@@ -37,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -130,88 +131,6 @@ func setupDebugHandlers(appState *state.State) {
 		props := []byte(strings.Join(propertiesToMigrate, ","))
 
 		changeFile("properties.mig", false, props, logger, appState, r, w)
-	}))
-
-	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		colName := r.URL.Query().Get("collection")
-
-		if colName == "" {
-			http.Error(w, "collection name is required", http.StatusBadRequest)
-			return
-		}
-
-		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
-
-		shardsToMigrate := []string{}
-		if shardsToMigrateString != "" {
-			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
-		}
-
-		className := schema.ClassName(colName)
-		idx := appState.DB.GetIndex(className)
-
-		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found or not ready")
-			http.Error(w, "collection not found or not ready", http.StatusNotFound)
-			return
-		}
-
-		output := make(map[string]map[string]string)
-		// shards will not be force loaded, as we are only getting the name
-		err := idx.ForEachShard(
-			func(shardName string, shard db.ShardLike) error {
-				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					err := idx.IncomingReinitShard(
-						context.Background(),
-						shardName,
-					)
-					if err != nil {
-						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
-						output[shardName] = map[string]string{
-							"shard":       shardName,
-							"shardStatus": shard.GetStatus().String(),
-							"status":      "error",
-							"message":     "failed to reinit shard",
-							"error":       err.Error(),
-						}
-						return nil
-					}
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "reinit",
-						"message":     "reinit shard started",
-					}
-				} else {
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "skipped",
-						"message":     fmt.Sprintf("shard %s not selected", shardName),
-					}
-				}
-				return nil
-			},
-		)
-
-		response := map[string]interface{}{
-			"shards": output,
-		}
-
-		if err != nil {
-			logger.WithField("collection", colName).Error("failed to get shard names")
-			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
-			response["error"] = "failed to get shard names: " + err.Error()
-		}
-
-		jsonBytes, err := json.Marshal(response)
-		if err != nil {
-			logger.WithError(err).Error("marshal failed on stats")
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(jsonBytes)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,12 +243,6 @@ func setupDebugHandlers(appState *state.State) {
 				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
 				status, message, action := rt.GetStatusStrings()
-
-				if appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ConditionalStart && !rt.HasStartCondition() {
-					message = "reindexing not started, no start condition file found"
-					status = "not_started"
-					action = "call /start?collection=<> endpoint to start reindexing"
-				}
 
 				output[i]["status"] = status
 				output[i]["message"] = message
@@ -545,6 +458,14 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
+		if param := r.URL.Query().Get("shardConcurrency"); param != "" {
+			shardConcurrency, err := strconv.Atoi(param)
+			if err != nil || shardConcurrency < 1 {
+				http.Error(w, "shardConcurrency must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			service.SetShardConcurrency(shardConcurrency)
+		}
 
 		exactCountParam := r.URL.Query().Get("exactObjectCount")
 		exactObjectCount := exactCountParam == "true" // false by default
@@ -1099,6 +1020,11 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		expiration := r.URL.Query().Get("expiration")
 		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
@@ -1115,12 +1041,7 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		targetOwnNode := false
-		if targetOwnNodeStr != "" {
-			if targetOwnNodeStr == "true" {
-				targetOwnNode = true
-			}
-		}
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
 		if err != nil {
@@ -1129,6 +1050,30 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+		resp := map[string]any{"aborted": aborted, "error": errMsg}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}))
 
 	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
@@ -1359,4 +1304,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.WriteHeader(status)
 	w.Write(jsonBytes)
+}
+
+// setupTelemetryDebugHandlers registers debug endpoints for inspecting live telemetry data.
+// It must be called after the telemeter has been created.
+func setupTelemetryDebugHandlers(telemeter *telemetry.Telemeter) {
+	http.HandleFunc("/debug/telemetry/clients", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		type clientsResponse struct {
+			ClientUsage            map[telemetry.ClientType]map[string]int64 `json:"clientUsage"`
+			ClientIntegrationUsage map[string]map[string]int64               `json:"clientIntegrationUsage"`
+		}
+
+		resp := clientsResponse{}
+		if ct := telemeter.GetClientTracker(); ct != nil {
+			resp.ClientUsage = ct.Get()
+		}
+		if it := telemeter.GetIntegrationTracker(); it != nil {
+			resp.ClientIntegrationUsage = it.Get()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, http.StatusOK, resp)
+	}))
 }

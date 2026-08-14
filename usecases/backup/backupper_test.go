@@ -16,12 +16,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -231,7 +233,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -240,6 +242,101 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		status, errMsg := backend.getMetaStatus()
 		assert.Equal(t, backup.Success, status)
 		assert.Equal(t, "", errMsg)
+	})
+
+	t.Run("RoleSelectionReachesTheSnapshotter", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			roles      = []string{"ns1:reader", "ns1:writer"}
+			users      = []string{"ns1:alice"}
+		)
+
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m, rbacSnapshotter, dynUserSnapshotter := createManagerWithSnapshotters(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		req.Roles = roles
+		req.Users = users
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		require.Equal(t, want, got)
+
+		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""}))
+		m.backupper.waitForCompletion(20, 50)
+		status, errMsg := backend.getMetaStatus()
+		require.Equal(t, backup.Success, status)
+		require.Equal(t, "", errMsg)
+
+		// The node must snapshot the requested roles and nothing else. An empty
+		// selection here means this node dumped the whole RBAC store while the
+		// descriptor still advertised the subset the caller asked for.
+		gotRoles, calledRbac := rbacSnapshotter.snapshotted()
+		require.True(t, calledRbac, "the participant never took an RBAC snapshot")
+		assert.Equal(t, roles, gotRoles)
+
+		gotUsers, calledDynUser := dynUserSnapshotter.snapshotted()
+		require.True(t, calledDynUser, "the participant never took a dynamic user snapshot")
+		assert.Equal(t, users, gotUsers)
+	})
+
+	t.Run("NodeMissingFromBaseBackupUploadsFull", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			baseID     = "base-1"
+			baseHome   = baseID + "/" + nodeName
+		)
+
+		// capture the base descriptors passed to the uploader to prove this
+		// node deduplicates against nothing (full upload)
+		var gotBaseDescrs []*backup.BackupDescriptor
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
+			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+		})
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		// this node has no descriptor in the base backup
+		backend.On("GetObject", any, baseHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		req.BaseBackupID = baseID
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		assert.Equal(t, got, want)
+
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		assert.NoError(t, err)
+		m.backupper.waitForCompletion(20, 50)
+		status, errMsg := backend.getMetaStatus()
+		assert.Equal(t, backup.Success, status)
+		assert.Equal(t, "", errMsg)
+		assert.Empty(t, gotBaseDescrs)
+		// the descriptor must reflect the full backup we took, not advertise a base
+		assert.Empty(t, backend.getMetaBaseBackupID())
 	})
 
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
@@ -266,7 +363,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -302,7 +399,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -338,7 +435,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Millisecond * 10
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: req.Duration}
 		assert.Equal(t, got, want)
 
 		m.backupper.waitForCompletion(20, 50)
@@ -394,6 +491,13 @@ func fakeBackupDescriptor(descs ...backup.ClassDescriptor) <-chan backup.ClassDe
 }
 
 func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) *Handler {
+	m, _, _ := createManagerWithSnapshotters(sourcer, schema, backend, backendErr)
+	return m
+}
+
+// createManagerWithSnapshotters also returns the two snapshot fakes the handler was
+// built with, so a test can assert on the selection that reached them.
+func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) (*Handler, *fakeRbacBackupWrapper, *fakeDynUserBackupWrapper) {
 	backends := &fakeBackupBackendProvider{backend, backendErr}
 	if sourcer == nil {
 		sourcer = &fakeSourcer{}
@@ -403,17 +507,65 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
+	rbac := &fakeRbacBackupWrapper{}
+	dynUser := &fakeDynUserBackupWrapper{}
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
-type fakeRbacBackupWrapper struct{}
+// fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
+// selection it was called with. Discarding that argument would leave every hop between
+// the participant request and this call unpinned, so a dropped selection would still
+// produce a green suite while each node snapshotted the whole RBAC store.
+type fakeRbacBackupWrapper struct {
+	mu       sync.Mutex
+	gotRoles []string
+	called   bool
+}
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r *fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.called = true
+	r.gotRoles = roles
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r *fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
+}
+
+// snapshotted returns the recorded selection and whether Snapshot ran at all. The
+// backup runs on its own goroutine, so the lock is required even after waiting.
+func (r *fakeRbacBackupWrapper) snapshotted() ([]string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gotRoles, r.called
+}
+
+// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot). It records
+// its selection for the same reason fakeRbacBackupWrapper does.
+type fakeDynUserBackupWrapper struct {
+	mu       sync.Mutex
+	gotUsers []string
+	called   bool
+}
+
+func (d *fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.called = true
+	d.gotUsers = userIDs
+	return nil, nil
+}
+
+func (d *fakeDynUserBackupWrapper) Restore([]byte, bool) error {
+	return nil
+}
+
+func (d *fakeDynUserBackupWrapper) snapshotted() ([]string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gotUsers, d.called
 }
 
 func TestResolveBaseBackupChain(t *testing.T) {
@@ -422,11 +574,20 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	bucket := "test-bucket"
 	path := "test-path"
 
+	// t0 is the oldest; a valid chain has strictly increasing StartedAt from the
+	// full backup up to the backup that depends on it (childStartedAt).
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	t2 := t0.Add(2 * time.Hour)
+	t3 := t0.Add(3 * time.Hour)
+	t4 := t0.Add(4 * time.Hour)
+
 	type fetchMetaFunc func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error)
 
 	tests := []struct {
 		name              string
 		baseBackupID      string
+		childStartedAt    time.Time
 		compressionType   backup.CompressionType
 		setupFetchMeta    func() fetchMetaFunc
 		errorContains     []string
@@ -435,6 +596,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "EmptyBaseBackupID",
 			baseBackupID:    "",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -447,6 +609,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "SingleBaseBackup",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -455,6 +618,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					}, nil
 				}
 			},
@@ -463,6 +627,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "ChainOfMultipleBackups",
 			baseBackupID:    "backup-3",
+			childStartedAt:  t4,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				descriptors := map[string]*backup.BackupDescriptor{
@@ -471,18 +636,21 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						StartedAt:       t1,
 					},
 					"backup-3": {
 						ID:              "backup-3",
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						StartedAt:       t2,
 					},
 				}
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -492,8 +660,83 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			expectedResultIDs: []string{"backup-3", "backup-2", "backup-1"},
 		},
 		{
+			// Base re-created after its dependent: same id, newer StartedAt.
+			name:            "BaseNewerThanChild",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "",
+						Status:          backup.Success,
+						StartedAt:       t2,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "is not older", "re-created"},
+		},
+		{
+			// Equal StartedAt is rejected: the base must be strictly older.
+			name:            "BaseEqualToChild",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "",
+						Status:          backup.Success,
+						StartedAt:       t1,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "is not older"},
+		},
+		{
+			// A deeper link was re-created: backup-2 is newer than backup-3 which depends on it.
+			name:            "StaleBaseMidChain",
+			baseBackupID:    "backup-3",
+			childStartedAt:  t4,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "backup-1",
+						Status:          backup.Success,
+						StartedAt:       t3,
+					},
+					"backup-3": {
+						ID:              "backup-3",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "backup-2",
+						Status:          backup.Success,
+						StartedAt:       t2,
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-2\"", "is not older"},
+		},
+		{
 			name:            "CircularReferenceDetection",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t2,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				descriptors := map[string]*backup.BackupDescriptor{
@@ -502,12 +745,14 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						StartedAt:       t1,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					},
 				}
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -519,6 +764,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "ErrorFetchingBackup",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -530,6 +776,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "SelfReferentialBackup",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -538,6 +785,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					}, nil
 				}
 			},
@@ -546,6 +794,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "WrongCompressionType",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				noneCompression := backup.CompressionNone
@@ -555,27 +804,79 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &noneCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					}, nil
 				}
 			},
 			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
 		},
 		{
-			name:            "FailedBackupStatus",
+			name:            "LegacyBaseByStructureVersion",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
-				noneCompression := backup.CompressionNone
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
 					return &backup.BackupDescriptor{
 						ID:              "backup-1",
-						CompressionType: &noneCompression,
-						BaseBackupID:    "",
-						Status:          backup.Failed,
+						CompressionType: &gzipCompression,
+						Version:         "1.0",
+						ServerVersion:   "1.23",
+						Status:          backup.Success,
+						StartedAt:       t0,
 					}, nil
 				}
 			},
-			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.21"},
+		},
+		{
+			name:            "LegacyBaseDeeperInChain",
+			baseBackupID:    "backup-2",
+			childStartedAt:  t2,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.22",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.23",
+						BaseBackupID:    "backup-1",
+						Status:          backup.Success,
+						StartedAt:       t1,
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.23"},
+		},
+		{
+			name:            "FailedBackupStatus",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "",
+						Status:          backup.Failed,
+						StartedAt:       t0,
+					}, nil
+				}
+			},
+			errorContains: []string{"backup \"backup-1\" has status", "expected"},
 		},
 	}
 
@@ -583,7 +884,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fetchMeta := tt.setupFetchMeta()
 
-			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, bucket, path, tt.compressionType, fetchMeta)
+			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, tt.childStartedAt, bucket, path, tt.compressionType, fetchMeta)
 
 			if len(tt.errorContains) > 0 {
 				assert.Error(t, err)

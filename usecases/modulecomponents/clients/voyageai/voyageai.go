@@ -280,7 +280,10 @@ func (c *Client) vectorize(ctx context.Context, baseURL, model string, request i
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	url := c.getVoyageAIUrl(ctx, baseURL, model)
+	url, err := c.getVoyageAIUrl(ctx, baseURL, model)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
@@ -368,12 +371,12 @@ func (c *Client) getVectorizationResult(input []string, resBody *embeddingsRespo
 	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
-func (c *Client) getVoyageAIUrl(ctx context.Context, baseURL, model string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (c *Client) getVoyageAIUrl(ctx context.Context, baseURL, model string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Voyageai-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return c.urlBuilder.URL(passedBaseURL, model)
+	return c.urlBuilder.URL(passedBaseURL, model), nil
 }
 
 func (c *Client) getErrorMessage(statusCode int, resBodyError string) string {

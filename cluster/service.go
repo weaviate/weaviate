@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -23,7 +24,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -66,11 +66,15 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
+func New(cfg Config, authZController authorization.Controller, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
+	fsm := NewFSM(cfg, authZController, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
+	// Every state-transition apply on this node broadcasts the new state
+	// into every peer's PerNodeState map; the consumer waits on it locally.
+	fsm.replicationManager.SetLogger(cfg.Logger)
+	fsm.replicationManager.SetNodeReachedStateSubmitter(cfg.NodeID, raft.SubmitNodeReachedState)
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
@@ -86,7 +90,6 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		cfg.ReplicationEngineMaxWorkers,
-		cfg.ReplicaMovementMinimumAsyncWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 		raft.SchemaReader(),
 	)
@@ -100,12 +103,12 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
-		raftAddr:           fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		config:             &cfg,
 		rpcClient:          client,
 		rpcServer:          svr,
@@ -223,6 +226,10 @@ func (c *Service) Close(ctx context.Context) error {
 			c.cancelReplicationEngine()
 		}
 		c.replicationEngine.Stop()
+		// Cancel any in-flight node-reached-state broadcast/drain retry loops.
+		if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
+			c.Raft.store.replicationManager.Close()
+		}
 	}
 
 	c.logger.Info("closing raft FSM store ...")

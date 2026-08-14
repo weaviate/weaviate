@@ -164,6 +164,51 @@ func (o *SchemaObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, produce
 	rw.WriteHeader(404)
 }
 
+// SchemaObjectsGetUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsGetUnprocessableEntity
+const SchemaObjectsGetUnprocessableEntityCode int = 422
+
+/*
+SchemaObjectsGetUnprocessableEntity Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.
+
+swagger:response schemaObjectsGetUnprocessableEntity
+*/
+type SchemaObjectsGetUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsGetUnprocessableEntity creates SchemaObjectsGetUnprocessableEntity with default headers values
+func NewSchemaObjectsGetUnprocessableEntity() *SchemaObjectsGetUnprocessableEntity {
+
+	return &SchemaObjectsGetUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the schema objects get unprocessable entity response
+func (o *SchemaObjectsGetUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsGetUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects get unprocessable entity response
+func (o *SchemaObjectsGetUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SchemaObjectsGetInternalServerErrorCode is the HTTP code returned for type SchemaObjectsGetInternalServerError
 const SchemaObjectsGetInternalServerErrorCode int = 500
 

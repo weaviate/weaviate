@@ -60,9 +60,9 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
 			AllocChecker: memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 				return NewCommitLogger(rootPath, "corrupt_test", logger,
-					cyclemanager.NewCallbackGroupNoop())
+					cyclemanager.NewCallbackGroupNoop(), opts...)
 			},
 			ID:               "corrupt_test",
 			RootPath:         rootPath,
@@ -92,13 +92,22 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
-			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,
-				"corrupt_test"), common.NewOSFS())
+			dir := commitLogDirectory(rootPath, "corrupt_test")
+			raws, err := listRawCommitLogFiles(dir)
 			require.Nil(t, err)
-			require.True(t, ok)
+			require.NotEmpty(t, raws, "expected at least one raw commit log")
 
-			f, err := os.Create(path.Join(commitLogDirectory(rootPath, "corrupt_test"),
-				fmt.Sprintf("%s.condensed", input)))
+			// Pick the newest raw file (largest numeric name). listRawCommitLogFiles
+			// only returns pure-timestamp entries, so string comparison on the
+			// fixed-width decimals matches numeric order here.
+			var input string
+			for _, e := range raws {
+				if e.Name() > input {
+					input = e.Name()
+				}
+			}
+
+			f, err := os.Create(path.Join(dir, fmt.Sprintf("%s.condensed", input)))
 			require.Nil(t, err)
 
 			// write random non-sense to make sure the file is corrupt

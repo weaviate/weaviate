@@ -85,6 +85,7 @@ type dateAggregator struct {
 func newDateAggregator() *dateAggregator {
 	return &dateAggregator{
 		min:          timestamp{epochNano: math.MaxInt64},
+		max:          timestamp{epochNano: math.MinInt64},
 		valueCounter: map[timestamp]uint64{},
 		pairs:        make([]timestampCountPair, 0),
 	}

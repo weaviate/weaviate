@@ -31,13 +31,18 @@ type Indexer interface {
 	UpdateClass(api.UpdateClassRequest) error
 	DeleteClass(className string, hasFrozen bool) error
 	AddProperty(class string, req api.AddPropertyRequest) error
+	UpdateProperty(class string, req api.UpdatePropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
-	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
+	// UpdateTenants receives, per tenant entering FREEZING, the status it held
+	// beforehand — an aborted freeze reports that status back to the schema. The
+	// map is complete on entry: the schema update that fills it runs first.
+	UpdateTenants(class string, req *api.UpdateTenantsRequest, preFreezeStatuses map[string]string) error
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	AddReplicaToShard(class, shard, targetNode string) error
 	DeleteReplicaFromShard(class, shard, targetNode string) error
+	ReconcileAsyncReplicationForShard(class, shard string) error
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)

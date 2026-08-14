@@ -14,6 +14,7 @@ package common
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -56,17 +57,20 @@ func TestMakeUnboundedChannel_CapShrink(t *testing.T) {
 	ch.mu.RUnlock()
 	require.GreaterOrEqual(t, c, 2000)
 
-	// read > 75% items
-	for i := range 1600 {
+	// drain almost all items so the internal buffer becomes heavily underused
+	for i := range 1900 {
 		v := <-ch.Out()
 		require.Equal(t, i, v)
 	}
 
-	ch.mu.RLock()
-	c = cap(ch.q)
-	ch.mu.RUnlock()
-
-	require.LessOrEqual(t, c, 1024)
+	// pop() shrinks the internal buffer lazily on the background goroutine,
+	// so the capacity settles asynchronously after the reads above. Poll
+	// until it has shrunk back down.
+	require.Eventually(t, func() bool {
+		ch.mu.RLock()
+		defer ch.mu.RUnlock()
+		return cap(ch.q) <= 1024
+	}, 5*time.Second, time.Millisecond)
 
 	ch.Close(t.Context())
 }

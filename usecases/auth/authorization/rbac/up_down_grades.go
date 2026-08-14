@@ -88,7 +88,7 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRo
 
 	for _, policy := range policiesToAdd {
 		roleName := conv.TrimRoleNamePrefix(policy[0])
-		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+		if slices.Contains(authorization.BuiltInRoles, roleName) {
 			if !keepBuildInRoles {
 				continue
 			} else if policy[2] == conv.CRUD {

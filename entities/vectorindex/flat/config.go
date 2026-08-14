@@ -276,6 +276,8 @@ func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, 
 		return flatConfig, nil
 	}
 	switch compression {
+	case "", "none":
+		return flatConfig, nil
 	case "rq-1":
 		flatConfig.RQ.Enabled = true
 		flatConfig.RQ.Bits = 1

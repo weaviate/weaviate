@@ -14,7 +14,7 @@ package generate
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func (p *GenerateProvider) additionalGenerateField(className string) *graphql.Field {

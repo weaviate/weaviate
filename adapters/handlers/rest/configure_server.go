@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/cron"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
@@ -48,27 +49,61 @@ var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
 	return func(updatedSchema schema.SchemaWithAliases) {
-		if appState.ServerConfig.Config.DisableGraphQL {
+		cfg := appState.ServerConfig.Config
+
+		// Namespaces can't be modeled in the GraphQL schema, and a disabled GraphQL
+		// isn't served, so in both cases skip the build. When DISABLE_GRAPHQL is
+		// toggled back on at runtime the graph is rebuilt lazily by the
+		// DisableGraphQL hook (postInitRuntimeOverrides -> rebuildGraphQLOnEnable).
+		if cfg.Namespaces.Enabled || cfg.DisableGraphQL.Get() {
 			return
 		}
 
-		// Note that this is thread safe; we're running in a single go-routine, because the event
-		// handlers are called when the SchemaLock is still held.
-
+		// Only producer on the RAFT apply goroutine, which raft drives serially, so
+		// the authoritative SetGraphQL always lands the newest committed schema.
 		gql, err := rebuildGraphQL(
 			updatedSchema,
 			appState.Logger,
-			appState.ServerConfig.Config,
+			cfg,
 			appState.Traverser,
 			appState.Modules,
 			appState.Authorizer,
 		)
 		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
-				WithError(err).Error("could not (re)build graphql provider")
+				WithField("event", "rebuild_failed").Error(err)
 		}
 		appState.SetGraphQL(gql)
 	}
+}
+
+// rebuildGraphQLOnEnable rebuilds the graph from the current schema when
+// DISABLE_GRAPHQL is toggled off at runtime (makeUpdateSchemaCall skips the build
+// while disabled). It runs on the runtime-config reload goroutine, off the RAFT
+// apply path, so it stores through SetGraphQLIfCurrent: if a concurrent schema
+// apply produced a newer graph during the lock-free build, this result is dropped.
+func rebuildGraphQLOnEnable(appState *state.State) {
+	cfg := appState.ServerConfig.Config
+	// ClusterService may be unset if the reload loop ticks before startup finishes;
+	// the boot-time schema load then builds the graph once the flag is enabled.
+	if cfg.Namespaces.Enabled || appState.ClusterService == nil {
+		return
+	}
+
+	gen := appState.GraphQLGeneration()
+	sr := appState.ClusterService.SchemaReader()
+	s := sr.ReadOnlySchema()
+	updated := schema.SchemaWithAliases{
+		Schema:  schema.Schema{Objects: &s},
+		Aliases: sr.Aliases(),
+	}
+	gql, err := rebuildGraphQL(updated, appState.Logger, cfg,
+		appState.Traverser, appState.Modules, appState.Authorizer)
+	if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
+		appState.Logger.WithField("action", "graphql_rebuild").
+			WithField("event", "enable_rebuild_failed").Error(err)
+	}
+	appState.SetGraphQLIfCurrent(gql, gen)
 }
 
 func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldLogger,
@@ -87,19 +122,28 @@ func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldL
 // middleware will still be able to provide the user with a valuable error
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
-	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
+	c, err := oidc.New(
+		appState.ServerConfig.Config,
+		appState.NamespacesController,
+		appState.ServerConfig.Config.Namespaces.Enabled,
+		appState.Logger,
+	)
 	if err != nil {
-		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		appState.Logger.WithField("action", "oidc_init").Fatalf("oidc client could not start up: %v", err)
 		os.Exit(1)
 	}
 
 	return c
 }
 
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
+	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+}
+
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
-	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger)
+	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger, appState.NamespacesController)
 	if err != nil {
-		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
+		appState.Logger.WithField("action", "api_keys_init").Fatalf("apikey client could not start up: %v", err)
 		os.Exit(1)
 	}
 
@@ -119,13 +163,14 @@ func configureAuthorizer(appState *state.State) error {
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
+			appState.ServerConfig.Config.Namespaces.Enabled,
+			appState.NamespacesController,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)
 		}
 
 		appState.AuthzController = rbacController
-		appState.AuthzSnapshotter = rbacController
 		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {

@@ -13,12 +13,14 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -36,7 +38,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
 	s.index.logger.WithFields(logrus.Fields{
@@ -50,13 +51,31 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.mayStopAsyncReplication()
 
 	s.haltForTransferMux.Lock()
-	if s.haltForTransferCancel != nil {
-		s.haltForTransferCancel()
-	}
+	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
+	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
+
+	// Guarantee the lsmkv store is shut down on every exit. The pre-Shutdown
+	// steps below (queue/geo/vector-index Drop, cycle-callback Unregister)
+	// early-return on failure, but store.Shutdown is the ONLY step that
+	// deregisters this shard's buckets (each Bucket.Shutdown defers
+	// Remove(registeredPath)) and closes their files. The store's already-closed
+	// guard makes the happy-path second call a no-op. A fresh context is used so a
+	// pre-Shutdown deadline expiry cannot also starve this shutdown.
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer shutdownCancel()
+		if serr := s.store.Shutdown(shutdownCtx); serr != nil && !stderrors.Is(serr, lsmkv.ErrAlreadyClosed) {
+			s.index.logger.WithFields(logrus.Fields{
+				"action": "drop_shard",
+				"class":  s.class.Class,
+				"shard":  s.name,
+			}).Errorf("best-effort store shutdown during shard drop failed: %v", serr)
+		}
+	}()
 
 	// queues need to be closed first to make sure they are not writing anymore
 	// to their associated vector index, as they might still be using the store
@@ -64,6 +83,16 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Drop(ctx); err != nil {
 			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(ctx); err != nil {
+			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
 		}
 		return nil
 	})
@@ -138,7 +167,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}
 	}
 
-	s.metrics.baseMetrics.FinishUnloadingShard()
+	// Only update metrics if the shard was properly registered
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.DeleteLoadedShard()
+	}
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",

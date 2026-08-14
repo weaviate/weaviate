@@ -20,6 +20,15 @@ type clientConfig struct {
 	// the backup to be stored in a specific
 	// directory inside the provided bucket
 	BackupPath string
+
+	// STS AssumeRole configuration for cross-account access
+	RoleARN         string
+	ExternalID      string
+	STSEndpoint     string
+	RoleSessionName string
+
+	// SkipAccessCheck disables the write+delete probe in Initialize.
+	SkipAccessCheck bool
 }
 
 func newConfig(endpoint, bucket, path string, useSSL bool) *clientConfig {
@@ -27,5 +36,10 @@ func newConfig(endpoint, bucket, path string, useSSL bool) *clientConfig {
 	if endpoint == "" {
 		endpoint = DEFAULT_ENDPOINT
 	}
-	return &clientConfig{endpoint, bucket, useSSL, path}
+	return &clientConfig{
+		Endpoint:   endpoint,
+		Bucket:     bucket,
+		UseSSL:     useSSL,
+		BackupPath: path,
+	}
 }

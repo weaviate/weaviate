@@ -13,16 +13,19 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/tailor-inc/graphql"
+	"github.com/stretchr/testify/require"
+	"github.com/tailor-platform/graphql"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -345,8 +348,8 @@ func TestModulesProvider(t *testing.T) {
 
 		fmt.Printf("provider: %v\n", provider)
 
-		backendByName, err1 := provider.BackupBackend("SomeBackend")
-		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
+		backendByName, err1 := provider.BackupBackend("SomeBackend", modulecapabilities.BackendUseCaseBackup)
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName", modulecapabilities.BackendUseCaseBackup)
 
 		assert.NotNil(t, backendByName)
 		assert.Nil(t, err1)
@@ -517,10 +520,6 @@ func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID,
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	return nil
-}
-
 func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return 0, nil
 }
@@ -547,4 +546,39 @@ func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, k
 
 func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	return nil
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify the failure by this
+// type, so it must not be dropped from the returned error.
+func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(getFakeSchemaGetter())
+
+	_, err := p.VectorFromSearchParam(context.Background(),
+		"ClassOne", "", "", "nearText", nil, nil)
+	assert.Error(t, err)
+	assert.True(t, errors.As(err, &enterrors.ErrNoVectorizerModule{}),
+		"no-vectorizer fallback must carry entities/errors.ErrNoVectorizerModule, got: %v", err)
+	assert.Contains(t, err.Error(), "Make sure a vectorizer module is configured")
+}
+
+// TestBatchUpdateVector_VectorlessClassIsNoop pins the write-path
+// short-circuit for classes that vectorize nothing: legacy vectorizer "none"
+// and the vector-less shape (empty vectorizer, no named vectors — the state
+// after a collection's last named vector was dropped). Erroring here made
+// every write to a vector-less collection fail.
+func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+
+	for _, vectorizer := range []string{"none", ""} {
+		t.Run("vectorizer "+vectorizer, func(t *testing.T) {
+			class := &models.Class{Class: "C", Vectorizer: vectorizer}
+			errs, err := p.BatchUpdateVector(context.Background(), class,
+				[]*models.Object{{Class: "C"}}, nil, logger)
+			require.NoError(t, err)
+			require.Empty(t, errs)
+		})
+	}
 }

@@ -189,6 +189,8 @@ func (ht *HashTree) root() Digest {
 	return ht.nodes[0]
 }
 
+// Level returns digests for nodes selected by discriminant, which is
+// level-local: Size() must equal nodesAtLevel(level), bit i selects node i.
 func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
@@ -205,7 +207,14 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 		return 0, fmt.Errorf("%w: nil discriminant provided", ErrIllegalArguments)
 	}
 
-	if len(digests) < nodesAtLevel(level) {
+	expectedSize := nodesAtLevel(level)
+	if discriminant.Size() != expectedSize {
+		return 0, fmt.Errorf("%w: discriminant size %d, expected %d for level %d",
+			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
+	}
+
+	// one digest is written per set bit, so SetCount() capacity suffices (see LevelDiff)
+	if len(digests) < discriminant.SetCount() {
 		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
 	}
 
@@ -213,9 +222,12 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	offset := InnerNodesCount(level)
 
-	// TODO(jeroiraz): it may be more performant to iterate over the set positions in the discriminant
-	for i := 0; i < nodesAtLevel(level); i++ {
-		if discriminant.IsSet(offset + i) {
+	for i := 0; i < expectedSize; i++ {
+		if discriminant.IsSet(i) {
+			// bound writes even if the cached set count understates the bits
+			if n == len(digests) {
+				return 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
+			}
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}

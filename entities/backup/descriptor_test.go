@@ -12,9 +12,11 @@
 package backup
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +65,35 @@ func TestIncludeClasses(t *testing.T) {
 	}
 }
 
+// GetClassDescriptor drives per-class incremental dedup: a class found in the
+// base is deduplicated against it, a class absent from the base (added since)
+// returns nil and is uploaded in full.
+func TestGetClassDescriptor(t *testing.T) {
+	base := BackupDescriptor{Classes: []ClassDescriptor{{Name: "A"}, {Name: "B"}}}
+	tests := []struct {
+		name      string
+		in        BackupDescriptor
+		query     string
+		wantClass string // "" means expect nil (full upload)
+	}{
+		{name: "ExistingClassDedups", in: base, query: "A", wantClass: "A"},
+		{name: "OtherExistingClassDedups", in: base, query: "B", wantClass: "B"},
+		{name: "NewClassNotInBase", in: base, query: "C", wantClass: ""},
+		{name: "EmptyBase", in: BackupDescriptor{}, query: "A", wantClass: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.GetClassDescriptor(tc.query)
+			if tc.wantClass == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantClass, got.Name)
+		})
+	}
+}
+
 func TestAllExist(t *testing.T) {
 	x := BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}
 	if y := x.AllExist(nil); y != "" {
@@ -80,9 +111,8 @@ func TestValidateBackup(t *testing.T) {
 	timept := time.Now().UTC()
 	bytes := []byte("hello")
 	tests := []struct {
-		desc      BackupDescriptor
-		successV1 bool
-		successV2 bool
+		desc    BackupDescriptor
+		success bool
 	}{
 		// first level check
 		{desc: BackupDescriptor{}},
@@ -90,8 +120,8 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{ID: "1", Version: "1"}},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
 		{
-			desc:      BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
-			successV1: true, successV2: true,
+			desc:    BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
+			success: true,
 		},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
 		{desc: BackupDescriptor{
@@ -109,7 +139,7 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{Name: "n", Schema: bytes, ShardingState: bytes}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -130,7 +160,7 @@ func TestValidateBackup(t *testing.T) {
 				Name: "n", Schema: bytes, ShardingState: bytes,
 				Shards: []*ShardDescriptor{{Name: "n", Node: "n"}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -140,7 +170,7 @@ func TestValidateBackup(t *testing.T) {
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 				}},
 			}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -151,7 +181,7 @@ func TestValidateBackup(t *testing.T) {
 					Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -162,7 +192,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -173,7 +203,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -184,53 +214,10 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV1: true, successV2: true},
-	}
-	for i, tc := range tests {
-		err := tc.desc.Validate(false)
-		if got := err == nil; got != tc.successV1 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-		err = tc.desc.Validate(true)
-		if got := err == nil; got != tc.successV2 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-	}
-}
-
-func TestBackwardCompatibility(t *testing.T) {
-	timept := time.Now().UTC()
-	tests := []struct {
-		desc    BackupDescriptor
-		success bool
-	}{
-		// first level check
-		{desc: BackupDescriptor{}},
-		{desc: BackupDescriptor{ID: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name:   "n",
-				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
-			}},
-		}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name: "n",
-				Shards: []*ShardDescriptor{{
-					Name: "n", Node: "n",
-				}},
-			}},
 		}, success: true},
 	}
 	for i, tc := range tests {
-		desc := tc.desc.ToDistributed()
-		err := desc.Validate()
+		err := tc.desc.Validate()
 		if got := err == nil; got != tc.success {
 			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
 		}
@@ -451,6 +438,85 @@ func TestTestDistributedBackupResetStatus(t *testing.T) {
 		Status: Started,
 	}
 	assert.Equal(t, want, desc)
+}
+
+func TestDistributedBackupDescriptor_UserList(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "nil", in: nil, want: []string{}},
+		{name: "empty", in: []string{}, want: []string{}},
+		{name: "single", in: []string{"ns1:alice"}, want: []string{"ns1:alice"}},
+		{name: "many", in: []string{"ns1:alice", "ns1:bob"}, want: []string{"ns1:alice", "ns1:bob"}},
+		{name: "dedupes", in: []string{"ns1:alice", "ns1:alice", "ns1:bob"}, want: []string{"ns1:alice", "ns1:bob"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := DistributedBackupDescriptor{Users: tc.in}
+			got := d.UserList()
+			sort.Strings(got)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	t.Run("json round-trip omits absent users", func(t *testing.T) {
+		// A pre-change artefact carries no "users" key; it must unmarshal to no users.
+		old := `{"id":"1","version":"1","serverVersion":"1"}`
+		var d DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(old), &d))
+		assert.Empty(t, d.UserList())
+
+		// omitempty: a descriptor with no users marshals without the key, keeping the
+		// on-disk shape identical to a pre-change backup.
+		b, err := json.Marshal(DistributedBackupDescriptor{ID: "1"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(b), `"users"`)
+	})
+
+	t.Run("json round-trip preserves users", func(t *testing.T) {
+		d := DistributedBackupDescriptor{ID: "1", Users: []string{"ns1:alice"}}
+		b, err := json.Marshal(d)
+		require.NoError(t, err)
+		assert.Contains(t, string(b), `"users":["ns1:alice"]`)
+
+		var back DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(b, &back))
+		assert.Equal(t, []string{"ns1:alice"}, back.UserList())
+	})
+
+	// Persistence fidelity: the Users field and the per-node UserBackups blob are
+	// persisted on different paths and only the field drives restore authz. Pin that
+	// Users survives both the in-place ResetStatus reset and a marshal→unmarshal cycle,
+	// so a future hand-written copy/reset that rebuilds the struct can't silently drop
+	// it and disable authz on a backup that included users.
+	t.Run("users survive ResetStatus and marshal cycle", func(t *testing.T) {
+		d := DistributedBackupDescriptor{
+			ID:            "1",
+			Version:       "1",
+			ServerVersion: "1",
+			Status:        Success,
+			Nodes:         map[string]*NodeDescriptor{"N1": {Status: Success}},
+			Users:         []string{"ns1:alice", "ns1:bob"},
+		}
+
+		d.ResetStatus()
+		got := d.UserList()
+		sort.Strings(got)
+		assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, got)
+		assert.Equal(t, Started, d.Status, "ResetStatus must still reset status")
+
+		b, err := json.Marshal(&d)
+		require.NoError(t, err)
+		require.True(t, strings.Contains(string(b), `"users"`), "marshalled meta must carry users")
+
+		var back DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(b, &back))
+		got = back.UserList()
+		sort.Strings(got)
+		assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, got)
+	})
 }
 
 func TestShardDescriptorClear(t *testing.T) {

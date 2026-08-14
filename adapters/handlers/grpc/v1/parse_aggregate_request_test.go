@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -148,9 +149,152 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: true,
 		},
+		{
+			name: "hybrid with alpha",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+						Alpha: 0.5,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param SET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						AlphaParam:    ptr(float32(0.5)),
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param UNSET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           common_filters.DefaultAlpha,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with defaults",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near vector with per-target vectors and single target",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_NearVector{
+					NearVector: &pb.NearVector{
+						Targets:          &pb.Targets{TargetVectors: []string{"first_vec"}},
+						VectorForTargets: []*pb.VectorForTarget{{Name: "first_vec", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+					TargetVectors: []string{"first_vec"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid near vector with per-target vectors and single target",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Alpha: 0.5,
+						NearVector: &pb.NearVector{
+							VectorForTargets: []*pb.VectorForTarget{{Name: "first_vec", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+						},
+						Targets: &pb.Targets{TargetVectors: []string{"first_vec"}},
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+					NearVectorParams: &searchparams.NearVector{
+						Vectors:       []models.Vector{[]float32{1, 2, 3}},
+						TargetVectors: []string{"first_vec"},
+					},
+					TargetVectors: []string{"first_vec"},
+				},
+			},
+			error: false,
+		},
 	}
 
-	parser := NewAggregateParser(getClass)
+	parser := NewAggregateParser(getClass, false, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Aggregate(tt.req)

@@ -45,7 +45,7 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 	return nil
 }
 
-func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
+func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -55,46 +55,15 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 
 	vector = h.normalizeVec(vector)
 
-	// init components that require knowing the vector dimensions
-	// and compressed size
-	h.initDimensionsOnce.Do(func() {
-		size := uint32(len(vector))
-		atomic.StoreUint32(&h.dims, size)
-		h.setMaxPostingSize()
-		err = h.Metadata.SetDimensions(size)
-		if err != nil {
-			err = errors.Wrap(err, "could not persist dimensions")
-			return // Fail the entire initialization
-		}
-
-		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
-		h.Centroids.SetQuantizer(h.quantizer)
-		if err = h.persistQuantizationData(); err != nil {
-			err = errors.Wrap(err, "could not persist RQ data")
-			return // Fail the entire initialization
-		}
-
-		h.distancer = &Distancer{
-			quantizer: h.quantizer,
-			distancer: h.config.DistanceProvider,
-		}
-	})
+	err := h.initDimensions(vector)
 	if err != nil {
 		return err
 	}
 
-	// add the vector to the version map.
-	// TODO: if the vector already exists, invalidate all previous instances
-	// by incrementing the version
-	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
-	if err != nil {
-		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
-	}
-
 	var v Vector
 
-	compressed := h.quantizer.Encode(vector)
-	v = NewVector(id, version, compressed)
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
+	v = NewVector(id, VectorVersion(1), compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
@@ -109,13 +78,56 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 		}
 	}
 
-	for id := range targets.Iter() {
-		_, err = h.append(ctx, v, id, false)
+	for postingID := range targets.Iter() {
+		added, err := h.append(ctx, v, postingID, false)
 		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
+			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
+		}
+		if !added {
+			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
+			if err != nil {
+				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
+			}
 		}
 	}
 
+	return nil
+}
+
+// initDimensions initializes dimension-dependent components (quantizer, distancer,
+// posting sizes) on the first vector received. Uses a mutex+flag pattern instead of
+// sync.Once so that initialization can be retried if it fails.
+func (h *HFresh) initDimensions(vector []float32) error {
+	h.initMu.Lock()
+	defer h.initMu.Unlock()
+
+	if h.initDone {
+		return nil
+	}
+
+	size := uint32(len(vector))
+
+	if err := h.setMaxPostingSize(size); err != nil {
+		return err
+	}
+	if err := h.IndexMetadata.SetDimensions(size); err != nil {
+		return errors.Wrap(err, "could not persist dimensions")
+	}
+
+	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(size), 42, h.config.DistanceProvider)
+	if err != nil {
+		return errors.Wrap(err, "could not create quantizer")
+	}
+	h.quantizer = quantizer
+	h.Centroids.SetQuantizer(h.quantizer)
+
+	if err := h.persistQuantizationData(); err != nil {
+		return errors.Wrap(err, "could not persist RQ data")
+	}
+
+	h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
+	h.initDone = true
+	atomic.StoreUint32(&h.dims, size)
 	return nil
 }
 
@@ -126,6 +138,14 @@ func (h *HFresh) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecInPlace is the allocation-free variant of normalizeVec for
+// vectors living in pooled buffers that no one else can observe.
+func (h *HFresh) normalizeVecInPlace(vec []float32) {
+	if h.config.DistanceProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty
@@ -171,19 +191,8 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	// check if the posting still exists
 	if !h.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
-		// might happen if we are reassigning
-		version, err := h.VersionMap.Get(h.ctx, vector.ID())
-		if err != nil {
-			return false, err
-		}
-		if version == vector.Version() {
-			err := h.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
-			if err != nil {
-				h.postingLocks.Unlock(centroidID)
-				return false, err
-			}
-		}
-
+		// might happen if we are reassigning or inserting while
+		// background maintenance deletes a posting.
 		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
@@ -195,44 +204,68 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		return false, err
 	}
 
-	// increment the size of the posting
-	count, err := h.PostingSizes.Inc(ctx, centroidID, 1)
+	// update the posting membership and size caches
+	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
+	count := h.PostingSizes.FastIncrement(centroidID)
 
 	h.postingLocks.Unlock(centroidID)
+
+	if !reassigned {
+		if count > h.maxPostingSize*5 {
+			err = h.doSplit(ctx, centroidID, true)
+			if err != nil {
+				return false, err
+			}
+
+			return true, nil
+		}
+
+		// If the posting is too big, split it asynchronously.
+		if count > h.maxPostingSize {
+			err = h.taskQueue.EnqueueSplit(centroidID)
+			if err != nil {
+				return false, err
+			}
+
+			return true, nil
+		}
+
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
-	// Also, reassign operations may cause the posting to grow beyond the max size
-	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
 	max := h.maxPostingSize
-	if reassigned {
-		max += reassignThreshold
-	}
 	if count > max {
-		if reassigned {
-			err = h.doSplit(ctx, centroidID, false)
-		} else {
-			err = h.taskQueue.EnqueueSplit(centroidID)
-		}
-		if err != nil {
-			return false, err
-		}
+		err = h.doSplit(ctx, centroidID, false)
+	} else {
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
+	}
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
 }
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
-	if h.dims == 0 {
+	dims := atomic.LoadUint32(&h.dims)
+	if dims == 0 {
 		return nil
 	}
 
-	if dims := int(h.dims); len(vector) != dims {
+	if len(vector) != int(dims) {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}

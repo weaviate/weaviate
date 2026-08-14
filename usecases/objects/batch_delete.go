@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -35,7 +36,11 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
-		match.Class, _ = b.resolveAlias(match.Class)
+		resolved, _, err := b.resolveNS(principal, match.Class)
+		if err != nil {
+			return nil, NewErrInvalidUserInput("%v", err)
+		}
+		match.Class = resolved
 		class = match.Class
 	}
 
@@ -119,36 +124,53 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 ) (*BatchDeleteParams, uint64, error) {
+	// Missing required match fields are caller input, so classify them as
+	// ErrInvalidUserInput (→ 422). Otherwise the REST handler maps these to a
+	// 500. The message wording is preserved for callers/tests.
 	if match == nil {
-		return nil, 0, errors.New("empty match clause")
+		return nil, 0, NewErrInvalidUserInput("empty match clause")
 	}
 
 	if len(match.Class) == 0 {
-		return nil, 0, errors.New("empty match.class clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.class clause")
 	}
 
 	if match.Where == nil {
-		return nil, 0, errors.New("empty match.where clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.where clause")
 	}
 
-	// Validate schema given in body with the weaviate schema
+	// GetCachedClass authorizes READ; preserve Forbidden (→ 403), classify
+	// other lookup failures as caller input (→ 422).
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
+		}
+		return nil, 0, NewErrInvalidUserInput("failed to get class: %s: %v", match.Class, err)
 	}
 	if vclasses[match.Class].Class == nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s", match.Class)
+		return nil, 0, NewErrInvalidUserInput("failed to get class: %s", match.Class)
 	}
 	class := vclasses[match.Class].Class
 
-	filter, err := filterext.Parse(match.Where, class.Class)
+	// A malformed where filter (bad path, unknown property, foreign-namespace
+	// class name, etc.) is caller input, so classify it as ErrInvalidUserInput
+	// — otherwise the REST handler maps the parse/validation failure to a 500
+	// instead of a 422. The message wording is preserved for callers/tests.
+	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled, principal)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
+		return nil, 0, NewErrInvalidUserInput("failed to parse where filter: %v", err)
 	}
 
 	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal), filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid where filter: %w", err)
+		// The schema lookup inside validation authorizes class reads, so a
+		// Forbidden must stay a Forbidden (→ 403); everything else is a plain
+		// validation failure and is caller input (→ 422, not 500).
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, 0, fmt.Errorf("invalid where filter: %w", err)
+		}
+		return nil, 0, NewErrInvalidUserInput("invalid where filter: %v", err)
 	}
 
 	dryRunParam := false

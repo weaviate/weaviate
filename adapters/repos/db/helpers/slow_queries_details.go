@@ -36,6 +36,9 @@ func InitSlowQueryDetails(ctx context.Context) context.Context {
 }
 
 func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
+	if ctx == nil {
+		return
+	}
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return
@@ -57,6 +60,18 @@ func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
 }
 
 func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T) {
+	AnnotateSlowQueryLogAppendFunc(ctx, key, func() T { return value })
+}
+
+// AnnotateSlowQueryLogAppendFunc is AnnotateSlowQueryLogAppend with the value
+// built lazily: build runs only when the ctx carries slow-query details, so
+// callers on hot paths pay nothing to construct a value that would be
+// discarded. build is called outside the details lock. A nil build is
+// tolerated like every other bad input here: diagnostics never fail loudly.
+func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, build func() T) {
+	if ctx == nil || build == nil {
+		return
+	}
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return
@@ -66,6 +81,8 @@ func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T)
 	if !ok {
 		return
 	}
+
+	value := build()
 
 	details.Lock()
 	defer details.Unlock()

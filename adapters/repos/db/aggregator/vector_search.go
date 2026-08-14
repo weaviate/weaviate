@@ -75,7 +75,11 @@ func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models
 		return nil, nil, err
 	}
 
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	bucket := a.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, nil, fmt.Errorf("objects bucket not available (store shutting down)")
+	}
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
@@ -91,8 +95,10 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 
 	if a.params.Filters != nil {
 		allow, err = inverted.NewSearcher(a.logger, a.store, a.getSchema.ReadOnlyClass, nil,
-			a.classSearcher, a.stopwords, a.shardVersion, a.isFallbackToSearchable,
-			a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
+			a.classSearcher, a.stopwordProvider, a.shardVersion, a.isFallbackToSearchable,
+			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
+			WithTokenizationResolver(a.tokResolver).
+			WithBatchedContainsEnabled(a.batchedContainsEnabled).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},
 				a.params.ClassName)
 		if err != nil {

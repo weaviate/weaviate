@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -53,6 +54,9 @@ type DistributedTask struct {
 	// The status of the task.
 	Status string `json:"status,omitempty"`
 
+	// Units of the task. Only present for tasks that use unit tracking.
+	Units []*DistributedTaskUnit `json:"units,omitempty"`
+
 	// The version of the task.
 	Version int64 `json:"version,omitempty"`
 }
@@ -66,6 +70,10 @@ func (m *DistributedTask) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUnits(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -99,8 +107,63 @@ func (m *DistributedTask) validateStartedAt(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this distributed task based on context it is used
+func (m *DistributedTask) validateUnits(formats strfmt.Registry) error {
+	if swag.IsZero(m.Units) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Units); i++ {
+		if swag.IsZero(m.Units[i]) { // not required
+			continue
+		}
+
+		if m.Units[i] != nil {
+			if err := m.Units[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("units" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("units" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this distributed task based on the context it is used
 func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateUnits(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *DistributedTask) contextValidateUnits(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Units); i++ {
+
+		if m.Units[i] != nil {
+			if err := m.Units[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("units" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("units" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

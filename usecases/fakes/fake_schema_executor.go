@@ -53,6 +53,11 @@ func (m *MockSchemaExecutor) DeleteReplicaFromShard(class string, shard string, 
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) ReconcileAsyncReplicationForShard(class string, shard string) error {
+	args := m.Called(class, shard)
+	return args.Error(0)
+}
+
 func (m *MockSchemaExecutor) LoadShard(class string, shard string) {
 	m.Called(class, shard)
 }
@@ -80,13 +85,18 @@ func (m *MockSchemaExecutor) AddProperty(class string, req cmd.AddPropertyReques
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) UpdateProperty(class string, req cmd.UpdatePropertyRequest) error {
+	args := m.Called(class, req)
+	return args.Error(0)
+}
+
 func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest) error {
 	args := m.Called(class, req)
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
-	args := m.Called(class, req)
+func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
+	args := m.Called(class, req, preFreezeStatuses)
 	return args.Error(0)
 }
 

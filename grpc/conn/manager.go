@@ -75,6 +75,13 @@ func (m *ConnManager) GetConn(addr string) (*grpc.ClientConn, error) {
 
 	// create the connection using singleflight to avoid duplicate dials
 	v, err, _ := m.sf.Do(addr, func() (interface{}, error) {
+		// Re-check: a prior singleflight call for this addr may have
+		// completed and stored the conn between our outer check and
+		// this execution.
+		if conn, ok, err := m.reuseExistingConn(addr); err != nil || ok {
+			return conn, err
+		}
+
 		conn, err := grpc.NewClient(addr, m.grpcOpts...)
 		if err != nil {
 			return nil, err

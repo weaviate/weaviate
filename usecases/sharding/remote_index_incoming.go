@@ -18,9 +18,12 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -58,8 +61,8 @@ type RemoteIndexIncomingRepo interface {
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnProperty string,
-		ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
+	IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+		deleteOnProperty string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64)
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -69,12 +72,12 @@ type RemoteIndexIncomingRepo interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
@@ -88,26 +91,35 @@ type RemoteIndexIncomingRepo interface {
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+	IncomingCountObjects(ctx context.Context, shardName string) (int, error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
-	// IncomingPauseFileActivity See adapters/clients.RemoteIndex.IncomingPauseFileActivity
-	IncomingPauseFileActivity(ctx context.Context, shardName string) error
-	// IncomingResumeFileActivity See adapters/clients.RemoteIndex.IncomingResumeFileActivity
-	IncomingResumeFileActivity(ctx context.Context, shardName string) error
-	// IncomingListFiles See adapters/clients.RemoteIndex.IncomingListFiles
-	IncomingListFiles(ctx context.Context, shardName string) ([]string, error)
-	// IncomingGetFileMetadata See adapters/clients.RemoteIndex.GetFileMetadata
-	IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error)
-	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
-	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
+	IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error)
+	IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error
+	IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error)
+	IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relativeFilePath string) (io.ReadCloser, error)
 	// IncomingAddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
 	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
 	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+
+	// IncomingStartChangeCapture activates a new change-capture log on the shard.
+	IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error
+	// IncomingGetChangeLog opens a tailer over the shard's active change-capture
+	// log; untilLSN is the inclusive upper bound on emitted LSNs.
+	IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error)
+	// IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
+	IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error)
+	// IncomingFinalizeChangeLog drains the pre-seal in-flight set, seals
+	// the log and returns the final LSN.
+	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
+	// IncomingStopChangeCapture deactivates and removes the log; a no-op when
+	// the shard is not loaded.
+	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
 }
 
 type RemoteIndexIncoming struct {
@@ -218,10 +230,10 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+		return nil, nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingSearch(
@@ -240,14 +252,14 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
-	return index.IncomingFindUUIDs(ctx, shardName, filters)
+	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
@@ -327,66 +339,6 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
-// PauseFileActivity see adapters/clients.RemoteIndex.PauseFileActivity
-func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
-	indexName, shardName string, schemaVersion uint64,
-) error {
-	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
-	if err != nil {
-		return fmt.Errorf("local index %q not found: %w", indexName, err)
-	}
-
-	return index.IncomingPauseFileActivity(ctx, shardName)
-}
-
-// ResumeFileActivity see adapters/clients.RemoteIndex.ResumeFileActivity
-func (rii *RemoteIndexIncoming) ResumeFileActivity(ctx context.Context,
-	indexName, shardName string,
-) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
-	}
-
-	return index.IncomingResumeFileActivity(ctx, shardName)
-}
-
-// ListFiles see adapters/clients.RemoteIndex.ListFiles
-func (rii *RemoteIndexIncoming) ListFiles(ctx context.Context,
-	indexName, shardName string,
-) ([]string, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
-	}
-
-	return index.IncomingListFiles(ctx, shardName)
-}
-
-// GetFileMetadata see adapters/clients.RemoteIndex.GetFileMetadata
-func (rii *RemoteIndexIncoming) GetFileMetadata(ctx context.Context,
-	indexName, shardName, relativeFilePath string,
-) (file.FileMetadata, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return file.FileMetadata{}, errors.Errorf("local index %q not found", indexName)
-	}
-
-	return index.IncomingGetFileMetadata(ctx, shardName, relativeFilePath)
-}
-
-// GetFile see adapters/clients.RemoteIndex.GetFile
-func (rii *RemoteIndexIncoming) GetFile(ctx context.Context,
-	indexName, shardName, relativeFilePath string,
-) (io.ReadCloser, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
-	}
-
-	return index.IncomingGetFile(ctx, shardName, relativeFilePath)
-}
-
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -444,6 +396,15 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	}
 
 	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (rii *RemoteIndexIncoming) CountObjects(ctx context.Context, indexName, shardName string) (int, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return 0, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingCountObjects(ctx, shardName)
 }
 
 func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(

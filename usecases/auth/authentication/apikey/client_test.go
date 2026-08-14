@@ -88,6 +88,8 @@ func Test_APIKeyClient(t *testing.T) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "mrRoboto", p.Username)
+				assert.True(t, p.IsGlobalOperator, "static API keys must be global operators")
+				assert.Empty(t, p.Namespace)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)
@@ -163,6 +165,16 @@ func Test_APIKeyClient(t *testing.T) {
 			},
 			expectConfigErr:    true,
 			expectConfigErrMsg: "length of users and keys must match, alternatively provide single user for all keys",
+		},
+		{
+			name: "duplicate keys",
+			config: config.StaticAPIKey{
+				Enabled:     true,
+				AllowedKeys: []string{"secret-key", "secret-key"},
+				Users:       []string{"jane", "jessica"},
+			},
+			expectConfigErr:    true,
+			expectConfigErrMsg: "keys must be unique",
 		},
 	}
 

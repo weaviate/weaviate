@@ -170,6 +170,21 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, 
 	return nil
 }
 
+func (s *Raft) SubmitNodeReachedState(ctx context.Context, req *api.ReplicationNodeReachedStateRequest) error {
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error {
 	req := &api.ReplicationRegisterErrorRequest{
 		Version:    api.ReplicationCommandVersionV0,
