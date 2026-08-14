@@ -34,6 +34,16 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
+// makeCleanupBuilder builds a CleanupInProgressLookupBuilder reporting a fixed
+// set of (collection, shard) pairs as mid-cleanup.
+func makeCleanupBuilder(inProgress map[[2]string]bool) CleanupInProgressLookupBuilder {
+	return func() CleanupInProgressLookup {
+		return func(collection, shard string) bool {
+			return inProgress[[2]string{collection, shard}]
+		}
+	}
+}
+
 // TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.
@@ -108,6 +118,42 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 		"nil lookup must allow (same path as unwired)")
 }
 
+// TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch:
+// once the DTM task goes terminal (activity lookup false) but
+// autoCleanupAfterTerminal is still draining sidecars, the gate must still
+// refuse — a backup mid-cleanup would capture torn __reindex/__ingest state.
+func TestAnyLiveReindexForShard_CleanupInProgress(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{})) // no live task
+	db.SetReindexCleanupInProgressLookup(makeCleanupBuilder(map[[2]string]bool{
+		{"MyClass", "shard1"}: true,
+	}))
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must refuse while terminal-task cleanup is still draining sidecars")
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard2"),
+		"cleanup branch must scope by shard")
+}
+
+// TestAnyLiveReindexForShard_CleanupBuilderUnwired pins that with no cleanup
+// builder installed the gate keeps activity-only semantics — older wiring paths
+// and fixtures install only the activity lookup.
+func TestAnyLiveReindexForShard_CleanupBuilderUnwired(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"no cleanup builder → activity-only semantics → allow")
+}
+
+// TestAnyLiveReindexForShard_CleanupReturnsNil pins fail-open when the cleanup
+// builder returns a nil closure (defensive against a misconfigured wiring).
+func TestAnyLiveReindexForShard_CleanupReturnsNil(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup { return nil })
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"nil cleanup closure → allow (same as unwired)")
+}
+
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the
 // sentinel, names the collection and shard, and surfaces the operator
 // remediation hint.
@@ -127,7 +173,8 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
 	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
 	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
-	assert.Contains(t, err.Error(), "indexes/", "error must include the remediation URL hint")
+	assert.Contains(t, err.Error(), "/index/{that index type}/cancel",
+		"error must include the GA cancel-route remediation hint")
 }
 
 // TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask pins the happy
@@ -178,18 +225,19 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
-	require.Contains(t, err.Error(), "retry after the migration finishes")
+	require.Contains(t, err.Error(), "retry once that task reaches a terminal state")
 
 	// No placeholder URLs: property/index type aren't known here.
 	require.Contains(t, err.Error(), "GET /v1/schema/MyClass/indexes")
-	require.Contains(t, err.Error(), "PUT /v1/schema/MyClass/indexes/{that property}")
+	require.Contains(t, err.Error(),
+		"POST /v1/schema/MyClass/properties/{that property}/index/{that index type}/cancel")
 	require.NotContains(t, err.Error(), "<class>")
 	require.NotContains(t, err.Error(), "<prop>")
 	require.NotContains(t, err.Error(), "<indexType>")
 
 	// Shard-keyed gate has no task to check, so it states the STARTED-only
 	// restriction outright instead of dropping it like ReindexGateRemedy.
-	require.Contains(t, err.Error(), "only while it is still in status STARTED")
+	require.Contains(t, err.Error(), "only while the task is STARTED")
 	require.Contains(t, err.Error(), "409 Conflict")
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusPreparing,
@@ -211,7 +259,8 @@ func TestReindexInFlightError_QualifiedCollectionKeepsItsPrefix(t *testing.T) {
 	err := reindexInFlightError("customer1:MyClass", "shard1", false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "GET /v1/schema/customer1:MyClass/indexes")
-	require.Contains(t, err.Error(), "PUT /v1/schema/customer1:MyClass/indexes/{that property}")
+	require.Contains(t, err.Error(),
+		"POST /v1/schema/customer1:MyClass/properties/{that property}/index/{that index type}/cancel")
 	require.NotContains(t, err.Error(), "/v1/schema/MyClass/")
 }
 

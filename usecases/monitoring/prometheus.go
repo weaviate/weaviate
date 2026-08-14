@@ -152,13 +152,6 @@ type PrometheusMetrics struct {
 	// helps cut down on noise when monitoring
 	LSMCriticalBucketsOnly bool
 
-	// Deprecated metrics, keeping around because the classification features
-	// seems to sill use the old logic. However, those metrics are not actually
-	// used for the schema anymore, but only for the classification features.
-	SchemaTxOpened   *prometheus.CounterVec
-	SchemaTxClosed   *prometheus.CounterVec
-	SchemaTxDuration *prometheus.SummaryVec
-
 	// Vectorization
 	T2VBatches            *prometheus.GaugeVec
 	T2VBatchQueueDuration *prometheus.HistogramVec
@@ -239,7 +232,7 @@ func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServ
 			Namespace: namespace,
 			Name:      "http_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -285,7 +278,7 @@ func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServ
 			Namespace: namespace,
 			Name:      "grpc_server_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"grpc_service", "method", "status"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -399,6 +392,12 @@ var (
 	// LatencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
 	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// RequestLatencyBuckets prepends sub-ms boundaries (down to 100µs) to
+	// LatencyBuckets for the HTTP/gRPC request-duration histograms, so
+	// histogram_quantile resolves sub-5ms requests instead of collapsing them into
+	// one bucket. Derived from LatencyBuckets so the shared tail can't drift.
+	RequestLatencyBuckets = append([]float64{.0001, .00025, .0005, .001, .0025}, LatencyBuckets...)
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -799,20 +798,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shard_halt_for_transfer_force_resume_total",
 			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
 		}, []string{}),
-
-		// Schema TX-metrics. Can be removed when RAFT is ready
-		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_opened_total",
-			Help: "Total number of opened schema transactions",
-		}, []string{"ownership"}),
-		SchemaTxClosed: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_closed_total",
-			Help: "Total number of closed schema transactions. A close must be either successful or failed",
-		}, []string{"ownership", "status"}),
-		SchemaTxDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_tx_duration_seconds",
-			Help: "Mean duration of a tx by status",
-		}, []string{"ownership", "status"}),
 
 		// RAFT-based schema metrics
 		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{

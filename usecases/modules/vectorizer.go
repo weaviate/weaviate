@@ -98,8 +98,11 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	}
 
 	if len(modConfigs) == 0 {
-		// short-circuit collections without vector index
-		if class.Vectorizer == config.VectorizerModuleNone {
+		// Short-circuit collections that vectorize nothing: legacy
+		// vectorizer "none", and vector-less classes (empty vectorizer, no
+		// named vectors — the state a class reaches once its last named
+		// vector is dropped and finalized).
+		if class.Vectorizer == config.VectorizerModuleNone || class.Vectorizer == "" {
 			return nil, nil
 		}
 
@@ -513,7 +516,15 @@ func (p *Provider) getVector(object *models.Object, targetVector string) models.
 func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string) (hnsw.UserConfig, error) {
 	vectorIndexConfig := class.VectorIndexConfig
 	if targetVector != "" {
-		vectorIndexConfig = class.VectorConfig[targetVector].VectorIndexConfig
+		vectorConfig := class.VectorConfig[targetVector]
+		// A named vector whose index has been dropped keeps its vector data but
+		// has VectorIndexType "none" and a nil index config. It has no HNSW config
+		// to return, and writes must not be validated against the removed index,
+		// so report no config rather than failing the type check below.
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			return hnsw.UserConfig{}, nil
+		}
+		vectorIndexConfig = vectorConfig.VectorIndexConfig
 	}
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
@@ -529,6 +540,13 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	modConfigs := map[string]map[string]any{}
 	// get all named vectorizers for classs
 	for name, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			// A mid-drop named vector keeps its vectorizer config, but its
+			// index is gone and the write path rejects any object carrying the
+			// vector — computing it would fail every write to the collection
+			// until the drop finalizes, and waste the module inference call.
+			continue
+		}
 		modConfig, ok := vectorConfig.Vectorizer.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)

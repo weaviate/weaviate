@@ -39,8 +39,8 @@ func (c *countingCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) e
 	return nil
 }
 
-func makeCountingCommitLogger(counter *countingCommitLogger) func() (CommitLogger, error) {
-	return func() (CommitLogger, error) {
+func makeCountingCommitLogger(counter *countingCommitLogger) func(opts ...CommitlogOption) (CommitLogger, error) {
+	return func(opts ...CommitlogOption) (CommitLogger, error) {
 		return counter, nil
 	}
 }

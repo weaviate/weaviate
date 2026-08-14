@@ -196,6 +196,9 @@ type Config struct {
 	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
 	// and weaviate/0-weaviate-issues#231.
 	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
+	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
+	// per-target cascade deletion (drop-vector marker introduction).
+	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 
 	ReplicaMovementEnabled bool
 
@@ -371,6 +374,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	// records survive. weaviate/0-weaviate-issues#231.
 	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
 		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+	}
+	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
+		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
 	}
 
 	var dynusersLister namespaces.DynusersNamespaceLister

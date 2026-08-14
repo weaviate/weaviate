@@ -54,8 +54,8 @@ func TestShutdownDrainsCachePrefill(t *testing.T) {
 		WaitForCachePrefill: false,
 		AllocChecker:        memwatch.NewDummyMonitor(),
 		MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if armed.Load() {

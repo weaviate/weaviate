@@ -67,7 +67,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -76,6 +78,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -344,6 +347,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
+	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
+	// finalize-window bleed; recorded by the DELETE handler, read by the
+	// GET-indexes handler. See the field godoc on state.State.
+	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -507,32 +514,27 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
-		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
-		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
-		HNSWSnapshotOnStartup:                        appState.ServerConfig.Config.Persistence.HNSWSnapshotOnStartup,
-		HNSWSnapshotMinDeltaCommitlogsNumber:         appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber,
-		HNSWSnapshotMinDeltaCommitlogsSizePercentage: appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		BM25FilterTombMergeGateRatio:                 appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
-		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
-		QueryBatchedContainsEnabled:                  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
-		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
-		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio: appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
+		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
+		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
+		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -662,7 +664,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
+		},
+		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -727,6 +733,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
+	// Created here (not in the DTM wiring) so it can be injected into the schema
+	// manager at construction, and so the edit-op liveness provider is installed
+	// before ClusterService.Open drives restore-time shard loads.
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
+	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
+
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -737,6 +749,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		appState.Logger.
@@ -746,6 +759,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Last-line transformer guard: strip only targets the local schema still marks
+	// dropped, so an edit op that outlived its drop (failed delete, missed sweep)
+	// no-ops instead of stripping a re-created vector. Installed before
+	// ClusterService.Open so restore-time compactions are covered.
+	transformers.SetDroppedTargetCheck(func(className, targetVector string) bool {
+		class := schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return false
+		}
+		return modelsext.IsVectorIndexDropped(class.VectorConfig[targetVector])
+	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
@@ -989,7 +1014,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1114,9 +1139,10 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1127,6 +1153,50 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
+	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
+	enterrors.GoWrapper(func() {
+		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
+	}, appState.Logger)
+
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	// Wake the reconcile loop when a round ends with work remaining (batch
+	// chains, deferrals, failed rounds) instead of idling a full interval.
+	dropVectorReconcileNudge := make(chan struct{}, 1)
+	dropVectorFinalizer := db.NewSchemaVectorConfigFinalizer(appState.SchemaManager)
+	// Direct-finalize hook for tenant-less MT collections, where no cleanup
+	// task can ever exist to drive the finalize.
+	dropVectorEnqueuer.SetVectorConfigFinalizer(dropVectorFinalizer)
+	dropVectorProvider := db.NewDropVectorIndexProvider(
+		repo,
+		dropVectorFinalizer,
+		appState.ClusterService.Raft,
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+		func() {
+			select {
+			case dropVectorReconcileNudge <- struct{}{}:
+			default:
+			}
+		},
+	)
+	providers[db.DropVectorIndexNamespace] = dropVectorProvider
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliation(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
+			appState.ClusterService.IsLeader, dropVectorReconcileNudge)
+	}, appState.Logger)
+
+	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
+		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
+			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1381,7 +1451,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)

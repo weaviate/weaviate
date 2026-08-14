@@ -45,8 +45,6 @@ type Config struct {
 	WaitForCachePrefill               bool
 	FlatSearchConcurrency             int
 	AcornFilterRatio                  float64
-	DisableSnapshots                  bool
-	SnapshotOnStartup                 bool
 	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
 	// metadata for monitoring

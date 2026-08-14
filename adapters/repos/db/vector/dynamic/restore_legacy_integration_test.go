@@ -76,7 +76,7 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 			TargetVector:     "", // legacy / default vector — the bug's trigger
 			Logger:           logger,
 			DistanceProvider: dp,
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(root, indexID, logger, noopCallback)
 			},
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {

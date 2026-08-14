@@ -123,7 +123,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 
 			p := NewReindexProvider(
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-				nil, logger, node, nil, ctx)
+				nil, nil, logger, node, nil, ctx)
 
 			got := p.LocalCallbacksDone(&distributedtask.Task{
 				Namespace:      ReindexNamespace,

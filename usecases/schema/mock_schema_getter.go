@@ -265,9 +265,9 @@ func (_c *MockSchemaGetter_Nodes_Call) RunAndReturn(run func() []string) *MockSc
 	return _c
 }
 
-// OptimisticTenantStatus provides a mock function with given fields: ctx, class, tenants
-func (_m *MockSchemaGetter) OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error) {
-	ret := _m.Called(ctx, class, tenants)
+// OptimisticTenantStatus provides a mock function with given fields: ctx, class, tenants, allowImplicitActivation
+func (_m *MockSchemaGetter) OptimisticTenantStatus(ctx context.Context, class string, tenants string, allowImplicitActivation bool) (map[string]string, error) {
+	ret := _m.Called(ctx, class, tenants, allowImplicitActivation)
 
 	if len(ret) == 0 {
 		panic("no return value specified for OptimisticTenantStatus")
@@ -275,19 +275,19 @@ func (_m *MockSchemaGetter) OptimisticTenantStatus(ctx context.Context, class st
 
 	var r0 map[string]string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (map[string]string, error)); ok {
-		return rf(ctx, class, tenants)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) (map[string]string, error)); ok {
+		return rf(ctx, class, tenants, allowImplicitActivation)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) map[string]string); ok {
-		r0 = rf(ctx, class, tenants)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) map[string]string); ok {
+		r0 = rf(ctx, class, tenants, allowImplicitActivation)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(map[string]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, class, tenants)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, bool) error); ok {
+		r1 = rf(ctx, class, tenants, allowImplicitActivation)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -304,13 +304,14 @@ type MockSchemaGetter_OptimisticTenantStatus_Call struct {
 //   - ctx context.Context
 //   - class string
 //   - tenants string
-func (_e *MockSchemaGetter_Expecter) OptimisticTenantStatus(ctx interface{}, class interface{}, tenants interface{}) *MockSchemaGetter_OptimisticTenantStatus_Call {
-	return &MockSchemaGetter_OptimisticTenantStatus_Call{Call: _e.mock.On("OptimisticTenantStatus", ctx, class, tenants)}
+//   - allowImplicitActivation bool
+func (_e *MockSchemaGetter_Expecter) OptimisticTenantStatus(ctx interface{}, class interface{}, tenants interface{}, allowImplicitActivation interface{}) *MockSchemaGetter_OptimisticTenantStatus_Call {
+	return &MockSchemaGetter_OptimisticTenantStatus_Call{Call: _e.mock.On("OptimisticTenantStatus", ctx, class, tenants, allowImplicitActivation)}
 }
 
-func (_c *MockSchemaGetter_OptimisticTenantStatus_Call) Run(run func(ctx context.Context, class string, tenants string)) *MockSchemaGetter_OptimisticTenantStatus_Call {
+func (_c *MockSchemaGetter_OptimisticTenantStatus_Call) Run(run func(ctx context.Context, class string, tenants string, allowImplicitActivation bool)) *MockSchemaGetter_OptimisticTenantStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(bool))
 	})
 	return _c
 }
@@ -320,7 +321,7 @@ func (_c *MockSchemaGetter_OptimisticTenantStatus_Call) Return(_a0 map[string]st
 	return _c
 }
 
-func (_c *MockSchemaGetter_OptimisticTenantStatus_Call) RunAndReturn(run func(context.Context, string, string) (map[string]string, error)) *MockSchemaGetter_OptimisticTenantStatus_Call {
+func (_c *MockSchemaGetter_OptimisticTenantStatus_Call) RunAndReturn(run func(context.Context, string, string, bool) (map[string]string, error)) *MockSchemaGetter_OptimisticTenantStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

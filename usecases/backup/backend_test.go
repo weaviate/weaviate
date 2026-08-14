@@ -772,7 +772,7 @@ func TestCalculateBigFilesThreshold(t *testing.T) {
 	// Helper to create fileSizes map with n files of increasing size starting at 2MB
 	makeFiles := func(n int) map[string]int64 {
 		files := make(map[string]int64, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			files[filepath.Join("dir", filepath.Base(
 				filepath.Join("f", string(rune('a'+i%26))+string(rune('0'+i/26))),
 			))] = int64((i + 2)) * mb

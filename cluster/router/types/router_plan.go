@@ -33,6 +33,10 @@ type RoutingPlanBuildOptions struct {
 	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
+
+	// AllowTenantActivation if set to true, it will activate a COLD tenant under auto tenant activation.
+	// Rule of thumb: only set to true if the plan serves an external request.
+	AllowTenantActivation bool
 	// LocalOnly resolves replicas from local schema; no leader query, no tenant activation.
 	LocalOnly bool
 }

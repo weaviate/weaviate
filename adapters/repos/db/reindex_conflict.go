@@ -18,7 +18,112 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
+
+// ReindexBucketEffect is the single source of truth for which buckets a
+// migration type touches (gates conflict/idempotency checks) and whether
+// completing it produces blockmax (feeds [SearchablePropertyBlockmaxFromRAFT]).
+//
+// ok is false only for an unrecognized type — forward-compat for a rolling
+// upgrade observing a newer peer's task; must never panic on peer input. Such
+// types fail safe: touches=true rejects a racing submit, producesBlockmax=true
+// assumes the only realistic post-GA direction (under-reporting risks
+// corrupting an already-blockmax bucket). Exhaustiveness lives in
+// TestReindexBucketEffect_Exhaustive.
+func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
+	switch t {
+	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
+		return true, false, true, true
+	case ReindexTypeChangeTokenization:
+		return true, true, false, true
+	case ReindexTypeChangeTokenizationFilterable, ReindexTypeRepairFilterable, ReindexTypeEnableFilterable:
+		return false, true, false, true
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return false, false, false, true
+	default:
+		return true, true, true, false
+	}
+}
+
+// producesBlockmaxSearchable reports whether completing a migration type leaves
+// the property's searchable bucket on blockmax. Thin accessor over
+// [ReindexBucketEffect] (see there for the unknown-type policy).
+func producesBlockmaxSearchable(t ReindexMigrationType) bool {
+	_, _, producesBlockmax, _ := ReindexBucketEffect(t)
+	return producesBlockmax
+}
+
+// SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
+// bucket is blockmax, from RAFT-consistent state only. Precedence: the durable
+// per-property stamp if set (survives task-list ageout and same-tick sibling
+// migrations), else the class-flag/FINISHED-task derivation
+// ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid (e.g.
+// shard init). Every read site must route through this resolver.
+func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	// classFlag is false here (else resolved would be true), so the task-list
+	// fallback carries the whole decision.
+	return SearchablePropertyBlockmaxFromRAFT(false, class.Class, propName, reindexTasks)
+}
+
+// searchableStampOrClassFlag applies the first two precedence tiers of
+// [SearchablePropertyIsBlockmax] — the durable per-property stamp, then the
+// class-wide flag. resolved is false when neither tier decides and the caller
+// must consult the FINISHED reindex-task list.
+func searchableStampOrClassFlag(class *models.Class, propName string) (blockmax, resolved bool) {
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			if p.SearchableBlockmax != nil {
+				return *p.SearchableBlockmax, true
+			}
+			break
+		}
+	}
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return true, true
+	}
+	return false, false
+}
+
+// SearchablePropertyIsBlockmaxParsed is [SearchablePropertyIsBlockmax] using a
+// pre-computed finishedBlockmaxProps set (built once by the GET-indexes
+// handler) instead of a raw task list, so per-property resolution is O(1).
+func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, finishedBlockmaxProps map[string]struct{}) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	_, ok := finishedBlockmaxProps[propName]
+	return ok
+}
+
+// SearchablePropertyBlockmaxFromRAFT derives per-property blockmax truth from
+// the class flag plus the FINISHED task list — [SearchablePropertyIsBlockmax]'s
+// fallback when a property carries no durable stamp. It can't see a migration
+// whose task has aged out, which is why the stamp is the primary source.
+func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
+	if classFlagBlockmax {
+		return true
+	}
+	for _, task := range reindexTasks {
+		if task.Status != distributedtask.TaskStatusFinished {
+			continue
+		}
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !producesBlockmaxSearchable(payload.MigrationType) {
+			continue
+		}
+		if strings.EqualFold(payload.Collection, collection) && slices.Contains(payload.Properties, propName) {
+			return true
+		}
+	}
+	return false
+}
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
@@ -162,9 +267,12 @@ func ReindexPropsOverlap(a, b []string) bool {
 //
 // Single source of truth for that mapping: every caller that needs a
 // migration type's index keys reads it here rather than mapping the types
-// again, because a mismatch between callers risks silent data loss.
-// [reindexRepairBody] needs its own arm per type; both tables are pinned
+// again, because a mismatch between callers risks silent data loss. Pinned
 // against the declared set in reindex_conflict_test.go.
+//
+// Distinct from [ReindexBucketEffect], which answers which LSM buckets a type
+// touches. Rangeable migrations touch neither searchable nor filterable but
+// still have an index key here.
 func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	switch t {
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm,
@@ -181,6 +289,14 @@ func ReindexTargetIndexes(t ReindexMigrationType) []string {
 	return nil
 }
 
+// TouchesSearchable reports whether migration type t writes to the searchable
+// bucket. Thin accessor over [ReindexBucketEffect] (see there for the
+// unknown-type policy).
+func TouchesSearchable(t ReindexMigrationType) bool {
+	touchesSearchable, _, _, _ := ReindexBucketEffect(t)
+	return touchesSearchable
+}
+
 // firstUnknownMigrationType returns the first of ts this build does not
 // recognize, or "" when it knows them all. "Known" is defined as "named by
 // [ReindexTargetIndexes]", which keeps the single-source-of-truth mapping
@@ -192,6 +308,13 @@ func firstUnknownMigrationType(ts ...ReindexMigrationType) ReindexMigrationType 
 		}
 	}
 	return ""
+}
+
+// TouchesFilterable reports whether migration type t writes to the filterable
+// bucket. Thin accessor over [ReindexBucketEffect].
+func TouchesFilterable(t ReindexMigrationType) bool {
+	_, touchesFilterable, _, _ := ReindexBucketEffect(t)
+	return touchesFilterable
 }
 
 // ReindexCancelCall renders a request that cancels the task described by p,
@@ -208,32 +331,100 @@ func ReindexCancelCall(p ReindexTaskPayload, askedProperty string) string {
 	if p.Collection == "" || len(p.Properties) == 0 || len(indexes) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"%s":{"cancel":true}}`,
-		p.Collection, reindexNamedProperty(p, askedProperty), indexes[0])
+	// The cancel route takes no tenant scope: it is keyed on the task, not on
+	// the shards the task touches.
+	return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/cancel",
+		p.Collection, reindexNamedProperty(p, askedProperty),
+		indexPathParam(indexes[0]))
 }
 
 // ReindexRepairCall renders the request that repairs the property after the
 // migration terminalized with buckets ahead of the schema, or "" when this
-// build cannot name one. Re-submits the original migration rather than a
-// bare rebuild, since every rebuild verb validates against the bit the
-// skipped schema flip would have set. change-algorithm on an
-// already-promoted shard is untested (weaviate/weaviate#12575).
+// build cannot name one.
+//
+// Only the format-only types reach this from a gate, and for those the repair
+// is the rebuild verb: they flip no schema bit, so the rebuild's precondition
+// holds post-cancel. The semantic types re-submit instead, which is what
+// [repairCommandsForFailedMigration] renders on the terminal-cleanup path.
 //
 // Exported for the same reason as [ReindexCancelCall].
 func ReindexRepairCall(p ReindexTaskPayload, askedProperty string) string {
-	return reindexSubmitCall(p, askedProperty, reindexRepairBody(p))
-}
+	tok := p.TargetTokenization
+	switch p.MigrationType {
+	// Semantic types re-submit: each left its index flag (or the bucket's
+	// algorithm) at the pre-migration value, and that is the bit every
+	// rebuild verb validates against, so a rebuild would be refused.
+	case ReindexTypeEnableSearchable, ReindexTypeChangeTokenization:
+		if tok == "" {
+			return ""
+		}
+		return reindexUpsertCall(p, askedProperty, "searchable",
+			fmt.Sprintf(`{"tokenization":%q}`, tok))
+	case ReindexTypeChangeTokenizationFilterable:
+		if tok == "" {
+			return ""
+		}
+		return reindexUpsertCall(p, askedProperty, "filterable",
+			fmt.Sprintf(`{"tokenization":%q}`, tok))
+	case ReindexTypeEnableFilterable:
+		return reindexUpsertCall(p, askedProperty, "filterable", "{}")
+	case ReindexTypeChangeAlgorithm:
+		// blockmax hardcoded: it is the only target the upsert accepts, and
+		// the payload carries no target field. A second algorithm must
+		// extend both places.
+		return reindexUpsertCall(p, askedProperty, "searchable",
+			`{"algorithm":"blockmax"}`)
 
-// reindexSubmitCall renders a submit request against p's collection, named
-// property and tenant scope with the given body, or "" when any part is
-// missing.
-func reindexSubmitCall(p ReindexTaskPayload, askedProperty, body string) string {
-	if p.Collection == "" || len(p.Properties) == 0 || body == "" {
+	// Format-only types flip no schema bit, so the rebuild verb's
+	// precondition still holds and the rebuild IS the repair.
+	case ReindexTypeRebuildSearchable:
+		return reindexRebuildCall(p, askedProperty, "searchable")
+	case ReindexTypeRepairFilterable:
+		return reindexRebuildCall(p, askedProperty, "filterable")
+	case ReindexTypeRepairRangeable:
+		return reindexRebuildCall(p, askedProperty, "rangeable")
+
+	case ReindexTypeEnableRangeable:
+		// The strategy flips IndexRangeFilters per shard as it goes, so no
+		// single verb is valid in every terminal state: rebuild 400s while no
+		// shard has finished, upsert NO_OPs once one has. cancellableGateRemedy
+		// names both and says which state each covers.
 		return ""
 	}
-	return fmt.Sprintf("PUT /v1/schema/%s/indexes/%s%s %s",
+	return ""
+}
+
+// reindexRebuildCall renders the rebuild verb for one index type against p's
+// collection, named property and tenant scope, or "" when any part is missing.
+func reindexRebuildCall(p ReindexTaskPayload, askedProperty, indexType string) string {
+	if p.Collection == "" || len(p.Properties) == 0 || indexType == "" {
+		return ""
+	}
+	return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild%s",
 		p.Collection, reindexNamedProperty(p, askedProperty),
-		reindexTenantScope(p), body)
+		indexPathParam(indexType), reindexTenantScope(p))
+}
+
+// reindexUpsertCall renders the upsert verb for one index type with the given
+// flat body, or "" when any part is missing. The index type rides the path and
+// the body carries configuration only ([models.IndexUpsertRequest]).
+func reindexUpsertCall(p ReindexTaskPayload, askedProperty, indexType, body string) string {
+	if p.Collection == "" || len(p.Properties) == 0 || indexType == "" || body == "" {
+		return ""
+	}
+	return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s%s -d '%s'",
+		p.Collection, reindexNamedProperty(p, askedProperty),
+		indexPathParam(indexType), reindexTenantScope(p), body)
+}
+
+// indexPathParam maps an internal index token to the spelling the path enum
+// documents. Only rangeable differs: the wire name is rangeFilters, though
+// the enum still accepts the former Preview name.
+func indexPathParam(indexType string) string {
+	if indexType == "rangeable" {
+		return "rangeFilters"
+	}
+	return indexType
 }
 
 // reindexTenantsPlaceholder stands in for the task's tenant subset in a
@@ -270,54 +461,6 @@ func reindexTenantScopeNote(p ReindexTaskPayload) string {
 		"or freezes are refused by the submit endpoint once it goes through. " +
 		"Leaving the parameter off is not the alternative: that re-runs the " +
 		"migration on every tenant of the collection."
-}
-
-// reindexRepairBody renders the submit body that reproduces p's migration
-// type, matching every per-type REST precondition (e.g. enable-searchable
-// carries its tokenization, not just the index group).
-//
-// "" for an unrecognized type, enable-rangeable (no body is ever valid), or
-// a missing target tokenization — dead today since every submit path
-// rejects an empty one, but kept: printing nothing beats printing a
-// command the API will reject.
-func reindexRepairBody(p ReindexTaskPayload) string {
-	switch p.MigrationType {
-	case ReindexTypeEnableSearchable:
-		if p.TargetTokenization == "" {
-			return ""
-		}
-		return fmt.Sprintf(`{"searchable":{"enabled":true,"tokenization":%q}}`,
-			p.TargetTokenization)
-	case ReindexTypeRebuildSearchable:
-		return `{"searchable":{"rebuild":true}}`
-	case ReindexTypeChangeAlgorithm:
-		// blockmax hardcoded: it is the only target algorithm
-		// validateChangeAlgorithmProperty accepts, and the payload carries
-		// no target field. A second algorithm must extend both places.
-		return `{"searchable":{"algorithm":"blockmax"}}`
-	case ReindexTypeChangeTokenization:
-		if p.TargetTokenization == "" {
-			return ""
-		}
-		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, p.TargetTokenization)
-	case ReindexTypeChangeTokenizationFilterable:
-		if p.TargetTokenization == "" {
-			return ""
-		}
-		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, p.TargetTokenization)
-	case ReindexTypeEnableFilterable:
-		return `{"filterable":{"enabled":true}}`
-	case ReindexTypeRepairFilterable:
-		return `{"filterable":{"rebuild":true}}`
-	case ReindexTypeEnableRangeable:
-		// No body the API accepts in every terminal state: the strategy
-		// flips IndexRangeFilters per shard as it goes, so `enabled` 400s
-		// once any shard finished and `rebuild` 400s while none has.
-		return ""
-	case ReindexTypeRepairRangeable:
-		return `{"rangeable":{"rebuild":true}}`
-	}
-	return ""
 }
 
 // reindexNamedProperty picks the property a rendered call should name:
@@ -404,9 +547,9 @@ func cancellableGateRemedy(p ReindexTaskPayload, askedProperty string, callerDro
 		}
 		if p.MigrationType == ReindexTypeEnableRangeable {
 			return partial + "To finish the job later, re-submit it via " +
-				reindexSubmitCall(p, askedProperty, `{"rangeable":{"enabled":true}}`) +
+				reindexUpsertCall(p, askedProperty, "rangeable", "{}") +
 				" while no shard has finished yet, or via " +
-				reindexSubmitCall(p, askedProperty, `{"rangeable":{"rebuild":true}}`) +
+				reindexRebuildCall(p, askedProperty, "rangeable") +
 				" once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike " +
 				"cancel). enable-rangeable sets indexRangeFilters on the " +
 				"property as soon as its first shard commits, and each of the " +

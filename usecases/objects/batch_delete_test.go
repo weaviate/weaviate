@@ -194,6 +194,25 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		var invalid ErrInvalidUserInput
 		require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
 	})
+
+	t.Run("missing required match fields classify as ErrInvalidUserInput", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			match *models.BatchDeleteMatch
+		}{
+			{name: "no match", match: nil},
+			{name: "empty match.class", match: &models.BatchDeleteMatch{Class: ""}},
+			{name: "missing match.where", match: &models.BatchDeleteMatch{Class: "Foo"}},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				_, err := manager.DeleteObjects(ctx, nil, test.match, nil, nil, ptString(verbosity.OutputVerbose), nil, "")
+				require.Error(t, err)
+				var invalid ErrInvalidUserInput
+				require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
+			})
+		}
+	})
 }
 
 // Test_BatchDelete_NamespaceResolution proves DeleteObjects routes the
@@ -361,6 +380,59 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 			"foreign-NS inner class must be ErrInvalidUserInput, got %T: %v", err, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
+}
+
+// The gRPC entry point is called with pre-validated params, so it resolves the
+// collection's schema version itself instead of through validateBatchDelete.
+func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
+	const classVersion uint64 = 9
+
+	tests := []struct {
+		name      string
+		lookupErr error
+		wantErr   string
+	}{
+		{
+			name: "deleted",
+		},
+		{
+			name:      "collection lookup fails",
+			lookupErr: errors.New("leader unreachable"),
+			wantErr:   "could not get class Foo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class: "Foo", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+			}}}}
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Once()
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: sch,
+				ClassVersion:      classVersion,
+				GetschemaErr:      tt.lookupErr,
+			}
+			cfg := &config.WeaviateConfig{}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			_, err := manager.DeleteObjectsFromGRPCAfterAuth(context.Background(), &models.Principal{},
+				BatchDeleteParams{ClassName: "Foo"}, nil, "")
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				vectorRepo.AssertNotCalled(t, "BatchDeleteObjects", mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, classVersion, vectorRepo.CapturedSchemaVersion,
+				"the delete must be made with the collection's schema version")
+		})
+	}
 }
 
 func ptBool(b bool) *bool {

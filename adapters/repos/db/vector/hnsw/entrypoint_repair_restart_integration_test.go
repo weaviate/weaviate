@@ -79,9 +79,9 @@ func TestEntrypointRepair_DeletedEntrypoints(t *testing.T) {
 			RootPath:     dirName,
 			ID:           indexID,
 			Logger:       logger,
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 				return NewCommitLogger(dirName, indexID, logger,
-					cyclemanager.NewCallbackGroupNoop())
+					cyclemanager.NewCallbackGroupNoop(), opts...)
 			},
 			DistanceProvider:  distancer.NewL2SquaredProvider(),
 			VectorForIDThunk:  store.vectorForID,

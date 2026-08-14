@@ -76,7 +76,21 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
-	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes)
+	// Read once: reused by the reject below and the carried-over skip in the
+	// re-index loop. Lives here, not in MergeObject, because replication enters
+	// merge directly (shard_replication.go). The snapshot is intentionally
+	// consistent — a drop landing after this read isn't seen for the rest of the
+	// call (a pre-existing concurrent-schema-change window, not widened here).
+	class := s.index.getClass()
+
+	// Reject a merge that explicitly supplies a dropped vector.
+	for targetVector := range doc.Vectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			return errDroppedVectorIndex(targetVector)
+		}
+	}
+
+	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes, class)
 	if err != nil {
 		return err
 	}
@@ -88,11 +102,17 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 	}
 
 	for targetVector, vector := range obj.Vectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			continue
+		}
 		if err = s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
 	}
 	for targetVector, vector := range obj.MultiVectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			continue
+		}
 		if err = s.updateMultiVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
@@ -116,7 +136,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 }
 
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
-	idBytes []byte,
+	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -153,6 +173,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		if err != nil {
 			return errors.Wrap(err, "merge object data")
 		}
+
+		// A property-only merge carries the previous version's vectors forward;
+		// a dropped one must not be re-persisted into a new segment.
+		stripDroppedVectors(class, obj)
 
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
@@ -248,6 +272,10 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	if err != nil {
 		return out, errors.Wrap(err, "merge object data")
 	}
+
+	// Same carry-over hazard as mergeObjectInStorage: reference-only merges must
+	// not re-persist a dropped vector.
+	stripDroppedVectors(s.index.getClass(), obj)
 
 	out.next = obj
 	out.previous = notEmptyPrevObj

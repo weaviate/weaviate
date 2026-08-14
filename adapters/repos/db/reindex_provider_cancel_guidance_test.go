@@ -181,7 +181,7 @@ func TestOnTaskCompleted_TerminalRepairGuidance(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			p := NewReindexProvider(
 				&DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
-				nil, logger, "n1", nil, context.Background())
+				nil, nil, logger, "n1", nil, context.Background())
 
 			migrationType := tc.migrationType
 			if migrationType == "" {
@@ -311,7 +311,7 @@ func TestOnTaskCompleted_DrainTimeoutStillWarnsOnCancel(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}},
-		nil, logger, "n1", nil, serverCtx)
+		nil, nil, logger, "n1", nil, serverCtx)
 	structuralInvariantInjectHandle(p, desc)
 
 	payload, err := json.Marshal(ReindexTaskPayload{

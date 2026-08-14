@@ -109,7 +109,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
+	asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
 		return fmt.Errorf("async replication config: %w", err)
 	}
@@ -197,25 +197,20 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
-			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
-			HaltForTransferTimeout:                       m.db.config.HaltForTransferTimeout,
-			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
-			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
-			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
-			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-			ShardLoadLimiter:                             m.db.shardLoadLimiter,
-			StartupShards:                                &m.db.startupShards,
-			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
-			NamespacesExister:                            m.db.namespacesExister,
-			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
-			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
-			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
-			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
-			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
+			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationConfig:              asyncConfig,
+			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			StartupShards:                       &m.db.startupShards,
+			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
+			NamespacesExister:                   m.db.namespacesExister,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
 				if lazyLoadShardEnabled {
@@ -268,11 +263,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	func() {
 		idx.dropIndex.RLock()
 		defer idx.dropIndex.RUnlock()
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
-		if idx.closed {
+		if err := idx.enterRead(); err != nil {
 			return
 		}
+		defer idx.exitRead()
 		if err := idx.reconcileAsyncReplication(ctx); err != nil {
 			m.logger.WithField("action", "add_class").WithField("class", class.Class).
 				Errorf("reconcile async replication for new index: %v", err)
@@ -353,7 +347,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shardLike.Shutdown(ctx); err != nil {
+	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -384,25 +378,24 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		}
 	}
 
+	// the property add runs even when the shard reconcile fails: it is the only
+	// thing that gives an already loaded shard the class's new properties, and a
+	// shard that failed to load or unload does not stop the others from needing them
+	ec := errorcompounder.New()
+
 	{ // add/remove missing shards
 		if incomingSS.PartitioningEnabled {
-			if err := m.updateIndexTenants(ctx, idx, incomingSS); err != nil {
-				return err
-			}
+			ec.Add(m.updateIndexTenants(ctx, idx, incomingSS))
 		} else {
-			if err := m.updateIndexShards(ctx, idx, incomingSS); err != nil {
-				return err
-			}
+			ec.Add(m.updateIndexShards(ctx, idx, incomingSS))
 		}
 	}
 
 	{ // add missing properties
-		if err := m.updateIndexAddMissingProperties(ctx, idx, incomingClass); err != nil {
-			return err
-		}
+		ec.Add(m.updateIndexAddMissingProperties(ctx, idx, incomingClass))
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
@@ -490,26 +483,27 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
 	}
 
+	// every shard is attempted and every failure reported: a swallowed unload
+	// reports a partial reconcile as a success, and stopping at the first failed
+	// load leaves every shard behind it unreconciled
+	ec := errorcompounder.New()
+
 	// Initialize missing shards and shutdown unneeded ones
 	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				// TODO: an error should be returned but keeping the old behavior for now
-				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
-				continue
-			}
+			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
+				"shutdown shard %s during update index", shardName)
 		}
 	}
 
 	for _, shardName := range requestedShards {
 		if _, exists := existingShards[shardName]; !exists {
-			if err := idx.initLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
-			}
+			ec.AddWrapf(idx.initLocalShard(ctx, shardName),
+				"add missing shard %s during update index", shardName)
 		}
 	}
 
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Index,
@@ -656,12 +650,11 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
-	idx.closeLock.RLock()
-	defer idx.closeLock.RUnlock()
-	if idx.closed {
+	if err := idx.enterRead(); err != nil {
 		m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-		return errAlreadyShutdown
+		return err
 	}
+	defer idx.exitRead()
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
@@ -739,14 +732,10 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shard.Shutdown(ctx); err != nil {
+				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
-						idx.logger.
-							WithField("action", "shard_shutdown").
-							WithField("shard", shard.ID()).
-							Error(err)
 						ec.Add(err)
 					}
 				}

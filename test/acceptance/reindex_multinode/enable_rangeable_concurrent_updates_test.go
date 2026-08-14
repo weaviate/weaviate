@@ -122,8 +122,7 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 
 	// Submit enable-rangeable, then fire the PATCH storm so it overlaps the
 	// whole migration window (backfill → per-shard swap → schema flip).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, propName,
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURIOf(compose, 1), className, propName, "rangeFilters", `{}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
 	// stormCtx bounds the storm even if the test goroutine aborts (e.g. the

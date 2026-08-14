@@ -143,6 +143,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -239,6 +242,9 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -284,6 +290,20 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
+
+// asyncNotReadyError maps 412/418/503 to the retry-later sentinel family; nil otherwise (pre-1.38 peers send 500).
+func asyncNotReadyError(code int, body []byte) error {
+	switch code {
+	case http.StatusPreconditionFailed:
+		return fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, body)
+	case http.StatusTeapot:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaMaintenance, body)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaBooting, body)
+	}
+	return nil
+}
+
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
@@ -326,6 +346,9 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(code, errBody); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
 	}
 
@@ -569,6 +592,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 

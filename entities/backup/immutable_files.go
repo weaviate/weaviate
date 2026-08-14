@@ -23,6 +23,7 @@ const (
 	metadataExt  = ".metadata"
 	condensedExt = ".condensed"
 	snapshotExt  = ".snapshot"
+	sortedExt    = ".sorted"
 )
 
 // IsImmutableFile reports whether a backup file (relative path) is guaranteed
@@ -51,6 +52,11 @@ func IsImmutableFile(relPath string) bool {
 	}
 	// HNSW snapshots — point-in-time captures, never modified after creation.
 	if ext == snapshotExt {
+		return true
+	}
+	// Compact-v2 sorted commit-log files — produced by compact.SortedWriter via
+	// SafeFileWriter (atomic rename-in), never reopened for writes.
+	if ext == sortedExt {
 		return true
 	}
 	return false

@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestReindexPropsOverlap pins the property-overlap rule that
@@ -117,6 +118,286 @@ func TestTypesConflictReason(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTouchesBucket_RebuildSearchable pins rebuild-searchable's bucket-touch
+// classification (searchable yes, filterable no) via the public accessors.
+func TestTouchesBucket_RebuildSearchable(t *testing.T) {
+	require.True(t, TouchesSearchable(ReindexTypeRebuildSearchable))
+	require.False(t, TouchesFilterable(ReindexTypeRebuildSearchable))
+}
+
+// TestTypesConflictReason_RebuildSearchableDoesNotPanic pins that an
+// overlapping rebuild-searchable task yields a conflict reason, not a panic.
+func TestTypesConflictReason_RebuildSearchableDoesNotPanic(t *testing.T) {
+	var reason string
+	require.NotPanics(t, func() {
+		reason = typesConflictReason(
+			ReindexTypeRebuildSearchable, []string{"text"},
+			ReindexTypeChangeTokenization, []string{"text"},
+		)
+	})
+	require.NotEmpty(t, reason, "overlapping in-flight task must yield a conflict reason")
+}
+
+// TestSearchablePropertyBlockmaxFromRAFT pins the RAFT-only derivation:
+// class flag OR a FINISHED blockmax-producing task on this property — nothing
+// else (other statuses, migration types, properties, or collections) counts.
+func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
+	task := func(collection string, mt ReindexMigrationType, status distributedtask.TaskStatus, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection, MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt) + ":" + status.String()},
+			Status:         status,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "class flag on, no task → blockmax", classFlag: true, want: true},
+		{name: "class flag off, no task → WAND", classFlag: false, want: false},
+		{
+			name:  "finished change-algorithm on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished enable-searchable on P → blockmax (created as blockmax)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeEnableSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished rebuild-searchable on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeRebuildSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished change-tokenization on P → not blockmax (strategy preserved)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeTokenization, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "started change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusStarted, "text")},
+			want:  false,
+		},
+		{
+			name:  "swapping change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusSwapping, "text")},
+			want:  false,
+		},
+		{
+			name:  "failed change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text")},
+			want:  false,
+		},
+		{
+			name:  "cancelled change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusCancelled, "text")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different property → P still WAND",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "other")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different collection → P still WAND",
+			tasks: []*distributedtask.Task{task("Other", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "collection match is case-insensitive",
+			tasks: []*distributedtask.Task{task("c", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name: "class flag on wins even with a failed task present",
+			tasks: []*distributedtask.Task{
+				task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text"),
+			},
+			classFlag: true,
+			want:      true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SearchablePropertyBlockmaxFromRAFT(tc.classFlag, "C", "text", tc.tasks)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver
+// across (classFlag, stamp, taskList); the load-bearing row is a
+// stamped-blockmax property with flag OFF and an aged-out (empty) task list,
+// which must resolve to blockmax, not the legacy WAND fallback.
+func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
+	finishedBlockmaxTask := func() []*distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{
+			Collection: "C", MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"text"},
+		})
+		require.NoError(t, err)
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t"},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}}
+	}
+	ptr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "stamp true, class flag off, aged-out (empty) task list → blockmax [the fix]", classFlag: false, stamp: ptr(true), tasks: nil, want: true},
+		{name: "stamp true, class flag off, unrelated live tasks → blockmax", classFlag: false, stamp: ptr(true), tasks: finishedBlockmaxTask(), want: true},
+		{name: "stamp false, class flag off → WAND", classFlag: false, stamp: ptr(false), tasks: nil, want: false},
+		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), tasks: nil, want: false},
+		{name: "nil stamp, class flag on → blockmax (nil-backfill / all-migrated + snapshot from old node)", classFlag: true, stamp: nil, tasks: nil, want: true},
+		{name: "nil stamp, class flag off, finished blockmax task → blockmax (legacy fallback, task still in TTL window)", classFlag: false, stamp: nil, tasks: finishedBlockmaxTask(), want: true},
+		{name: "nil stamp, class flag off, empty task list → WAND (legacy hole; reachable only for pre-stamp migrations, closed by read-repair)", classFlag: false, stamp: nil, tasks: nil, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+			require.Equal(t, tc.want, SearchablePropertyIsBlockmax(class, "text", tc.tasks))
+		})
+	}
+}
+
+// TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed pins that the
+// pre-parsed GET-handler variant resolves identically to
+// SearchablePropertyIsBlockmax across the full (stamp, classFlag,
+// finished-task) space.
+func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
+	ptr := func(b bool) *bool { return &b }
+	finishedTask := func(mt ReindexMigrationType, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt)},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+	}{
+		{name: "stamp true, flag off, empty tasks", classFlag: false, stamp: ptr(true)},
+		{name: "stamp false, flag off", classFlag: false, stamp: ptr(false)},
+		{name: "nil stamp, flag on", classFlag: true, stamp: nil},
+		{name: "nil stamp, flag off, finished change-algorithm on prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeAlgorithm, "text")}},
+		{name: "nil stamp, flag off, finished change-tokenization on prop (not blockmax)", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeTokenization, "text")}},
+		{name: "nil stamp, flag off, finished blockmax task on OTHER prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeRebuildSearchable, "other")}},
+		{name: "nil stamp, flag off, empty tasks", classFlag: false, stamp: nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+
+			// Build the set exactly as the GET handler does.
+			finishedBlockmaxProps := make(map[string]struct{})
+			for _, task := range tc.tasks {
+				if task.Status != distributedtask.TaskStatusFinished {
+					continue
+				}
+				var p ReindexTaskPayload
+				require.NoError(t, json.Unmarshal(task.Payload, &p))
+				if _, _, producesBlockmax, _ := ReindexBucketEffect(p.MigrationType); !producesBlockmax {
+					continue
+				}
+				for _, prop := range p.Properties {
+					finishedBlockmaxProps[prop] = struct{}{}
+				}
+			}
+
+			want := SearchablePropertyIsBlockmax(class, "text", tc.tasks)
+			got := SearchablePropertyIsBlockmaxParsed(class, "text", finishedBlockmaxProps)
+			require.Equal(t, want, got, "parsed variant must match the task-list resolver")
+		})
+	}
+}
+
+// allReindexMigrationTypesForTest must list every ReindexMigrationType (kept
+// in sync by hand); TestReindexBucketEffect_Exhaustive fails if any entry here
+// is unclassified, keeping the production fail-safe default honest.
+var allReindexMigrationTypesForTest = []ReindexMigrationType{
+	ReindexTypeChangeAlgorithm,
+	ReindexTypeRebuildSearchable,
+	ReindexTypeRepairFilterable,
+	ReindexTypeEnableRangeable,
+	ReindexTypeRepairRangeable,
+	ReindexTypeEnableFilterable,
+	ReindexTypeEnableSearchable,
+	ReindexTypeChangeTokenization,
+	ReindexTypeChangeTokenizationFilterable,
+}
+
+// TestReindexBucketEffect_Exhaustive enforces at dev-time that every
+// ReindexMigrationType is explicitly classified, and pins the fail-safe
+// defaults (touches both buckets, produces blockmax) for an unrecognized type.
+func TestReindexBucketEffect_Exhaustive(t *testing.T) {
+	// Adding a ReindexMigrationType here without a row below fails the "every
+	// listed type is covered" assertion.
+	want := map[ReindexMigrationType]struct {
+		touchesSearchable bool
+		touchesFilterable bool
+		producesBlockmax  bool
+	}{
+		ReindexTypeChangeAlgorithm:              {true, false, true},
+		ReindexTypeRebuildSearchable:            {true, false, true},
+		ReindexTypeEnableSearchable:             {true, false, true},
+		ReindexTypeChangeTokenization:           {true, true, false},
+		ReindexTypeChangeTokenizationFilterable: {false, true, false},
+		ReindexTypeRepairFilterable:             {false, true, false},
+		ReindexTypeEnableFilterable:             {false, true, false},
+		ReindexTypeEnableRangeable:              {false, false, false},
+		ReindexTypeRepairRangeable:              {false, false, false},
+	}
+
+	for _, mt := range allReindexMigrationTypesForTest {
+		exp, hasRow := want[mt]
+		require.Truef(t, hasRow,
+			"migration type %q is in allReindexMigrationTypesForTest but has no expected row in this test — classify it", mt)
+
+		ts, tf, pb, ok := ReindexBucketEffect(mt)
+		require.Truef(t, ok,
+			"migration type %q is not explicitly classified by ReindexBucketEffect (hit the fail-safe default) — add an explicit case", mt)
+		require.Equalf(t, exp.touchesSearchable, ts, "%s touchesSearchable", mt)
+		require.Equalf(t, exp.touchesFilterable, tf, "%s touchesFilterable", mt)
+		require.Equalf(t, exp.producesBlockmax, pb, "%s producesBlockmax", mt)
+	}
+
+	// An unknown (peer-written) type must fail SAFE, not panic.
+	ts, tf, pb, ok := ReindexBucketEffect(ReindexMigrationType("bogus-future-type"))
+	require.False(t, ok, "unknown type must report ok=false")
+	require.True(t, ts, "unknown type must conservatively touch searchable")
+	require.True(t, tf, "unknown type must conservatively touch filterable")
+	require.True(t, pb, "unknown type must be assumed blockmax (post-GA safe direction)")
+	require.NotPanics(t, func() { _ = producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) },
+		"unknown type must never panic on the forward-compat hot path")
 }
 
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:
@@ -770,7 +1051,7 @@ func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
 				"The migration's on-disk state is not removed by this mutation",
 				"a deactivated shard promotes any merged generation on reactivation",
 				"a delete leaves every remaining tenant's shard carrying it",
-				`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
+				`re-running the migration via PUT /v1/schema/C/properties/name/index/searchable -d '{"tokenization":"word"}'`,
 			},
 		},
 		{
@@ -779,7 +1060,7 @@ func TestCheckTenantMutation_RemedyNeverClaimsTheDataIsRemoved(t *testing.T) {
 			payload: formatOnlyPayload,
 			want: []string{
 				"The migration's on-disk state is not removed by this mutation",
-				`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
+				`re-submit it via POST /v1/schema/C/properties/name/index/filterable/rebuild`,
 			},
 		},
 	}
@@ -874,17 +1155,20 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// renderedCallRE matches a `PUT <path> <body>` the reindex messages render.
-// Every rendered body is one index group wrapping one flat object, so the
-// pattern needs no brace balancing.
-var renderedCallRE = regexp.MustCompile(`PUT (/v1/schema/[^ ]+/indexes/[^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
+// renderedCallRE matches a call the reindex messages render. The verb rides
+// the path now (…/cancel, …/rebuild, or a bare upsert), so the path alone
+// says which request it is.
+var renderedCallRE = regexp.MustCompile(`(?:PUT|POST) (/v1/schema/\S*/properties/\S*/index/\S+)`)
+
+// isRenderedCancel reports whether a rendered call is the cancel verb.
+func isRenderedCancel(call string) bool { return strings.Contains(call, "/cancel") }
 
 // renderedCancelCall returns the cancel call a message names, or "" when it
 // names none. Matches the rendered JSON rather than the prose around it, so
 // it sees exactly what an operator would copy out and paste into a PUT.
 func renderedCancelCall(message string) string {
 	for _, m := range renderedCallRE.FindAllStringSubmatch(message, -1) {
-		if strings.Contains(m[2], `"cancel":true`) {
+		if isRenderedCancel(m[1]) {
 			return m[0]
 		}
 	}
@@ -950,7 +1234,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 
 	// Every part is filled in from the task; a guessed placeholder would
 	// land the operator on a 202 NO_OP.
-	cancelCall := `cancel it via PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`
+	cancelCall := `cancel it via POST /v1/schema/C/properties/name/index/searchable/cancel`
 	cancelWhileRunning := []string{
 		cancelCall + ", or wait for it to finish",
 	}
@@ -986,7 +1270,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		// writes merged.mig, so for the first part of it nothing is.
 		"may already be merged on disk",
 		"the next restart promotes it",
-		`re-running the migration via PUT /v1/schema/C/indexes/name {"searchable":{"tokenization":"word"}}`,
+		`re-running the migration via PUT /v1/schema/C/properties/name/index/searchable -d '{"tokenization":"word"}'`,
 	})
 	// Same task, minus the target tokenization. No submit path produces this
 	// payload; it pins that the remedy text drops the repair call rather than
@@ -1010,9 +1294,9 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	// The re-submit is rendered as a full call, not described: the reader of
 	// a DeleteClass or tenant-mutation refusal is often not the submitter.
 	formatOnly := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/filterable/cancel`,
 		"its shards commit one by one",
-		`re-submit it via PUT /v1/schema/C/indexes/name {"filterable":{"rebuild":true}}`,
+		`re-submit it via POST /v1/schema/C/properties/name/index/filterable/rebuild`,
 		"re-runs every shard it covers, the ones that already finished included",
 	}
 	// enable-rangeable is the one format-only type whose own progress
@@ -1024,10 +1308,10 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 	formatOnlyRangeable := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/rangeFilters/cancel`,
 		"its shards commit one by one",
-		`re-submit it via PUT /v1/schema/C/indexes/name {"rangeable":{"enabled":true}} while no shard has finished yet`,
-		`or via PUT /v1/schema/C/indexes/name {"rangeable":{"rebuild":true}} once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike cancel)`,
+		`re-submit it via PUT /v1/schema/C/properties/name/index/rangeFilters -d '{}' while no shard has finished yet`,
+		`or via POST /v1/schema/C/properties/name/index/rangeFilters/rebuild once one has (both need RUNTIME_REINDEX_ENABLED=true, unlike cancel)`,
 		"sets indexRangeFilters on the property",
 	}
 	// The types whose preconditions partial progress leaves alone must not
@@ -1080,13 +1364,13 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		"Re-issue this request once the task is terminal",
 	})
 	formatOnlyDropping := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/filterable/cancel`,
 		"its shards commit one by one",
 		"nothing to finish afterwards",
 		"then re-issue this request",
 	}
 	formatOnlyRangeableDropping := []string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/rangeFilters/cancel`,
 		"its shards commit one by one",
 		"nothing to finish afterwards",
 	}
@@ -1106,11 +1390,11 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 	// The cancel survives: it is the one verb that does not read the index
 	// flag the DELETE clears.
 	formatOnlyIndexDrop := concat([]string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"filterable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/filterable/cancel`,
 		"its shards commit one by one",
 	}, noRepairNamed)
 	formatOnlyRangeableIndexDrop := concat([]string{
-		`cancel it via PUT /v1/schema/C/indexes/name {"rangeable":{"cancel":true}}`,
+		`cancel it via POST /v1/schema/C/properties/name/index/rangeFilters/cancel`,
 		"its shards commit one by one",
 	}, noRepairNamed)
 	// The prose carries a URL too, so it has to keep the namespace prefix the
@@ -1223,14 +1507,14 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 		// namespace-confined caller who must not.
 		{
 			"STARTED namespace-qualified", distributedtask.TaskStatusStarted, "customer1:C", qualifiedPayload,
-			[]string{`cancel it via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			[]string{`cancel it via POST /v1/schema/customer1:C/properties/name/index/searchable/cancel`},
 			[]string{"/v1/schema/C/"},
 			nil, nil, nil,
 		},
 		{
 			"SWAPPING namespace-qualified", distributedtask.TaskStatusSwapping, "customer1:C", qualifiedPayload,
 			[]string{
-				`re-running the migration via PUT /v1/schema/customer1:C/indexes/name {"searchable":{"tokenization":"word"}}`,
+				`re-running the migration via PUT /v1/schema/customer1:C/properties/name/index/searchable -d '{"tokenization":"word"}'`,
 			},
 			[]string{"/v1/schema/C/"},
 			[]string{"re-issue this request once the task is terminal"},
@@ -1271,7 +1555,7 @@ func TestSchemaGateRemedyMatchesWhatCancelActuallyOffers(t *testing.T) {
 					// has to be a cancel, the one verb that does not read the
 					// index flag the caller's own DELETE clears.
 					for _, m := range gateRemedyCallRE.FindAllStringSubmatch(err.Error(), -1) {
-						require.Contains(t, m[1], `"cancel":true`,
+						require.True(t, isRenderedCancel(m[1]),
 							"the property index DELETE gate rendered %s, which the "+
 								"API refuses once that DELETE clears the index flag", m[1])
 					}
@@ -1551,7 +1835,9 @@ func TestFormatOnlyRemedyAlwaysRendersACall(t *testing.T) {
 				MigrationType: mt,
 				Properties:    []string{"name"},
 			}, "name", false, false)
-			require.Contains(t, remedy, "re-submit it via PUT /v1/schema/C/indexes/name {")
+			// Verb-agnostic: the rebuild arms render POST, enable-rangeable a PUT.
+			require.Contains(t, remedy, "re-submit it via ")
+			require.Contains(t, remedy, "/v1/schema/C/properties/name/index/")
 			require.NotContains(t, remedy, "via  ")
 		})
 	}
@@ -1570,19 +1856,19 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 		{
 			name:    "single property, known type",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
-			want:    `PUT /v1/schema/C/indexes/num {"rangeable":{"cancel":true}}`,
+			want:    `POST /v1/schema/C/properties/num/index/rangeFilters/cancel`,
 		},
 		{
 			name:    "type touching two indexes names one that cancels",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}},
-			want:    `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+			want:    `POST /v1/schema/C/properties/name/index/searchable/cancel`,
 		},
 		{
 			// Cancel is task-scoped, so naming the first property cancels
 			// the whole task.
 			name:    "several properties, the first one cancels all of them",
 			payload: ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
-			want:    `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
+			want:    `POST /v1/schema/C/properties/a/index/rangeFilters/cancel`,
 		},
 		{
 			// Collection is stored qualified and stays qualified: a global
@@ -1590,7 +1876,7 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 			// strips it again for the namespace-confined caller.
 			name:    "namespace-qualified collection keeps its prefix",
 			payload: ReindexTaskPayload{Collection: "customer1:C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"num"}},
-			want:    `PUT /v1/schema/customer1:C/indexes/num {"rangeable":{"cancel":true}}`,
+			want:    `POST /v1/schema/customer1:C/properties/num/index/rangeFilters/cancel`,
 		},
 		{
 			// The refusal is about "b", so the cancel call names "b" — a
@@ -1599,13 +1885,13 @@ func TestReindexCancelCall_OnlyRendersWhatItCanFillIn(t *testing.T) {
 			name:          "the property the caller asked about is the one named",
 			payload:       ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
 			askedProperty: "b",
-			want:          `PUT /v1/schema/C/indexes/b {"rangeable":{"cancel":true}}`,
+			want:          `POST /v1/schema/C/properties/b/index/rangeFilters/cancel`,
 		},
 		{
 			name:          "a property the task does not carry falls back to the first",
 			payload:       ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableRangeable, Properties: []string{"a", "b"}},
 			askedProperty: "elsewhere",
-			want:          `PUT /v1/schema/C/indexes/a {"rangeable":{"cancel":true}}`,
+			want:          `POST /v1/schema/C/properties/a/index/rangeFilters/cancel`,
 		},
 		{
 			// Whole-collection rebuild: findCancelTarget requires a named
@@ -1672,63 +1958,67 @@ func TestReindexGuards_WithholdTheIDOfAnUnattributableTask(t *testing.T) {
 	}
 }
 
-// TestReindexRepairCall pins the repair body per migration type against the
-// precondition a bare rebuild would fail on the terminal state.
+// TestReindexRepairCall pins the repair call per migration type against the
+// precondition the terminal state leaves behind. Semantic types re-submit via
+// the upsert verb (a rebuild would validate against the schema bit their
+// skipped flip never set); format-only types flip no bit, so the rebuild verb
+// is the repair. Shared with the terminal-cleanup guidance via
+// repairCommandsForFailedMigration, so both name the same request.
 func TestReindexRepairCall(t *testing.T) {
 	cases := []struct {
 		migrationType ReindexMigrationType
-		// why names the precondition a bare rebuild would fail on, or why
-		// no body is renderable at all.
+		// why names the precondition that decides the answer.
 		why string
-		// want is the body, or "" when the type renders no repair call.
+		// want is the rendered call, or "" when the type renders none.
 		want string
 	}{
 		{
 			ReindexTypeEnableSearchable,
-			"IndexSearchable is still false, which searchable.rebuild rejects; the " +
-				"tokenization is part of the enable verb and the handler rejects an empty one",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`,
+			"IndexSearchable is still false, which searchable/rebuild rejects, so " +
+				"the repair re-submits; the tokenization is part of the enable verb",
+			`PUT /v1/schema/C/properties/name/index/searchable -d '{"tokenization":"word"}'`,
 		},
 		{
 			ReindexTypeEnableFilterable,
-			"IndexFilterable is still false, which filterable.rebuild rejects",
-			`{"filterable":{"enabled":true}}`,
+			"IndexFilterable is still false, which filterable/rebuild rejects",
+			`PUT /v1/schema/C/properties/name/index/filterable -d '{}'`,
 		},
 		{
 			ReindexTypeChangeAlgorithm,
-			"the algorithm is still WAND, which searchable.rebuild rejects",
-			`{"searchable":{"algorithm":"blockmax"}}`,
+			"the algorithm is still WAND, which searchable/rebuild rejects",
+			`PUT /v1/schema/C/properties/name/index/searchable -d '{"algorithm":"blockmax"}'`,
 		},
 		{
 			ReindexTypeChangeTokenization,
-			"the tokenization is still the old one, so the same change is still valid",
-			`{"searchable":{"tokenization":"word"}}`,
+			"a rebuild would restore the old tokenization rather than re-attempt " +
+				"the change, and 400s outright on a property with no filterable index",
+			`PUT /v1/schema/C/properties/name/index/searchable -d '{"tokenization":"word"}'`,
 		},
 		{
 			ReindexTypeChangeTokenizationFilterable,
 			"same, scoped to the filterable bucket",
-			`{"filterable":{"tokenization":"word"}}`,
+			`PUT /v1/schema/C/properties/name/index/filterable -d '{"tokenization":"word"}'`,
 		},
 		{
 			ReindexTypeRebuildSearchable,
 			"no schema bit was going to change; the original request is the repair",
-			`{"searchable":{"rebuild":true}}`,
+			"POST /v1/schema/C/properties/name/index/searchable/rebuild",
 		},
 		{
 			ReindexTypeRepairFilterable,
 			"same",
-			`{"filterable":{"rebuild":true}}`,
+			"POST /v1/schema/C/properties/name/index/filterable/rebuild",
 		},
 		{
 			ReindexTypeEnableRangeable,
-			"the strategy flips IndexRangeFilters per shard, so enabled 400s once " +
-				"any shard finished and rebuild 400s while none has",
+			"the strategy flips IndexRangeFilters per shard, so rebuild 400s while " +
+				"no shard has finished and the upsert NO_OPs once one has",
 			"",
 		},
 		{
 			ReindexTypeRepairRangeable,
-			"no schema bit was going to change",
-			`{"rangeable":{"rebuild":true}}`,
+			"no schema bit was going to change; rangeable rides the path as rangeFilters",
+			"POST /v1/schema/C/properties/name/index/rangeFilters/rebuild",
 		},
 	}
 
@@ -1744,7 +2034,7 @@ func TestReindexRepairCall(t *testing.T) {
 				require.Empty(t, got, tc.why)
 				return
 			}
-			require.Equal(t, "PUT /v1/schema/C/indexes/name "+tc.want, got, tc.why)
+			require.Equal(t, tc.want, got, tc.why)
 		})
 	}
 
@@ -1828,7 +2118,7 @@ func TestReindexRepairCall_WithholdsTheTenantNames(t *testing.T) {
 				return
 			}
 			require.Contains(t, got,
-				"PUT /v1/schema/C/indexes/name?tenants="+reindexTenantsPlaceholder+" ",
+				"/rebuild?tenants="+reindexTenantsPlaceholder,
 				"a format-only re-submit stays tenant-scoped, with a placeholder "+
 					"the operator fills in")
 		})
@@ -1852,12 +2142,12 @@ func TestGateRemedy_RangeableResubmitsKeepTheTenantScope(t *testing.T) {
 			"the tenant gate refuses a per-tenant authorized caller")
 	}
 	require.Contains(t, remedy,
-		`PUT /v1/schema/C/indexes/name?tenants=`+reindexTenantsPlaceholder+` {"rangeable":{"enabled":true}}`)
+		`PUT /v1/schema/C/properties/name/index/rangeFilters?tenants=`+reindexTenantsPlaceholder+` -d '{}'`)
 	require.Contains(t, remedy,
-		`PUT /v1/schema/C/indexes/name?tenants=`+reindexTenantsPlaceholder+` {"rangeable":{"rebuild":true}}`)
+		`POST /v1/schema/C/properties/name/index/rangeFilters/rebuild?tenants=`+reindexTenantsPlaceholder)
 	// The cancel call on the same arm is deliberately unscoped, so only the
 	// two submit bodies are asserted against.
-	require.NotContains(t, remedy, `name {"rangeable":{"enabled":true}}`,
+	require.NotContains(t, remedy, `/index/rangeFilters -d`,
 		"an unscoped rangeable re-submit would rebuild every tenant")
 	require.NotContains(t, remedy, `name {"rangeable":{"rebuild":true}}`,
 		"an unscoped rangeable re-submit would rebuild every tenant")
@@ -1932,9 +2222,9 @@ func TestGateRemedy_NeverNamesTheTasksTenants(t *testing.T) {
 	}
 }
 
-// gateRemedyCallRE matches a `PUT <path> <body>` the reindex messages render.
-// Same shape as the rest package's renderedCallRE.
-var gateRemedyCallRE = regexp.MustCompile(`PUT /v1/schema/[^ ]+ (\{"[a-z]+":\{[^{}]*\}\})`)
+// gateRemedyCallRE matches a call the gate remedies render, capturing the
+// path — which carries the verb. Same shape as renderedCallRE.
+var gateRemedyCallRE = regexp.MustCompile(`(?:PUT|POST) (/v1/schema/\S*/properties/\S*/index/\S+)`)
 
 // Pins the property index DELETE arm: it may name a cancel (which doesn't
 // read the index flag the DELETE clears), but nothing else — every repair
@@ -1964,14 +2254,14 @@ func TestPropertyIndexDeleteGateRendersNoRepairCall(t *testing.T) {
 				require.NotEmpty(t, dropsIndex)
 
 				for _, m := range gateRemedyCallRE.FindAllStringSubmatch(dropsIndex, -1) {
-					require.Contains(t, m[1], `"cancel":true`,
+					require.True(t, isRenderedCancel(m[1]),
 						"the property index DELETE arm rendered %s, which the API "+
 							"refuses once that DELETE clears the index flag", m[1])
 				}
 
 				// Cancel must survive where the API accepts one.
 				if status.IsCancellable() {
-					require.Contains(t, dropsIndex, `"cancel":true`,
+					require.Contains(t, dropsIndex, "/cancel",
 						"cancel is accepted at %s and must still be named", status)
 				}
 
@@ -1979,7 +2269,7 @@ func TestPropertyIndexDeleteGateRendersNoRepairCall(t *testing.T) {
 				keepsIndex := ReindexGateRemedy(status, payload, "name", false, false)
 				var repairs int
 				for _, m := range gateRemedyCallRE.FindAllStringSubmatch(keepsIndex, -1) {
-					if !strings.Contains(m[1], `"cancel":true`) {
+					if !isRenderedCancel(m[1]) {
 						repairs++
 					}
 				}

@@ -65,8 +65,16 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+	className := string(params.ClassName)
+	fetchedClasses, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
+	if err != nil {
+		return BatchDeleteResult{}, fmt.Errorf("could not get class %s: %w", className, err)
+	}
+	schemaVersion := fetchedClasses[className].Version
+
 	deletionTime := time.UnixMilli(b.timeSource.Now())
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, 0)
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, schemaVersion)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
@@ -124,16 +132,19 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 ) (*BatchDeleteParams, uint64, error) {
+	// Missing required match fields are caller input, so classify them as
+	// ErrInvalidUserInput (→ 422). Otherwise the REST handler maps these to a
+	// 500. The message wording is preserved for callers/tests.
 	if match == nil {
-		return nil, 0, errors.New("empty match clause")
+		return nil, 0, NewErrInvalidUserInput("empty match clause")
 	}
 
 	if len(match.Class) == 0 {
-		return nil, 0, errors.New("empty match.class clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.class clause")
 	}
 
 	if match.Where == nil {
-		return nil, 0, errors.New("empty match.where clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.where clause")
 	}
 
 	// GetCachedClass authorizes READ; preserve Forbidden (→ 403), classify

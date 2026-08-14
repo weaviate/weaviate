@@ -65,6 +65,7 @@ type DB struct {
 	promMetrics               *monitoring.PrometheusMetrics
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
+	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
@@ -93,6 +94,9 @@ type DB struct {
 	// This lock should be used to avoid that the indices-map is changed while iterating over it. To
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
+
+	// dropping holds indices whose index.drop() is still running for backup purposes.
+	dropping sync.Map
 
 	jobQueueCh          chan job
 	scheduler           *queue.Scheduler
@@ -330,7 +334,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
 		remoteNode:                sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:             replicaClient,
 		asyncReplicationScheduler: asyncReplicationScheduler,
 		promMetrics:               promMetrics,
 		shutdown:                  make(chan struct{}),
@@ -348,6 +351,10 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
 	}
+
+	// Serve replication calls targeting the local node in-process instead of
+	// over a loopback round-trip.
+	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
@@ -436,18 +443,13 @@ type Config struct {
 	// caller sets it explicitly.
 	RuntimeReindexDisabled bool
 
-	HNSWMaxLogSize                               int64
-	HNSWDisableSnapshots                         bool
-	HNSWSnapshotIntervalSeconds                  int
-	HNSWSnapshotOnStartup                        bool
-	HNSWSnapshotMinDeltaCommitlogsNumber         int
-	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
-	HNSWWaitForCachePrefill                      bool
-	HNSWFlatSearchConcurrency                    int
-	HNSWAcornFilterRatio                         float64
-	HNSWGeoIndexEF                               int
-	VisitedListPoolMaxSize                       int
-	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
+	HNSWMaxLogSize               int64
+	HNSWWaitForCachePrefill      bool
+	HNSWFlatSearchConcurrency    int
+	HNSWAcornFilterRatio         float64
+	HNSWGeoIndexEF               int
+	VisitedListPoolMaxSize       int
+	BM25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
@@ -564,43 +566,64 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
+// droppingIndex returns an index whose drop is still in flight, or nil. Only
+// db.ReleaseBackup may use it: drop() parks on backupLock, which nothing but
+// idx.ReleaseBackup releases. Everything else wants GetIndex, which reports a
+// deleted class as gone.
+func (db *DB) droppingIndex(id string) *Index {
+	if idx, ok := db.dropping.Load(id); ok {
+		return idx.(*Index)
+	}
+	return nil
+}
+
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
 	}
+	id := indexID(className)
+
+	// Register before unpublishing: db.ReleaseBackup must find the index in one
+	// map or the other, never neither.
+	db.dropping.Store(id, index)
+	defer db.dropping.Delete(id)
 
 	// a reader holding dropIndex would block the drop below while db.indexLock is held
 	index.signalCloseRequested(errIndexDropped)
 
 	// drop index
 	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
+	delete(db.indices, id)
+	db.indexLock.Unlock()
 
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
-		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
+		db.logger.WithField("action", "delete_index").WithField("class", className).
+			Errorf("drop index: %v", err)
 	}
 
-	delete(db.indices, indexID(className))
-
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
-		db.logger.Error("can't delete prometheus metrics", err)
+		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
 	return nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	db.shutdown <- struct{}{}
+	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
-			db.jobQueueCh <- job{
-				index: -1,
+			select {
+			case db.jobQueueCh <- job{index: -1}:
+			case <-time.After(30 * time.Second):
+				// Skipping is safe (worker Done is deferred); blocking here would wedge the shutdown.
+				db.logger.Warnf("batch worker poison pill %d/%d not accepted after 30s; continuing shutdown", i+1, db.maxNumberGoroutines)
 			}
 		}
 	}
@@ -642,11 +665,12 @@ type job struct {
 }
 
 func (db *DB) batchWorker(first bool) {
+	// Unconditional: a recovered panic must not leak the count and pin DB.Shutdown forever.
+	defer db.shutDownWg.Done()
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
-			db.shutDownWg.Done()
 			return
 		}
 		func() {

@@ -81,7 +81,7 @@ func TestMaintenanceFlagLeakOnReconnectError(t *testing.T) {
 	index, err := New(Config{
 		RootPath: t.TempDir(),
 		ID:       "maintenance-flag-leak-test",
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 			return commitLogger, nil
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
@@ -174,7 +174,7 @@ func TestMaintenanceFlagLeakOnInsertError(t *testing.T) {
 	index, err := New(Config{
 		RootPath: t.TempDir(),
 		ID:       "insert-maintenance-flag-leak-test",
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 			return commitLogger, nil
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),

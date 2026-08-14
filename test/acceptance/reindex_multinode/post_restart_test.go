@@ -95,8 +95,8 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	// call: testcontainers reallocates ports across the
 	// stop+start in restartCluster, so pre-restart URIs are stale.
 	restURI := compose.GetWeaviateNode(1).URI()
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	t.Logf("submitted post-restart task: %s", taskID)
 
 	// Track the longest stretch of time the task spent at a
@@ -367,18 +367,18 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"enabled":true}}`)
+			tp = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "price", "rangeFilters",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"enabled":true}}`)
+			tc = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "category", "filterable",
+				`{}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"field"}}`)
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+				`{"tokenization":"field"}`)
 		}()
 		wg.Wait()
 		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
@@ -450,21 +450,19 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"rebuild":true}}`)
+			tp = reindexhelpers.RebuildIndex(t, uri1, className, "price", "rangeFilters")
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"rebuild":true}}`)
+			tc = reindexhelpers.RebuildIndex(t, uri1, className, "category", "filterable")
 		}()
 		go func() {
 			defer wg.Done()
 			// Flip tokenization back to word (the pre-Phase-2 value).
 			// This matches the migration shape from the original
 			// production-scale repro.
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"word"}}`)
+			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+				`{"tokenization":"word"}`)
 		}()
 		wg.Wait()
 		t.Logf("submitted post-restart re-apply migrations: price=%s category=%s path=%s",

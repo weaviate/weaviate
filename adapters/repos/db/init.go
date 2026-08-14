@@ -112,7 +112,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
+			asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
 			}
@@ -173,25 +173,20 @@ func (db *DB) init(ctx context.Context) error {
 					)
 					return lazyLoadShardEnabled
 				}(),
-				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
-				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
-				HaltForTransferTimeout:                       db.config.HaltForTransferTimeout,
-				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
-				SkipWriteClassNameOnDisk:                     db.config.LSMSkipWriteClassNameEnabled,
-				ReplicationFactor:                            class.ReplicationConfig.Factor,
-				AsyncReplicationConfig:                       asyncConfig,
-				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
-				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-				ShardLoadLimiter:                             db.shardLoadLimiter,
-				StartupShards:                                &db.startupShards,
-				BucketLoadLimiter:                            db.bucketLoadLimiter,
-				NamespacesExister:                            db.namespacesExister,
-				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
-				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
-				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,
-				HNSWSnapshotOnStartup:                        db.config.HNSWSnapshotOnStartup,
-				HNSWSnapshotMinDeltaCommitlogsNumber:         db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
+				TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
+				HaltForTransferTimeout:              db.config.HaltForTransferTimeout,
+				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
+				SkipWriteClassNameOnDisk:            db.config.LSMSkipWriteClassNameEnabled,
+				ReplicationFactor:                   class.ReplicationConfig.Factor,
+				AsyncReplicationConfig:              asyncConfig,
+				AsyncReplicationScheduler:           db.asyncReplicationScheduler,
+				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:                    db.shardLoadLimiter,
+				StartupShards:                       &db.startupShards,
+				BucketLoadLimiter:                   db.bucketLoadLimiter,
+				NamespacesExister:                   db.namespacesExister,
+				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill: func() bool {
 					// don't wait if lazy load shard is enabled
 					if lazyLoadShardEnabled {

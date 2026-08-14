@@ -1344,6 +1344,15 @@ func TestConnections_DataSerialization_MalformedData(t *testing.T) {
 	assert.Len(t, copied.GetLayer(1), 0)
 }
 
+func TestGrowLayersTo(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.NoError(t, err)
+	assert.Equal(t, uint8(1), c.Layers())
+
+	c.GrowLayersTo(MaxLayerCount - 1)
+	assert.Equal(t, uint8(MaxLayerCount), c.Layers())
+}
+
 // NewWithData views the caller's blob per layer instead of copying it. Growing
 // one layer via append must reallocate so it never writes into the blob region
 // an adjacent layer still reads from. Appends stay within the layer's current

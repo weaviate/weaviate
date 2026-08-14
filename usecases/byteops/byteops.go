@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"math"
 )
 
 const (
@@ -31,24 +30,13 @@ type ReadWriter struct {
 	Buffer   []byte
 }
 
-func WithPosition(pos uint64) func(*ReadWriter) {
-	return func(rw *ReadWriter) {
-		rw.Position = pos
-	}
-}
-
 func NewReadWriter(buf []byte) ReadWriter {
 	rw := ReadWriter{Buffer: buf}
 	return rw
 }
 
-// NewReadWriterWithOps escapes to heap even if no ops are given
-func NewReadWriterWithOps(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
-	rw := ReadWriter{Buffer: buf}
-	for _, opt := range opts {
-		opt(&rw)
-	}
-	return rw
+func NewReadWriterWithPosition(buf []byte, pos uint64) ReadWriter {
+	return ReadWriter{Buffer: buf, Position: pos}
 }
 
 func (bo *ReadWriter) ResetBuffer(buf []byte) {
@@ -126,6 +114,83 @@ func (bo *ReadWriter) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
 
 	bo.Position += uint64(bufLen)
 	return bufLen
+}
+
+// ErrBufferOverrun signals that a length or offset decoded out of a buffer runs
+// past that buffer's end.
+//
+// The unchecked readers above slice as Buffer[Position : Position+n], which Go
+// bounds against capacity rather than length. A buffer here is routinely a
+// subslice of a larger allocation — an mmapped segment, a pooled read buffer —
+// so an overrun that stays within capacity does not panic: it yields whatever
+// bytes follow the value. Any decoder whose lengths come from the data it is
+// decoding must use the checked readers.
+var ErrBufferOverrun = errors.New("read exceeds buffer")
+
+// Remaining saturates at 0 once Position has run past the end of the buffer.
+func (bo *ReadWriter) Remaining() uint64 {
+	length := uint64(len(bo.Buffer))
+	if bo.Position >= length {
+		return 0
+	}
+	return length - bo.Position
+}
+
+// canRead carries no error formatting, which keeps it and its callers under the
+// inline budget: the checked readers cost a compare and a branch on the hot path,
+// and callers name the field that failed. The cursor needs a test of its own,
+// because a zero-length read would otherwise be satisfied past the end of the
+// buffer and then slice at the invalid position; Position == len(Buffer) is the
+// legitimate end-of-value cursor and still admits a zero-length read.
+func (bo *ReadWriter) canRead(length uint64) bool {
+	pos, size := bo.Position, uint64(len(bo.Buffer))
+	return pos <= size && length <= size-pos
+}
+
+func (bo *ReadWriter) ReadUint16Checked() (uint16, error) {
+	if !bo.canRead(Uint16Len) {
+		return 0, ErrBufferOverrun
+	}
+	return bo.ReadUint16(), nil
+}
+
+func (bo *ReadWriter) ReadUint32Checked() (uint32, error) {
+	if !bo.canRead(Uint32Len) {
+		return 0, ErrBufferOverrun
+	}
+	return bo.ReadUint32(), nil
+}
+
+func (bo *ReadWriter) ReadBytesFromBufferChecked(length uint64) ([]byte, error) {
+	if !bo.canRead(length) {
+		return nil, ErrBufferOverrun
+	}
+	return bo.ReadBytesFromBuffer(length), nil
+}
+
+func (bo *ReadWriter) CopyBytesFromBufferChecked(length uint64, out []byte) ([]byte, error) {
+	if !bo.canRead(length) {
+		return nil, ErrBufferOverrun
+	}
+	return bo.CopyBytesFromBuffer(length, out)
+}
+
+func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicatorChecked() ([]byte, error) {
+	length, err := bo.ReadUint32Checked()
+	if err != nil {
+		return nil, err
+	}
+	return bo.ReadBytesFromBufferChecked(uint64(length))
+}
+
+// SkipChecked bounds MoveBufferPositionForward, so a length read out of the data
+// cannot park the cursor past the buffer.
+func (bo *ReadWriter) SkipChecked(length uint64) error {
+	if !bo.canRead(length) {
+		return ErrBufferOverrun
+	}
+	bo.Position += length
+	return nil
 }
 
 func (bo *ReadWriter) WriteUint64(value uint64) {
@@ -210,9 +275,7 @@ func Fp32SliceToBytes(slice []float32) []byte {
 		return []byte{}
 	}
 	vector := make([]byte, len(slice)*Uint32Len)
-	for i := 0; i < len(slice); i++ {
-		binary.LittleEndian.PutUint32(vector[i*Uint32Len:(i+1)*Uint32Len], math.Float32bits(slice[i]))
-	}
+	CopySliceToBytes(vector, slice)
 	return vector
 }
 
@@ -244,9 +307,7 @@ func Fp32SliceOfSlicesToBytes(slices [][]float32) []byte {
 
 func Fp64SliceToBytes(floats []float64) []byte {
 	vector := make([]byte, len(floats)*Uint64Len)
-	for i := 0; i < len(floats); i++ {
-		binary.LittleEndian.PutUint64(vector[i*Uint64Len:(i+1)*Uint64Len], math.Float64bits(floats[i]))
-	}
+	CopySliceToBytes(vector, floats)
 	return vector
 }
 
@@ -286,10 +347,7 @@ func Fp32SliceOfSlicesFromBytes(bytes []byte) ([][]float32, error) {
 
 func Fp64SliceFromBytes(vector []byte) []float64 {
 	floats := make([]float64, len(vector)/Uint64Len)
-	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
-		floats[i] = math.Float64frombits(asUint)
-	}
+	CopyBytesToSlice(floats, vector)
 	return floats
 }
 
@@ -304,9 +362,6 @@ func IntsToByteVector(ints []float64) []byte {
 
 func IntsFromByteVector(vector []byte) []int64 {
 	ints := make([]int64, len(vector)/Uint64Len)
-	for i := 0; i < len(ints); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
-		ints[i] = int64(asUint)
-	}
+	CopyBytesToSlice(ints, vector)
 	return ints
 }

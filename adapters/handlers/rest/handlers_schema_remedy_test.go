@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 	"testing"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -66,7 +65,7 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					Properties:    []string{"name"},
 				})
 			},
-			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
+			wantInReason: []string{`POST /v1/schema/C/properties/name/index/searchable/cancel`},
 		},
 		{
 			// The asked-for property is named, not the first one in the task.
@@ -78,8 +77,8 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					Properties:    []string{"other", "name"},
 				})
 			},
-			wantInReason: []string{`PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`},
-			notInReason:  []string{"/indexes/other"},
+			wantInReason: []string{`POST /v1/schema/C/properties/name/index/searchable/cancel`},
+			notInReason:  []string{"/properties/other/"},
 		},
 		{
 			// Empty Properties means "all properties" via different code on
@@ -114,7 +113,7 @@ func TestPropertyGateMessagesAreByteIdenticalAcrossLayers(t *testing.T) {
 					TargetTokenization: "word",
 				})
 			},
-			wantInReason: []string{`PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`},
+			wantInReason: []string{`POST /v1/schema/customer1:C/properties/name/index/searchable/cancel`},
 			notInReason:  []string{"/v1/schema/C/"},
 		},
 	}
@@ -223,12 +222,12 @@ func TestTheRenderedCallReachesBothKindsOfCaller(t *testing.T) {
 		{
 			name:      "namespace-confined caller",
 			principal: &models.Principal{Namespace: "customer1"},
-			want:      `PUT /v1/schema/C/indexes/name {"searchable":{"cancel":true}}`,
+			want:      `POST /v1/schema/C/properties/name/index/searchable/cancel`,
 		},
 		{
 			name:      "global operator",
 			principal: &models.Principal{Namespace: "customer1", IsGlobalOperator: true},
-			want:      `PUT /v1/schema/customer1:C/indexes/name {"searchable":{"cancel":true}}`,
+			want:      `POST /v1/schema/customer1:C/properties/name/index/searchable/cancel`,
 		},
 	}
 	for _, tc := range cases {
@@ -258,10 +257,67 @@ var declaredReindexMigrationTypes = []db.ReindexMigrationType{
 	db.ReindexTypeChangeAlgorithm,
 }
 
-// renderedCallRE matches a `PUT <path> <body>` the reindex messages render.
-// Every rendered body is one index group wrapping one flat object, so the
-// pattern needs no brace balancing.
-var renderedCallRE = regexp.MustCompile(`PUT /v1/schema/([^ ]+)/indexes/([^ ]+) (\{"[a-z]+":\{[^{}]*\}\})`)
+// renderedCallRE matches a call the reindex messages render. The index type
+// and the verb both ride the path now, and the body (upserts only) is a flat
+// IndexUpsertRequest, so the groups are:
+// collection, property, indexName, verb suffix, body.
+var renderedCallRE = regexp.MustCompile(
+	`(?:PUT|POST) /v1/schema/([^/ ]+)/properties/([^/ ]+)/index/([A-Za-z]+)(/rebuild|/cancel)?(?:\?tenants=[^ ]*)?(?: -d '(\{[^']*\})')?`)
+
+// renderedCall is one call parsed out of a rendered message.
+type renderedCall struct {
+	whole      string
+	collection string
+	property   string
+	indexType  string // internal token, folded from the path spelling
+	isCancel   bool
+	isRebuild  bool
+	body       models.IndexUpsertRequest
+}
+
+// parseRenderedCalls pulls every call a message names. It fails the test on a
+// path the router would 422 or a body the API cannot parse, so a remedy that
+// prints an unreachable request never reads as a pass.
+func parseRenderedCalls(t *testing.T, message string) []renderedCall {
+	t.Helper()
+	var out []renderedCall
+	for _, m := range renderedCallRE.FindAllStringSubmatch(message, -1) {
+		indexType, ok := normalizeIndexTypeParam(m[3])
+		require.True(t, ok,
+			"the remedy rendered index type %q, which the route enum rejects with 422: %s", m[3], m[0])
+		c := renderedCall{
+			whole: m[0], collection: m[1], property: m[2], indexType: indexType,
+			isCancel: m[4] == "/cancel", isRebuild: m[4] == "/rebuild",
+		}
+		if m[5] != "" {
+			require.NoError(t, json.Unmarshal([]byte(m[5]), &c.body),
+				"the remedy rendered a body the API cannot parse: %s", m[5])
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// acceptRenderedCall runs a rendered non-cancel call through the same resolver
+// the live handler runs, so the assertion is "the server would accept this",
+// not "it matches a string we also wrote".
+func acceptRenderedCall(h *indexesHandlers, class *models.Class, prop *models.Property, c renderedCall) error {
+	if c.isRebuild {
+		_, err := h.resolveRebuildPlan(class, prop, c.indexType, nil)
+		return err
+	}
+	switch c.indexType {
+	case "searchable":
+		_, err := resolveSearchableUpsert(class, c.collection, prop, c.body.Tokenization, c.body.Algorithm, nil)
+		return err
+	case "filterable":
+		_, err := resolveFilterableUpsert(c.collection, prop, c.body.Tokenization, c.body.Algorithm, nil)
+		return err
+	default:
+		_, err := resolveRangeableUpsert(class, c.collection, prop, c.body.Tokenization, c.body.Algorithm, nil)
+		return err
+	}
+}
 
 // Drives the cancel call a remedy prints through the real cancel path
 // (findCancelTarget, cancelPreflight) and fails if the API would refuse it
@@ -297,25 +353,19 @@ func TestGateRemedyNamesOnlyACancelTheCancelPathAccepts(t *testing.T) {
 					task := buildTask(t, "T1", status, payload, nil)
 
 					var printed int
-					for _, m := range renderedCallRE.FindAllStringSubmatch(remedy, -1) {
-						collection, property, rawBody := m[1], m[2], m[3]
-						var body models.IndexUpdateRequest
-						require.NoError(t, json.Unmarshal([]byte(rawBody), &body),
-							"the remedy rendered a body the API cannot parse: %s", rawBody)
-						indexType, isCancel := requestedCancel(&body)
-						if !isCancel {
+					for _, c := range parseRenderedCalls(t, remedy) {
+						if !c.isCancel {
 							continue
 						}
 						printed++
-						require.NoError(t, validateBodyExclusivity(&body))
 
 						target, _ := findCancelTarget(
-							[]*distributedtask.Task{task}, collection, property, indexType, logger)
+							[]*distributedtask.Task{task}, c.collection, c.property, c.indexType, logger)
 						require.NotNil(t, target,
-							"the remedy named a cancel target the matcher does not find: %s", m[0])
+							"the remedy named a cancel target the matcher does not find: %s", c.whole)
 						require.Nil(t,
-							h.cancelPreflight(target, collection, property, indexType, nil),
-							"the remedy named a cancel the API refuses in status %s: %s", status, m[0])
+							h.cancelPreflight(target, c.collection, c.property, c.indexType, nil),
+							"the remedy named a cancel the API refuses in status %s: %s", status, c.whole)
 					}
 
 					if status.IsCancellable() && db.ReindexCancelCall(payload, "name") != "" {
@@ -353,92 +403,55 @@ func TestEveryRenderedRepairCallPassesTheRealValidator(t *testing.T) {
 		return &models.Property{Name: name, DataType: []string{"int"}, IndexRangeFilters: rangeable}
 	}
 
-	// accept runs the same validator updateIndex runs for the verb this
-	// type's repair body carries.
+	// Every row drives the rendered call through the live resolver
+	// (acceptRenderedCall), so a type needs no validator of its own here.
 	cases := []struct {
 		migrationType db.ReindexMigrationType
 		prop          *models.Property
 		usingBlockMax bool
 		// wantNoRepair marks a type that deliberately renders no repair call.
 		wantNoRepair string
-		accept       func(*models.Class, *models.Property, *models.IndexUpdateRequest) error
 	}{
 		{
 			migrationType: db.ReindexTypeChangeAlgorithm,
 			prop:          textProp("name", &enabled, nil, targetTok),
-			accept: func(c *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
-				return validateChangeAlgorithmProperty(c, p, b.Searchable.Algorithm)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeRebuildSearchable,
 			prop:          textProp("name", &enabled, nil, targetTok),
 			usingBlockMax: true,
-			accept: func(c *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
-				return validateRebuildSearchableProperty(c, p)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeRepairFilterable,
 			prop:          textProp("name", nil, &enabled, targetTok),
-			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
-				return validateRebuildFilterableProperty(p)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeEnableRangeable,
 			prop:          numericProp("name", &disabled),
 			// The flag flips per shard as the migration runs, so no single
-			// body is accepted in every terminal state.
+			// verb is accepted in every terminal state.
 			wantNoRepair: "enable-rangeable has no repairable terminal state",
 		},
 		{
 			migrationType: db.ReindexTypeRepairRangeable,
 			prop:          numericProp("name", &enabled),
-			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
-				return validateRebuildRangeableProperty(p)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeEnableFilterable,
 			prop:          textProp("name", nil, &disabled, targetTok),
-			accept: func(_ *models.Class, p *models.Property, _ *models.IndexUpdateRequest) error {
-				return validateEnableFilterableProperty(p)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeEnableSearchable,
 			prop:          textProp("name", &disabled, &disabled, ""),
-			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
-				return validateEnableSearchableProperty(p, b.Searchable.Tokenization)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeChangeTokenization,
 			prop:          textProp("name", &enabled, nil, oldTok),
-			// Only checks the schema-decidable part; the rest needs a live
-			// searchable bucket, which a cancelled change-tokenization keeps.
-			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
-				return validateSearchableTokenizationChange(p, b.Searchable.Tokenization)
-			},
 		},
 		{
 			migrationType: db.ReindexTypeChangeTokenizationFilterable,
 			prop:          textProp("name", nil, &enabled, oldTok),
-			accept: func(_ *models.Class, p *models.Property, b *models.IndexUpdateRequest) error {
-				return validateFilterableTokenizationChange(p, b.Filterable.Tokenization)
-			},
 		},
-	}
-
-	bodyOf := func(t *testing.T, call string) *models.IndexUpdateRequest {
-		t.Helper()
-		require.True(t, strings.HasPrefix(call, "PUT /v1/schema/C/indexes/name {"),
-			"unexpected call shape: %s", call)
-		var body models.IndexUpdateRequest
-		require.NoError(t, json.Unmarshal(
-			[]byte(call[strings.Index(call, "{"):]), &body))
-		return &body
 	}
 
 	for _, tc := range cases {
@@ -457,30 +470,32 @@ func TestEveryRenderedRepairCallPassesTheRealValidator(t *testing.T) {
 				},
 			}
 
+			logger, _ := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
 			repair := db.ReindexRepairCall(payload, "name")
 			if tc.wantNoRepair != "" {
 				require.Empty(t, repair, tc.wantNoRepair)
 			} else {
 				require.NotEmpty(t, repair, "every other declared type needs a repair call")
-				body := bodyOf(t, repair)
-				require.NoError(t, validateBodyExclusivity(body))
-				require.NoError(t, tc.accept(class, tc.prop, body),
-					"the rendered repair call is rejected by the handler that receives it")
+				calls := parseRenderedCalls(t, repair)
+				require.Len(t, calls, 1, "a repair call renders exactly one request")
+				require.False(t, calls[0].isCancel, "the repair call must not be a cancel")
+				require.NoError(t, acceptRenderedCall(h, class, tc.prop, calls[0]),
+					"the rendered repair call is rejected by the resolver that receives it")
 			}
 
 			// Cancel skips the per-type preconditions, but not
 			// cancelPreflight, whose IsCancellable check refuses everything
 			// past STARTED. So the rendered call goes through the matcher and
-			// the pre-flight, not just through exclusivity.
+			// the pre-flight, not just through a shape check.
 			cancel := db.ReindexCancelCall(payload, "name")
 			require.NotEmpty(t, cancel, "every declared type needs a cancel call")
-			cancelBody := bodyOf(t, cancel)
-			require.NoError(t, validateBodyExclusivity(cancelBody))
-			indexType, isCancel := requestedCancel(cancelBody)
-			require.True(t, isCancel, "the rendered cancel call must read as one")
+			cancelCalls := parseRenderedCalls(t, cancel)
+			require.Len(t, cancelCalls, 1)
+			require.True(t, cancelCalls[0].isCancel, "the rendered cancel call must read as one")
+			indexType := cancelCalls[0].indexType
 
-			logger, _ := logrustest.NewNullLogger()
-			h := &indexesHandlers{appState: &state.State{Logger: logger}}
 			task := buildTask(t, "T1", distributedtask.TaskStatusStarted, payload, nil)
 			target, _ := findCancelTarget(
 				[]*distributedtask.Task{task}, "C", "name", indexType, logger)

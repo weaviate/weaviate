@@ -19,6 +19,11 @@ import (
 const (
 	InitialCapacity    = 16
 	DefaultMaxCapacity = 64
+	// MaxLayerCount is the maximum number of layers a node may have. With the
+	// minimum allowed MaxConnections=4, the theoretical peak level from
+	// generateLevel() is 31 (needing 32 layers). 64 gives 2x headroom;
+	// anything above is almost certainly corrupt WAL data.
+	MaxLayerCount = 64
 	// Simple encoding schemes - trade some compression for speed
 	SCHEME_2BYTE = 0 // 2 bytes per value (0-65535)
 	SCHEME_3BYTE = 1 // 3 bytes per value (0-16777215)

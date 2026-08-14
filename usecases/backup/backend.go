@@ -492,7 +492,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		recvCh := make(chan chunkShards, nWorker)
 		f := func() {
 			defer close(recvCh)
-			for i := 0; i < nWorker; i++ {
+			for range nWorker {
 				eg.Go(func() error {
 					// operation might have been aborted see comment above
 					if err := ctx.Err(); err != nil {

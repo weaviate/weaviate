@@ -39,8 +39,8 @@ import (
 func runChangeTokMigration(t *testing.T, compose *docker.DockerCompose, className, propName, targetTok string) {
 	t.Helper()
 	restURI := compose.GetWeaviateNode(1).URI()
-	body := fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName, body)
+	body := fmt.Sprintf(`{"tokenization":%q}`, targetTok)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "searchable", body)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, propName, targetTok)
 }
@@ -342,8 +342,8 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	_ = recordBaselineCounts(t, compose, className, testBM25Queries) // pre-flight sanity
 
 	// Start the migration.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(), className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted migration: %s", taskID)
 
 	// Roll all 3 pods one at a time. Some may finish their unit before

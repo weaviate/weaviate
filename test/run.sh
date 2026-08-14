@@ -59,6 +59,10 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_acceptance_drop_vector_index=false
+  run_acceptance_drop_vector_index_cluster=false
+  run_acceptance_drop_vector_index_restart_cluster=false
+  run_acceptance_drop_vector_index_rolling_restart=false
   run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -118,6 +122,10 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
+          --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
+          --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
+          --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -415,6 +423,26 @@ function main() {
     run_acceptance_reindex_backup
   fi
 
+  if $run_acceptance_drop_vector_index; then
+    echo "running drop-vector-index acceptance tests"
+    run_acceptance_drop_vector_index
+  fi
+
+  if $run_acceptance_drop_vector_index_cluster; then
+    echo "running drop-vector-index cluster acceptance tests"
+    run_acceptance_drop_vector_index_cluster
+  fi
+
+  if $run_acceptance_drop_vector_index_restart_cluster; then
+    echo "running drop-vector-index restart cluster acceptance tests"
+    run_acceptance_drop_vector_index_restart_cluster
+  fi
+
+  if $run_acceptance_drop_vector_index_rolling_restart; then
+    echo "running drop-vector-index rolling-restart acceptance tests"
+    run_acceptance_drop_vector_index_rolling_restart
+  fi
+
   if $run_acceptance_backups; then
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
@@ -605,9 +633,11 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_concurrent' \
     | grep -v 'test/acceptance/reindex_rangeable' \
     | grep -v 'test/acceptance/reindex_mt' \
+    | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
     | grep -v 'test/acceptance/distributed_tasks' \
+    | grep -v 'test/acceptance/drop_vector_index' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -1015,8 +1045,15 @@ function run_acceptance_reindex_mt() {
   # TestMultiTenant_ReindexSuite with many subtests).  Split out of the
   # singlenode bundle so reindex_singlenode's wall-clock is no longer
   # gated on this suite's duration.
+  #
+  # reindex_blockmax_ageout (TestBlockmaxAgeOut) is co-located here rather than
+  # left to the fast-acceptance catch-all: it is a small reindex regression with
+  # a single-node and an MT subtest, and folding it into this existing named job
+  # keeps it named without a new CI matrix entry. It is excluded from
+  # get_fast_acceptance_packages so it runs exactly once.
   run_aof_group "reindex-mt" \
-    test/acceptance/reindex_mt
+    test/acceptance/reindex_mt \
+    test/acceptance/reindex_blockmax_ageout
 }
 
 function run_acceptance_reindex_backup() {
@@ -1024,6 +1061,34 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+function run_acceptance_drop_vector_index() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index"
+  run_aof_group "drop-vector-index" \
+    test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-cluster"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
+    run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_restart_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-restart-cluster"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Restart_Cluster$' \
+    run_aof_group "drop-vector-index-restart-cluster" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_rolling_restart() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-rolling-restart"
+  AOF_GROUP_RUN='^TestDropVectorIndex_RollingRestart_Cluster$' \
+    run_aof_group "drop-vector-index-rolling-restart" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_backups() {

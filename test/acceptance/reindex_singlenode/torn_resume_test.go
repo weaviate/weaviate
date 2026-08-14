@@ -147,8 +147,8 @@ func testTornResumeEnableRangeable(t *testing.T, compose *docker.DockerCompose) 
 	migDir := "filterable_to_rangeable_score"
 	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"score"})
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters",
+		`{}`)
 	t.Logf("torn-resume rangeable: submitted task %s with planted torn sentinels", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -202,8 +202,7 @@ func testTornResumeRepairFilterable(t *testing.T, compose *docker.DockerCompose)
 	migDir := "filterable_roaringset_refresh"
 	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.RebuildIndex(t, restURI, class, "name", "filterable")
 	t.Logf("torn-resume repair-filterable: submitted task %s with planted torn sentinels", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -240,8 +239,8 @@ func testTornResumeEnableFilterable(t *testing.T, compose *docker.DockerCompose)
 	migDir := "enable_filterable_name"
 	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{}`)
 	t.Logf("torn-resume enable-filterable: submitted task %s with planted torn sentinels", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
