@@ -431,6 +431,7 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 
 // A cancellation from the gate's RAFT client is not somebody stopping the
 // backup; CANCELLED would hide a refused capture behind a deliberate status.
+// A cancelled operation context, though, is somebody stopping it.
 func TestPublishAsCancelled(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -444,6 +445,7 @@ func TestPublishAsCancelled(t *testing.T) {
 		{name: "a restore refusal whose cause was cancelled", err: fmt.Errorf("%w: %w", backup.ErrReindexInFlight, context.Canceled)},
 		{name: "a plain cancellation", err: context.Canceled, want: true},
 		{name: "a cancelled operation context", ctxErr: context.Canceled, want: true},
+		{name: "a refusal racing an operator abort", err: fmt.Errorf("%w: x", backup.ErrReindexInFlight), ctxErr: context.Canceled, want: true},
 		{name: "an unrelated failure", err: errors.New("no space left on device")},
 	}
 	for _, tt := range tests {

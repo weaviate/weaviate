@@ -40,10 +40,12 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// Never an operator abort, even when the cause wraps a RAFT-client cancel.
+// A refusal is not an operator abort just because its cause wraps a
+// RAFT-client cancel. The operation context is the abort signal itself,
+// so it outranks the refusal.
 func publishAsCancelled(err, ctxErr error) bool {
-	return !isReindexRefusal(err) &&
-		(errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled))
+	return errors.Is(ctxErr, context.Canceled) ||
+		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
 }
 
 func backupRefusedByParticipant(classes []string) error {
