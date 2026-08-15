@@ -426,6 +426,15 @@ func DeleteClass(t *testing.T, class string) {
 	AssertRequestOk(t, delRes, err, nil)
 }
 
+// DeleteClassWithTimeout is DeleteClass for a class whose drop outruns the client's 30s
+// default: the DELETE_CLASS apply unwinds one shard's files after another, so a few
+// hundred tenants already exceed it (weaviate/0-weaviate-issues#250).
+func DeleteClassWithTimeout(t *testing.T, class string, timeout time.Duration) {
+	t.Helper()
+	res, err := Client(t).Schema.SchemaObjectsDelete(schema.NewSchemaObjectsDeleteParamsWithTimeout(timeout).WithClassName(class), nil)
+	AssertRequestOk(t, res, err, nil)
+}
+
 func DeleteClassWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)

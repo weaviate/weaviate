@@ -78,7 +78,7 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 	)
 
 	createHoldWindowClass(t, className, propName)
-	t.Cleanup(func() { helper.DeleteClass(t, className) })
+	t.Cleanup(func() { helper.DeleteClassWithTimeout(t, className, 5*time.Minute) })
 
 	taskID := submitChangeTokenization(t, restURI, className, propName, "lowercase")
 	t.Logf("hold-window task submitted: %s", taskID)
