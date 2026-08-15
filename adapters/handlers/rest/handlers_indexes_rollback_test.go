@@ -46,7 +46,12 @@ type scriptedCanceller struct {
 	cancelCalls int
 }
 
-func (c *scriptedCanceller) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (c *scriptedCanceller) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	// The real store answers a dead context with its error, which is what makes
+	// a rollback that inherited the request's cancellation visible.
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	attempt := c.listCalls
 	c.listCalls++
 	if attempt < len(c.listErrs) && c.listErrs[attempt] != nil {
@@ -239,20 +244,6 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 	}
 }
 
-// A rollback outlives its request: the caller may already be gone.
-func TestRollbackReindexSubmitSurvivesTheRequest(t *testing.T) {
-	canceller := &scriptedCanceller{tasks: []*distributedtask.Task{
-		rolledBackTask(t, distributedtask.TaskStatusStarted),
-	}}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	outcome, _ := rollbackReindexSubmit(context.WithoutCancel(ctx), canceller, rolledBackTaskID)
-
-	assert.Equal(t, rollbackCancelled, outcome)
-	assert.Equal(t, 1, canceller.cancelCalls)
-}
-
 // A rollback that landed leaves nothing to act on, so it answers exactly what
 // the pre-commit refusal does; one that did not names the task still running.
 func TestRollbackSubmitResponses(t *testing.T) {
@@ -266,6 +257,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 		wantNotContains []string
 		wantCancels     int
 		wantTaskID      string
+		// A client that hung up before the refusal was written.
+		requestCtxCancelled bool
 		// The counter labels this exit must produce.
 		wantRefusalVerdict  string
 		wantRollbackOutcome string
@@ -326,10 +319,31 @@ func TestRollbackSubmitResponses(t *testing.T) {
 
 			wantRefusalVerdict: reindex.VerdictUnreachable,
 		},
+		{
+			// The rollback has to outlive the request: a task left running
+			// would 409 this caller's own retry for a task it never heard of.
+			name:                "a caller that hung up before the refusal was written",
+			scan:                backupActivityScan{verdict: backupActivityBusy, kind: "backup", id: "backup-42"},
+			taskStatus:          distributedtask.TaskStatusStarted,
+			requestCtxCancelled: true,
+			wantCode:            http.StatusConflict,
+			wantContains:        []string{"reindex blocked: a backup is running in the cluster"},
+			wantNotContains:     []string{rolledBackTaskID},
+			wantCancels:         1,
+
+			wantRefusalVerdict:  reindex.VerdictBackupBusy,
+			wantRollbackOutcome: "cancelled",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.requestCtxCancelled {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
 			canceller := &scriptedCanceller{}
 			if tt.taskStatus != "" {
 				canceller.tasks = []*distributedtask.Task{rolledBackTask(t, tt.taskStatus)}
@@ -341,7 +355,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			}}
 
 			released := 0
-			resp := h.rollbackSubmit(context.Background(), nil, canceller, "Movies", rolledBackTaskID,
+			resp := h.rollbackSubmit(ctx, nil, canceller, "Movies", rolledBackTaskID,
 				reindexCancelRemedy("Movies", "title", db.ReindexTypeChangeTokenization),
 				tt.scan, func() { released++ })
 
