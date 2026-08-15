@@ -307,9 +307,10 @@ func probeReindexDuringBackup(
 	return run
 }
 
-// assertReindexBlocked judges a probe run against the gate's contract: only the
-// first probe must be 409. It lands microseconds after the create call returns,
-// when every participant still holds a slot; a later probe can legitimately be
+// assertReindexBlocked judges a probe run against the gate's contract: the run
+// must answer 409 before it answers anything but the 503 an unanswered peer
+// produces. The 409 lands microseconds after the create call returns, when
+// every participant still holds a slot; a probe after it can legitimately be
 // admitted once a participant's slot expires.
 func assertReindexBlocked(t *testing.T, run probeRun, operationID string) reindexProbe {
 	t.Helper()
@@ -321,7 +322,12 @@ func assertReindexBlocked(t *testing.T, run probeRun, operationID string) reinde
 			operationID, run.lastStatus, run.statusReads, run.statusErrors)
 	}
 
-	first := run.probes[0]
+	first, decided := firstDecidedProbe(run.probes)
+	if !decided {
+		t.Fatalf("every reindex submission taken while operation %q was in flight was answered by an "+
+			"unanswered peer, so the gate never judged one:\n%s",
+			operationID, formatProbes(run.probes))
+	}
 	if first.httpStatus != http.StatusConflict {
 		t.Fatalf("reindex submission returned %d while operation %q was %s; the gate must answer 409:\n%s",
 			first.httpStatus, operationID, first.backupStatus, formatProbes(run.probes))
@@ -365,6 +371,87 @@ func heldBackupSlotRefusal(httpStatus int, body string) bool {
 		strings.Contains(guardMessage(body), "is running in the cluster")
 }
 
+// unansweredPeerRefusal is the other refusal that clears on its own: a peer had
+// not answered the backup-activity probe yet. Every other 503 the submit path
+// can produce is a standing condition an operator has to act on.
+func unansweredPeerRefusal(httpStatus int, body string) bool {
+	return httpStatus == http.StatusServiceUnavailable &&
+		strings.Contains(guardMessage(body), "cannot confirm the cluster is free of backups")
+}
+
+// firstDecidedProbe drops the leading probes an unanswered peer produced, so a
+// single slow peer on a multi-node cluster costs the run a probe rather than
+// the verdict.
+func firstDecidedProbe(probes []reindexProbe) (reindexProbe, bool) {
+	for _, probe := range probes {
+		if !unansweredPeerRefusal(probe.httpStatus, probe.body) {
+			return probe, true
+		}
+	}
+	return reindexProbe{}, false
+}
+
+// Driven off the helper rather than a cluster: reaching a slow peer from the
+// suite would mean arranging one, and what has to hold is the rule, not the
+// weather that produced it.
+func TestFirstDecidedProbe(t *testing.T) {
+	const (
+		refused    = `{"error":[{"message":"reindex blocked: a backup is running in the cluster; retry after it finishes"}]}`
+		unanswered = `{"error":[{"message":"cannot confirm the cluster is free of backups: a node did not answer the backup-activity probe; retry once every node is reachable"}]}`
+		standing   = `{"error":[{"message":"cannot verify reindex preconditions: listing in-flight tasks failed"}]}`
+	)
+
+	tests := []struct {
+		name        string
+		probes      []reindexProbe
+		wantBody    string
+		wantDecided bool
+	}{
+		{
+			name:        "the gate refused the first submission",
+			probes:      []reindexProbe{{httpStatus: http.StatusConflict, body: refused}},
+			wantBody:    refused,
+			wantDecided: true,
+		},
+		{
+			name: "a slow peer costs the run a probe, not its verdict",
+			probes: []reindexProbe{
+				{httpStatus: http.StatusServiceUnavailable, body: unanswered},
+				{httpStatus: http.StatusConflict, body: refused},
+			},
+			wantBody:    refused,
+			wantDecided: true,
+		},
+		{
+			name:        "a 503 that will not clear on its own is a verdict",
+			probes:      []reindexProbe{{httpStatus: http.StatusServiceUnavailable, body: standing}},
+			wantBody:    standing,
+			wantDecided: true,
+		},
+		{
+			name:        "an admission is a verdict too, and the wrong one",
+			probes:      []reindexProbe{{httpStatus: http.StatusAccepted, body: `{"taskId":"x"}`}},
+			wantBody:    `{"taskId":"x"}`,
+			wantDecided: true,
+		},
+		{
+			name: "nothing but unanswered peers decides nothing",
+			probes: []reindexProbe{
+				{httpStatus: http.StatusServiceUnavailable, body: unanswered},
+				{httpStatus: http.StatusServiceUnavailable, body: unanswered},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe, decided := firstDecidedProbe(tt.probes)
+			require.Equal(t, tt.wantDecided, decided)
+			require.Equal(t, tt.wantBody, probe.body)
+		})
+	}
+}
+
 // A transport error is retryable, not a failure: a booting node produces one.
 func tryReindexSubmit(restURI, collection, property, targetTokenization string) (int, string, bool) {
 	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/searchable",
@@ -388,7 +475,7 @@ func tryReindexSubmit(restURI, collection, property, targetTokenization string) 
 	return resp.StatusCode, string(body), true
 }
 
-// Rides out the submit gate's own refusal, and nothing else.
+// Rides out the two refusals the submit gate clears on its own, and nothing else.
 func awaitReindexAccepted(
 	t *testing.T, restURI, collection, property, targetTokenization string, deadline time.Duration,
 ) string {
@@ -406,7 +493,8 @@ func awaitReindexAccepted(
 		case httpStatus == http.StatusAccepted:
 			return taskIDOf(t, body)
 		default:
-			require.Truef(t, heldBackupSlotRefusal(httpStatus, body),
+			require.Truef(t,
+				heldBackupSlotRefusal(httpStatus, body) || unansweredPeerRefusal(httpStatus, body),
 				"submission on %s.%s was refused with %d for a reason that will not clear on its own: %s",
 				collection, property, httpStatus, strings.TrimSpace(body))
 			last = fmt.Sprintf("http=%d body=%s", httpStatus, strings.TrimSpace(body))
