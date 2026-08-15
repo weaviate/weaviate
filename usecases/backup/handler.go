@@ -47,9 +47,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 
 // onlyReindexRefusals reports whether every error in the chain is a refusal.
 // Backupable joins one error per class, so a refusal can arrive next to a
-// class that does not exist. The coordinator rebuilds a refusal from the
-// request and drops the participant's text, so a mixed answer has to keep the
-// generic kind or the part the operator can act on never reaches them.
+// class that does not exist; the coordinator rebuilds a refusal from the
+// request and drops the text, so a mixed answer has to keep the generic kind.
 func onlyReindexRefusals(err error) bool {
 	joined, ok := err.(interface{ Unwrap() []error })
 	if !ok {
@@ -344,10 +343,9 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		ret.Timeout = res.Timeout
 	case OpRestore:
 		// A node the authorization filter narrowed to nothing restores no
-		// collection; it is kept in the fan-out for the blobs only its own
-		// descriptor holds. The gate reads an empty list as every collection,
-		// so asking it here would refuse the whole restore over a migration
-		// nobody asked about.
+		// collection; it stays in the fan-out for the blobs only its own
+		// descriptor holds. Its empty list would ask the gate about every
+		// collection instead.
 		//
 		// Before the descriptor is read: validate() fetches from the backend.
 		if len(req.Classes) > 0 {
