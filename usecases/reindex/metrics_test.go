@@ -27,11 +27,11 @@ func TestGateMetricsRefused(t *testing.T) {
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
 	metrics.Refused(GateSubmit, VerdictUnreachable)
-	metrics.Refused(GateBackup, VerdictHoldSubmit)
+	metrics.Refused(GateBackup, VerdictHoldCleanup)
 
 	assert.Equal(t, 2.0, testutil.ToFloat64(metrics.refusals.WithLabelValues(GateSubmit, VerdictBackupBusy)))
 	assert.Equal(t, 1.0, testutil.ToFloat64(metrics.refusals.WithLabelValues(GateSubmit, VerdictUnreachable)))
-	assert.Equal(t, 1.0, testutil.ToFloat64(metrics.refusals.WithLabelValues(GateBackup, VerdictHoldSubmit)))
+	assert.Equal(t, 1.0, testutil.ToFloat64(metrics.refusals.WithLabelValues(GateBackup, VerdictHoldCleanup)))
 }
 
 // A gate must not depend on having been wired to metrics in order to refuse.
@@ -56,7 +56,7 @@ func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	gates := []string{GateSubmit, GateBackup, GateRestore, GateOverlap, GateTransfer}
 	verdicts := []string{
 		VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable, VerdictLiveTask,
-		VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown,
+		VerdictTaskListUnreadable, VerdictHoldCleanup, VerdictHoldUnknown,
 		VerdictOverlap, VerdictOverlapUnsure, VerdictOverlapUnanswerable,
 	}
 
@@ -101,7 +101,7 @@ func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
 		names[family.GetName()] = len(family.GetMetric())
 	}
 
-	assert.Equal(t, 21, names["weaviate_reindex_gate_refusals_total"],
+	assert.Equal(t, 18, names["weaviate_reindex_gate_refusals_total"],
 		"every gate/verdict pair production can emit must exist at zero")
 	assert.Equal(t, 1, names["weaviate_reindex_open_holds"])
 }

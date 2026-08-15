@@ -158,72 +158,6 @@ func TestScanBackupActivityWithADeadProber(t *testing.T) {
 	assert.ErrorIs(t, scan.fault, errProbeLeftNoAnswer)
 }
 
-// Pins the rung order: the local slots, then the hold, then the fan-out.
-func TestOpenSubmitBackupGateOrder(t *testing.T) {
-	tests := []struct {
-		name      string
-		local     backup.NodeActivity
-		cluster   backupActivityScan
-		wantSteps []string
-		wantScan  backupActivityScan
-	}{
-		{
-			name:      "this node is busy, so no gate is closed and no peer is asked",
-			local:     busy(backup.NodeActivityKindBackup, "b1"),
-			wantSteps: []string{"local"},
-			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup, id: "b1"},
-		},
-		{
-			name:      "this node is taking part in a restore",
-			local:     busy(backup.NodeActivityKindRestore, "r1"),
-			wantSteps: []string{"local"},
-			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, id: "r1"},
-		},
-		{
-			name:      "this node is idle, so the gate closes and then the peers are asked",
-			local:     backup.NodeActivity{Answered: true},
-			cluster:   backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
-			wantSteps: []string{"local", "hold", "cluster"},
-			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
-		},
-		{
-			name:      "the whole cluster is clear",
-			local:     backup.NodeActivity{Answered: true},
-			wantSteps: []string{"local", "hold", "cluster"},
-			wantScan:  backupActivityScan{},
-		},
-		{
-			// Nothing said this node is free, so no hold may be raised on it.
-			name:      "this node's own slots left no answer",
-			wantSteps: []string{"local"},
-			wantScan:  backupActivityScan{verdict: backupActivityUnreachable, fault: errProbeLeftNoAnswer},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var steps []string
-			released := false
-
-			release, scan := openSubmitBackupGate(
-				func() backup.NodeActivity { steps = append(steps, "local"); return tt.local },
-				func() func() {
-					steps = append(steps, "hold")
-					return func() { released = true }
-				},
-				func() backupActivityScan { steps = append(steps, "cluster"); return tt.cluster })
-
-			assert.Equal(t, tt.wantSteps, steps)
-			assert.Equal(t, tt.wantScan, scan)
-
-			require.NotNil(t, release, "a refused submission must still have a release to defer")
-			release()
-			assert.Equal(t, tt.wantSteps[len(tt.wantSteps)-1] != "local", released,
-				"the hold is released only when it was raised")
-		})
-	}
-}
-
 func TestBackupActivityRefusal(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -437,6 +371,13 @@ func TestSubmitGateReadsTheLocalRung(t *testing.T) {
 			wantKind:    backup.NodeActivityKindRestore,
 		},
 		{
+			// Nothing said this node is free, so nothing may be admitted on it.
+			name:        "this node's own slots left no answer",
+			local:       backup.NodeActivity{},
+			wantVerdict: backupActivityUnreachable,
+			wantFault:   errProbeLeftNoAnswer,
+		},
+		{
 			// Nothing here is wired to answer for the peers, and the refusal
 			// that produces is what proves the gate went past the local rung
 			// rather than answering from it.
@@ -454,9 +395,7 @@ func TestSubmitGateReadsTheLocalRung(t *testing.T) {
 				BackupActivity: fixedActivity{activity: tt.local},
 			}}
 
-			_, scan := openSubmitBackupGate(h.localBackupActivity,
-				func() func() { return h.markSubmitInProgress("Books") },
-				func() backupActivityScan { return h.scanClusterBackupActivity(context.Background()) })
+			scan := h.scanBackupActivityForSubmit(context.Background())
 
 			assert.Equal(t, tt.wantVerdict, scan.verdict)
 			assert.Equal(t, tt.wantKind, scan.kind)
@@ -507,5 +446,5 @@ func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 		series[family.GetName()] = len(family.GetMetric())
 	}
 	// Gathered, so the gauges really read the provider at scrape time.
-	assert.Equal(t, 2, series["weaviate_reindex_open_holds"], "one gauge per hold kind")
+	assert.Equal(t, 1, series["weaviate_reindex_open_holds"], "one gauge per hold kind")
 }

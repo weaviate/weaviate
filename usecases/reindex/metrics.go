@@ -37,7 +37,6 @@ const (
 	// Told apart from VerdictLiveTask because an operator acts on them
 	// differently: one is waited out, the other is a cluster to repair.
 	VerdictTaskListUnreadable = "task_list_unreadable"
-	VerdictHoldSubmit         = "hold_submit"
 	VerdictHoldCleanup        = "hold_cleanup"
 	VerdictHoldUnknown        = "hold_unrecognized"
 	VerdictOverlap            = "overlap_observed"
@@ -84,11 +83,11 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int) 
 // A pair missing here is absent from /metrics until the first time it fires.
 var reachableVerdicts = map[string][]string{
 	GateSubmit:  {VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable},
-	GateBackup:  {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
-	GateRestore: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
+	GateBackup:  {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldCleanup, VerdictHoldUnknown},
+	GateRestore: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldCleanup, VerdictHoldUnknown},
 	GateOverlap: {VerdictOverlap, VerdictOverlapUnsure, VerdictOverlapUnanswerable},
 	// The same rung as the backup gate, so the same findings.
-	GateTransfer: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
+	GateTransfer: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldCleanup, VerdictHoldUnknown},
 }
 
 // Refused counts one refusal whatever it covers: a gate that closed over sixty

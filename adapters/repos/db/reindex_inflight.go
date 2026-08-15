@@ -223,8 +223,6 @@ func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHol
 
 func reindexHoldVerdict(hold ReindexHold) string {
 	switch hold {
-	case ReindexHoldSubmit:
-		return reindex.VerdictHoldSubmit
 	case ReindexHoldCleanup:
 		return reindex.VerdictHoldCleanup
 	case ReindexHoldNone:
@@ -264,8 +262,6 @@ func reindexHoldRefusal(collection string, hold ReindexHold) error {
 // An unrecognized kind refuses: admitting is the one answer nothing can undo.
 func reindexHoldDetail(subject string, hold ReindexHold) string {
 	switch hold {
-	case ReindexHoldSubmit:
-		return fmt.Sprintf("a reindex submission is preparing %s; retry in a moment", subject)
 	case ReindexHoldCleanup:
 		return fmt.Sprintf("runtime-reindex cleanup is still removing its temporary "+
 			"index files from %s; retry once the cleanup finishes", subject)

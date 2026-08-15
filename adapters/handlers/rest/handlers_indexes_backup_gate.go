@@ -74,25 +74,6 @@ func refuseOnLocalBackupActivity(activity backup.NodeActivity) backupActivitySca
 	return backupActivityScan{verdict: backupActivityBusy, kind: activity.Kind, id: activity.ID}
 }
 
-// openSubmitBackupGate runs the backup rungs of the submit ladder, and the
-// order is the requirement. The local slots decide first, because raising the
-// hold ahead of them would refuse the very capture already running here. The
-// hold then closes this node's own gate; a peer's capture that started inside
-// this window is caught by the commit-time overlap check.
-//
-// release is always non-nil, so a refused submission cannot leak a hold.
-func openSubmitBackupGate(
-	localActivity func() backup.NodeActivity,
-	raiseHold func() (release func()),
-	scanCluster func() backupActivityScan,
-) (release func(), scan backupActivityScan) {
-	if local := refuseOnLocalBackupActivity(localActivity()); local.verdict != backupActivityClear {
-		return func() {}, local
-	}
-	release = raiseHold()
-	return release, scanCluster()
-}
-
 func scanBackupActivity(ctx context.Context, nodes []string,
 	probe func(context.Context, string) (backup.NodeActivity, error), logger logrus.FieldLogger,
 ) backupActivityScan {
@@ -190,12 +171,20 @@ func peersToProbe(all []string, local string) (peers []string, established bool)
 	return peers, true
 }
 
-// A no-op before the provider exists, which precedes the handler being served.
-func (h *indexesHandlers) markSubmitInProgress(collection string) (release func()) {
-	if h.appState.ReindexProvider == nil {
-		return func() {}
+// scanBackupActivityForSubmit answers the one question the submit gate asks:
+// is a backup or restore running anywhere in the cluster. The local slots
+// decide first, so a node capturing right here refuses without a fan-out, and
+// on a single node they are the only rung there is.
+//
+// The answer is stale on arrival — it is a courtesy refusal that saves the
+// caller a capture that would fail hours later, never a reservation. A capture
+// admitted after this read is refused by the per-shard reindex gate or by the
+// commit-time overlap check instead.
+func (h *indexesHandlers) scanBackupActivityForSubmit(ctx context.Context) backupActivityScan {
+	if local := refuseOnLocalBackupActivity(h.localBackupActivity()); local.verdict != backupActivityClear {
+		return local
 	}
-	return h.appState.ReindexProvider.MarkSubmitInProgress(collection)
+	return h.scanClusterBackupActivity(ctx)
 }
 
 func (h *indexesHandlers) backupActivityRefusal(principal *models.Principal,

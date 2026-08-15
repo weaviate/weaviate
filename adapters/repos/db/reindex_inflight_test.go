@@ -182,9 +182,6 @@ func TestReindexBackupRefusal_TaskListUnreadable(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	db := &DB{logger: logger, localNodeName: "node-7"}
 	db.SetShardReindexActivityLookup(unreadableActivityBuilder())
-	// Holding nothing, but installed: an uninstalled hold lookup warns from a
-	// package-global budget, and the line counted below is this gate's.
-	db.SetReindexHoldLookup(makeHoldBuilder(nil))
 	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 
 	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
@@ -293,16 +290,6 @@ func TestReindexRefusalTexts(t *testing.T) {
 			// The task is already terminal, so a cancel has nothing left
 			// to stop. Offering one sends an operator at a call that
 			// answers NO_OP and leaves them believing they acted.
-			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
-		},
-		{
-			name:    "a submission preparing the collection",
-			refusal: reindexHoldRefusal("Movies", ReindexHoldSubmit),
-			mustContain: []string{
-				"a reindex submission is preparing",
-				"retry in a moment",
-			},
-			// No task exists yet, so there is nothing a cancel could name.
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 		{

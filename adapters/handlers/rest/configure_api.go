@@ -1117,7 +1117,6 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 ) {
 	provider := appState.ReindexProvider
 	gateMetrics := reindexuc.NewGateMetrics(metricsRegisterer, map[string]func() int{
-		db.ReindexHoldSubmit.String():  func() int { return provider.OpenHolds(db.ReindexHoldSubmit) },
 		db.ReindexHoldCleanup.String(): func() int { return provider.OpenHolds(db.ReindexHoldCleanup) },
 	})
 	repo.SetReindexGateMetrics(gateMetrics)

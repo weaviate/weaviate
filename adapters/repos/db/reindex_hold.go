@@ -19,12 +19,8 @@ import (
 
 type ReindexHold int
 
-// Ordered by how long the hold plausibly lasts, because HoldFor reports the
-// strongest one: a submission that clears in a moment must not mask a sweep
-// the operator has to wait out.
 const (
 	ReindexHoldNone ReindexHold = iota
-	ReindexHoldSubmit
 	ReindexHoldCleanup
 )
 
@@ -32,8 +28,6 @@ func (h ReindexHold) String() string {
 	switch h {
 	case ReindexHoldNone:
 		return "none"
-	case ReindexHoldSubmit:
-		return "submit"
 	case ReindexHoldCleanup:
 		return "cleanup"
 	default:

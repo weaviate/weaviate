@@ -694,11 +694,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	releaseSubmitHold, scan := openSubmitBackupGate(h.localBackupActivity,
-		func() func() { return h.markSubmitInProgress(collection) },
-		func() backupActivityScan { return h.scanClusterBackupActivity(ctx) })
-	defer releaseSubmitHold()
-	if resp := h.backupActivityRefusal(principal, collection, scan); resp != nil {
+	if resp := h.backupActivityRefusal(principal, collection,
+		h.scanBackupActivityForSubmit(ctx)); resp != nil {
 		return resp
 	}
 

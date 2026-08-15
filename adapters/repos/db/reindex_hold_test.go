@@ -129,29 +129,8 @@ func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 // a fail-closed refusal says nothing about what closed it.
 func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "none", ReindexHoldNone.String())
-	assert.Equal(t, "submit", ReindexHoldSubmit.String())
 	assert.Equal(t, "cleanup", ReindexHoldCleanup.String())
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
-}
-
-// A submission closes the same gate the backup and restore gates read, and a
-// sweep in progress outranks it.
-func TestMarkSubmitInProgress(t *testing.T) {
-	p := &ReindexProvider{db: &DB{}}
-
-	releaseSubmit := p.MarkSubmitInProgress("Movies")
-	require.Equal(t, ReindexHoldSubmit, p.db.ReindexHoldFor("movies"),
-		"the hold is collection-wide and case-folded")
-	require.Equal(t, ReindexHoldNone, p.db.ReindexHoldFor("Shows"))
-
-	releaseCleanup := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
-	require.Equal(t, ReindexHoldCleanup, p.db.ReindexHoldFor("Movies"))
-
-	releaseCleanup()
-	require.Equal(t, ReindexHoldSubmit, p.db.ReindexHoldFor("Movies"))
-
-	releaseSubmit()
-	require.Equal(t, ReindexHoldNone, p.db.ReindexHoldFor("Movies"))
 }
 
 // The gates read the registry live, so a hold raised after a gate call
@@ -168,13 +147,12 @@ func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 // A hold this build cannot name must still map onto a bounded metric label.
 func TestReindexHoldVerdictIsBounded(t *testing.T) {
 	bounded := map[string]struct{}{
-		reindex.VerdictHoldSubmit:  {},
 		reindex.VerdictHoldCleanup: {},
 		reindex.VerdictHoldUnknown: {},
 	}
 
 	holds := []ReindexHold{
-		ReindexHoldNone, ReindexHoldSubmit, ReindexHoldCleanup,
+		ReindexHoldNone, ReindexHoldCleanup,
 		ReindexHold(99), ReindexHold(100), ReindexHold(-1),
 	}
 	for _, hold := range holds {
@@ -182,29 +160,24 @@ func TestReindexHoldVerdictIsBounded(t *testing.T) {
 		assert.Contains(t, bounded, verdict, "hold %d produced the unbounded label %q", hold, verdict)
 	}
 
-	assert.Equal(t, reindex.VerdictHoldSubmit, reindexHoldVerdict(ReindexHoldSubmit))
 	assert.Equal(t, reindex.VerdictHoldCleanup, reindexHoldVerdict(ReindexHoldCleanup))
 }
 
 // Collections, not holds: two sweeps on one collection close one gate.
 func TestOpenHolds(t *testing.T) {
 	p := &ReindexProvider{db: &DB{}}
-	require.Zero(t, p.OpenHolds(ReindexHoldSubmit))
+	require.Zero(t, p.OpenHolds(ReindexHoldCleanup))
 
-	releaseFirst := p.MarkSubmitInProgress("Movies")
-	releaseSecond := p.MarkSubmitInProgress("Movies")
-	releaseOther := p.MarkSubmitInProgress("Shows")
-	releaseCleanup := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+	releaseFirst := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+	releaseSecond := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+	releaseOther := p.db.reindexHolds.acquire("Shows", ReindexHoldCleanup)
 
-	assert.Equal(t, 2, p.OpenHolds(ReindexHoldSubmit))
-	assert.Equal(t, 1, p.OpenHolds(ReindexHoldCleanup))
+	assert.Equal(t, 2, p.OpenHolds(ReindexHoldCleanup))
 
 	releaseFirst()
-	assert.Equal(t, 2, p.OpenHolds(ReindexHoldSubmit), "one of two overlapping holds is still open")
+	assert.Equal(t, 2, p.OpenHolds(ReindexHoldCleanup), "one of two overlapping holds is still open")
 
 	releaseSecond()
 	releaseOther()
-	releaseCleanup()
-	assert.Zero(t, p.OpenHolds(ReindexHoldSubmit))
 	assert.Zero(t, p.OpenHolds(ReindexHoldCleanup))
 }
