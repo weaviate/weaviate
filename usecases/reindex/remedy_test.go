@@ -51,6 +51,9 @@ func TestClusterMigrationRemedy(t *testing.T) {
 func TestMigrationRemedy(t *testing.T) {
 	remedy := MigrationRemedy("Movies")
 	assert.Contains(t, remedy, "GET /v1/schema/Movies/indexes")
+	assert.Contains(t, remedy, `status="pending"`,
+		"a STARTED task with no progress reads as pending on the GET while the gate already refuses")
+	assert.Contains(t, remedy, `status="indexing"`)
 	assert.Contains(t, remedy, "POST /v1/schema/Movies/properties/<property>/index/<indexType>/cancel")
 	assert.Contains(t, remedy, "filterable, searchable, rangeFilters",
 		"the index-type segment must name the values the API accepts")
