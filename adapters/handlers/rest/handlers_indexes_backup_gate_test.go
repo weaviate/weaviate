@@ -378,18 +378,9 @@ func TestScanClusterBackupActivityWithoutTheWiringToAsk(t *testing.T) {
 		appState  *state.State
 		wantFault error
 	}{
-		{
-			name: "no prober", wantFault: errClusterProbeUnwired,
-			appState: &state.State{Logger: quietLogger(), Cluster: &cluster.State{}},
-		},
-		{
-			name: "no cluster handle to read a member list from", wantFault: errClusterProbeUnwired,
-			appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}},
-		},
-		{
-			name: "a member list that does not name this node", wantFault: errClusterViewUnavailable,
-			appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}, Cluster: &cluster.State{}},
-		},
+		{name: "no prober", appState: &state.State{Logger: quietLogger(), Cluster: &cluster.State{}}, wantFault: errClusterProbeUnwired},
+		{name: "no cluster handle to read a member list from", appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}}, wantFault: errClusterProbeUnwired},
+		{name: "a member list that does not name this node", appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}, Cluster: &cluster.State{}}, wantFault: errClusterViewUnavailable},
 	}
 
 	for _, tt := range tests {
@@ -486,10 +477,9 @@ func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
 	assert.NotPanics(t, func() { assert.False(t, h.localBackupActivity().Busy) })
 }
 
-// The two lines that hand the shared counters to the DB and to the handlers are
-// installs, not calls: Refused and RolledBack are no-ops on a nil receiver, so
-// dropping either leaves every gate refusing correctly and reporting nothing.
-// No gate test covers them — each injects its own metrics by hand.
+// Refused and RolledBack are no-ops on a nil receiver, so dropping either
+// install line leaves every gate refusing correctly and reporting nothing. No
+// gate test covers the install: each injects its own metrics by hand.
 func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	// The gauge reads the hold registry off the DB, so the provider has to be
@@ -516,6 +506,5 @@ func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 	}
 	// Gathered, so the gauges really read the provider at scrape time.
 	assert.Equal(t, 2, series["weaviate_reindex_open_holds"], "one gauge per hold kind")
-	assert.Equal(t, len(RollbackOutcomeLabels()), series["weaviate_reindex_submit_rollbacks_total"],
-		"every rollback outcome exists at zero before the first rollback")
+	assert.Equal(t, len(RollbackOutcomeLabels()), series["weaviate_reindex_submit_rollbacks_total"], "every rollback outcome exists at zero")
 }

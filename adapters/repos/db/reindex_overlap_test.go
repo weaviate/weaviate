@@ -394,15 +394,13 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 
 			err := db.Backupable(context.Background(), nil)
 
-			refusals := gateRefusalCount(t, registry,
-				reindex.GateOverlap, reindex.VerdictOverlapUnanswerable)
+			refusals := gateRefusalCount(t, registry, reindex.GateOverlap, reindex.VerdictOverlapUnanswerable)
 			if !tt.wantRefused {
 				require.NoError(t, err)
 				assert.Zero(t, refusals, "an admitted backup must not count as refused")
 				return
 			}
-			assert.Equal(t, 1.0, refusals,
-				"a refusal the caller sees has to reach the counter an operator sees")
+			assert.Equal(t, 1.0, refusals, "a refusal the caller sees must reach the operator's counter")
 			require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapCheckUnanswerable)
 			require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 				"nothing is in flight; that sentinel makes the coordinator promise a migration will end")
