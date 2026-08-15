@@ -220,6 +220,22 @@ func TestIsReindexRefusal(t *testing.T) {
 	}
 }
 
+// TestRefusalRank pins which of two nodes' simultaneous refusals is published.
+// The configuration refusal has to win: the others end when the migration
+// does, and it does not end until an operator changes a setting.
+func TestRefusalRank(t *testing.T) {
+	rank := func(sentinel error) int { return refusalRank(fmt.Errorf("canCommit: %w", sentinel)) }
+
+	undetermined := rank(backup.ErrReindexActivityUndetermined)
+	inFlight := rank(backup.ErrBackupBlockedByInFlightReindex)
+	unanswerable := rank(backup.ErrReindexOverlapCheckUnanswerable)
+
+	require.Equal(t, inFlight, rank(backup.ErrReindexInFlight),
+		"both in-flight refusals name a migration to wait for")
+	require.Greater(t, inFlight, undetermined)
+	require.Greater(t, unanswerable, inFlight)
+}
+
 // TestIsReindexBackupFailure pins the wider question: every reindex sentinel
 // means a check is why a capture will not be published.
 func TestIsReindexBackupFailure(t *testing.T) {

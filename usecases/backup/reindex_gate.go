@@ -35,11 +35,16 @@ func isReindexRefusal(err error) bool {
 
 // refusalRank orders the refusals two nodes can report at once. A node that
 // observed a migration tells the operator what to wait for; one that could
-// not read the task list tells them nothing they can act on. Without this the
-// answer is whichever goroutine reached the slot first.
+// not read the task list tells them nothing they can act on. The
+// configuration refusal outranks both: it is the only one that does not clear
+// on its own. Without this the answer is whichever goroutine reached the slot
+// first.
 func refusalRank(err error) int {
 	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
 		return 0
+	}
+	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
+		return 2
 	}
 	return 1
 }
