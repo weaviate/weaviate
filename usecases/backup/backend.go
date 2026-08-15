@@ -289,7 +289,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		desc.Error = failureMessageForStatus(err, nil)
+		// Taken before the meta write can wrap err.
+		reason := failureMessageForStatus(err)
+		desc.Error = reason
 
 		// Handle error cases
 		cancelled := publishAsCancelled(err, ctx.Err())
@@ -308,11 +310,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		// Published after the meta write, so a poll that can see FAILED also
-		// has the reason. Built from err, not desc.Error: desc.Error was fixed
-		// before the write and says nothing when the write is what failed.
+		// Published after the meta write, so a poll that sees FAILED has why.
 		if !cancelled {
-			u.slot.setFailed(failureMessageForStatus(err, metaErr))
+			u.slot.setFailed(withMetaFault(reason, metaErr))
 		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
@@ -399,17 +399,23 @@ func nonEmptyErrMsg(err error) string {
 	return failureWithoutReason
 }
 
-// failureMessageForStatus is what a status poll serves: a reindex refusal
-// redacted, anything else verbatim, with a metadata write fault appended.
-func failureMessageForStatus(err, metaErr error) string {
+// failureMessageForStatus is what a status poll serves: a per-shard reindex
+// refusal reduced to its own redacted text, anything else verbatim.
+func failureMessageForStatus(err error) string {
 	var blocked backup.ReindexBlockedError
-	if !errors.As(err, &blocked) || blocked.Msg == "" {
-		return nonEmptyErrMsg(err)
+	if errors.As(err, &blocked) && blocked.Msg != "" {
+		return blocked.Msg
 	}
-	if metaErr != nil {
-		return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", blocked.Msg, metaErr)
+	return nonEmptyErrMsg(err)
+}
+
+// withMetaFault names a failed metadata write after the reason instead of
+// wrapping it around, so the reason stays first and whole.
+func withMetaFault(reason string, metaErr error) string {
+	if metaErr == nil {
+		return reason
 	}
-	return blocked.Msg
+	return fmt.Sprintf("%s; uploading the backup metadata also failed: %v", reason, metaErr)
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
