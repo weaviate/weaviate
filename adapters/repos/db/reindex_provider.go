@@ -2011,16 +2011,15 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
-// MarkSubmitInProgress closes the backup gate over a collection whose reindex
-// task is not committed yet, so a capture cannot start between the submit's
-// destructive pre-sweep and the RAFT write that first makes the task visible
-// to the gate. Collection-wide, because that sweep takes no shard list.
+// Closes the backup gate over a collection whose reindex task is not committed
+// yet, so a capture cannot start between the submit's destructive pre-sweep and
+// the RAFT write that first makes the task visible to the gate. Collection-wide,
+// because that sweep takes no shard list.
 func (p *ReindexProvider) MarkSubmitInProgress(collection string) (release func()) {
 	return p.db.reindexHolds.acquire(collection, ReindexHoldSubmit)
 }
 
-// OpenHolds reports how many collections currently carry a hold of this kind,
-// so an operator can see a gate while it is closed and not only afterwards.
+// Reported as a gauge, so an operator sees a gate while it is closed.
 func (p *ReindexProvider) OpenHolds(kind ReindexHold) int {
 	return p.db.reindexHolds.open(kind)
 }

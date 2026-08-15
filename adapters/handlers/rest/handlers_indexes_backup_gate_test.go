@@ -39,7 +39,6 @@ func busy(kind, id string) backup.NodeActivity {
 	return backup.NodeActivity{Busy: true, Kind: kind, ID: id}
 }
 
-// probeFromMap answers per node; a node with no entry answers idle.
 func probeFromMap(answers map[string]backup.NodeActivity, faults map[string]error,
 ) func(context.Context, string) (backup.NodeActivity, error) {
 	return func(_ context.Context, node string) (backup.NodeActivity, error) {
@@ -142,9 +141,8 @@ func TestScanBackupActivity(t *testing.T) {
 	}
 }
 
-// A prober that dies before writing its slot must read as a node that could not
-// answer. The zero value of a result slot is "clear", so an unseeded fan-out
-// would admit the submission the dead prober was asked to guard.
+// The zero value of a result slot is "clear", so an unseeded fan-out would
+// admit the submission the dead prober was asked to guard.
 func TestScanBackupActivityWithADeadProber(t *testing.T) {
 	scan := scanBackupActivity(context.Background(), []string{"n1"},
 		func(context.Context, string) (backup.NodeActivity, error) { panic("prober died") },
@@ -155,42 +153,8 @@ func TestScanBackupActivityWithADeadProber(t *testing.T) {
 	assert.ErrorIs(t, scan.fault, errProbeLeftNoAnswer)
 }
 
-func TestRefuseOnLocalBackupActivity(t *testing.T) {
-	tests := []struct {
-		name        string
-		activity    backup.NodeActivity
-		wantVerdict backupActivityVerdict
-		wantKind    string
-	}{
-		{name: "idle", wantVerdict: backupActivityClear},
-		{
-			name:        "coordinating or taking part in a backup",
-			activity:    busy(backup.NodeActivityKindBackup, "b1"),
-			wantVerdict: backupActivityBusy,
-			wantKind:    backup.NodeActivityKindBackup,
-		},
-		{
-			name:        "coordinating or taking part in a restore",
-			activity:    busy(backup.NodeActivityKindRestore, "r1"),
-			wantVerdict: backupActivityBusy,
-			wantKind:    backup.NodeActivityKindRestore,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			scan := refuseOnLocalBackupActivity(tt.activity)
-
-			assert.Equal(t, tt.wantVerdict, scan.verdict)
-			assert.Equal(t, tt.wantKind, scan.kind)
-		})
-	}
-}
-
-// TestOpenSubmitBackupGateOrder pins the rung order. A local slot read after
-// the hold would refuse the capture running on this very node, and a fan-out
-// before the hold leaves a window where a capture starts on a peer that has
-// already answered.
+// A local slot read after the hold would refuse the capture running on this
+// node; a fan-out before it leaves a window on a peer that already answered.
 func TestOpenSubmitBackupGateOrder(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -204,6 +168,12 @@ func TestOpenSubmitBackupGateOrder(t *testing.T) {
 			local:     busy(backup.NodeActivityKindBackup, "b1"),
 			wantSteps: []string{"local"},
 			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup, id: "b1"},
+		},
+		{
+			name:      "this node is taking part in a restore",
+			local:     busy(backup.NodeActivityKindRestore, "r1"),
+			wantSteps: []string{"local"},
+			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, id: "r1"},
 		},
 		{
 			name:      "this node is idle, so the gate closes and then the peers are asked",
@@ -243,32 +213,34 @@ func TestOpenSubmitBackupGateOrder(t *testing.T) {
 }
 
 func TestBackupActivityRefusal(t *testing.T) {
-	h := &indexesHandlers{appState: &state.State{Logger: quietLogger()}}
-
 	tests := []struct {
-		name     string
-		scan     backupActivityScan
-		wantCode int
-		wantBody string
+		name        string
+		scan        backupActivityScan
+		wantCode    int
+		wantBody    string
+		wantVerdict string
 	}{
 		{name: "clear admits", scan: backupActivityScan{}},
 		{
-			name:     "a backup",
-			scan:     backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup, id: "backup-42", node: "node-3"},
-			wantCode: http.StatusConflict,
-			wantBody: "reindex blocked: a backup is running in the cluster; retry after it finishes",
+			name:        "a backup",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup, id: "backup-42", node: "node-3"},
+			wantCode:    http.StatusConflict,
+			wantBody:    "reindex blocked: a backup is running in the cluster; retry after it finishes",
+			wantVerdict: reindex.VerdictBackupBusy,
 		},
 		{
-			name:     "a restore",
-			scan:     backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, id: "backup-42", node: "node-3"},
-			wantCode: http.StatusConflict,
-			wantBody: "reindex blocked: a restore is running in the cluster; retry after it finishes",
+			name:        "a restore",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, id: "backup-42", node: "node-3"},
+			wantCode:    http.StatusConflict,
+			wantBody:    "reindex blocked: a restore is running in the cluster; retry after it finishes",
+			wantVerdict: reindex.VerdictRestoreBusy,
 		},
 		{
-			name:     "a kind off the wire this build cannot name",
-			scan:     backupActivityScan{verdict: backupActivityBusy, kind: "offload\nnode-3", id: "backup-42"},
-			wantCode: http.StatusConflict,
-			wantBody: "reindex blocked: a backup is running in the cluster; retry after it finishes",
+			name:        "a kind off the wire this build cannot name",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: "offload\nnode-3", id: "backup-42"},
+			wantCode:    http.StatusConflict,
+			wantBody:    "reindex blocked: a backup is running in the cluster; retry after it finishes",
+			wantVerdict: reindex.VerdictBackupBusy,
 		},
 		{
 			name:     "a node that did not answer",
@@ -276,59 +248,6 @@ func TestBackupActivityRefusal(t *testing.T) {
 			wantCode: http.StatusServiceUnavailable,
 			wantBody: "cannot confirm the cluster is free of backups: a node did not answer the " +
 				"backup-activity probe; retry once every node is reachable",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := h.backupActivityRefusal(nil, "Books", tt.scan)
-			if tt.wantCode == 0 {
-				assert.Nil(t, resp)
-				return
-			}
-
-			code, body := statusOf(t, resp)
-			require.Len(t, body.Error, 1)
-			assert.Equal(t, tt.wantCode, code)
-			// Equality, not a substring: every leak this redaction exists to
-			// stop is an addition to the body, which a substring still passes.
-			assert.Equal(t, tt.wantBody, body.Error[0].Message)
-		})
-	}
-}
-
-// TestBackupActivityRefusalCounts pins that a refusal is counted where an
-// operator looks for it, and that the verdict label stays inside a closed set
-// even for a kind that arrived off the wire.
-func TestBackupActivityRefusalCounts(t *testing.T) {
-	bounded := map[string]struct{}{
-		reindex.VerdictBackupBusy:  {},
-		reindex.VerdictRestoreBusy: {},
-	}
-
-	tests := []struct {
-		name        string
-		scan        backupActivityScan
-		wantVerdict string
-	}{
-		{
-			name:        "a backup",
-			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup},
-			wantVerdict: reindex.VerdictBackupBusy,
-		},
-		{
-			name:        "a restore",
-			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore},
-			wantVerdict: reindex.VerdictRestoreBusy,
-		},
-		{
-			name:        "a kind this build cannot name",
-			scan:        backupActivityScan{verdict: backupActivityBusy, kind: "Movies/shard-7"},
-			wantVerdict: reindex.VerdictBackupBusy,
-		},
-		{
-			name:        "a node that did not answer",
-			scan:        backupActivityScan{verdict: backupActivityUnreachable, node: "node-3"},
 			wantVerdict: reindex.VerdictUnreachable,
 		},
 	}
@@ -341,18 +260,23 @@ func TestBackupActivityRefusalCounts(t *testing.T) {
 				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil),
 			}}
 
-			require.NotNil(t, h.backupActivityRefusal(nil, "Movies", tt.scan))
-
-			assert.Equal(t, 1.0, refusalCount(t, registry, tt.wantVerdict))
-			if tt.scan.verdict == backupActivityBusy {
-				assert.Contains(t, bounded, submitRefusalVerdict(tt.scan.kind))
+			resp := h.backupActivityRefusal(nil, "Books", tt.scan)
+			if tt.wantCode == 0 {
+				assert.Nil(t, resp)
+				return
 			}
+
+			code, body := statusOf(t, resp)
+			require.Len(t, body.Error, 1)
+			assert.Equal(t, tt.wantCode, code)
+			// Equality, not substring: every leak this stops adds to the body.
+			assert.Equal(t, tt.wantBody, body.Error[0].Message)
+			assert.Equal(t, 1.0, refusalCount(t, registry, tt.wantVerdict))
 		})
 	}
 }
 
-// refusalCount reads the one series the submit gate should have written, and
-// fails when it wrote a label pair nothing declared.
+// Fails when the gate wrote a label pair nothing declared.
 func refusalCount(t *testing.T, registry *prometheus.Registry, verdict string) float64 {
 	t.Helper()
 	families, err := registry.Gather()

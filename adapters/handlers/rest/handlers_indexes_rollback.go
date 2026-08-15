@@ -58,9 +58,8 @@ func (o rollbackOutcome) landed() bool {
 	return false
 }
 
-// One line per rollback at a level that separates what pages from what does
-// not: a task still running after this needs an operator, a task that stopped
-// on its own does not.
+// One line per rollback, at a level separating what pages from what does not:
+// a task still running afterwards needs an operator, one that stopped does not.
 func (o rollbackOutcome) auditEvent() (event string, level logrus.Level) {
 	switch o {
 	case rollbackCancelled:
@@ -97,8 +96,6 @@ func (o rollbackOutcome) summary() string {
 	return ""
 }
 
-// rollbackSubmit undoes a submission a capture beat to the RAFT write.
-//
 // releaseLocks runs before the rollback does, so an unrelated DELETE on this
 // property and every backup of this collection stop waiting on a rollback
 // nobody is listening for.
@@ -108,9 +105,9 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 ) middleware.Responder {
 	releaseLocks()
 
+	strippedID := namespacing.StripOwnNamespace(principal, taskID)
 	// Nobody answering is what a disconnected client produces on its own, and
 	// rolling back on it would destroy a migration that committed cleanly.
-	strippedID := namespacing.StripOwnNamespace(principal, taskID)
 	if scan.verdict == backupActivityUnreachable {
 		h.logBackupActivityRefusal(collection, "unreachable", scan)
 		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
@@ -140,9 +137,8 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 		publishableActivityKind(scan.kind), strippedID, cancelRemedy)))
 }
 
-// refusalNamingTask puts the task id in a field of its own as well as in the
-// prose, because an id read out of a sentence breaks when the sentence is
-// reworded.
+// A field of its own as well as the prose: an id read out of a sentence breaks
+// when the sentence is reworded.
 func refusalNamingTask(principal *models.Principal, taskID, msg string) *models.IndexRefusalResponse {
 	return &models.IndexRefusalResponse{
 		ErrorResponse: *errorResponse(principal, msg),
@@ -160,8 +156,7 @@ func reindexCancelRemedy(collection, propertyName string, migrationType db.Reind
 	return reindex.CancelRoute(collection, propertyName, canonicalIndexType(indexTypes[0]))
 }
 
-// rollbackReindexSubmit cancels a task this handler committed a moment ago.
-// Bounded, because the caller is already waiting on the answer it decides.
+// Bounded, because the caller is already waiting on the answer this decides.
 func rollbackReindexSubmit(ctx context.Context, svc reindexTaskCanceller, taskID string,
 ) (rollbackOutcome, error) {
 	outcome, fault := rollbackFailed, error(nil)

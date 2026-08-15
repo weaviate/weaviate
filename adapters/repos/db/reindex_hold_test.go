@@ -166,10 +166,9 @@ func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
 }
 
-// TestReindexHoldVerdictIsBounded is the cardinality guard on the db side. The
-// log reason carries the number of a hold this build cannot name, which is
-// what makes it diagnosable; the metric label must not, or one unrecognized
-// hold per release mints a series per release.
+// The log reason carries the number of a hold this build cannot name, which
+// makes it diagnosable; the metric label must not, or one such hold per release
+// mints a series per release.
 func TestReindexHoldVerdictIsBounded(t *testing.T) {
 	bounded := map[string]struct{}{
 		reindex.VerdictHoldSubmit:  {},
@@ -190,8 +189,7 @@ func TestReindexHoldVerdictIsBounded(t *testing.T) {
 	assert.Equal(t, reindex.VerdictHoldCleanup, reindexHoldVerdict(ReindexHoldCleanup))
 }
 
-// The gauge counts collections, not holds: two overlapping sweeps on one
-// collection close one gate, and a count of holds would report two.
+// Collections, not holds: two sweeps on one collection close one gate.
 func TestOpenHolds(t *testing.T) {
 	p := &ReindexProvider{db: &DB{}}
 	require.Zero(t, p.OpenHolds(ReindexHoldSubmit))

@@ -35,8 +35,8 @@ const clusterBackupProbeTimeout = 5 * time.Second
 
 var errProbeLeftNoAnswer = errors.New("the probe left no answer")
 
-// Ordered by precedence: one node this gate can see backing up refuses even
-// when another node's answer never arrived.
+// Ordered by precedence: a node seen backing up refuses even when another
+// node's answer never arrived.
 type backupActivityVerdict int
 
 const (
@@ -45,8 +45,7 @@ const (
 	backupActivityBusy
 )
 
-// backupActivityScan is what a rung of the gate found. Only kind reaches the
-// caller; node, id and fault are for the operator log.
+// Only kind reaches the caller; node, id and fault are for the operator log.
 type backupActivityScan struct {
 	verdict backupActivityVerdict
 	kind    string
@@ -55,7 +54,6 @@ type backupActivityScan struct {
 	fault   error
 }
 
-// refuseOnLocalBackupActivity reads this node's own four operation slots.
 func refuseOnLocalBackupActivity(activity backup.NodeActivity) backupActivityScan {
 	if !activity.Busy {
 		return backupActivityScan{}
@@ -82,8 +80,6 @@ func openSubmitBackupGate(
 	return release, scanCluster()
 }
 
-// scanBackupActivity asks every node in parallel and reports the strongest
-// verdict any of them produced.
 func scanBackupActivity(ctx context.Context, nodes []string,
 	probe func(context.Context, string) (backup.NodeActivity, error), logger logrus.FieldLogger,
 ) backupActivityScan {
@@ -134,8 +130,7 @@ func probeBackupActivity(ctx context.Context, node string,
 	return backupActivityScan{}
 }
 
-// localBackupActivity is idle before MakeAppState installs the probe, which is
-// ahead of anything that serves this handler.
+// Idle before MakeAppState installs the probe, which precedes anything served.
 func (h *indexesHandlers) localBackupActivity() backup.NodeActivity {
 	if h.appState.BackupActivity == nil {
 		return backup.NodeActivity{}
@@ -143,8 +138,7 @@ func (h *indexesHandlers) localBackupActivity() backup.NodeActivity {
 	return h.appState.BackupActivity.Activity()
 }
 
-// scanClusterBackupActivity fans the probe out over every other node. A node
-// that has not joined a cluster yet has nobody to ask, so it admits.
+// A node that has not joined a cluster yet has nobody to ask, so it admits.
 func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupActivityScan {
 	prober := h.appState.ClusterBackupActivity
 	if prober == nil || h.appState.Cluster == nil {
@@ -172,8 +166,7 @@ func otherNodes(all []string, local string) []string {
 	return peers
 }
 
-// markSubmitInProgress is a no-op release before the provider exists, which is
-// ahead of the handler being served.
+// A no-op before the provider exists, which precedes the handler being served.
 func (h *indexesHandlers) markSubmitInProgress(collection string) (release func()) {
 	if h.appState.ReindexProvider == nil {
 		return func() {}
@@ -181,7 +174,6 @@ func (h *indexesHandlers) markSubmitInProgress(collection string) (release func(
 	return h.appState.ReindexProvider.MarkSubmitInProgress(collection)
 }
 
-// backupActivityRefusal renders a scan, or nil when the cluster is clear.
 func (h *indexesHandlers) backupActivityRefusal(principal *models.Principal,
 	collection string, scan backupActivityScan,
 ) middleware.Responder {
@@ -232,8 +224,7 @@ func backupBusyRefusal(kind string) string {
 		publishableActivityKind(kind))
 }
 
-// The label follows the published kind, so a kind this build cannot name counts
-// where its own refusal says it counts.
+// Follows the published kind, so an unnameable one counts where it refuses.
 func submitRefusalVerdict(kind string) string {
 	if publishableActivityKind(kind) == backup.NodeActivityKindRestore {
 		return reindex.VerdictRestoreBusy

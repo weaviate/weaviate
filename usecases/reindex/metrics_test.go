@@ -34,15 +34,14 @@ func TestGateMetricsRefused(t *testing.T) {
 	assert.Equal(t, 1.0, testutil.ToFloat64(metrics.refusals.WithLabelValues(GateBackup, VerdictHoldSubmit)))
 }
 
-// A nil handle is what a fixture that wired no metrics has, and a gate must not
-// depend on having been wired to refuse.
+// A gate must not depend on having been wired to metrics in order to refuse.
 func TestGateMetricsRefusedWithoutARegistry(t *testing.T) {
 	var metrics *GateMetrics
 	assert.NotPanics(t, func() { metrics.Refused(GateSubmit, VerdictBackupBusy) })
 }
 
-// The gauges have to read on scrape, not on registration, or a hold raised
-// after startup is invisible for exactly as long as it is open.
+// Read on scrape, not on registration, or a hold raised after startup is
+// invisible for exactly as long as it is open.
 func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	open := 0
@@ -53,10 +52,8 @@ func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	assert.Equal(t, 3.0, gaugeValue(t, registry))
 }
 
-// TestGateMetricsLabelSetsAreBounded is the cardinality guard. Every series the
-// gates can produce is one pair drawn from two closed vocabularies, so the
-// worst case is their product and does not grow with the data — a collection or
-// a shard in a label would give a multi-tenant cluster one series per tenant.
+// The cardinality guard: every series is one pair from two closed vocabularies,
+// so the worst case is their product and does not grow with the data.
 func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	gates := []string{GateSubmit, GateBackup, GateRestore, GateOverlap}
 	verdicts := []string{

@@ -21,16 +21,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// TestSubmitRollbackResidue ties the two halves of the feature together over
-// one fixture: the task a submission leaves behind when it loses the race to a
-// backup and cancels itself. That submission gave way so the capture could
-// finish, so it must not then take the capture down with it — the gates have
-// to stay open over the collection the backup is still walking, and the
-// commit-time check has to waive what the rollback left.
-//
-// The second row is the other half of the tie: the waiver is unit state, not a
-// blanket amnesty for anything marked CANCELLED, and a cancel that landed after
-// a worker had already claimed a unit still fails the backup.
+// One fixture, both halves of the feature: the task a submission leaves behind
+// when it loses the race to a backup and cancels itself. It gave way so the
+// capture could finish, so it must not then take that capture down with it.
+// The second row is the other half — the waiver is unit state, not amnesty.
 func TestSubmitRollbackResidue(t *testing.T) {
 	captureStarted := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
 	cancelledAt := captureStarted.Add(time.Minute)

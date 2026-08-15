@@ -34,8 +34,7 @@ import (
 
 const rolledBackTaskID = "Movies:change-tokenization:title:ab3f"
 
-// scriptedCanceller answers each call from its script, so a row can say "the
-// second attempt is the one that works" without timing anything.
+// Scripted per call, so a row can say "the second attempt works" without timing.
 type scriptedCanceller struct {
 	tasks      []*distributedtask.Task
 	listErrs   []error
@@ -69,10 +68,9 @@ func rolledBackTask(t *testing.T, status distributedtask.TaskStatus) *distribute
 		db.ReindexTaskPayload{MigrationType: db.ReindexTypeChangeTokenization, Collection: "Movies"}, nil)
 }
 
-// TestRollbackReindexSubmitOutcomes walks every way a rollback can end. The
-// distinction that matters is whether it landed: a task still running after
-// this has to be named to the caller, or their retry is refused for a task
-// they were never told about.
+// Every way a rollback can end. What matters is whether it landed: a task
+// still running has to be named, or the caller's retry is refused for one they
+// were never told about.
 func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 	transient := errors.New("raft leader election in progress")
 
@@ -184,7 +182,6 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 		},
 	}
 
-	// The status each row's task carries, keyed off the outcome it expects.
 	statusFor := map[rollbackOutcome]distributedtask.TaskStatus{
 		rollbackCancelled:           distributedtask.TaskStatusStarted,
 		rollbackCancelledAfterRetry: distributedtask.TaskStatusStarted,
@@ -209,9 +206,17 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 				}
 			}
 
-			outcome, _ := rollbackReindexSubmit(context.Background(), tt.canceller, rolledBackTaskID)
+			started := time.Now()
+			outcome, fault := rollbackReindexSubmit(context.Background(), tt.canceller, rolledBackTaskID)
+			elapsed := time.Since(started)
 
 			assert.Equal(t, tt.wantOutcome, outcome)
+			// Spaced far enough apart to reach a different leader, and few
+			// enough to answer the caller who is still waiting.
+			assert.GreaterOrEqual(t, elapsed, time.Duration(tt.wantLists-1)*submitRollbackBackoff)
+			if outcome == rollbackFailed {
+				assert.ErrorIs(t, fault, transient, "the log line has to name what failed")
+			}
 			assert.Equal(t, tt.wantLanded, outcome.landed())
 			assert.Equal(t, tt.wantLists, tt.canceller.listCalls)
 			assert.Equal(t, tt.wantCancels, tt.canceller.cancelCalls)
@@ -232,25 +237,8 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 	}
 }
 
-// The retries exist to ride out a leader election, so they have to be spaced
-// far enough apart to reach a different leader and few enough to answer the
-// caller who is still waiting.
-func TestRollbackReindexSubmitRetryBudget(t *testing.T) {
-	transient := errors.New("raft leader election in progress")
-	canceller := &scriptedCanceller{listErrs: []error{transient, transient, transient}}
-
-	started := time.Now()
-	outcome, fault := rollbackReindexSubmit(context.Background(), canceller, rolledBackTaskID)
-	elapsed := time.Since(started)
-
-	assert.Equal(t, rollbackFailed, outcome)
-	assert.ErrorIs(t, fault, transient, "the log line has to name what actually failed")
-	assert.Equal(t, submitRollbackAttempts, canceller.listCalls)
-	assert.GreaterOrEqual(t, elapsed, time.Duration(submitRollbackAttempts-1)*submitRollbackBackoff)
-}
-
-// A rollback outlives the request that started it: the caller may already be
-// gone, and a task left running would refuse their retry.
+// A rollback outlives its request: the caller may already be gone, and a task
+// left running would refuse their retry.
 func TestRollbackReindexSubmitSurvivesTheRequest(t *testing.T) {
 	canceller := &scriptedCanceller{tasks: []*distributedtask.Task{
 		rolledBackTask(t, distributedtask.TaskStatusStarted),
@@ -264,10 +252,8 @@ func TestRollbackReindexSubmitSurvivesTheRequest(t *testing.T) {
 	assert.Equal(t, 1, canceller.cancelCalls)
 }
 
-// TestRollbackSubmitResponses pins what each verdict publishes. A rollback
-// that landed leaves nothing for the caller to act on, so it answers exactly
-// what the pre-commit refusal does; one that did not has to name the task it
-// left running.
+// A rollback that landed leaves nothing to act on, so it answers exactly what
+// the pre-commit refusal does; one that did not names the task still running.
 func TestRollbackSubmitResponses(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -278,6 +264,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 		wantContains    []string
 		wantNotContains []string
 		wantCancels     int
+		wantTaskID      string
 	}{
 		{
 			name:            "a peer backing up, rolled back",
@@ -309,6 +296,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 				"POST /v1/schema/Movies/properties/title/index/searchable/cancel",
 			},
 			wantNotContains: []string{"node-3", "backup-42"},
+			wantTaskID:      rolledBackTaskID,
 		},
 		{
 			name:     "a peer that did not answer",
@@ -320,9 +308,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 				"was committed and is running",
 			},
 			wantNotContains: []string{"node-3", "connection refused"},
-			// Nobody answering is what a disconnected client produces, and
-			// rolling back on it destroys a migration that committed cleanly.
-			wantCancels: 0,
+			wantCancels:     0,
+			wantTaskID:      rolledBackTaskID,
 		},
 	}
 
@@ -339,15 +326,22 @@ func TestRollbackSubmitResponses(t *testing.T) {
 				reindexCancelRemedy("Movies", "title", db.ReindexTypeChangeTokenization),
 				tt.scan, func() { released++ })
 
-			code, body := statusOf(t, resp)
-			require.Len(t, body.Error, 1)
-			assert.Equal(t, tt.wantCode, code)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			var body models.IndexRefusalResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Len(t, body.Error, 1, "the error list every client already parses is untouched")
+
+			assert.Equal(t, tt.wantCode, rec.Code)
 			for _, want := range tt.wantContains {
 				assert.Contains(t, body.Error[0].Message, want)
 			}
 			for _, unwanted := range tt.wantNotContains {
 				assert.NotContains(t, body.Error[0].Message, unwanted)
 			}
+			// A refusal that left nothing running must not name a task, or a
+			// client scripting off the field cancels one that no longer exists.
+			assert.Equal(t, tt.wantTaskID, body.TaskID)
 			assert.Equal(t, tt.wantCancels, canceller.cancelCalls)
 			assert.Equal(t, 1, released,
 				"the property lock and the collection gate are released before the rollback runs")
@@ -355,66 +349,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 	}
 }
 
-// TestRollbackSubmitCarriesTheTaskID pins the machine-readable path. The prose
-// names the id too, but prose gets reworded and a field does not — and a
-// refusal that left nothing running must not name one, or a client scripting
-// off the field cancels a task that no longer exists.
-func TestRollbackSubmitCarriesTheTaskID(t *testing.T) {
-	tests := []struct {
-		name       string
-		scan       backupActivityScan
-		taskStatus distributedtask.TaskStatus
-		wantCode   int
-		wantTaskID string
-	}{
-		{
-			name:       "the task this request committed is still running",
-			scan:       backupActivityScan{verdict: backupActivityBusy, kind: "backup"},
-			taskStatus: distributedtask.TaskStatusPreparing,
-			wantCode:   http.StatusConflict,
-			wantTaskID: rolledBackTaskID,
-		},
-		{
-			name:       "nobody answered, so the task was left committed",
-			scan:       backupActivityScan{verdict: backupActivityUnreachable, node: "node-3"},
-			wantCode:   http.StatusServiceUnavailable,
-			wantTaskID: rolledBackTaskID,
-		},
-		{
-			name:       "the rollback landed, so there is nothing left to name",
-			scan:       backupActivityScan{verdict: backupActivityBusy, kind: "backup"},
-			taskStatus: distributedtask.TaskStatusStarted,
-			wantCode:   http.StatusConflict,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			canceller := &scriptedCanceller{}
-			if tt.taskStatus != "" {
-				canceller.tasks = []*distributedtask.Task{rolledBackTask(t, tt.taskStatus)}
-			}
-			h := &indexesHandlers{appState: &state.State{Logger: quietLogger()}}
-
-			resp := h.rollbackSubmit(context.Background(), nil, canceller, "Movies", rolledBackTaskID,
-				reindexCancelRemedy("Movies", "title", db.ReindexTypeChangeTokenization),
-				tt.scan, func() {})
-
-			rec := httptest.NewRecorder()
-			resp.WriteResponse(rec, runtime.JSONProducer())
-			var body models.IndexRefusalResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-
-			assert.Equal(t, tt.wantCode, rec.Code)
-			assert.Equal(t, tt.wantTaskID, body.TaskID)
-			require.Len(t, body.Error, 1, "the error list every client already parses is untouched")
-		})
-	}
-}
-
-// The locks have to be gone before the rollback starts, or an unrelated DELETE
-// on this property and every backup of this collection wait out a rollback
-// nobody is listening for.
+// The locks have to be gone before the rollback starts, not after.
 func TestRollbackSubmitReleasesLocksBeforeCancelling(t *testing.T) {
 	var steps []string
 	recording := &recordingCanceller{
@@ -448,8 +383,8 @@ func (c *recordingCanceller) CancelDistributedTask(ctx context.Context, ns, id s
 	return c.inner.CancelDistributedTask(ctx, ns, id, version)
 }
 
-// TestReindexCancelRemedy pins the rendered path itself, so a mis-ordered
-// argument list reds a test instead of shipping a call the API rejects.
+// The rendered path itself, so a mis-ordered argument list reds a test instead
+// of shipping a call the API rejects.
 func TestReindexCancelRemedy(t *testing.T) {
 	tests := []struct {
 		name          string

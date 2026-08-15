@@ -114,12 +114,11 @@ type State struct {
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
 	ReindexProvider *db.ReindexProvider
 
-	// ClusterBackupActivity asks one peer at a time whether it holds a backup
-	// or restore slot; the reindex submit gate fans it out over every node.
+	// ClusterBackupActivity asks one peer whether it holds a backup or restore
+	// slot; the reindex submit gate fans it out over every node.
 	ClusterBackupActivity NodeActivityProber
 
-	// ReindexGateMetrics is shared with the DB so every reindex gate reports
-	// its refusals to one counter.
+	// ReindexGateMetrics is shared with the DB, so all four gates count as one.
 	ReindexGateMetrics *reindex.GateMetrics
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
@@ -169,15 +168,13 @@ type State struct {
 	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
-// LocalBackupActivity reports whether this node holds one of its own backup or
-// restore slots. *backup.NodeActivityProbe satisfies it.
+// LocalBackupActivity reports whether this node holds a backup or restore slot.
 type LocalBackupActivity interface {
 	Activity() backup.NodeActivity
 }
 
 // NodeActivityProber asks a named peer the same question over the cluster API.
-// *clients.ClusterBackupActivity satisfies it; the port keeps this package
-// clear of the adapters it hands around.
+// The port keeps this package clear of the adapters it hands around.
 type NodeActivityProber interface {
 	NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error)
 }

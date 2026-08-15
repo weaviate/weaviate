@@ -42,12 +42,9 @@ type GateMetrics struct {
 	refusals *prometheus.CounterVec
 }
 
-// NewGateMetrics registers the refusal counter, plus one gauge per hold kind
-// read from openHolds at scrape time. The gauges are what makes a hold visible
-// while it is open; the counter only ever reports windows that already closed.
-//
-// The caller names the hold kinds, so one cannot be added to the gate without
-// deciding whether it gets a series.
+// The gauges read openHolds at scrape, which is what makes a hold visible while
+// it is open; the counter only ever reports windows that already closed. The
+// caller names the kinds, so one cannot be added without deciding on a series.
 func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int) *GateMetrics {
 	factory := promauto.With(reg)
 	for hold, count := range openHolds {
