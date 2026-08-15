@@ -560,6 +560,25 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 		}
 	})
 
+	t.Run("an observed migration outranks a node that could not check", func(t *testing.T) {
+		undetermined := &CanCommitResponse{
+			Method: OpRestore, ID: id,
+			Err:     reindexUndetermined().Error(),
+			ErrKind: CanCommitErrRestoreReindexUndetermined,
+		}
+		for _, first := range []string{node1, node2} {
+			t.Run("answering first: "+first, func(t *testing.T) {
+				err := restore(t, first, map[string]answer{
+					node1: {resp: undetermined},
+					node2: {resp: refusalNaming(clsB)},
+				})
+				assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error(),
+					"the node that saw the migration says what to wait for")
+				assert.NotContains(t, err.Error(), backup.ErrReindexActivityUndetermined.Error())
+			})
+		}
+	})
+
 	t.Run("two refusing nodes describe the same restore", func(t *testing.T) {
 		bodies := make([]string, 0, 2)
 		for _, first := range []string{node1, node2} {

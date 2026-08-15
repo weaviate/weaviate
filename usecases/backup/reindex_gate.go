@@ -29,6 +29,17 @@ func isReindexRefusal(err error) bool {
 		errors.Is(err, backup.ErrReindexActivityUndetermined)
 }
 
+// refusalRank orders the refusals two nodes can report at once. A node that
+// observed a migration tells the operator what to wait for; one that could
+// not read the task list tells them nothing they can act on. Without this the
+// answer is whichever goroutine reached the slot first.
+func refusalRank(err error) int {
+	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
+		return 0
+	}
+	return 1
+}
+
 // Never an operator abort, even when the cause wraps a RAFT-client cancel.
 func publishAsCancelled(err, ctxErr error) bool {
 	return !isReindexRefusal(err) &&
