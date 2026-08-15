@@ -25,13 +25,9 @@ import (
 )
 
 // guardDataset is sized so a change-tokenization migration over it stays
-// live for several seconds on CI. Every test here needs a window to land
-// a backup or a restore inside, and each states what it does if the
-// window closes early rather than passing vacuously.
+// live on CI long enough to land a backup or a restore inside.
 const guardDataset = 50_000
 
-// startGuardNode brings up a single node with the filesystem backend and
-// the feature on.
 func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	t.Helper()
 	compose, err := reindexhelpers.SingleNodeCompose().
@@ -71,9 +67,8 @@ func createBackupOf(t *testing.T, backend, backupID string, classes ...string) {
 		helper.WithDeadline(2*time.Minute))
 }
 
-// restoreClasses restores a named subset of a backup and returns the
-// error unjudged: which of admitted and refused is right is the caller's
-// question, and both are legitimate answers to ask for.
+// restoreClasses restores a named subset of a backup and returns the error
+// unjudged: both admitted and refused are legitimate answers to ask for.
 func restoreClasses(t *testing.T, backend, backupID string, classes ...string) error {
 	t.Helper()
 	params := clientbackups.NewBackupsRestoreParams().

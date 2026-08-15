@@ -40,7 +40,6 @@ func CancelRoute(collection, property, indexType string) string {
 		collection, property, indexType)
 }
 
-// The API accepts a cancel only while the task is STARTED.
 func MigrationRemedy(collection string) string {
 	return fmt.Sprintf(
 		`%s reports when it is done, by moving the index off status="pending" and status="indexing". `+

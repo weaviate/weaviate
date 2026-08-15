@@ -223,12 +223,8 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 	}{
 		{
 			name: "in-flight reindex sentinel surfaces as CanCommitErrInFlightReindex",
-			// The classifier reads the chain, not the words, so the
-			// wording here need not track the gate's. What it does have
-			// to share is the wrap: the gate's arms in
-			// adapters/repos/db/reindex_inflight.go all carry the shared
-			// backup.ErrBackupBlockedByInFlightReindex sentinel, and
-			// classifyCanCommitErr finds it with errors.Is.
+			// The classifier reads the chain, not the words, so this
+			// fixture only has to wrap the sentinel the gate's arms carry.
 			backupErr: fmt.Errorf("Node-1/MyClass: %w: shard %q has 1 active tracker(s): ...; retry after the migration finishes",
 				backup.ErrBackupBlockedByInFlightReindex, "shard-a"),
 			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),

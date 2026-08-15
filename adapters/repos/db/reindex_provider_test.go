@@ -21,9 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestUniqueShardsFromPayload_Dedupes pins that duplicate shard names in
-// payload.UnitToShard collapse to one entry — multi-property migrations
-// route several units to the same shard.
 func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",
@@ -51,9 +48,6 @@ func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
 	require.Nil(t, uniqueShardsFromPayload(payload))
 }
 
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins that a
-// UnitToShard entry whose value is an empty string is dropped, not
-// returned as a shard name.
 func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",

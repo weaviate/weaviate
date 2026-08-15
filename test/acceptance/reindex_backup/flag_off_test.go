@@ -21,13 +21,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestGatesAreNoOpsWithTheFeatureOff runs the shipped default. With
+// TestGatesAreNoOpsWithTheFeatureOff runs the shipped default: with
 // RUNTIME_REINDEX_ENABLED off every gate returns before consulting
-// anything, so a backup and a restore that the gates would refuse both
-// succeed — byte-identical to a build without the feature.
-//
-// The submission is refused first, so the two successes below are the kill
-// switch working rather than a cluster with nothing to gate.
+// anything, so a backup and a restore the gates would refuse both succeed.
 func TestGatesAreNoOpsWithTheFeatureOff(t *testing.T) {
 	ctx := context.Background()
 	compose, err := reindexhelpers.SingleNodeComposeWithReindex(false).

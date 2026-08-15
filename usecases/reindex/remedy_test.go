@@ -19,10 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestRenderedRoutes asserts the whole rendered path rather than the
-// pieces that went into it. A swapped argument list still contains the
-// collection and the property, and only the path shows which segment each
-// one landed in.
+// A swapped argument list still contains the collection and the property,
+// so only the whole rendered path shows which segment each landed in.
 func TestRenderedRoutes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -43,10 +41,6 @@ func TestRenderedRoutes(t *testing.T) {
 	}
 }
 
-// TestMigrationRemedy pins what an operator can act on: both routes are
-// rendered against the collection that was actually refused, the cancel
-// keeps the condition the API enforces, and the two segments a gate
-// cannot know are the only ones left unfilled.
 func TestMigrationRemedy(t *testing.T) {
 	remedy := MigrationRemedy("Movies")
 	assert.Contains(t, remedy, "GET /v1/schema/Movies/indexes")

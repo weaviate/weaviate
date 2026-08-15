@@ -38,8 +38,6 @@ func reindexRefusal(collection string) error {
 		backup.ErrReindexInFlight, collection)
 }
 
-// reindexUndetermined is the other answer the gate can give: it could not
-// reach the cluster task list, so it observed nothing.
 func reindexUndetermined() error {
 	return fmt.Errorf("%w: the cluster task list could not be read",
 		backup.ErrReindexActivityUndetermined)
@@ -62,8 +60,6 @@ func TestQuoteClassList(t *testing.T) {
 			want:    `"A", "B", "C", "D", "E" and 2 more`,
 		},
 		{
-			// The list comes out of a map, so the same restore would
-			// otherwise name a different five collections on every retry.
 			name:    "arriving in map order",
 			classes: []string{"G", "C", "A", "F", "B", "E", "D"},
 			want:    `"A", "B", "C", "D", "E" and 2 more`,
@@ -78,10 +74,8 @@ func TestQuoteClassList(t *testing.T) {
 	}
 }
 
-// TestRestoreRefusedByParticipant pins that the coordinator rebuilds the
-// refusal instead of forwarding it. An older participant words its
-// refusal in terms of its own shards and node name, neither of which the
-// caller asked about or can act on.
+// An older participant words its refusal in terms of its own shards and
+// node name, neither of which the caller asked about or can act on.
 func TestRestoreRefusedByParticipant(t *testing.T) {
 	err := restoreRefusedByParticipant([]string{"Movies", "Shows"})
 	require.ErrorIs(t, err, backup.ErrReindexInFlight)
@@ -94,9 +88,8 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
 }
 
-// TestIsReindexRefusal pins that both chains are recognized and nothing
-// else is. One call site sees both: canCommit carries a backup refusal
-// and a restore refusal through the same fan-out.
+// One call site sees both chains: canCommit carries a backup refusal and a
+// restore refusal through the same fan-out.
 func TestIsReindexRefusal(t *testing.T) {
 	tests := []struct {
 		name string
@@ -121,9 +114,8 @@ func TestIsReindexRefusal(t *testing.T) {
 	}
 }
 
-// TestRestoreGateOrdering pins where the gate sits on both arms of
-// Scheduler.Restore, which is the whole of its contract: what it is asked
-// about, and what it is asked before.
+// TestRestoreGateOrdering pins the gate's contract on both arms of
+// Scheduler.Restore: what it is asked about, and what it is asked before.
 func TestRestoreGateOrdering(t *testing.T) {
 	const (
 		cls         = "MyClass"
@@ -194,9 +186,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 	// One wildcard anywhere in the list settles it, including behind a
-	// literal that follows it: there is no descriptor to expand the pattern
-	// against, and passing the list through would ask the gate about a
-	// collection that does not exist, admitting the restore on that answer.
+	// literal that follows it.
 	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
 		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
 			fs := newFakeScheduler(nil)
@@ -252,10 +242,9 @@ func TestRestoreGateOrdering(t *testing.T) {
 	})
 }
 
-// TestRestoreGateAuthorizationPrecedesDisclosure pins that a caller
-// without cluster-wide backup permission cannot learn from a mistyped id
-// that a migration is running somewhere it cannot see. It gets the same
-// 404 it got before the gate existed.
+// TestRestoreGateAuthorizationPrecedesDisclosure pins that a caller without
+// cluster-wide backup permission cannot learn from a mistyped id that a
+// migration is running somewhere it cannot see.
 func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -279,9 +268,6 @@ func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
 		"an unauthorized caller must not reach the gate at all")
 }
 
-// TestParticipantRestoreGate pins the participant half: refused before
-// the descriptor is read, with the kind the coordinator maps to 422 and
-// no promise of a timeout.
 func TestParticipantRestoreGate(t *testing.T) {
 	ctx := context.Background()
 	req := &Request{Method: OpRestore, ID: "1", Backend: "s3", Classes: []string{"MyClass"}}
@@ -320,9 +306,7 @@ func TestParticipantRestoreGate(t *testing.T) {
 
 // TestRestoreUndeterminedReaches422 pins the whole hop end to end: a
 // participant that could not check answers a kind of its own, and what
-// Scheduler.Restore publishes says so. Without this the first three hops
-// can be correct and nothing observable changes, because the scheduler
-// used to rebuild every reindex refusal as a live migration.
+// Scheduler.Restore publishes says so.
 func TestRestoreUndeterminedReaches422(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -373,10 +357,8 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
 }
 
-// TestPublishAsCancelled pins that a gate refusal ends the backup FAILED even
-// when its cause wraps a cancellation. The gate reaches the cluster over RAFT,
-// and a cancellation from that client is not somebody stopping the backup;
-// CANCELLED would hide a refused capture behind a deliberate-looking status.
+// A cancellation from the gate's RAFT client is not somebody stopping the
+// backup; CANCELLED would hide a refused capture behind a deliberate status.
 func TestPublishAsCancelled(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -399,10 +381,6 @@ func TestPublishAsCancelled(t *testing.T) {
 	}
 }
 
-// TestCanCommitRefusalOutranksPeerFailure pins two properties of a fan-out
-// one participant refuses: the caller gets the refusal even when a peer's
-// own failure was recorded first, and every refusing node describes the
-// restore that was asked for rather than the slice of it that lives on it.
 func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -438,10 +416,9 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 		}
 	}
 
-	// restore runs one fan-out in which the two participants answer in a
-	// chosen order rather than a raced one: neither returns until both are
-	// in flight, and then the one not named first waits for the context to
-	// be cancelled, which an error group does only after it has already
+	// restore sequences the fan-out: neither participant returns until both
+	// are in flight, and then the one not named first waits for the context
+	// to be cancelled, which an error group does only after it has already
 	// recorded the other answer.
 	restore := func(t *testing.T, first string, answers map[string]answer) error {
 		t.Helper()
@@ -514,11 +491,9 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 	})
 }
 
-// TestRestoreKeepsNodesNarrowedToNothing pins that a node whose classes the
-// authorization filter removed entirely stays in the descriptor and is still
-// asked to commit. What a node restores is not only classes: the dynamic-user
-// and RBAC blobs come from its own descriptor, so dropping the node drops
-// those with it.
+// TestRestoreKeepsNodesNarrowedToNothing pins that a node the authorization
+// filter narrowed to nothing is still asked to commit: its dynamic-user and
+// RBAC blobs come from its own descriptor, so dropping the node drops those.
 func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	const (
 		backendName = "s3"

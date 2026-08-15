@@ -38,10 +38,6 @@ func payloadFor(collection string) string {
 	return `{"collection":"` + collection + `","unitToShard":{"u1":"s1"}}`
 }
 
-// TestNewAnyReindexActivityLookup walks the questions the restore gate
-// asks and the answers each task list gives. The empty question is the
-// widest one here: a restore that named no class restores every
-// collection, so anything live blocks it.
 func TestNewAnyReindexActivityLookup(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -65,9 +61,8 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			ask:   []string{"Shows"},
 		},
 		{
-			// A restore naming nothing replaces everything, so a task
-			// anywhere blocks it. The backup-side overlap check reads an
-			// empty list the opposite way.
+			// The backup-side overlap check reads an empty list the
+			// opposite way.
 			name:        "no class named means every collection",
 			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor("Movies"))},
 			wantBlocked: true,
@@ -137,10 +132,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			wantTaskID:  "t1",
 		},
 		{
-			// The collection name is right there in the bytes. A scan
-			// would recover it and scope the refusal to one collection,
-			// leaving every other collection open to a restore that a
-			// truncated payload gives no grounds to admit.
 			name:        "truncated mid-payload with the name still visible",
 			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"collection":"Movies","unitToShard":{"u1":"sha`)},
 			ask:         []string{"Shows"},
@@ -159,11 +150,9 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 	}
 }
 
-// TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere pins that
-// the answer does not depend on the order the task manager listed. Two
-// nodes answering one request have to name the same task, or the same
-// restore is refused with two different bodies depending on which node
-// the client reached.
+// Two nodes answering one request have to name the same task, or the same
+// restore is refused with two different bodies depending on which node the
+// client reached.
 func TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere(t *testing.T) {
 	ascending := []*distributedtask.Task{
 		reindexTask("task-a", distributedtask.TaskStatusStarted, payloadFor("Movies")),
@@ -178,10 +167,7 @@ func TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere(t *testing.T) {
 	}
 }
 
-// tenantScaleTaskPayload is the DTM payload a task on a multi-tenant
-// collection carries: every tenant appears once in each of the three
-// tenant-sized fields, which is what takes a real payload into the
-// megabytes.
+// The tenant-sized fields are what take a real payload into the megabytes.
 func tenantScaleTaskPayload(tb testing.TB, collection string, tenants int) []byte {
 	tb.Helper()
 	p := ReindexTaskPayload{
@@ -203,8 +189,6 @@ func tenantScaleTaskPayload(tb testing.TB, collection string, tenants int) []byt
 	return doc
 }
 
-// terminalTenantScaleTasks is the DTM snapshot a cluster carries after a
-// run of migrations finished: nothing live, every payload still listed.
 func terminalTenantScaleTasks(tb testing.TB, tasks, tenants int) []*distributedtask.Task {
 	tb.Helper()
 	doc := string(tenantScaleTaskPayload(tb, "Docs", tenants))
@@ -215,10 +199,8 @@ func terminalTenantScaleTasks(tb testing.TB, tasks, tenants int) []*distributedt
 	return out
 }
 
-// TestNewAnyReindexActivityLookupSkipsTerminalPayloads pins that the
-// snapshot every restore probe builds does not scale with the tenant
-// count of migrations that already finished. The ratio is the assertion,
-// not an absolute: what must hold is that the tenants cost nothing.
+// The ratio is the assertion, not an absolute: what must hold is that the
+// tenants of already-finished migrations cost nothing.
 func TestNewAnyReindexActivityLookupSkipsTerminalPayloads(t *testing.T) {
 	withTenants := terminalTenantScaleTasks(t, 20, 10_000)
 	withoutTenants := terminalTenantScaleTasks(t, 20, 0)
@@ -295,8 +277,8 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	})
 	t.Run("a node-local hold answers before the cluster is asked", func(t *testing.T) {
 		// The hold is a local map read; the DTM question is a
-		// leader-forwarded RAFT query that a held collection would be
-		// refused after anyway.
+		// leader-forwarded RAFT query a held collection would be refused
+		// after anyway.
 		db, hook, built := gatedDB(t, gateFixtures{tasks: []*distributedtask.Task{}, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
@@ -330,9 +312,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	})
 }
 
-// TestRefuseIfAnyReindexInFlight_WideRequestLogsBounded pins that a
-// restore covering a thousand collections costs one log entry with a
-// capped sample, not one line per collection.
 func TestRefuseIfAnyReindexInFlight_WideRequestLogsBounded(t *testing.T) {
 	classes := make([]string, 0, 1000)
 	for i := range 1000 {
@@ -350,11 +329,8 @@ func TestRefuseIfAnyReindexInFlight_WideRequestLogsBounded(t *testing.T) {
 	assert.Len(t, entry.Data["requested_classes"], reindexRefusalSampleLimit)
 }
 
-// TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest pins that the
-// sampled class list in the log is a copy. authorization.Backups
-// uppercases its input in place, which is why Scheduler.Restore copies
-// req.Include before authorizing, and a log field sharing that array
-// would be rewritten under it.
+// authorization.Backups uppercases its input in place, so a log field
+// sharing the caller's array would be rewritten under it.
 func TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest(t *testing.T) {
 	classes := make([]string, 0, 20)
 	for i := range 20 {
@@ -373,9 +349,8 @@ func TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest(t *testing.T) {
 	assert.Equal(t, "Class00", logged[0], "the log field must not follow the caller's slice")
 }
 
-// TestReindexGateWarnBudget pins the hourly budget an unwired gate
-// reports on. A line per request buries the log of a node whose wiring
-// never fired; a line per process is gone before anyone reads it.
+// A line per request buries the log of a node whose wiring never fired; a
+// line per process is gone before anyone reads it.
 func TestReindexGateWarnBudget(t *testing.T) {
 	var budget reindexGateWarnBudget
 	start := time.Now()
@@ -387,9 +362,8 @@ func TestReindexGateWarnBudget(t *testing.T) {
 		"the window restarts from the report that was allowed")
 }
 
-// TestReindexGateWarnBudgetsAreSeparate pins that one gate reporting does
-// not silence another. They are wired separately, so a shared budget
-// would hide whichever half is actually broken.
+// The gates are wired separately, so a shared budget would hide whichever
+// half is actually broken.
 func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	shardGateWarnBudget = reindexGateWarnBudget{}
 	restoreGateWarnBudget = reindexGateWarnBudget{}

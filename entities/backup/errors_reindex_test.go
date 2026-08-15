@@ -21,11 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// reindexSentinels is every sentinel a reindex refusal can carry, with
-// the literal each one is pinned to. Callers across the RPC boundary
-// match these with errors.Is, so a reworded text is a compatible change
-// and a renamed or merged sentinel is not — the literals are here to
-// make the second kind red.
+// reindexSentinels is every sentinel a reindex refusal can carry. Callers
+// across the RPC boundary match these with errors.Is, so a reworded text is
+// a compatible change and a renamed or merged sentinel is not — the literals
+// are here to make the second kind red.
 var reindexSentinels = []struct {
 	name string
 	err  error
@@ -54,9 +53,8 @@ func TestReindexSentinelTexts(t *testing.T) {
 	}
 }
 
-// TestReindexSentinelsAreDistinguishable pins that the two sentinels never
-// cross: a caller mapping a refusal to an HTTP status branches on exactly
-// one of them.
+// TestReindexSentinelsAreDistinguishable pins that no two sentinels cross:
+// a caller mapping a refusal to an HTTP status branches on exactly one.
 func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 	for _, s := range reindexSentinels {
 		t.Run(s.name, func(t *testing.T) {
@@ -72,9 +70,7 @@ func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 }
 
 // TestReindexBlockedErrorChains pins that the publishable text survives
-// every shape a refusal takes on its way out: wrapped by the storage
-// layer, joined with an unrelated failure on another collection, and
-// wrapped again by the coordinator.
+// every shape a refusal takes on its way out.
 func TestReindexBlockedErrorChains(t *testing.T) {
 	const msg = `backup blocked: runtime-reindex in flight: collection "Movies" is migrating`
 	blocked := ReindexBlockedError{Msg: msg}

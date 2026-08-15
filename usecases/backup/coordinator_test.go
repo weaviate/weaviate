@@ -946,8 +946,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectCanCommit    bool
 		expectContain      string
 		// wantNodeNamed is false for a reindex refusal: a migration is a
-		// cluster fact, and the node that reported it is placement the
-		// caller has no other way to learn.
+		// cluster fact, not a property of the node that reported it.
 		wantNodeNamed bool
 	}{
 		{
@@ -1046,8 +1045,6 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectRestore {
 				assert.True(t, errors.Is(err, backup.ErrReindexInFlight),
 					"expected errors.Is(err, backup.ErrReindexInFlight), got: %v", err)
-				// The two reindex chains stay separable: a caller mapping
-				// one to a status must not match the other.
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"restore refusal must not match the backup sentinel, got: %v", err)
 				assert.False(t, errors.Is(err, errCannotCommit),
@@ -1060,8 +1057,6 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 					"a check that could not answer must not match the live-migration sentinel, got: %v", err)
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"undetermined must not also match errCannotCommit, got: %v", err)
-				// The same two assertions the storage layer makes one hop
-				// down, so a contradiction between them cannot compile.
 				assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 				assert.NotContains(t, err.Error(), "retry after the migration finishes")
 			}

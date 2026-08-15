@@ -197,8 +197,7 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "accepted only while the task is STARTED",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 
-	// The shard and the node are placement the caller has no other way to
-	// learn; they reach the operator through the WARN instead.
+	// Placement the caller has no other way to learn.
 	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
 	require.NotContains(t, errMsg, `shard "`, "got: %s", errMsg)
 	require.NotContains(t, errMsg, shardName, "got: %s", errMsg)

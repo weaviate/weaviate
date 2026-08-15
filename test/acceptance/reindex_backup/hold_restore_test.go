@@ -34,33 +34,28 @@ import (
 )
 
 const (
-	// holdWindowTenants is how many shards the cleanup has to walk. The
-	// sweep runs once per (property, index type) and each run walks every
-	// local shard.
+	// holdWindowTenants is how many shards the cleanup has to walk: the sweep
+	// runs once per (property, index type) and each run walks every local shard.
 	holdWindowTenants = 150
 	// holdWindowObjectsPerTenant only has to keep the migration alive long
 	// enough to reach the tracker count below, which is a cheaper job than
 	// widening the teardown and a different one.
 	holdWindowObjectsPerTenant = 40
-	// holdWindowTrackerShards is how many shards must already carry a
-	// tracker dir when the cancel lands. See awaitTrackerDirs: one tracker
-	// is what makes the sweep have work at all, and the rest are here to
-	// make the window long enough to sample.
+	// holdWindowTrackerShards is how many shards must already carry a tracker
+	// dir when the cancel lands. See awaitTrackerDirs.
 	holdWindowTrackerShards = holdWindowTenants * 2 / 3
 )
 
 // TestRestoreRefusedByCleanupHold pins the node-local arm of the restore
-// gate, which nothing else in CI reaches: deleting the
-// SetReindexHoldLookup wiring from configure_api.go leaves every other
-// test green.
+// gate, which nothing else in CI reaches: deleting the SetReindexHoldLookup
+// wiring leaves every other test green.
 //
 // A cancelled migration goes terminal in DTM while its temporary index
 // files are still on disk. The cluster-wide arm has stopped answering by
 // then, so a refusal in this window can only have come from the hold.
 //
-// The hold is only observable if the cleanup has something to clean up,
-// which is what awaitTrackerDirs is for and what makes this test's shape
-// unobvious.
+// The hold is only observable if the cleanup has something to clean up;
+// see awaitTrackerDirs.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
 	ctx := context.Background()
 	compose := startGuardNode(ctx, t)
@@ -90,8 +85,6 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 		holdWindowTrackerShards, 120*time.Second)
 	reindexhelpers.CancelIndexRaw(t, restURI, className, propName, "searchable")
 
-	// Before any probe: with the task terminal the live-task arm is out of
-	// the answer set, so a 422 after this point is unambiguously the hold.
 	awaitReindexTaskTerminal(t, restURI, taskID, 120*time.Second)
 
 	refusal := pollForHoldRefusal(t, backend, unknownBackupID, className, 120*time.Second)
@@ -112,9 +105,8 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 			"a refusal names no node; got: %s", refusal)
 	}
 
-	// The hold has to release. One that did not would wedge every restore
-	// on this node until it restarted, which is worse than the window it
-	// closes.
+	// The hold has to release. One that did not would wedge every restore on
+	// this node until it restarted.
 	require.Eventuallyf(t, func() bool {
 		var missing *clientbackups.BackupsRestoreNotFound
 		return errors.As(restoreClasses(t, backend, unknownBackupID, className), &missing)
@@ -123,8 +115,7 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 }
 
 // createHoldWindowClass builds the multi-tenant class whose teardown this
-// test needs to outlast a probe. Single node is right: a hold is
-// node-local.
+// test needs to outlast a probe. A hold is node-local, so one node is enough.
 func createHoldWindowClass(t *testing.T, className, propName string) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -169,8 +160,8 @@ func importTenantBodies(t *testing.T, className, propName, tenant string, count 
 	require.NotNil(t, resp)
 }
 
-// awaitReindexTaskTerminal blocks until DTM stops reporting the task as
-// live, which is what takes the cluster-wide arm out of the answer set.
+// awaitReindexTaskTerminal takes the cluster-wide arm out of the answer set,
+// so a 422 after it returns is unambiguously the hold.
 func awaitReindexTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Duration) {
 	t.Helper()
 	// A plain loop, not require.Eventuallyf: that one evaluates its message
@@ -189,8 +180,7 @@ func awaitReindexTaskTerminal(t *testing.T, restURI, taskID string, timeout time
 		taskID, last)
 }
 
-// pollForHoldRefusal retries the unknown-id restore until one is refused,
-// and returns the refusal body ("" if the deadline passed with none).
+// pollForHoldRefusal returns "" if the deadline passed with no refusal.
 func pollForHoldRefusal(t *testing.T, backend, backupID, className string, timeout time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -209,12 +199,9 @@ func pollForHoldRefusal(t *testing.T, backend, backupID, className string, timeo
 //
 // Without this the test observes nothing. The cleanup only deletes where a
 // unit already wrote a tracker, so a cancel taken the moment the task goes
-// live leaves it nothing to do: the server logs "sweep finished, unloaded
-// shards with nothing to sweep left unloaded" in the same second as the
-// task-completion callback, and the hold exists for milliseconds. Tenant
-// count alone does not widen that, because a shard with nothing to sweep is
-// skipped without being loaded — so what has to be waited for is trackers,
-// not tenants.
+// live leaves it nothing to do and the hold exists for milliseconds. Tenant
+// count alone does not widen that: a shard with nothing to sweep is skipped
+// without being loaded, so what has to be waited for is trackers, not tenants.
 //
 // want is a duration knob, not a correctness one. One tracker already makes
 // the sweep do work; the rest are there so the window lasts long enough to

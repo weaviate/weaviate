@@ -38,8 +38,6 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// makeHoldBuilder builds a ReindexHoldLookupBuilder reporting a fixed
-// hold per collection.
 func makeHoldBuilder(holds map[string]ReindexHold) ReindexHoldLookupBuilder {
 	return func() ReindexHoldLookup {
 		return func(collections []string) ReindexHold {
@@ -59,20 +57,15 @@ func makeHoldBuilder(holds map[string]ReindexHold) ReindexHoldLookupBuilder {
 	}
 }
 
-// gateFixtures says which lookups a DB under test answers from. A nil
-// field leaves that lookup uninstalled.
+// A nil field leaves that lookup uninstalled.
 type gateFixtures struct {
 	live  map[[2]string]bool
 	holds map[string]ReindexHold
 	tasks []*distributedtask.Task
 }
 
-// gateCounters tallies how many lookups each gate built, which is what
-// separates one read per collection from one read per shard.
 type gateCounters struct{ activity, hold int }
 
-// gatedDB builds a DB whose gates answer from the fixtures, with a logger
-// whose entries the caller can count and a tally of the lookups built.
 func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters) {
 	t.Helper()
 	logger, hook := logrustest.NewNullLogger()
@@ -98,8 +91,6 @@ func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters
 	return db, hook, &built
 }
 
-// warnOrAbove is what an operator's log query sees; Debug lines below it are
-// per-shard detail.
 func warnOrAbove(hook *logrustest.Hook) []*logrus.Entry {
 	var out []*logrus.Entry
 	for _, entry := range hook.AllEntries() {
@@ -114,10 +105,8 @@ func gatedIndex(db *DB, className string) *Index {
 	return &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(className)}}
 }
 
-// TestAnyLiveReindexForShard walks the DTM half of the gate. The
-// different-collection and different-shard rows use a crossed fixture —
-// the tuple is live with the arguments the other way round — so a call
-// site that passed (shardName, collection) reds them.
+// The swapped-tuple rows are live with the arguments the other way round,
+// so a call site that passed (shardName, collection) reds them.
 func TestAnyLiveReindexForShard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -142,10 +131,8 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			},
 		},
 		{
-			// Production gates HTTP serving on bootstrap completion, so
-			// the unwired window is unreachable by external traffic; the
-			// refuse-by-default this replaced broke every fixture that
-			// builds a bare DB.
+			// Unwired admits: the install lands before the server serves,
+			// and refusing broke every fixture that builds a bare DB.
 			name:    "builder never installed",
 			builder: nil,
 		},
@@ -165,9 +152,6 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 	}
 }
 
-// TestReindexHoldForCollection walks the node-local half of the gate,
-// including the kill switch: with the feature off the gate must consult
-// no lookup at all.
 func TestReindexHoldForCollection(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -206,9 +190,6 @@ func TestReindexHoldForCollection(t *testing.T) {
 	}
 }
 
-// TestReindexHoldForCollection_KillSwitchSkipsTheLookup pins that the
-// feature flag short-circuits before the builder runs, so a build with
-// the flag off costs the backup path nothing.
 func TestReindexHoldForCollection_KillSwitchSkipsTheLookup(t *testing.T) {
 	for _, disabled := range []bool{true, false} {
 		t.Run(fmt.Sprintf("disabled=%v", disabled), func(t *testing.T) {
@@ -228,10 +209,8 @@ func TestReindexHoldForCollection_KillSwitchSkipsTheLookup(t *testing.T) {
 	}
 }
 
-// TestReindexRefusalTexts pins each arm's wording against the reading
-// that inverts it. The arms are not interchangeable: one offers a cancel,
-// one states there is nothing left to cancel, and one admits it cannot
-// name what it is waiting for.
+// The arms are not interchangeable, so each one's wording is pinned
+// against the reading that inverts it.
 func TestReindexRefusalTexts(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -303,9 +282,6 @@ func TestReindexRefusalTexts(t *testing.T) {
 	}
 }
 
-// TestReindexRefusalsRedactPlacement pins that no arm names a shard or a
-// node. Both are placement facts an API caller has no other way to learn,
-// and both reach the operator through the gate's WARN instead.
 func TestReindexRefusalsRedactPlacement(t *testing.T) {
 	const (
 		shardName = "vT4Kq9LmShardId"
@@ -337,9 +313,8 @@ func TestReindexRefusalsRedactPlacement(t *testing.T) {
 	}
 }
 
-// TestReindexRefusalWarnCarriesPlacement pins the other half of the
-// redaction: what the body drops, the log must keep, or an operator has
-// no way to find the shard the migration is on.
+// The other half of the redaction: what the body drops, the log must keep,
+// or an operator cannot find the shard the migration is on.
 func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", "shard-1"}: true}})
 	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
@@ -351,11 +326,8 @@ func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 	assert.Equal(t, reindexReasonLiveTask, warned[0].Data["reason"])
 }
 
-// TestReindexRefusalAggregatesWideRefusals pins the shape of a refusal
-// covering many shards: one error out, one entry logged at warn or above,
-// an exact count, and a bounded sample. Counting by level rather than by
-// message is deliberate — a per-shard line at any level makes the log
-// grow with the collection.
+// Counting by level rather than by message is deliberate: a per-shard line
+// at any level makes the log grow with the collection.
 func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 	const shardCount = 60
 	live := map[[2]string]bool{}
@@ -366,9 +338,6 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		live[[2]string{"Movies", shard}] = true
 	}
 
-	// Descriptor generation calls the per-shard entry point once per shard
-	// from a loop this branch does not own, and shard count is tenant count,
-	// so a line there is a line per tenant.
 	perShardDB, perShardHook, _ := gatedDB(t, gateFixtures{live: live})
 	perShardIdx := gatedIndex(perShardDB, "Movies")
 	for _, shard := range shards {
@@ -394,10 +363,6 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		"the singular field would name one of 60 shards as if it were the one")
 }
 
-// TestReindexHoldReadOncePerRefusal pins that a refusal over a collection's
-// shards reads the hold once. A hold belongs to the collection, so a read
-// per shard is a read per tenant, and it can also answer one way for the
-// shards seen before a hold was taken and another for the rest.
 func TestReindexHoldReadOncePerRefusal(t *testing.T) {
 	const shardCount = 50
 	shards := make([]string, 0, shardCount)
@@ -412,10 +377,8 @@ func TestReindexHoldReadOncePerRefusal(t *testing.T) {
 	assert.Equal(t, 1, built.hold, "one hold read for the whole collection")
 }
 
-// TestRefuseIfAnyShardReindexInFlight_ArmSelection pins which wording a
-// mixed collection reports. A live task can be ended by the operator; a
-// hold cannot, so the arm that offers a remedy has to win regardless of
-// the order the shards come in.
+// A live task can be ended by the operator; a hold cannot, so the arm that
+// offers a remedy has to win regardless of the order the shards come in.
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	db, _, _ := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{{"Movies", "shard-b"}: true},
@@ -433,8 +396,6 @@ func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	}
 }
 
-// TestRefuseIfReindexInFlight_Allows pins the open path: no live task and
-// no hold means no refusal and nothing logged.
 func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{}, holds: map[string]ReindexHold{}})
 	require.NoError(t, gatedIndex(db, "Movies").refuseIfReindexInFlight("shard-1"))
@@ -443,9 +404,8 @@ func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	require.Empty(t, hook.AllEntries(), "an admitted backup must log nothing")
 }
 
-// TestRefuseIfReindexInFlight_HoldArm pins that a node-local hold refuses
-// on its own, with no live task anywhere — the window between a task
-// going terminal in DTM and this node finishing its teardown.
+// A hold refuses on its own, in the window between a task going terminal
+// in DTM and this node finishing its teardown.
 func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{},
@@ -460,9 +420,6 @@ func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
 	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])
 }
 
-// TestBackupableRefusalKeepsUnrelatedFailures pins that a refusal on one
-// collection does not swallow a failure on another: both survive the
-// join, and each stays matchable on its own.
 func TestBackupableRefusalKeepsUnrelatedFailures(t *testing.T) {
 	db, _, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", "shard-1"}: true}})
 	blocked := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"})

@@ -24,9 +24,7 @@ import (
 )
 
 // TestRestoreRefusedDuringInFlightReindex pins both halves of the restore
-// gate while a migration is live: a restore that INCLUDES the migrating
-// collection is refused synchronously with 422, and a restore of any
-// OTHER collection is admitted and completes.
+// gate while a migration is live.
 //
 // The second arm is what makes the first one mean something. A gate that
 // refused every restore while anything migrated anywhere would pass the
@@ -65,9 +63,8 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 	crossCollectionErr := restoreClasses(t, backend, backupID, unrelatedClass)
 	statusAfter := reindexTaskStatus(t, restURI, taskID)
 
-	// Judge the window before the verdicts. A migration that drained early
-	// would make either outcome below meaningless, and the test would pass
-	// while proving nothing.
+	// Judge the window before the verdicts: a migration that drained early
+	// would make either outcome below meaningless.
 	require.Truef(t, liveReindexStatus(statusBefore) && liveReindexStatus(statusAfter),
 		"the migration must still be live on both sides of the two restore calls "+
 			"(before=%q after=%q); grow guardDataset until it outlives them",
@@ -103,13 +100,11 @@ func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
 		require.NotContains(t, errMsg, node.Name, "got: %s", errMsg)
 	}
 
-	// A refused restore must not have partially landed.
 	_, exists := reindexhelpers.FetchClass(restURI, unrelatedClass, true)
 	require.Falsef(t, exists, "a refused restore must not create %s", unrelatedClass)
 
-	// Arm 2: same migration, same moment, a collection it does not name.
-	// This is what pins the scoping, and it passes the coordinator's gate
-	// and every participant's, since the class list reaches both.
+	// Arm 2: same migration, same moment, a collection it does not name. It
+	// passes the coordinator's gate and every participant's.
 	require.NoErrorf(t, crossCollectionErr,
 		"a restore of %s must be admitted while the migration on %s is live",
 		unrelatedClass, reindexClass)

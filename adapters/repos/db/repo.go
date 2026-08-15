@@ -116,10 +116,8 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps ([DB.SetReindexAuditDeps]) and
-	// the three reindex-gate lookup builders
-	// ([DB.SetShardReindexActivityLookup], [DB.SetAnyReindexActivityLookup],
-	// [DB.SetReindexHoldLookup]) so all of them are safely visible from any
+	// reindexAuditMu guards the audit deps and the reindex-gate lookup
+	// builders below, so all of them are safely visible from any
 	// post-restore goroutine.
 	//
 	// reindexAuditDeferredRequests counts the number of times

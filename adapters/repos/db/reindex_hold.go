@@ -43,7 +43,7 @@ func (h ReindexHold) String() string {
 // caller takes it after waiting for the terminal task's local work to
 // drain, by which point DTM already reports the task terminal, so neither
 // gate refuses in between; and on a drain timeout or an unreadable payload
-// it is never taken at all. See docs/runtime-reindex.md section 13.
+// it is never taken at all.
 type ReindexHoldRegistry struct {
 	mu    sync.RWMutex
 	holds map[string]map[ReindexHold]int

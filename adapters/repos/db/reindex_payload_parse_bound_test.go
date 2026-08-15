@@ -265,9 +265,6 @@ func BenchmarkRecoveryPayloadParse(b *testing.B) {
 	}
 }
 
-// BenchmarkAnyReindexActivityLookup measures what one restore probe pays to
-// build the gate's snapshot of a DTM list whose tasks are all terminal, at the
-// tenant counts a real migration reaches.
 func BenchmarkAnyReindexActivityLookup(b *testing.B) {
 	for _, tenants := range []int{0, 10_000} {
 		b.Run(fmt.Sprintf("tenants=%d", tenants), func(b *testing.B) {

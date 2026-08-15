@@ -52,8 +52,7 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 	return []modulecapabilities.BackupBackend{bsp.backend}
 }
 
-// reindexGateStub answers the two reindex gates for whichever fake embeds
-// it. The zero value admits, so tests that do not exercise a gate need set
+// The zero value admits, so tests that do not exercise a gate need set
 // nothing.
 type reindexGateStub struct {
 	mu       sync.Mutex
@@ -68,14 +67,13 @@ func (g *reindexGateStub) RefuseIfAnyReindexInFlight(ctx context.Context, classe
 	return g.refusal
 }
 
-// setReindexGate makes the restore gate refuse with err (nil admits).
 func (g *reindexGateStub) setReindexGate(err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.refusal = err
 }
 
-// gateCalls returns what the restore gate was asked about, in call order.
+// gateCalls returns what the gate was asked about, in call order.
 func (g *reindexGateStub) gateCalls() [][]string {
 	g.mu.Lock()
 	defer g.mu.Unlock()

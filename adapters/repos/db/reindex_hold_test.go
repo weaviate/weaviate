@@ -19,10 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestReindexHoldRegistry_RefcountAndScope walks what the registry has to
-// get right for the gate to answer correctly: a hold is visible while it
-// is raised, overlapping holds do not release each other, and a hold on
-// one collection never bleeds into a sibling.
 func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 	t.Run("raised then released", func(t *testing.T) {
 		r := &ReindexHoldRegistry{}
@@ -33,9 +29,6 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 		require.Equal(t, ReindexHoldNone, r.HoldFor("Movies"))
 	})
 	t.Run("overlapping holds do not release each other", func(t *testing.T) {
-		// Two terminal transitions on different properties of one
-		// collection overlap routinely. A boolean would let the first to
-		// finish reopen the gate under the second.
 		r := &ReindexHoldRegistry{}
 		first := r.acquire("Movies", ReindexHoldCleanup)
 		second := r.acquire("Movies", ReindexHoldCleanup)
@@ -52,9 +45,8 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 		require.Equal(t, ReindexHoldNone, r.HoldFor("Shows"))
 	})
 	t.Run("keys are case-folded", func(t *testing.T) {
-		// A hold is raised from a task payload and read with the class
-		// name the schema hands the gate. Nothing guarantees the two
-		// spellings match.
+		// A hold is raised from a task payload and read with the schema's
+		// spelling of the class name; nothing guarantees the two match.
 		r := &ReindexHoldRegistry{}
 		release := r.acquire("movies", ReindexHoldCleanup)
 		defer release()
@@ -63,9 +55,6 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 	})
 }
 
-// TestReindexHoldRegistry_ReleaseIsIdempotent pins that releasing twice
-// costs nothing. A caller that releases explicitly and again from a defer
-// would otherwise drop a hold a concurrent teardown is still counting on.
 func TestReindexHoldRegistry_ReleaseIsIdempotent(t *testing.T) {
 	r := &ReindexHoldRegistry{}
 	outer := r.acquire("Movies", ReindexHoldCleanup)
@@ -79,10 +68,6 @@ func TestReindexHoldRegistry_ReleaseIsIdempotent(t *testing.T) {
 	require.Equal(t, ReindexHoldNone, r.HoldFor("Movies"))
 }
 
-// TestReindexHoldRegistry_HoldReleasesOnEveryReturnPath pins that the
-// hold is dropped whether the work returns or panics. A hold leaked by a
-// panicking sweep closes the collection to every backup and restore until
-// the process restarts, which is the one state an operator cannot clear.
 func TestReindexHoldRegistry_HoldReleasesOnEveryReturnPath(t *testing.T) {
 	t.Run("normal return", func(t *testing.T) {
 		r := &ReindexHoldRegistry{}
@@ -117,10 +102,8 @@ func TestReindexHoldRegistry_HoldReleasesOnEveryReturnPath(t *testing.T) {
 	})
 }
 
-// TestReindexHoldRegistry_Concurrent pins the registry under the shape a
-// real node produces: many teardowns raising and dropping holds on one
-// collection at once. The observable contract is the end state; -race
-// covers the rest.
+// TestReindexHoldRegistry_Concurrent asserts the end state; -race covers
+// the rest.
 func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 	r := &ReindexHoldRegistry{}
 	const (
@@ -144,18 +127,14 @@ func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 	require.Empty(t, r.holds)
 }
 
-// TestReindexHoldString pins the names the gate's log line carries. An
-// unrecognized kind has to be nameable too, or the one entry reporting a
-// fail-closed refusal says nothing about what closed it.
+// An unrecognized kind has to be nameable too, or the one entry reporting
+// a fail-closed refusal says nothing about what closed it.
 func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "none", ReindexHoldNone.String())
 	assert.Equal(t, "cleanup", ReindexHoldCleanup.String())
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
 }
 
-// TestReindexHoldLookupBuilder pins the wiring contract: the closure
-// reads the live registry on every call, so the gate sees a hold raised
-// after the builder was installed.
 func TestReindexHoldLookupBuilder(t *testing.T) {
 	p := &ReindexProvider{}
 	lookup := p.ReindexHoldLookupBuilder()()

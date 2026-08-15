@@ -143,7 +143,6 @@ func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) erro
 			"a runtime-reindex is in flight that cannot be attributed to a collection, "+
 				"so %s cannot be restored; retry after the migration finishes.", subject))
 	}
-	// The remedy renders the collection into URL paths.
 	return restoreRefusal(fmt.Sprintf(
 		"%s has an active runtime-reindex task; retry after the migration finishes. %s",
 		subject, reindex.MigrationRemedy(activity.Collection)))
