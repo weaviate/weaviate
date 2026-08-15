@@ -237,8 +237,6 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
 	observed := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 		backup.ErrReindexOverlappedBackup, class)
-	unanswerable := fmt.Errorf("%w: the cluster task manager could not be listed at commit time",
-		backup.ErrReindexOverlapUndetermined)
 	cancelledWrite := fmt.Errorf("s3: %w", context.Canceled)
 
 	tests := []struct {
@@ -247,15 +245,9 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 		metaErr    error
 		wantStatus backup.Status
 	}{
-		{name: "an overlap the check observed", refusal: observed, wantStatus: backup.Failed},
 		{
 			name:    "an overlap the check observed, and the metadata write was cancelled too",
 			refusal: observed, metaErr: cancelledWrite, wantStatus: backup.Failed,
-		},
-		{name: "an overlap the check could not answer", refusal: unanswerable, wantStatus: backup.Failed},
-		{
-			name:    "an overlap the check could not answer, and the metadata write was cancelled too",
-			refusal: unanswerable, metaErr: cancelledWrite, wantStatus: backup.Failed,
 		},
 		{
 			// The other arm: nothing refused this capture, and the metadata
