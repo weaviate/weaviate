@@ -119,3 +119,76 @@ Routing picture this leaves: below the threshold the scan replaces the
 flat-search cutoff (today ~40k) and extends exact-quality filtered search
 to ~600k members at single-digit-to-tens of ms; above it, the graph path
 owns the regime — including dense-but-adversarial filters.
+
+## Concurrent pressure: scan vs ACORN through the team benchmarker
+
+Server-mode this time (not in-process): one import of wiki-dpr 10M into a
+`feat/filtered-scan` server (centered rq1, arena cache, ASYNC_INDEXING),
+then restarts on the same persisted index per toggle state — which also
+exercised the new `AddBRQCentered` restore path end-to-end, twice. Load:
+team benchmarker (gRPC) with a new `--filterSets` mode issuing
+`ContainsAny` text filters through the real inverted-index → sroar →
+allowlist path. Four cluster-union filter sets: 62,463 / 255,348 /
+605,142 / 1,505,618 members, exact GT per set, client concurrency
+p ∈ {1,2,4,8,16}, ef=128, k=10. Toggle: `FILTERED_SCAN_THRESHOLD=600000`
+vs unset (ACORN). Data: `wikidpr-10m-pressure.csv`, plot:
+`wikidpr-10m-pressure.png`. M1 Max, 8 performance cores.
+
+An off-by-5k footnote that became a control: set600k (605,142 members)
+sits *above* the 600,000 threshold, so both toggle states ran ACORN on it
+— run-to-run agreement within ±1% at every concurrency (same for the
+never-routed 1.5M set). The routed measurement at 605k was re-run
+separately with threshold 610k.
+
+| members | path | recall | QPS p1 | QPS p16 | p99 p1→p16 |
+|---|---|---|---|---|---|
+| 62k | scan | **0.9975** | 178 | **911** | 9→32 ms |
+| 62k | ACORN | 0.8062 | 71 | 500 | 23→77 ms |
+| 255k | scan | **0.9950** | 44 | 229 | 25→150 ms |
+| 255k | ACORN | 0.8761 | 56 | 346 | 29→106 ms |
+| 255k | ACORN ef512 | 0.9579 | 21 | 141 | 76→211 ms |
+| 605k | scan (routed) | **0.9919** | 15 | 88 | 74→318 ms |
+| 605k | ACORN | 0.9169 | 59 | 297 | 30→128 ms |
+| 1.5M | ACORN (both toggles) | 0.9420 | 51–53 | 236–239 | 29→170 ms |
+
+**Recall under load is bit-stable.** Every (path, size) cell reports the
+same recall to 4 decimals at p=1 and p=16. No concurrency-dependent
+quality anywhere — the gate this round existed to check.
+
+**No leak.** 370k queries at p16 through the scan path over 8 sustained
+minutes: RSS plateaus at 12.4 GB after ~90 s of warmup, then drifts
++0 MB over the final 4 minutes. (Earlier per-round RSS peaks of 15–18 GB
+were first-touch warmup across the mixed working sets, not growth.)
+
+**The lock prediction didn't materialize.** ACORN's scaling does not
+collapse: 7.1× at p16 on 62k, easing to 4.7× at 1.5M. The scan scales
+4.6–5.2×. Both knee at p=8 — the M1 Max's 8 performance cores — so the
+ceiling is cores/bandwidth, not the seeding path's read lock, at least
+up to p16 on this machine.
+
+**The scan's aggregate capacity is a constant: ~56M members/s.** Across
+all three routed sizes at p16: 62k×911 = 57M, 255k×229 = 58M,
+605k×88.5 = 54M members/s. Saturated scan QPS on this machine is simply
+`56M / members` — the linear-cost model survives concurrency perfectly,
+which makes the routing threshold a one-line capacity formula rather
+than a lookup table.
+
+**The crossover is load-dependent, and it moves down.** Single-threaded
+(previous section) the scan wins to ~600k–1M members. Under saturated
+load, ACORN's near-size-independent ~300–350 QPS overtakes the scan's
+`56M/members` between 255k and 605k on raw throughput (equal-throughput
+point ≈ 190k). At *matched recall* the picture stays scan-friendly
+longer: at 255k, ACORN at ef 512 still only reaches 0.958 (vs the scan's
+0.995) at 141 QPS vs 229 — the scan strictly dominates. At 605k the scan
+holds a +7.5-point recall edge (0.992 vs 0.917) but pays 3.4× the
+throughput cost; ACORN at higher ef would land between, still short on
+recall. Honest summary: **quality-first routing keeps the threshold at
+~600k; throughput-first routing under saturation wants ~200–250k.** The
+threshold should ultimately be derived from the capacity formula and the
+deployment's load, not hardcoded — and re-derived on x86 (128 B-line
+stage-1 advantage untested here, as before).
+
+Latency shape worth noting: the routed scan at 605k/p16 shows p99 318 ms
+against ~90 ms p50 — queueing on a per-query cost that is itself ~11 ms
+of one core's time. Below ~250k members the scan's p99 stays under
+ACORN's at every concurrency while delivering +9 to +19 recall points.
