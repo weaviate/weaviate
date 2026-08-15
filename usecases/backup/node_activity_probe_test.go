@@ -207,6 +207,10 @@ func TestNewSchedulerRefusesToBuildWithoutAProbe(t *testing.T) {
 	})
 }
 
+func TestNewNodeActivityProbeRefusesToBuildWithoutAParticipant(t *testing.T) {
+	assert.Panics(t, func() { NewNodeActivityProbe(nil) })
+}
+
 // A probe can arrive before the Scheduler is built, which happens well after
 // the participant. Answering from the participant slots alone is right then,
 // since a node with no Scheduler cannot be coordinating anything.

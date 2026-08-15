@@ -49,12 +49,15 @@ type backups struct {
 	warnUnwired sync.Once
 }
 
-// NewBackups requires a logger. The node-activity route logs on every answer,
+// NewBackups refuses a nil logger. The node-activity route logs on every answer,
 // so a nil one turns a peer's question into a panic on a node that served every
 // other backup route fine before that route existed.
 func NewBackups(manager backupManager, activity nodeActivityProber, auth auth,
 	logger logrus.FieldLogger,
 ) *backups {
+	if logger == nil {
+		panic("clusterapi: NewBackups needs a logger")
+	}
 	return &backups{manager: manager, activity: activity, auth: auth, logger: logger}
 }
 

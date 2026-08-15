@@ -203,6 +203,12 @@ func TestBackupNodeActivityRouteLogs(t *testing.T) {
 	}
 }
 
+func TestNewBackupsRefusesToBuildWithoutALogger(t *testing.T) {
+	assert.Panics(t, func() {
+		clusterapi.NewBackups(nil, &stubProber{}, clusterapi.NewNoopAuthHandler(), nil)
+	})
+}
+
 type oneNode string
 
 func (n oneNode) NodeHostname(string) (string, bool) {

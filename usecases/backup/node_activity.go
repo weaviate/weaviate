@@ -111,7 +111,14 @@ type NodeActivityProbe struct {
 	scheduler *Scheduler
 }
 
+// NewNodeActivityProbe refuses a nil participant for the same reason
+// [NewScheduler] refuses a nil probe: every answer reads the participant slots,
+// so a wiring mistake would otherwise surface as a panic inside the handler
+// answering a peer instead of stopping this node at startup.
 func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
+	if participant == nil {
+		panic("backup: NewNodeActivityProbe needs a participant")
+	}
 	return &NodeActivityProbe{participant: participant}
 }
 
