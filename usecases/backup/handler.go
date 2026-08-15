@@ -32,18 +32,39 @@ import (
 // [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
 // using empty-string semantics when nothing went wrong.
 //
-// Classification uses errors.Is against the shared
-// [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
-// comparison; the storage layer's Backupable() wraps that sentinel inside
-// errors.Join when multiple shards refuse, and errors.Is walks the join.
+// Classification reads the error chain, never the words: the storage layer's
+// Backupable() wraps the shared [backup.ErrBackupBlockedByInFlightReindex]
+// sentinel inside errors.Join when several classes refuse.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
-	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+	if onlyReindexRefusals(err) {
 		return CanCommitErrInFlightReindex
 	}
 	return CanCommitErrCannotCommit
+}
+
+// onlyReindexRefusals reports whether every error in the chain is a refusal.
+// Backupable joins one error per class, so a refusal can arrive next to a
+// class that does not exist. The coordinator rebuilds a refusal from the
+// request and drops the participant's text, so a mixed answer has to keep the
+// generic kind or the part the operator can act on never reaches them.
+func onlyReindexRefusals(err error) bool {
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return errors.Is(err, backup.ErrBackupBlockedByInFlightReindex)
+	}
+	errs := joined.Unwrap()
+	if len(errs) == 0 {
+		return false
+	}
+	for _, e := range errs {
+		if !onlyReindexRefusals(e) {
+			return false
+		}
+	}
+	return true
 }
 
 // classifyRestoreGateErr keeps the restore gate's two answers apart across

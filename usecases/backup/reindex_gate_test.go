@@ -88,6 +88,77 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
 }
 
+// TestCanCommitRefusalKeepsUnrelatedFailures walks both hops a refused
+// canCommit takes: the participant stamps a kind on it, and the coordinator
+// rebuilds the body from that kind alone.
+func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
+	ctx := context.Background()
+	refusal := func(class string) error {
+		return fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
+			backup.ErrBackupBlockedByInFlightReindex, class)
+	}
+	tests := []struct {
+		name            string
+		classes         []string
+		backupErr       error
+		wantKind        CanCommitErrorKind
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:      "one class, refused",
+			classes:   []string{"Movies"},
+			backupErr: refusal("Movies"),
+			wantKind:  CanCommitErrInFlightReindex,
+			// Rebuilt: the participant's own words name its shards.
+			wantContains:    []string{`on "Movies"`},
+			wantNotContains: []string{"in DTM", "at least one of"},
+		},
+		{
+			name:      "several classes, all refused",
+			classes:   []string{"Movies", "Shows"},
+			backupErr: errors.Join(refusal("Movies"), refusal("Shows")),
+			wantKind:  CanCommitErrInFlightReindex,
+			// Which of the two is migrating did not survive the hop.
+			wantContains:    []string{`at least one of "Movies", "Shows"`},
+			wantNotContains: []string{"in DTM"},
+		},
+		{
+			name:      "a refusal next to a class that does not exist",
+			classes:   []string{"Ghost", "Movies"},
+			backupErr: errors.Join(errors.New("class Ghost doesn't exist"), refusal("Movies")),
+			wantKind:  CanCommitErrCannotCommit,
+			wantContains: []string{
+				"class Ghost doesn't exist",
+				`collection "Movies" has an active runtime-reindex task`,
+			},
+			wantNotContains: []string{`in flight on "Ghost"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/1")
+			sourcer := &fakeSourcer{}
+			sourcer.On("Backupable", ctx, mock.Anything).Return(tt.backupErr)
+			m := createManager(sourcer, nil, backend, nil)
+			resp := m.OnCanCommit(ctx, &Request{
+				Method: OpCreate, ID: "1", Backend: "s3", Classes: tt.classes,
+			})
+			require.Equal(t, tt.wantKind, resp.ErrKind)
+
+			published := canCommitErrFromResponse(resp, tt.classes)
+			require.Error(t, published)
+			for _, want := range tt.wantContains {
+				assert.Contains(t, published.Error(), want)
+			}
+			for _, unwanted := range tt.wantNotContains {
+				assert.NotContains(t, published.Error(), unwanted)
+			}
+		})
+	}
+}
+
 // One call site sees both chains: canCommit carries a backup refusal and a
 // restore refusal through the same fan-out.
 func TestIsReindexRefusal(t *testing.T) {

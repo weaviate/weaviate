@@ -38,13 +38,23 @@ func publishAsCancelled(err, ctxErr error) bool {
 func backupRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"%w: a runtime-reindex is in flight on %s; retry after the migration finishes",
-		backup.ErrBackupBlockedByInFlightReindex, quoteClassList(classes))
+		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes))
 }
 
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"restore blocked: %w: a runtime-reindex is in flight on %s; retry after the migration finishes",
-		backup.ErrReindexInFlight, quoteClassList(classes))
+		backup.ErrReindexInFlight, blockedSubject(classes))
+}
+
+// The kind is all that survives the hop, so the participant reported that
+// something in the request is migrating, never which one. Naming a list
+// asserts a migration on each of them.
+func blockedSubject(classes []string) string {
+	if len(classes) == 1 {
+		return quoteClassList(classes)
+	}
+	return "at least one of " + quoteClassList(classes)
 }
 
 // Nothing was observed, so the rebuilt message names no collection and
