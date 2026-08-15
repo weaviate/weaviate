@@ -414,9 +414,9 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 }
 
-// TestGateAndCommitCheckAgree pins that the per-shard gate and the
-// commit-time check refuse the same tasks, so a capture the gate admits is
-// never failed later for something the gate could already have seen.
+// TestGateAndCommitCheckAgree pins that the restore gate and the commit-time
+// check read the same task payloads the same way, so the two never disagree
+// about whether a task touches a collection.
 func TestGateAndCommitCheckAgree(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -449,7 +449,7 @@ func TestGateAndCommitCheckAgree(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			task := reindexTask("t1", distributedtask.TaskStatusStarted, tt.payload)
 
-			// The gate reads the same task list through the same decoder.
+			// The restore gate reads the same task list through the same decoder.
 			decoded := DecodeReindexTaskPayload(task.Payload)
 			_, live := NewAnyReindexActivityLookup([]*distributedtask.Task{task})([]string{"Movies"})
 			gateRefuses := decoded.Scope == ReindexPayloadScopeCluster || live
@@ -458,7 +458,7 @@ func TestGateAndCommitCheckAgree(t *testing.T) {
 				24*time.Hour, noLocalWorker, func() time.Time { return commitTime })
 			commitCheckRefuses := commitCheck([]string{"Movies"}, captureStart).Overlapped
 
-			assert.Equal(t, tt.wantRefused, gateRefuses, "gate")
+			assert.Equal(t, tt.wantRefused, gateRefuses, "restore gate")
 			assert.Equal(t, tt.wantRefused, commitCheckRefuses, "commit-time check")
 		})
 	}
