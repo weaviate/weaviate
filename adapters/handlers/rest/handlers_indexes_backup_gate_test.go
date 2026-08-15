@@ -464,8 +464,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 
 type fixedActivity struct{ activity backup.NodeActivity }
 
-func (f fixedActivity) Activity() backup.NodeActivity     { return f.activity }
-func (fixedActivity) AttachScheduler(_ *backup.Scheduler) {}
+func (f fixedActivity) Activity() backup.NodeActivity { return f.activity }
 
 // A nil probe must read as "not wired" rather than panic.
 func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
