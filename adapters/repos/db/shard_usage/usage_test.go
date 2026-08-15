@@ -435,6 +435,40 @@ func TestCalculateNonLSMStorage_HFreshOneLevelDeep(t *testing.T) {
 	assert.Equal(t, uint64(0), otherNonLSMFoldersStorageSize, "no other storage expected")
 }
 
+// TestCalculateNonLSMStorage_ExcludesUsageCacheFile pins a self-reference: SaveComputedUsageData
+// writes its cache into the shard root that CalculateNonLSMStorage sums, so the same unchanged
+// shard reported a larger size once a usage calculation had run.
+func TestCalculateNonLSMStorage_ExcludesUsageCacheFile(t *testing.T) {
+	dirName := t.TempDir()
+	shardPath := filepath.Join(dirName, "shard1")
+	require.NoError(t, os.MkdirAll(shardPath, 0o777))
+
+	rootFiles := map[string]int{"proplengths": 169, "indexcount": 8, "version": 2}
+	expected := uint64(0)
+	for name, size := range rootFiles {
+		require.NoError(t, os.WriteFile(filepath.Join(shardPath, name), make([]byte, size), 0o644))
+		expected += uint64(size)
+	}
+
+	_, before, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+	assert.Equal(t, expected, before)
+
+	require.NoError(t, SaveComputedUsageData(dirName, "shard1", &types.ShardUsage{
+		Name:                  "shard1",
+		ObjectsCount:          100,
+		FullShardStorageBytes: before,
+	}))
+
+	cacheSize, err := os.Stat(usageTmpFilePath(dirName, "shard1"))
+	require.NoError(t, err)
+	require.Positive(t, cacheSize.Size())
+
+	_, after, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "calculating usage must not change the size it reports")
+}
+
 // TestCalculateUnloadedDimensionsUsage_Concurrent pins the "bucket already registered" error:
 // concurrent usage reports (overlapping periodic collections, /debug/usage) used to open the
 // same unloaded dimensions bucket at once, which lsmkv's GlobalBucketRegistry rejects.
