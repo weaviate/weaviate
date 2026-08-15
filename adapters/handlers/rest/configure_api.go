@@ -1151,6 +1151,7 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 				return db.ReindexOverlapVerdict{
 					Undetermined: true,
 					Detail:       "the cluster task manager could not be listed at commit time",
+					Remedy:       "restore RAFT reachability from this node",
 				}
 			}
 		}

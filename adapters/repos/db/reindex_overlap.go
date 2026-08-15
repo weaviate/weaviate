@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 type ReindexOverlapVerdict struct {
@@ -32,6 +33,7 @@ type ReindexOverlapVerdict struct {
 	TaskID     string
 
 	Detail string
+	Remedy string
 }
 
 func (v ReindexOverlapVerdict) allowsBackup() bool { return !v.Overlapped && !v.Undetermined }
@@ -141,9 +143,10 @@ func NewReindexOverlapLookup(
 			return ReindexOverlapVerdict{
 				Undetermined: true,
 				Detail: fmt.Sprintf(
-					"this backup ran for %s, longer than the %s a finished migration stays listed, "+
-						"so a migration that overlapped it may already have been dropped",
+					"this backup ran for %s and reached the %s window in which a finished migration "+
+						"stays listed, so a migration that overlapped it may already have been dropped",
 					age.Round(time.Second), completedTaskTTL),
+				Remedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS above the time a backup takes",
 			}
 		}
 		return ReindexOverlapVerdict{}
@@ -175,6 +178,7 @@ func decideReindexOverlap(
 		return ReindexOverlapVerdict{
 			Undetermined: true,
 			Detail:       "a migration reached a terminal status without recording when it finished",
+			Remedy:       ReindexOverlapIncompleteRecordRemedy,
 		}
 	}
 	if task.FinishedAt.Before(since) {
@@ -196,6 +200,7 @@ func decideCancelledReindexOverlap(
 		return ReindexOverlapVerdict{
 			Undetermined: true,
 			Detail:       "a cancelled migration recorded no units, so nothing says whether it wrote",
+			Remedy:       ReindexOverlapIncompleteRecordRemedy,
 		}
 	}
 	for _, unit := range task.Units {
@@ -203,6 +208,7 @@ func decideCancelledReindexOverlap(
 			return ReindexOverlapVerdict{
 				Undetermined: true,
 				Detail:       "a cancelled migration recorded a unit with no state",
+				Remedy:       ReindexOverlapIncompleteRecordRemedy,
 			}
 		}
 		if unit.Status != distributedtask.UnitStatusPending {
@@ -287,27 +293,45 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 		})
 }
 
-// Two errors, never both: an undetermined answer must not match the observed one.
+// ReindexOverlapIncompleteRecordRemedy is what an operator can do about a
+// migration record too incomplete to judge a capture against: nothing, until
+// the cluster task list drops it. Naming the wait beats naming no step.
+const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against that record, so backups " +
+	"stay refused until the cluster task list drops it, DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS " +
+	"after the migration finished"
+
+// Two errors, never both: an undetermined answer must not match the observed
+// one. Both fill the same three slots, because an operator reading either one
+// needs the same three things: what the check found, that this backup id
+// cannot be reused and what has to change first, and that the bytes already
+// uploaded are still sitting there.
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) error {
-	if verdict.Undetermined {
-		return fmt.Errorf("%w: %s",
-			entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail)
+	sentinel, finding, remedy := entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail, verdict.Remedy
+	if !verdict.Undetermined {
+		subject, matched := overlapSubject(classes, verdict.Collection)
+		sentinel = entitiesbackup.ErrReindexOverlappedBackup
+		finding = subject + " was migrated while this backup was being captured"
+		remedy = "wait for that migration to finish"
+		if matched != "" {
+			// The remedy renders the collection into URL paths.
+			remedy += ". " + reindex.MigrationRemedy(matched)
+		}
 	}
-	named, _ := overlapSubject(classes, verdict.Collection)
-	return fmt.Errorf("%w: %s was migrated while this backup was being captured; "+
-		"take a new backup once the migration has finished",
-		entitiesbackup.ErrReindexOverlappedBackup, named)
+	return fmt.Errorf("%w: %s. This backup id is spent, so a retry needs a new one: %s. "+
+		"The partial upload under this id is not removed automatically and has to be deleted out of band",
+		sentinel, finding, remedy)
 }
 
 // overlapSubject echoes the caller's own spelling of the captured class the
-// verdict points at. Printing the task's spelling instead would let a name
-// this backup never captured reach the API whenever the decoder attributes a
-// task to something the caller did not ask about.
-func overlapSubject(classes []string, blocking string) (string, bool) {
+// verdict points at, and reports which one matched. Printing the task's
+// spelling instead would let a name this backup never captured reach the API
+// whenever the decoder attributes a task to something the caller did not ask
+// about.
+func overlapSubject(classes []string, blocking string) (subject, matched string) {
 	for _, class := range classes {
 		if strings.EqualFold(class, blocking) {
-			return fmt.Sprintf("collection %q", class), true
+			return fmt.Sprintf("collection %q", class), class
 		}
 	}
-	return "a collection this backup captured", false
+	return "a collection this backup captured", ""
 }

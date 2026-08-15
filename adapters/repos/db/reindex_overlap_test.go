@@ -179,6 +179,10 @@ func TestReindexOverlapRules(t *testing.T) {
 			if tt.wantDetail != "" {
 				assert.Contains(t, verdict.Detail, tt.wantDetail)
 			}
+			if verdict.Undetermined {
+				assert.NotEmpty(t, verdict.Remedy,
+					"an answer nobody can act on is worse than no answer")
+			}
 		})
 	}
 }
@@ -269,6 +273,7 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 		wantUndetermined bool
 		wantDetail       string
 		notDetail        string
+		wantRemedy       string
 	}{
 		{
 			name: "inside the window an empty list clears the capture",
@@ -277,36 +282,42 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 		{
 			name: "at the window it can no longer be cleared",
 			ttl:  time.Hour, age: time.Hour,
-			wantUndetermined: true, wantDetail: "longer than the",
+			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
+			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
 		{
 			name: "past the window either",
 			ttl:  time.Hour, age: time.Hour + time.Minute,
-			wantUndetermined: true, wantDetail: "longer than the",
+			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
+			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
 		{
 			// The value under which the evidence is guaranteed gone: every
 			// terminal task is collectable on the next scheduler tick.
 			name: "a zero window retains nothing, so nothing can be cleared",
 			ttl:  0, age: time.Minute,
-			wantUndetermined: true, wantDetail: "longer than the",
+			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
+			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
 		{
 			name: "a negative window is a zero window",
 			ttl:  -time.Hour, age: time.Minute,
-			wantUndetermined: true, wantDetail: "longer than the",
+			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
+			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
 		{
 			name:  "a listed task answers even past the window",
 			tasks: []*distributedtask.Task{liveMatching},
 			ttl:   time.Hour, age: time.Hour + time.Minute,
-			wantOverlapped: true, notDetail: "longer than the",
+			wantOverlapped: true, notDetail: "window in which a finished migration",
 		},
 		{
 			name:  "a listed task's own unanswerable reason beats the window's",
 			tasks: []*distributedtask.Task{cancelledNoUnits},
 			ttl:   time.Hour, age: time.Hour + time.Minute,
-			wantUndetermined: true, wantDetail: "recorded no units", notDetail: "longer than the",
+			wantUndetermined: true, wantDetail: "recorded no units",
+			notDetail:  "window in which a finished migration",
+			wantRemedy: "until the cluster task list drops it",
 		},
 	}
 
@@ -322,6 +333,9 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 			}
 			if tt.notDetail != "" {
 				assert.NotContains(t, verdict.Detail, tt.notDetail)
+			}
+			if tt.wantRemedy != "" {
+				assert.Contains(t, verdict.Remedy, tt.wantRemedy)
 			}
 		})
 	}
@@ -393,41 +407,110 @@ func TestReindexOverlapNamesTheSameTask(t *testing.T) {
 	}
 }
 
-// TestReindexOverlapRefusalWording pins that the two answers stay
-// distinguishable all the way out. A caller that matched the observed
-// sentinel on an undetermined answer would report a backup nobody could
-// judge as one a migration is known to have torn.
+// TestReindexOverlapRefusalWording pins the three things every refusal has
+// to say, whichever answer produced it: what the check found, that this
+// backup id cannot be reused and what has to change before a new one will
+// work, and that the bytes already uploaded are still sitting there. It
+// also pins that the two answers stay distinguishable all the way out — a
+// caller matching the observed sentinel on an undetermined answer would
+// report a backup nobody could judge as one a migration is known to have
+// torn.
 func TestReindexOverlapRefusalWording(t *testing.T) {
-	t.Run("observed", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"}, []string{"Movies"})
+	tests := []struct {
+		name         string
+		verdict      ReindexOverlapVerdict
+		classes      []string
+		wantSentinel error
+		notSentinel  error
+		wantFinding  string
+		wantRemedy   string
+		notContains  []string
+	}{
+		{
+			name:         "an overlap on a collection this backup captured",
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies", TaskID: "t1"},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
+			notSentinel:  entitiesbackup.ErrReindexOverlapUndetermined,
+			wantFinding:  `collection "Movies" was migrated while this backup was being captured`,
+			wantRemedy:   "GET /v1/schema/Movies/indexes",
+		},
+		{
+			// The caller's spelling, not the task's: the task's would
+			// disclose a name this backup never captured.
+			name:         "an overlap the caller spelled differently",
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"},
+			classes:      []string{"movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  `collection "movies" was migrated`,
+			wantRemedy:   "GET /v1/schema/movies/indexes",
+			notContains:  []string{`"Movies"`},
+		},
+		{
+			name:         "an overlap on a collection this backup never captured",
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Secret"},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  "a collection this backup captured was migrated",
+			wantRemedy:   "wait for that migration to finish",
+			notContains:  []string{"Secret", "/v1/schema"},
+		},
+		{
+			name: "a backup that outlived the retention window",
+			verdict: ReindexOverlapVerdict{
+				Undetermined: true,
+				Detail: "this backup ran for 2h0m0s and reached the 1h0m0s window in which a " +
+					"finished migration stays listed",
+				Remedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS above the time a backup takes",
+			},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlapUndetermined,
+			notSentinel:  entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  "window in which a finished migration stays listed",
+			wantRemedy:   "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			notContains: []string{
+				"overlapped this backup",
+				// Nothing is in flight here; the task may already be gone.
+				"in flight",
+			},
+		},
+		{
+			name: "a migration record too incomplete to judge",
+			verdict: ReindexOverlapVerdict{
+				Undetermined: true,
+				Detail:       "a cancelled migration recorded no units, so nothing says whether it wrote",
+				Remedy:       ReindexOverlapIncompleteRecordRemedy,
+				TaskID:       "t1",
+			},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlapUndetermined,
+			notSentinel:  entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  "recorded no units",
+			wantRemedy:   "until the cluster task list drops it",
+		},
+	}
 
-		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
-		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
-		assert.Contains(t, err.Error(), `collection "Movies"`)
-		assert.Contains(t, err.Error(), "was migrated while this backup was being captured")
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := reindexOverlapRefusal(tt.verdict, tt.classes)
 
-	t.Run("undetermined", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{
-			Undetermined: true,
-			Detail:       "this backup ran for 2h0m0s, longer than the 1h0m0s a finished migration stays listed",
-		}, []string{"Movies"})
-
-		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
-		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup,
-			"the check observed no overlap, so it must not claim one")
-		assert.NotContains(t, err.Error(), "overlapped this backup")
-		assert.NotContains(t, err.Error(), "in flight",
-			"nothing is in flight on this path; the task may already be gone")
-		assert.Contains(t, err.Error(), "longer than the")
-	})
-
-	t.Run("observed but unattributable", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true}, nil)
-
-		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
-		assert.Contains(t, err.Error(), "a collection this backup captured")
-	})
+			require.ErrorIs(t, err, tt.wantSentinel)
+			if tt.notSentinel != nil {
+				require.NotErrorIs(t, err, tt.notSentinel)
+			}
+			assert.Contains(t, err.Error(), tt.wantFinding)
+			assert.Contains(t, err.Error(), tt.wantRemedy)
+			assert.Contains(t, err.Error(), "This backup id is spent",
+				"a same-id retry answers 422 already exists, so saying only retry is wrong")
+			assert.Contains(t, err.Error(), "is not removed automatically",
+				"nothing else tells an operator the partial upload is still there")
+			assert.NotContains(t, err.Error(), "t1",
+				"the task id stays in the WARN; one disclosure rule for the whole subsystem")
+			for _, unwanted := range tt.notContains {
+				assert.NotContains(t, err.Error(), unwanted)
+			}
+		})
+	}
 }
 
 func TestRefuseIfReindexOverlapped(t *testing.T) {
