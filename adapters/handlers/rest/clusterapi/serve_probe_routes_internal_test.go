@@ -124,7 +124,7 @@ func TestClusterMuxRefusesToBuildBeforeTheProbeIsAssigned(t *testing.T) {
 	appState := probeAppState(t)
 	appState.BackupActivity = nil
 
-	assert.Panics(t, func() { newClusterMux(appState, NewNoopAuthHandler()) })
+	assert.PanicsWithValue(t, "clusterapi: cluster mux built before the backup node-activity probe was assigned", func() { newClusterMux(appState, NewNoopAuthHandler()) })
 }
 
 // The same table read by the client that ships with it, so a route that is
