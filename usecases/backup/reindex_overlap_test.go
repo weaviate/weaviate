@@ -243,6 +243,11 @@ func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
 // with context.Canceled's text in the reason is relabelled CANCELLED, and a
 // cancelled backup id can be re-posted, so a torn capture would be quietly
 // overwritten by a clean one under the same id.
+//
+// The refusals below are the shapes the check actually emits, none of which
+// quotes a cancel — the builder that could have deliberately keeps the list
+// error out of its detail. What this pins is that the metadata fault spliced
+// in beside them cannot put that text back.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
 
@@ -252,13 +257,13 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	}{
 		{
 			name: "an overlap the check observed",
-			refusal: fmt.Errorf("%w: collection %q was migrated: %w",
-				backup.ErrReindexOverlappedBackup, class, context.Canceled),
+			refusal: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+				backup.ErrReindexOverlappedBackup, class),
 		},
 		{
 			name: "an overlap the check could not answer",
-			refusal: fmt.Errorf("%w: the cluster task manager could not be listed: %w",
-				backup.ErrReindexOverlapUndetermined, context.Canceled),
+			refusal: fmt.Errorf("%w: the cluster task manager could not be listed at commit time",
+				backup.ErrReindexOverlapUndetermined),
 		},
 	}
 

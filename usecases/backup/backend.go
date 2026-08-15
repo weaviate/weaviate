@@ -410,14 +410,16 @@ func failureMessageForStatus(err error) string {
 }
 
 // withMetaFault names a failed metadata write after the reason, not around
-// it. Both halves go through reasonSafeText because this is the string the
-// coordinator classifies, and either half can quote a cancelled request.
+// it. The write fault is a second error's text spliced into the string the
+// coordinator classifies, so it goes through reasonSafeText. The reason is
+// left as it arrived: how the coordinator treats a capture failure that
+// quotes a cancel is not this function's to decide.
 func withMetaFault(reason string, metaErr error) string {
 	if metaErr == nil {
-		return reasonSafeText(reason)
+		return reason
 	}
-	return reasonSafeText(fmt.Sprintf(
-		"%s; uploading the backup metadata also failed: %v", reason, metaErr))
+	return fmt.Sprintf("%s; uploading the backup metadata also failed: %s",
+		reason, reasonSafeText(metaErr.Error()))
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
