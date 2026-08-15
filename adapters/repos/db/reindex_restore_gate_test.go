@@ -226,7 +226,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 				return ReindexActivity{Unreadable: true}, true
 			}
 		})
-		db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+		db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "could not be read")

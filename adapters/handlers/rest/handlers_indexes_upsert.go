@@ -723,14 +723,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		}
 	}
 
-	// A capture that started while the RAFT write was in flight was admitted by
-	// its own gate before this hold closed, so the submission has to give way.
-	if scan := h.rescanBackupActivity(ctx); scan.verdict != backupActivityClear {
-		return h.rollbackSubmit(ctx, principal, h.appState.ClusterService, collection, taskID,
-			reindexCancelRemedy(collection, propertyName, migrationType), scan,
-			releaseSubmitHold)
-	}
-
 	// Operational audit line for a privileged cluster-wide operation.
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event":    "reindex_task_submitted",

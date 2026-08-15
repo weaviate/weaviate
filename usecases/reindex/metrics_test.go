@@ -22,7 +22,7 @@ import (
 
 func TestGateMetricsRefused(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
-	metrics := NewGateMetrics(registry, nil, nil)
+	metrics := NewGateMetrics(registry, nil)
 
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
@@ -44,7 +44,7 @@ func TestGateMetricsRefusedWithoutARegistry(t *testing.T) {
 func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	open := 0
-	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return open }}, nil)
+	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return open }})
 
 	require.Equal(t, 0.0, gaugeValue(t, registry))
 	open = 3
@@ -61,7 +61,7 @@ func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	}
 
 	registry := prometheus.NewPedanticRegistry()
-	metrics := NewGateMetrics(registry, nil, nil)
+	metrics := NewGateMetrics(registry, nil)
 	for _, gate := range gates {
 		for _, verdict := range verdicts {
 			metrics.Refused(gate, verdict)
@@ -91,8 +91,7 @@ func gaugeValue(t *testing.T, registry *prometheus.Registry) float64 {
 // series has to exist before the first refusal.
 func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
-	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return 0 }},
-		[]string{"cancelled", "failed"})
+	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return 0 }})
 
 	families, err := registry.Gather()
 	require.NoError(t, err)
@@ -104,7 +103,5 @@ func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
 
 	assert.Equal(t, 21, names["weaviate_reindex_gate_refusals_total"],
 		"every gate/verdict pair production can emit must exist at zero")
-	assert.Equal(t, 2, names["weaviate_reindex_submit_rollbacks_total"],
-		"every rollback outcome must exist at zero")
 	assert.Equal(t, 1, names["weaviate_reindex_open_holds"])
 }

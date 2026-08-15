@@ -269,7 +269,7 @@ func TestBackupActivityRefusal(t *testing.T) {
 			registry := prometheus.NewPedanticRegistry()
 			h := &indexesHandlers{appState: &state.State{
 				Logger:             quietLogger(),
-				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil, nil),
+				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil),
 			}}
 
 			resp := h.backupActivityRefusal(nil, "Books", tt.scan)
@@ -414,9 +414,9 @@ func (staticProber) NodeActivity(context.Context, string) (backup.NodeActivity, 
 	return backup.NodeActivity{}, nil
 }
 
-// The post-commit rescan has to re-read the local slots, which on a single node
+// The local slots decide before any peer is asked, and on a single node they
 // are the only rung there is.
-func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
+func TestSubmitGateReadsTheLocalRung(t *testing.T) {
 	tests := []struct {
 		name        string
 		local       backup.NodeActivity
@@ -425,7 +425,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 		wantFault   error
 	}{
 		{
-			name:        "this node started capturing since the pre-commit read",
+			name:        "this node is capturing",
 			local:       busy(backup.NodeActivityKindBackup, "b1"),
 			wantVerdict: backupActivityBusy,
 			wantKind:    backup.NodeActivityKindBackup,
@@ -438,9 +438,9 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 		},
 		{
 			// Nothing here is wired to answer for the peers, and the refusal
-			// that produces is what proves the rescan went past the local rung
+			// that produces is what proves the gate went past the local rung
 			// rather than answering from it.
-			name:        "still idle, so the peers are asked too",
+			name:        "idle, so the peers are asked too",
 			local:       backup.NodeActivity{Answered: true},
 			wantVerdict: backupActivityUnreachable,
 			wantFault:   errClusterProbeUnwired,
@@ -454,7 +454,9 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 				BackupActivity: fixedActivity{activity: tt.local},
 			}}
 
-			scan := h.rescanBackupActivity(context.Background())
+			_, scan := openSubmitBackupGate(h.localBackupActivity,
+				func() func() { return h.markSubmitInProgress("Books") },
+				func() backupActivityScan { return h.scanClusterBackupActivity(context.Background()) })
 
 			assert.Equal(t, tt.wantVerdict, scan.verdict)
 			assert.Equal(t, tt.wantKind, scan.kind)
@@ -477,9 +479,9 @@ func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
 	assert.NotPanics(t, func() { assert.False(t, h.localBackupActivity().Busy) })
 }
 
-// Refused and RolledBack are no-ops on a nil receiver, so dropping either
-// install line leaves every gate refusing correctly and reporting nothing. No
-// gate test covers the install: each injects its own metrics by hand.
+// Refused is a no-op on a nil receiver, so dropping the install line leaves
+// every gate refusing correctly and reporting nothing. No gate test covers the
+// install: each injects its own metrics by hand.
 func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	// The gauge reads the hold registry off the DB, so the provider has to be
@@ -506,5 +508,4 @@ func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 	}
 	// Gathered, so the gauges really read the provider at scrape time.
 	assert.Equal(t, 2, series["weaviate_reindex_open_holds"], "one gauge per hold kind")
-	assert.Equal(t, len(RollbackOutcomeLabels()), series["weaviate_reindex_submit_rollbacks_total"], "every rollback outcome exists at zero")
 }

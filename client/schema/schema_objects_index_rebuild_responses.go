@@ -435,10 +435,10 @@ func NewSchemaObjectsIndexRebuildConflict() *SchemaObjectsIndexRebuildConflict {
 /*
 SchemaObjectsIndexRebuildConflict describes a response with status code 409, with default header values.
 
-The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, `taskId` names it and it has to be cancelled before a retry can succeed.
+The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID.
 */
 type SchemaObjectsIndexRebuildConflict struct {
-	Payload *models.IndexRefusalResponse
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects index rebuild conflict response has a 2xx status code
@@ -479,13 +479,13 @@ func (o *SchemaObjectsIndexRebuildConflict) String() string {
 	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/index/{indexName}/rebuild][%d] schemaObjectsIndexRebuildConflict  %+v", 409, o.Payload)
 }
 
-func (o *SchemaObjectsIndexRebuildConflict) GetPayload() *models.IndexRefusalResponse {
+func (o *SchemaObjectsIndexRebuildConflict) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsIndexRebuildConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.IndexRefusalResponse)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -707,10 +707,10 @@ func NewSchemaObjectsIndexRebuildServiceUnavailable() *SchemaObjectsIndexRebuild
 /*
 SchemaObjectsIndexRebuildServiceUnavailable describes a response with status code 503, with default header values.
 
-Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, `taskId` names it.
+Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry.
 */
 type SchemaObjectsIndexRebuildServiceUnavailable struct {
-	Payload *models.IndexRefusalResponse
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects index rebuild service unavailable response has a 2xx status code
@@ -751,13 +751,13 @@ func (o *SchemaObjectsIndexRebuildServiceUnavailable) String() string {
 	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/index/{indexName}/rebuild][%d] schemaObjectsIndexRebuildServiceUnavailable  %+v", 503, o.Payload)
 }
 
-func (o *SchemaObjectsIndexRebuildServiceUnavailable) GetPayload() *models.IndexRefusalResponse {
+func (o *SchemaObjectsIndexRebuildServiceUnavailable) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsIndexRebuildServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.IndexRefusalResponse)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

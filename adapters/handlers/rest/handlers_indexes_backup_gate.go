@@ -77,8 +77,8 @@ func refuseOnLocalBackupActivity(activity backup.NodeActivity) backupActivitySca
 // openSubmitBackupGate runs the backup rungs of the submit ladder, and the
 // order is the requirement. The local slots decide first, because raising the
 // hold ahead of them would refuse the very capture already running here. The
-// hold then closes this node's own gate; a peer's capture is caught by the
-// rescan once it has renewed its slot, else by the commit-time overlap check.
+// hold then closes this node's own gate; a peer's capture that started inside
+// this window is caught by the commit-time overlap check.
 //
 // release is always non-nil, so a refused submission cannot leak a hold.
 func openSubmitBackupGate(
@@ -188,20 +188,6 @@ func peersToProbe(all []string, local string) (peers []string, established bool)
 		}
 	}
 	return peers, true
-}
-
-// rescanBackupActivity re-asks both rungs after the RAFT write. The local slots
-// have to be read again, not just the peers: a capture clears the reindex gate
-// before it occupies its slot, with two backend round trips in the gap, so the
-// pre-commit read can see an idle node already committed to capturing. Skipping
-// this rung also leaves the rollback path unreachable on a single node, where
-// the local slots are the only rung there is. Neither closes the race: a peer
-// that has not renewed its own slot yet still reads as idle here.
-func (h *indexesHandlers) rescanBackupActivity(ctx context.Context) backupActivityScan {
-	if local := refuseOnLocalBackupActivity(h.localBackupActivity()); local.verdict != backupActivityClear {
-		return local
-	}
-	return h.scanClusterBackupActivity(ctx)
 }
 
 // A no-op before the provider exists, which precedes the handler being served.

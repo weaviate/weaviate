@@ -509,10 +509,10 @@ func NewSchemaObjectsIndexUpsertConflict() *SchemaObjectsIndexUpsertConflict {
 /*
 SchemaObjectsIndexUpsertConflict describes a response with status code 409, with default header values.
 
-The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, `taskId` names it and it has to be cancelled before a retry can succeed.
+The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID.
 */
 type SchemaObjectsIndexUpsertConflict struct {
-	Payload *models.IndexRefusalResponse
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects index upsert conflict response has a 2xx status code
@@ -553,13 +553,13 @@ func (o *SchemaObjectsIndexUpsertConflict) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertConflict  %+v", 409, o.Payload)
 }
 
-func (o *SchemaObjectsIndexUpsertConflict) GetPayload() *models.IndexRefusalResponse {
+func (o *SchemaObjectsIndexUpsertConflict) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsIndexUpsertConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.IndexRefusalResponse)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -781,10 +781,10 @@ func NewSchemaObjectsIndexUpsertServiceUnavailable() *SchemaObjectsIndexUpsertSe
 /*
 SchemaObjectsIndexUpsertServiceUnavailable describes a response with status code 503, with default header values.
 
-Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, `taskId` names it.
+Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry.
 */
 type SchemaObjectsIndexUpsertServiceUnavailable struct {
-	Payload *models.IndexRefusalResponse
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects index upsert service unavailable response has a 2xx status code
@@ -825,13 +825,13 @@ func (o *SchemaObjectsIndexUpsertServiceUnavailable) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsIndexUpsertServiceUnavailable  %+v", 503, o.Payload)
 }
 
-func (o *SchemaObjectsIndexUpsertServiceUnavailable) GetPayload() *models.IndexRefusalResponse {
+func (o *SchemaObjectsIndexUpsertServiceUnavailable) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsIndexUpsertServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.IndexRefusalResponse)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

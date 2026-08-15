@@ -185,7 +185,7 @@ func TestReindexBackupRefusal_TaskListUnreadable(t *testing.T) {
 	// Holding nothing, but installed: an uninstalled hold lookup warns from a
 	// package-global budget, and the line counted below is this gate's.
 	db.SetReindexHoldLookup(makeHoldBuilder(nil))
-	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 
 	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
 
@@ -443,7 +443,7 @@ func TestReindexRefusalCountsOperationsNotShards(t *testing.T) {
 
 	registry := prometheus.NewPedanticRegistry()
 	db, _, _ := gatedDB(t, gateFixtures{live: live})
-	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 	idx := gatedIndex(db, "Movies")
 
 	require.Error(t, idx.refuseIfAnyShardReindexInFlight(shards))
@@ -478,7 +478,7 @@ func TestReindexRefusalCountsAReplicaSnapshotOnce(t *testing.T) {
 			index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 				{"TestClass", "shard1"}: true,
 			}))
-			index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+			index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 
 			_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1",
 				"00000000-0000-0000-0000-0000000000f1")
@@ -501,7 +501,7 @@ func TestReindexRefusalCountsALateBackupRefusalOnce(t *testing.T) {
 	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
 		{"TestClass", "shard1"}: true,
 	}))
-	index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+	index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 
 	var desc entitiesbackup.ClassDescriptor
 	err := index.descriptor(context.Background(), "reindex-late-refusal", &desc, nil)

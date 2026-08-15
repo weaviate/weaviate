@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexRebuildNotFound) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexRebuildConflictCode int = 409
 
 /*
-SchemaObjectsIndexRebuildConflict The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, `taskId` names it and it has to be cancelled before a retry can succeed.
+SchemaObjectsIndexRebuildConflict The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID.
 
 swagger:response schemaObjectsIndexRebuildConflict
 */
@@ -242,7 +242,7 @@ type SchemaObjectsIndexRebuildConflict struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.IndexRefusalResponse `json:"body,omitempty"`
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsIndexRebuildConflict creates SchemaObjectsIndexRebuildConflict with default headers values
@@ -252,13 +252,13 @@ func NewSchemaObjectsIndexRebuildConflict() *SchemaObjectsIndexRebuildConflict {
 }
 
 // WithPayload adds the payload to the schema objects index rebuild conflict response
-func (o *SchemaObjectsIndexRebuildConflict) WithPayload(payload *models.IndexRefusalResponse) *SchemaObjectsIndexRebuildConflict {
+func (o *SchemaObjectsIndexRebuildConflict) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexRebuildConflict {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects index rebuild conflict response
-func (o *SchemaObjectsIndexRebuildConflict) SetPayload(payload *models.IndexRefusalResponse) {
+func (o *SchemaObjectsIndexRebuildConflict) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 
@@ -413,7 +413,7 @@ func (o *SchemaObjectsIndexRebuildInternalServerError) WriteResponse(rw http.Res
 const SchemaObjectsIndexRebuildServiceUnavailableCode int = 503
 
 /*
-SchemaObjectsIndexRebuildServiceUnavailable Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, `taskId` names it.
+SchemaObjectsIndexRebuildServiceUnavailable Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry.
 
 swagger:response schemaObjectsIndexRebuildServiceUnavailable
 */
@@ -422,7 +422,7 @@ type SchemaObjectsIndexRebuildServiceUnavailable struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.IndexRefusalResponse `json:"body,omitempty"`
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsIndexRebuildServiceUnavailable creates SchemaObjectsIndexRebuildServiceUnavailable with default headers values
@@ -432,13 +432,13 @@ func NewSchemaObjectsIndexRebuildServiceUnavailable() *SchemaObjectsIndexRebuild
 }
 
 // WithPayload adds the payload to the schema objects index rebuild service unavailable response
-func (o *SchemaObjectsIndexRebuildServiceUnavailable) WithPayload(payload *models.IndexRefusalResponse) *SchemaObjectsIndexRebuildServiceUnavailable {
+func (o *SchemaObjectsIndexRebuildServiceUnavailable) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexRebuildServiceUnavailable {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects index rebuild service unavailable response
-func (o *SchemaObjectsIndexRebuildServiceUnavailable) SetPayload(payload *models.IndexRefusalResponse) {
+func (o *SchemaObjectsIndexRebuildServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 

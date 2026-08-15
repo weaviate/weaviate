@@ -278,7 +278,7 @@ func (o *SchemaObjectsIndexUpsertNotFound) WriteResponse(rw http.ResponseWriter,
 const SchemaObjectsIndexUpsertConflictCode int = 409
 
 /*
-SchemaObjectsIndexUpsertConflict The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, `taskId` names it and it has to be cancelled before a retry can succeed.
+SchemaObjectsIndexUpsertConflict The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID.
 
 swagger:response schemaObjectsIndexUpsertConflict
 */
@@ -287,7 +287,7 @@ type SchemaObjectsIndexUpsertConflict struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.IndexRefusalResponse `json:"body,omitempty"`
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsIndexUpsertConflict creates SchemaObjectsIndexUpsertConflict with default headers values
@@ -297,13 +297,13 @@ func NewSchemaObjectsIndexUpsertConflict() *SchemaObjectsIndexUpsertConflict {
 }
 
 // WithPayload adds the payload to the schema objects index upsert conflict response
-func (o *SchemaObjectsIndexUpsertConflict) WithPayload(payload *models.IndexRefusalResponse) *SchemaObjectsIndexUpsertConflict {
+func (o *SchemaObjectsIndexUpsertConflict) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexUpsertConflict {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects index upsert conflict response
-func (o *SchemaObjectsIndexUpsertConflict) SetPayload(payload *models.IndexRefusalResponse) {
+func (o *SchemaObjectsIndexUpsertConflict) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 
@@ -458,7 +458,7 @@ func (o *SchemaObjectsIndexUpsertInternalServerError) WriteResponse(rw http.Resp
 const SchemaObjectsIndexUpsertServiceUnavailableCode int = 503
 
 /*
-SchemaObjectsIndexUpsertServiceUnavailable Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, `taskId` names it.
+SchemaObjectsIndexUpsertServiceUnavailable Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry.
 
 swagger:response schemaObjectsIndexUpsertServiceUnavailable
 */
@@ -467,7 +467,7 @@ type SchemaObjectsIndexUpsertServiceUnavailable struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.IndexRefusalResponse `json:"body,omitempty"`
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsIndexUpsertServiceUnavailable creates SchemaObjectsIndexUpsertServiceUnavailable with default headers values
@@ -477,13 +477,13 @@ func NewSchemaObjectsIndexUpsertServiceUnavailable() *SchemaObjectsIndexUpsertSe
 }
 
 // WithPayload adds the payload to the schema objects index upsert service unavailable response
-func (o *SchemaObjectsIndexUpsertServiceUnavailable) WithPayload(payload *models.IndexRefusalResponse) *SchemaObjectsIndexUpsertServiceUnavailable {
+func (o *SchemaObjectsIndexUpsertServiceUnavailable) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexUpsertServiceUnavailable {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects index upsert service unavailable response
-func (o *SchemaObjectsIndexUpsertServiceUnavailable) SetPayload(payload *models.IndexRefusalResponse) {
+func (o *SchemaObjectsIndexUpsertServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 

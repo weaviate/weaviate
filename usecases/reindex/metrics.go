@@ -48,16 +48,13 @@ const (
 )
 
 type GateMetrics struct {
-	refusals  *prometheus.CounterVec
-	rollbacks *prometheus.CounterVec
+	refusals *prometheus.CounterVec
 }
 
 // The gauges read openHolds at scrape, which is what makes a hold visible while
 // it is open; the counter only ever reports windows that already closed. The
 // caller names the kinds, so one cannot be added without deciding on a series.
-func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
-	rollbackOutcomes []string,
-) *GateMetrics {
+func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int) *GateMetrics {
 	factory := promauto.With(reg)
 	for hold, count := range openHolds {
 		factory.NewGaugeFunc(prometheus.GaugeOpts{
@@ -72,10 +69,6 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
 			Name: "weaviate_reindex_gate_refusals_total",
 			Help: "Operations refused by a runtime-reindex gate, by the gate that refused and what it found.",
 		}, []string{"gate", "verdict"}),
-		rollbacks: factory.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_reindex_submit_rollbacks_total",
-			Help: "Reindex submissions rolled back after losing the race to a backup, by how the rollback ended.",
-		}, []string{"outcome"}),
 	}
 
 	// A CounterVec with no children emits nothing, and "no data" is a different
@@ -84,9 +77,6 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
 		for _, verdict := range verdicts {
 			metrics.refusals.WithLabelValues(gate, verdict)
 		}
-	}
-	for _, outcome := range rollbackOutcomes {
-		metrics.rollbacks.WithLabelValues(outcome)
 	}
 	return metrics
 }
@@ -110,13 +100,4 @@ func (m *GateMetrics) Refused(gate, verdict string) {
 		return
 	}
 	m.refusals.WithLabelValues(gate, verdict).Inc()
-}
-
-// An outcome that leaves a migration running while a capture is in flight is
-// what an operator pages on, and a log line is not something to page on.
-func (m *GateMetrics) RolledBack(outcome string) {
-	if m == nil {
-		return
-	}
-	m.rollbacks.WithLabelValues(outcome).Inc()
 }

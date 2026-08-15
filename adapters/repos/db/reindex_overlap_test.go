@@ -385,7 +385,7 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			registry := prometheus.NewPedanticRegistry()
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled, CompletedTaskTTL: tt.ttl}}
-			db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+			db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 			if !tt.unwired {
 				db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
 					return NewReindexOverlapLookup(nil, tt.ttl, noLocalWorker, time.Now)
