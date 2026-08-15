@@ -106,12 +106,16 @@ func NewScheduler(
 			logger, nodeResolver, backends,
 		),
 	}
-	// Registering here rather than at the call site is what makes the
-	// registration compile-enforced: a node whose probe cannot see its Scheduler
-	// answers "not busy" for a whole backup it is itself coordinating.
-	if activity != nil {
-		activity.attachScheduler(m)
+	// Registering here, and refusing to build without a probe, is what makes every
+	// Scheduler a probe can see. A node whose probe cannot see its Scheduler
+	// answers "not busy" for a whole backup it is itself coordinating, which is
+	// the one answer a caller gating on the probe cannot survive. A missing probe
+	// is a build error, so it stops this node at startup rather than surfacing as
+	// a wrong answer later.
+	if activity == nil {
+		panic("backup: NewScheduler needs a node-activity probe")
 	}
+	activity.attachScheduler(m)
 	return m
 }
 

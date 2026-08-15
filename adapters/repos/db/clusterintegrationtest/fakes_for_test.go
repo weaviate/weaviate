@@ -170,9 +170,10 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
+	activityProbe := ubak.NewNodeActivityProbe(n.backupManager)
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, activityProbe, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -181,7 +182,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager, nil, clusterapi.NewNoopAuthHandler(), logger)
+	backups := clusterapi.NewBackups(n.backupManager, activityProbe, clusterapi.NewNoopAuthHandler(), logger)
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())

@@ -1343,7 +1343,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, &f.roleLister, provider,
-		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, nil, f.log)
+		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, newIdleProbe(), f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
