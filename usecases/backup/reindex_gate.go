@@ -95,7 +95,6 @@ func backupRefusedByParticipant(classes []string) error {
 		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
-// Rebuilt, not forwarded: an older participant names its own shards and node.
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
