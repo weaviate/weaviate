@@ -199,15 +199,16 @@ func terminalTenantScaleTasks(tb testing.TB, tasks, tenants int) []*distributedt
 	return out
 }
 
-// The ratio is the assertion, not an absolute: what must hold is that the
-// tenants of already-finished migrations cost nothing.
+// One set of tasks measured twice, so status is the only variable. A baseline
+// built from a cheaper payload moves together with the measurement instead.
 func TestNewAnyReindexActivityLookupSkipsTerminalPayloads(t *testing.T) {
-	withTenants := terminalTenantScaleTasks(t, 20, 10_000)
-	withoutTenants := terminalTenantScaleTasks(t, 20, 0)
-	got := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(withTenants) })
-	baseline := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(withoutTenants) })
-	require.Less(t, got, baseline*2,
-		"a terminal task's payload must never be decoded")
+	tasks := terminalTenantScaleTasks(t, 20, 10_000)
+	skipped := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(tasks) })
+	for _, task := range tasks {
+		task.Status = distributedtask.TaskStatusStarted
+	}
+	decoded := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(tasks) })
+	require.Less(t, skipped, decoded/2, "a terminal task's payload must never be decoded")
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {
