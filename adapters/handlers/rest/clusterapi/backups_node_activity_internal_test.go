@@ -17,7 +17,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,16 +45,4 @@ func TestOldNodeAnswersTheProbePathFromTheCatchAll(t *testing.T) {
 		"the node writes the sentinel once, so a second value came from elsewhere")
 	assert.Equal(t, clusterprobe.NodeNotFoundBody, string(body),
 		"the constants are what the caller compares byte for byte, so they are net/http's own bytes")
-}
-
-// An unwired probe must answer 503, not the 404 that would let this node pass.
-func TestBackupNodeActivityWithoutAProbe(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	backups := NewBackups(nil, nil, NewNoopAuthHandler(), logger)
-	req := httptest.NewRequest(http.MethodGet, clusterprobe.BackupNodeActivityPath, nil)
-	rec := httptest.NewRecorder()
-
-	backups.NodeActivity().ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }

@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -38,15 +37,12 @@ type nodeActivityProber interface {
 }
 
 type backups struct {
-	manager  backupManager
+	manager backupManager
+	// Never nil in production: requireNodeActivityProbe stops the node at mux
+	// build, so only a direct caller can pass nil, and only this route panics on it.
 	activity nodeActivityProber
 	auth     auth
 	logger   logrus.FieldLogger
-
-	// Whether a probe is wired cannot change while the process runs, and the route
-	// answers once per peer per gate evaluation, so a warning per call would scale
-	// with cluster size times submission rate.
-	warnUnwired sync.Once
 }
 
 // NewBackups refuses a nil logger. The node-activity route logs on every answer,
@@ -80,24 +76,23 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 
 		log := b.logger.WithField("action", "backup_node_activity_probe")
 
-		// 503, not 404: 404 would tell the caller to give up and let this node pass.
-		if b.activity == nil {
-			b.warnUnwired.Do(func() {
-				log.Warn("backup node activity probe is not wired on this node, so every peer " +
-					"asking whether a backup is running is answered 503")
-			})
-			http.Error(w, "backup activity probe not wired on this node, so it cannot say "+
-				"whether a backup is running", http.StatusServiceUnavailable)
+		activity := b.activity.Activity()
+		// 503, not 404: a 404 reads as "too old to ask" and lets this node pass. And
+		// not 200: serialized, an undecided answer is busy with no kind, which the
+		// shipped client refuses as "cannot tell", so one rendering instead of three.
+		if !activity.Answered {
+			http.Error(w, "this node could not decide whether a backup is running",
+				http.StatusServiceUnavailable)
 			return
 		}
 
-		activity := b.activity.Activity()
-		log.WithField("busy", activity.Busy).
-			WithField("kind", activity.Kind).
-			WithField("id", clusterprobe.Loggable(activity.ID)).
+		res := backup.NewNodeActivityResponse(b.activity.Node(), activity)
+		log.WithField("busy", *res.Busy).
+			WithField("kind", res.Kind).
+			WithField("id", clusterprobe.Loggable(res.ID)).
 			Debug("backup node activity probe answered")
 
-		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Node(), activity))
+		data, err := json.Marshal(res)
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return
