@@ -94,8 +94,9 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
-		config.TrackVectorDimensions = true
+	config.TrackVectorDimensions = true
+	if entcfg.Enabled(os.Getenv("VECTOR_DIMENSION_TRACKING_DISABLED")) {
+		config.TrackVectorDimensions = false
 	}
 
 	timeout := 30 * time.Second
