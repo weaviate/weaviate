@@ -307,13 +307,21 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		assert.Zero(t, built.activity, "the flag must be read before any lookup is built")
 	})
 	t.Run("an unwired gate admits and reports", func(t *testing.T) {
+		// Both tiers are wired separately, and each admits on its own when
+		// its install never ran.
 		logger, hook := logrustest.NewNullLogger()
 		db := &DB{logger: logger, localNodeName: "node-7"}
 		restoreGateWarnBudget = reindexGateWarnBudget{}
+		holdGateWarnBudget = reindexGateWarnBudget{}
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
-		require.Len(t, hook.AllEntries(), 1)
-		assert.Equal(t, logrus.WarnLevel, hook.AllEntries()[0].Level)
-		assert.Equal(t, "restore", hook.AllEntries()[0].Data["gate"])
+		gates := map[string]logrus.Level{}
+		for _, entry := range hook.AllEntries() {
+			gates[entry.Data["gate"].(string)] = entry.Level
+		}
+		assert.Equal(t, map[string]logrus.Level{
+			"reindex-hold": logrus.WarnLevel,
+			"restore":      logrus.WarnLevel,
+		}, gates)
 	})
 }
 
@@ -372,6 +380,7 @@ func TestReindexGateWarnBudget(t *testing.T) {
 func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	shardGateWarnBudget = reindexGateWarnBudget{}
 	restoreGateWarnBudget = reindexGateWarnBudget{}
+	holdGateWarnBudget = reindexGateWarnBudget{}
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 	require.False(t, db.AnyLiveReindexForShard("Movies", "shard-1"))
@@ -380,11 +389,15 @@ func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	for _, entry := range hook.AllEntries() {
 		gates[entry.Data["gate"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"backup": 1, "restore": 1}, gates)
+	assert.Equal(t, map[string]int{"backup": 1, "reindex-hold": 1, "restore": 1}, gates)
 	actions := map[string]int{}
 	for _, entry := range hook.AllEntries() {
 		actions[entry.Data["action"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"backup_reindex_gate": 1, "restore_reindex_gate": 1}, actions,
+	assert.Equal(t, map[string]int{
+		"backup_reindex_gate":  1,
+		"reindex_hold_lookup":  1,
+		"restore_reindex_gate": 1,
+	}, actions,
 		"a wiring failure must file under its own gate's action, not the other's")
 }

@@ -131,6 +131,10 @@ func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	builder := db.reindexHoldLookupBuilder
 	db.reindexAuditMu.RUnlock()
 	if builder == nil {
+		// Both gates read this, and both admit on it, so an install that
+		// never ran costs a whole tier of either gate in silence.
+		db.warnUnwiredGate(&holdGateWarnBudget, "reindex_hold_lookup", "reindex-hold",
+			"Check the SetReindexHoldLookup wiring in configure_api.go.")
 		return ReindexHoldNone
 	}
 	lookup := builder()

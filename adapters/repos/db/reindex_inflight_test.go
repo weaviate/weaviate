@@ -57,7 +57,9 @@ func makeHoldBuilder(holds map[string]ReindexHold) ReindexHoldLookupBuilder {
 	}
 }
 
-// A nil field leaves that lookup uninstalled.
+// A nil live or tasks field leaves that lookup uninstalled. The hold lookup
+// is always installed, holding nothing when the fixture names none: an
+// uninstalled one warns, and the tests that want that build their own DB.
 type gateFixtures struct {
 	live  map[[2]string]bool
 	holds map[string]ReindexHold
@@ -75,13 +77,11 @@ func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters
 	if f.live != nil {
 		db.SetShardReindexActivityLookup(makeActivityBuilder(f.live))
 	}
-	if f.holds != nil {
-		holdBuilder := makeHoldBuilder(f.holds)
-		db.SetReindexHoldLookup(func() ReindexHoldLookup {
-			built.hold++
-			return holdBuilder()
-		})
-	}
+	holdBuilder := makeHoldBuilder(f.holds)
+	db.SetReindexHoldLookup(func() ReindexHoldLookup {
+		built.hold++
+		return holdBuilder()
+	})
 	if f.tasks != nil {
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			built.activity++
