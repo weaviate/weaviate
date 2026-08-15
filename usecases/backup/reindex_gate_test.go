@@ -88,9 +88,8 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
 }
 
-// TestCanCommitRefusalKeepsUnrelatedFailures walks both hops a refused
-// canCommit takes: the participant stamps a kind on it, and the coordinator
-// rebuilds the body from that kind alone.
+// TestCanCommitRefusalKeepsUnrelatedFailures covers a refusal joined with an
+// unrelated failure, e.g. a missing class, which must not take the kind.
 func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 	ctx := context.Background()
 	refusal := func(class string) error {
@@ -363,10 +362,6 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.NotContains(t, resp.Err, `shard "`)
 	})
 	t.Run("a node narrowed to no collection is not gated", func(t *testing.T) {
-		// It stays in the fan-out for the blobs only its own descriptor
-		// holds. The gate reads an empty list as every collection, so asking
-		// it here refuses the whole restore over a migration on a collection
-		// this node was not asked to restore.
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
 		backend := newFakeBackend()

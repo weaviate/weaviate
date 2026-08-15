@@ -57,10 +57,7 @@ const (
 // The hold is only observable if the cleanup has something to clean up;
 // see awaitTrackerDirs.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
-	// TODO(weaviate/0-weaviate-issues#590): this test has never been observed
-	// passing, and this package is a matrix entry in the pull-request
-	// workflow, so leaving it live gates every PR on a test nobody has seen
-	// green. Delete this skip once someone has.
+	// TODO(weaviate/0-weaviate-issues#590): delete once this has been seen green.
 	t.Skip("never observed passing; see weaviate/0-weaviate-issues#590")
 	ctx := context.Background()
 	compose := startGuardNode(ctx, t)
