@@ -661,7 +661,9 @@ in the node's state, the node:
   `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
 - refuses backups on the shards the task lists
   (`db.NewShardReindexActivityLookup` feeding
-  `DB.AnyLiveReindexForShard`);
+  `DB.AnyLiveReindexForShard`), and, once the task is terminal, still
+  fails any backup whose capture window it overlapped, per collection
+  (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`);
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1486,11 +1488,17 @@ v1.38 Preview merge does not fix it. The fixes live on
 `backup-runtime-reindex-fixes` and land as a follow-up PR. Tracking:
 weaviate/0-weaviate-issues#215.
 
-Backups are covered: `DB.AnyLiveReindexForShard`
+Backups are covered by two checks. `DB.AnyLiveReindexForShard`
 ([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
-refuses a backup on any shard DTM reports a live reindex on, and
+refuses a backup on any shard DTM reports a live reindex on, at
+admission and again per shard during the capture. That is a liveness
+question, so it cannot see a migration that both starts and finishes
+inside the capture window; `DB.RefuseIfReindexOverlapped`
+([`reindex_overlap.go`](../adapters/repos/db/reindex_overlap.go)) asks
+the overlap question once at commit time, per collection, and fails the
+backup rather than publishing a capture a migration rewrote.
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)
-covers it. Restores are covered by `DB.RefuseIfAnyReindexInFlight`, which
+covers both. Restores are covered by `DB.RefuseIfAnyReindexInFlight`, which
 reads the same DTM list and additionally consults a node-local hold
 registry ([`reindex_hold.go`](../adapters/repos/db/reindex_hold.go)), so a
 node still removing a migration's temporary index files (after a failure,
@@ -1513,13 +1521,32 @@ Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
 v1.38 Preview.
 
+Two known holes, both needing state this change does not persist:
+
+- The capture start and a task's `FinishedAt` come from different nodes'
+  clocks, so enough skew hides a migration that finished inside the
+  window. Closing it means putting backup state in RAFT.
+- The guarantee is per backup, not per chain. Nothing on disk records
+  whether a base capture was clean, so an incremental backup built on a
+  base taken before this check existed (or with the feature flag off)
+  passes every chain check and its own overlap check while the restored
+  chain is torn. Closing it means a new descriptor field.
+
 ## 14. Upgrade / operations: `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
 
 This knob sets how long FINISHED distributed tasks (completed reindex
 tasks included) linger in the RAFT task list before garbage collection.
 `0` means immediate GC on the next scheduler tick. It is now accepted
-because the per-property blockmax truth is durable in the schema stamp,
-so no reader depends on FINISHED reindex tasks lingering.
+because the per-property blockmax truth is durable in the schema stamp.
+
+One reader does depend on FINISHED reindex tasks lingering: the
+commit-time overlap check
+([`reindex_overlap.go`](../adapters/repos/db/reindex_overlap.go)) asks at
+the end of a capture whether a migration ran during it, and a migration
+that both started and finished inside the window is only visible in the
+task list while the task record is still there. With the TTL at `0` the
+record can be gone by the time the backup commits, so the check clears a
+capture it would otherwise have failed.
 
 Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
 every node runs the durable-stamp version. During a mixed-version
