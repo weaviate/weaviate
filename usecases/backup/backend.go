@@ -409,8 +409,7 @@ func failureMessageForStatus(err error) string {
 	return nonEmptyErrMsg(err)
 }
 
-// withMetaFault names a failed metadata write after the reason instead of
-// wrapping it around, so the reason stays first and whole.
+// withMetaFault names a failed metadata write after the reason, not around it.
 func withMetaFault(reason string, metaErr error) string {
 	if metaErr == nil {
 		return reason
