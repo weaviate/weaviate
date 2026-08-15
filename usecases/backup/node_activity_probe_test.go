@@ -202,13 +202,13 @@ func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 }
 
 func TestNewSchedulerRefusesToBuildWithoutAProbe(t *testing.T) {
-	assert.Panics(t, func() {
+	assert.PanicsWithValue(t, "backup: NewScheduler needs a node-activity probe", func() {
 		NewScheduler(nil, nil, nil, nil, nil, nil, nil, &fakeSchemaManger{}, nil, nil, logrus.New())
 	})
 }
 
 func TestNewNodeActivityProbeRefusesToBuildWithoutAParticipant(t *testing.T) {
-	assert.Panics(t, func() { NewNodeActivityProbe(nil) })
+	assert.PanicsWithValue(t, "backup: NewNodeActivityProbe needs a participant", func() { NewNodeActivityProbe(nil) })
 }
 
 // A probe can arrive before the Scheduler is built, which happens well after

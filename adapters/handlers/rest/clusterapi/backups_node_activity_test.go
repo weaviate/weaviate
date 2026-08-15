@@ -204,7 +204,7 @@ func TestBackupNodeActivityRouteLogs(t *testing.T) {
 }
 
 func TestNewBackupsRefusesToBuildWithoutALogger(t *testing.T) {
-	assert.Panics(t, func() {
+	assert.PanicsWithValue(t, "clusterapi: NewBackups needs a logger", func() {
 		clusterapi.NewBackups(nil, &stubProber{}, clusterapi.NewNoopAuthHandler(), nil)
 	})
 }
