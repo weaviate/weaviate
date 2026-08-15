@@ -694,6 +694,16 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
+	// The gate stays closed across the destructive sweep below and the RAFT
+	// write, and is released when this handler returns.
+	releaseSubmitHold, scan := openSubmitBackupGate(h.localBackupActivity,
+		func() func() { return h.markSubmitInProgress(collection) },
+		func() backupActivityScan { return h.scanClusterBackupActivity(ctx) })
+	defer releaseSubmitHold()
+	if resp := h.backupActivityRefusal(principal, collection, scan); resp != nil {
+		return resp
+	}
+
 	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, migrationType); resp != nil {
 		return resp
 	}

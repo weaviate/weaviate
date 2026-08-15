@@ -127,8 +127,30 @@ func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 // a fail-closed refusal says nothing about what closed it.
 func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "none", ReindexHoldNone.String())
+	assert.Equal(t, "submit", ReindexHoldSubmit.String())
 	assert.Equal(t, "cleanup", ReindexHoldCleanup.String())
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
+}
+
+// TestMarkSubmitInProgress pins that a submission closes the same gate the
+// backup and restore gates read, and that a sweep in progress outranks it: the
+// operator has to wait the sweep out, but only a moment for a submission.
+func TestMarkSubmitInProgress(t *testing.T) {
+	p := &ReindexProvider{db: &DB{}}
+
+	releaseSubmit := p.MarkSubmitInProgress("Movies")
+	require.Equal(t, ReindexHoldSubmit, p.db.ReindexHoldFor("movies"),
+		"the hold is collection-wide and case-folded")
+	require.Equal(t, ReindexHoldNone, p.db.ReindexHoldFor("Shows"))
+
+	releaseCleanup := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+	require.Equal(t, ReindexHoldCleanup, p.db.ReindexHoldFor("Movies"))
+
+	releaseCleanup()
+	require.Equal(t, ReindexHoldSubmit, p.db.ReindexHoldFor("Movies"))
+
+	releaseSubmit()
+	require.Equal(t, ReindexHoldNone, p.db.ReindexHoldFor("Movies"))
 }
 
 // The gates read the registry live, so a hold raised after a gate call

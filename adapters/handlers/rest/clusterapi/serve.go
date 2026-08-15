@@ -60,7 +60,7 @@ func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
-	backups := NewBackups(appState.BackupManager, requireNodeActivityProbe(appState.BackupActivity), auth, appState.Logger)
+	backups := NewBackups(appState.BackupManager, requireNodeActivityProbe(appState.NodeActivityProbe), auth, appState.Logger)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)

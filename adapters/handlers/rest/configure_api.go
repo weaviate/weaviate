@@ -794,7 +794,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
-	appState.BackupActivity = backup.NewNodeActivityProbe(backupManager)
+	nodeActivityProbe := backup.NewNodeActivityProbe(backupManager)
+	appState.NodeActivityProbe = nodeActivityProbe
+	appState.BackupActivity = nodeActivityProbe
+	appState.ClusterBackupActivity = clients.NewClusterBackupActivity(
+		appState.ServerConfig.Config.Cluster.AuthConfig,
+		appState.ServerConfig.Config.MinimumInternalTimeout, appState.Cluster)
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
@@ -1714,7 +1719,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
-		appState.BackupActivity,
+		appState.NodeActivityProbe,
 		appState.Logger)
 	return backupScheduler
 }

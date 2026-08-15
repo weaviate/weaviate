@@ -231,6 +231,16 @@ func TestReindexRefusalTexts(t *testing.T) {
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 		{
+			name:    "a submission preparing the collection",
+			refusal: reindexHoldRefusal("Movies", ReindexHoldSubmit),
+			mustContain: []string{
+				"a reindex submission is preparing",
+				"retry in a moment",
+			},
+			// No task exists yet, so there is nothing a cancel could name.
+			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
+		},
+		{
 			name:    "a hold kind this build does not know",
 			refusal: reindexHoldRefusal("Movies", ReindexHold(99)),
 			mustContain: []string{

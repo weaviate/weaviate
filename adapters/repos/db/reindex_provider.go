@@ -2011,6 +2011,15 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
+// MarkSubmitInProgress closes the backup gate over a collection whose reindex
+// task is not committed yet, so a capture cannot start between the submit's
+// destructive pre-sweep and the RAFT write that first makes the task visible
+// to the gate. Collection-wide, because that sweep takes no shard list.
+func (p *ReindexProvider) MarkSubmitInProgress(collection string) (release func()) {
+	return p.db.reindexHolds.acquire(collection, ReindexHoldSubmit)
+}
+
+
 // reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
 // in the REST handlers so both cancel paths converge on identical
 // stuck-task behavior.

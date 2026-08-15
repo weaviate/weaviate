@@ -81,15 +81,19 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
-	BackupActivity     *backup.NodeActivityProbe
-	ExportParticipant  *exportUsecase.Participant
-	ExportMetrics      *exportUsecase.ExportMetrics
-	DB                 *db.DB
-	BatchManager       *objects.BatchManager
-	AutoSchemaManager  *objects.AutoSchemaManager
-	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelCauseFunc
-	MemWatch           *memwatch.Monitor
+	BackupActivity     LocalBackupActivity
+	// NodeActivityProbe is the same probe as BackupActivity. backup.NewScheduler
+	// attaches itself to it through a method only its own package can name, so
+	// the concrete type has to survive the trip through here.
+	NodeActivityProbe *backup.NodeActivityProbe
+	ExportParticipant *exportUsecase.Participant
+	ExportMetrics     *exportUsecase.ExportMetrics
+	DB                *db.DB
+	BatchManager      *objects.BatchManager
+	AutoSchemaManager *objects.AutoSchemaManager
+	ClusterHttpClient *http.Client
+	ReindexCtxCancel  context.CancelCauseFunc
+	MemWatch          *memwatch.Monitor
 
 	ClusterService       *rCluster.Service
 	TenantActivity       *tenantactivity.Handler
@@ -108,6 +112,10 @@ type State struct {
 	// triggering the on-disk state cleanup — see
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
 	ReindexProvider *db.ReindexProvider
+
+	// ClusterBackupActivity asks one peer at a time whether it holds a backup
+	// or restore slot; the reindex submit gate fans it out over every node.
+	ClusterBackupActivity NodeActivityProber
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit
@@ -154,6 +162,19 @@ type State struct {
 	GRPCConnManager *grpcconn.ConnManager
 	// ReplGRPCConnManager is a separate connection manager that implements retry logic to each RPC call on top of connection pooling, specifically for replication traffic.
 	ReplGRPCConnManager *grpcconn.ConnManager
+}
+
+// LocalBackupActivity reports whether this node holds one of its own backup or
+// restore slots. *backup.NodeActivityProbe satisfies it.
+type LocalBackupActivity interface {
+	Activity() backup.NodeActivity
+}
+
+// NodeActivityProber asks a named peer the same question over the cluster API.
+// *clients.ClusterBackupActivity satisfies it; the port keeps this package
+// clear of the adapters it hands around.
+type NodeActivityProber interface {
+	NodeActivity(ctx context.Context, nodeName string) (backup.NodeActivity, error)
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

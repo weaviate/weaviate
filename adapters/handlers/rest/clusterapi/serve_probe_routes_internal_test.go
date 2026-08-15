@@ -64,7 +64,7 @@ func probeAppState(t *testing.T) *state.State {
 		ServerConfig:       &config.WeaviateConfig{},
 		ClassificationRepo: &classificationrepo.DistributedRepo{},
 		BackupManager:      manager,
-		BackupActivity:     backup.NewNodeActivityProbe(manager),
+		NodeActivityProbe:  backup.NewNodeActivityProbe(manager),
 	}
 }
 
@@ -135,7 +135,7 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 // panic on every peer request that reaches the route.
 func TestClusterMuxRefusesToBuildBeforeTheProbeIsAssigned(t *testing.T) {
 	appState := probeAppState(t)
-	appState.BackupActivity = nil
+	appState.NodeActivityProbe = nil
 
 	assert.PanicsWithValue(t, "clusterapi: cluster mux built before the backup node-activity probe was assigned", func() { newClusterMux(appState, NewNoopAuthHandler()) })
 }
