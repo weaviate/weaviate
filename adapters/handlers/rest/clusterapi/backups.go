@@ -43,10 +43,9 @@ type backups struct {
 	auth     auth
 	logger   logrus.FieldLogger
 
-	// Whether a probe is wired cannot change while the process runs, so one
-	// warning says everything a repeat would. The route answers once per peer
-	// per gate evaluation, so a warning per call would scale with cluster size
-	// times submission rate.
+	// Whether a probe is wired cannot change while the process runs, and the route
+	// answers once per peer per gate evaluation, so a warning per call would scale
+	// with cluster size times submission rate.
 	warnUnwired sync.Once
 }
 

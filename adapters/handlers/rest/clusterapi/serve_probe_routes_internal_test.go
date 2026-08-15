@@ -45,7 +45,6 @@ func (idleSchema) NodeName() string         { return "node1" }
 func (idleSchema) NamespacesEnabled() bool  { return false }
 func (idleSchema) ClassEqual(string) string { return "" }
 
-// thisServer points every node name at the one test server.
 type thisServer string
 
 func (s thisServer) NodeHostname(string) (string, bool) {
@@ -67,10 +66,8 @@ func probeAppState(t *testing.T) *state.State {
 	}
 }
 
-// The probe is live only if the server's real route table mounts the real path
-// and hands the backup handler the app state's probe. Both are single lines in
-// newClusterMux, and a node that loses either answers every peer with the one
-// thing a peer may not act on: an answer that reads as "nothing running here".
+// A node that loses either the route or the app state's probe answers every
+// peer in the one way a peer may not act on: "nothing running here".
 func TestClusterMuxServesTheProbeRoute(t *testing.T) {
 	server := httptest.NewServer(newClusterMux(probeAppState(t), NewNoopAuthHandler()))
 	defer server.Close()
