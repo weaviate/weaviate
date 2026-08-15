@@ -33,6 +33,8 @@ var ErrBackupReindexActivityUndetermined = errors.New("backup blocked: whether a
 // the half where the check could not answer.
 var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex overlapped this backup")
 
+// The other half: nothing observed says a migration overlapped, only that
+// this capture cannot be cleared of one.
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
 // The overlap check is installed but configured so that it could never clear

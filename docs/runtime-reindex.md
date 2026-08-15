@@ -1527,15 +1527,13 @@ v1.38 Preview.
 Five known holes, each needing state or a layer this change does not touch:
 
 - **Clock skew.** The capture start is the capturing node's clock; a
-  task's `FinishedAt` is the node that ran it, and the GC that drops the
-  record runs on the scheduler leader against that same field. Skew cuts
+  task's `FinishedAt` is stamped by the node that recorded it, and the
+  record is dropped by whichever node's tick finds it expired, re-checked
+  against that same field by each applying node's own clock. Skew cuts
   both ways: behind, the check clears a capture whose evidence was
   already collected; ahead, it refuses a clean capture at 100% of its
-  upload and burns the id. A skew margin was considered and rejected — it
-  is a knob justified only by a guess about clock quality, and it trades
-  a rare fail-open for a common and very expensive fail-closed. Closing
-  it properly means the leader supplying the reference time on the task
-  list response.
+  upload and burns the id. Closing it properly means a reference time
+  supplied on the task list response.
 - **Per backup, not per chain.** Nothing on disk records whether a base
   capture was clean, so an incremental backup built on a base taken
   before this check existed (or with the feature flag off) passes every

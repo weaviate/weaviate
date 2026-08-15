@@ -402,7 +402,8 @@ func nonEmptyErrMsg(err error) string {
 }
 
 // failureMessageForStatus is what a status poll serves: a per-shard reindex
-// refusal reduced to its own redacted text, anything else verbatim.
+// refusal reduced to its own redacted text, anything else verbatim. It serves
+// the chain's first refusal, so callers hand it a single composed reason.
 func failureMessageForStatus(err error) string {
 	var blocked backup.ReindexBlockedError
 	if errors.As(err, &blocked) && blocked.Msg != "" {
