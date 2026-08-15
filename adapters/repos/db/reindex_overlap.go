@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,6 +72,27 @@ func ListReindexTasksForOverlap(
 	}
 }
 
+// overlapCandidate is a task the check has to judge. An empty collection is
+// a payload that named none, which scopes the task to the whole cluster.
+type overlapCandidate struct {
+	task       *distributedtask.Task
+	collection string
+}
+
+// The check reads the collection name and nothing else, so it decodes that
+// field alone. Decoding the whole payload would materialize the unit and
+// tenant lists — on a 100k-tenant collection, hundreds of thousands of
+// strings per retained task, at the end of every backup on every node.
+func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate {
+	out := make([]overlapCandidate, 0, len(tasks))
+	for _, task := range tasks {
+		collection, _ := ExtractReindexTaskCollection(task.Payload)
+		out = append(out, overlapCandidate{task: task, collection: collection})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].task.ID < out[j].task.ID })
+	return out
+}
+
 // A migration can start and finish inside the capture window, so liveness
 // answers nothing here; this asks whether one overlapped the capture.
 func NewReindexOverlapLookup(
@@ -79,7 +101,7 @@ func NewReindexOverlapLookup(
 	hasLocalWorker ReindexWorkerLookup,
 	now func() time.Time,
 ) ReindexOverlapLookup {
-	decoded := decodeReindexTasksByID(tasks)
+	candidates := reindexOverlapCandidates(tasks)
 
 	return func(classes []string, since time.Time) ReindexOverlapVerdict {
 		if len(classes) == 0 {
@@ -91,20 +113,20 @@ func NewReindexOverlapLookup(
 		}
 
 		var strongest ReindexOverlapVerdict
-		for _, task := range decoded {
-			if task.Scope != ReindexPayloadScopeCluster {
-				if _, ok := captured[strings.ToLower(task.Collection)]; !ok {
+		for _, candidate := range candidates {
+			if candidate.collection != "" {
+				if _, ok := captured[strings.ToLower(candidate.collection)]; !ok {
 					continue
 				}
 			}
-			verdict := decideReindexOverlap(task.task, since, hasLocalWorker)
+			verdict := decideReindexOverlap(candidate.task, since, hasLocalWorker)
 			if verdict.allowsBackup() {
 				continue
 			}
-			verdict.Collection = task.Collection
-			verdict.TaskID = task.task.ID
-			// Ties keep the earlier task, and decodeReindexTasksByID orders
-			// by task id, so every node names the same one.
+			verdict.Collection = candidate.collection
+			verdict.TaskID = candidate.task.ID
+			// Ties keep the earlier task, and the candidates are ordered by
+			// task id, so every node names the same one.
 			if overlapVerdictRank(verdict) > overlapVerdictRank(strongest) {
 				strongest = verdict
 			}
@@ -247,7 +269,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 		return ctx.Err()
 	}
 	db.warnOverlapRefusal(classes, verdict)
-	return reindexOverlapRefusal(verdict)
+	return reindexOverlapRefusal(verdict, classes)
 }
 
 func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict) {
@@ -266,16 +288,26 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 }
 
 // Two errors, never both: an undetermined answer must not match the observed one.
-func reindexOverlapRefusal(verdict ReindexOverlapVerdict) error {
+func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) error {
 	if verdict.Undetermined {
 		return fmt.Errorf("%w: %s",
 			entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail)
 	}
-	named := "a collection this backup captured"
-	if verdict.Collection != "" {
-		named = fmt.Sprintf("collection %q", verdict.Collection)
-	}
+	named, _ := overlapSubject(classes, verdict.Collection)
 	return fmt.Errorf("%w: %s was migrated while this backup was being captured; "+
 		"take a new backup once the migration has finished",
 		entitiesbackup.ErrReindexOverlappedBackup, named)
+}
+
+// overlapSubject echoes the caller's own spelling of the captured class the
+// verdict points at. Printing the task's spelling instead would let a name
+// this backup never captured reach the API whenever the decoder attributes a
+// task to something the caller did not ask about.
+func overlapSubject(classes []string, blocking string) (string, bool) {
+	for _, class := range classes {
+		if strings.EqualFold(class, blocking) {
+			return fmt.Sprintf("collection %q", class), true
+		}
+	}
+	return "a collection this backup captured", false
 }
