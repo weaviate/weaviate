@@ -51,15 +51,6 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// reasonSafeText rewords the one phrase a coordinator reads as an operator
-// abort. The coordinator relabels a participant's FAILED to CANCELLED when
-// context.Canceled's text appears anywhere in the published reason, and a
-// CANCELLED backup id can be re-posted, so a reason that merely quotes a
-// cancel would let a torn capture be silently overwritten by a clean one.
-func reasonSafeText(text string) string {
-	return strings.ReplaceAll(text, context.Canceled.Error(), "a canceled context")
-}
-
 // A commit-time overlap verdict keeps the id spent even under an operator
 // abort: a capture exists and may be torn, and CANCELLED would make the id
 // re-postable over it. Every other refusal loses to the abort, because the
