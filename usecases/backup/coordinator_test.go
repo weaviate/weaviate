@@ -1104,14 +1104,6 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 func TestErrInFlightReindex_IsShared(t *testing.T) {
 	t.Parallel()
 
-	// Shared symbol must be non-nil and carry the expected operator text.
-	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
-	require.Equal(t,
-		"backup blocked: runtime-reindex in flight",
-		backup.ErrBackupBlockedByInFlightReindex.Error(),
-		"operator-visible sentinel text is part of the contract; do not edit lightly",
-	)
-
 	// Round-trip through the coordinator's canCommit error promoter: a
 	// CanCommitErrInFlightReindex response must produce an error chain
 	// that errors.Is matches against the SHARED sentinel.

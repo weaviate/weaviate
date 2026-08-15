@@ -33,6 +33,7 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 		first := r.acquire("Movies", ReindexHoldCleanup)
 		second := r.acquire("Movies", ReindexHoldCleanup)
 		first()
+		first() // a released handle is spent; repeats must not consume the second hold
 		require.Equal(t, ReindexHoldCleanup, r.HoldFor("Movies"),
 			"the second hold must still close the collection")
 		second()
@@ -53,19 +54,6 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 		require.Equal(t, ReindexHoldCleanup, r.HoldFor("Movies"))
 		require.Equal(t, ReindexHoldCleanup, r.HoldFor("MOVIES"))
 	})
-}
-
-func TestReindexHoldRegistry_ReleaseIsIdempotent(t *testing.T) {
-	r := &ReindexHoldRegistry{}
-	outer := r.acquire("Movies", ReindexHoldCleanup)
-	inner := r.acquire("Movies", ReindexHoldCleanup)
-	inner()
-	inner()
-	inner()
-	require.Equal(t, ReindexHoldCleanup, r.HoldFor("Movies"),
-		"repeat releases must not consume the other hold")
-	outer()
-	require.Equal(t, ReindexHoldNone, r.HoldFor("Movies"))
 }
 
 func TestReindexHoldRegistry_HoldReleasesOnEveryReturnPath(t *testing.T) {

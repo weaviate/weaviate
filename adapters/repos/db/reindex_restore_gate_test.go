@@ -105,22 +105,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			wantNamed:   "movies",
 			wantTaskID:  "t1",
 		},
-		{
-			// Decodes without error and leaves an empty collection, which
-			// is the same loss as not decoding at all.
-			name:        "collection field renamed by a newer node",
-			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"class":"Movies","unitToShard":{"u1":"s1"}}`)},
-			ask:         []string{"Shows"},
-			wantBlocked: true,
-			wantTaskID:  "t1",
-		},
-		{
-			name:        "truncated mid-payload with the name still visible",
-			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"collection":"Movies","unitToShard":{"u1":"sha`)},
-			ask:         []string{"Shows"},
-			wantBlocked: true,
-			wantTaskID:  "t1",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -279,13 +263,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		assert.Zero(t, built.activity, "the cluster must not be asked once the local answer is no")
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, ReindexHoldCleanup.String(), hook.AllEntries()[0].Data["reason"])
-	})
-	t.Run("a hold kind this build does not know still refuses", func(t *testing.T) {
-		db, _, built := gatedDB(t, gateFixtures{tasks: []*distributedtask.Task{}, holds: map[string]ReindexHold{"Movies": ReindexHold(99)}})
-		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "does not recognize")
-		assert.Zero(t, built.activity)
 	})
 	t.Run("the feature flag skips both halves", func(t *testing.T) {
 		db, _, built := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})

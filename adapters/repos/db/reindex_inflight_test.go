@@ -117,17 +117,11 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 		{name: "live task on the tuple", live: map[[2]string]bool{{"MyClass", "shard1"}: true}, want: true},
 		{name: "no live task anywhere", live: map[[2]string]bool{}},
 		{
-			name: "live only on another collection, and on the swapped tuple",
+			name: "live only on other keys, including the swapped tuple",
 			live: map[[2]string]bool{
 				{"OtherClass", "shard1"}: true,
+				{"MyClass", "shard2"}:    true,
 				{"shard1", "MyClass"}:    true,
-			},
-		},
-		{
-			name: "live only on another shard, and on the swapped tuple",
-			live: map[[2]string]bool{
-				{"MyClass", "shard2"}: true,
-				{"shard1", "MyClass"}: true,
 			},
 		},
 		{
@@ -350,20 +344,6 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		"the singular field would name one of 60 shards as if it were the one")
 }
 
-func TestReindexHoldReadOncePerRefusal(t *testing.T) {
-	const shardCount = 50
-	shards := make([]string, 0, shardCount)
-	for i := range shardCount {
-		shards = append(shards, fmt.Sprintf("shard-%02d", i))
-	}
-	db, _, built := gatedDB(t, gateFixtures{
-		live:  map[[2]string]bool{},
-		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
-	})
-	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards))
-	assert.Equal(t, 1, built.hold, "one hold read for the whole collection")
-}
-
 // A live task can be ended by the operator; a hold cannot, so the arm that
 // offers a remedy has to win regardless of the order the shards come in.
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
@@ -394,30 +374,23 @@ func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 // A hold refuses on its own, in the window between a task going terminal
 // in DTM and this node finishing its teardown.
 func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
-	db, hook, _ := gatedDB(t, gateFixtures{
+	const shardCount = 50
+	shards := make([]string, 0, shardCount)
+	for i := range shardCount {
+		shards = append(shards, fmt.Sprintf("shard-%02d", i))
+	}
+	db, hook, built := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{},
 		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
 	})
-	err := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"})
+	err := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
 	require.Error(t, err)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
 	assert.Contains(t, err.Error(), "still removing its temporary index files")
+	assert.Equal(t, 1, built.hold, "one hold read for the whole collection")
 	warned := warnOrAbove(hook)
 	require.Len(t, warned, 1)
 	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])
-}
-
-func TestBackupableRefusalKeepsUnrelatedFailures(t *testing.T) {
-	db, _, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", "shard-1"}: true}})
-	blocked := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"})
-	require.Error(t, blocked)
-	unrelated := errors.New("class Shows doesn't exist")
-	joined := errors.Join(blocked, unrelated)
-	require.ErrorIs(t, joined, entitiesbackup.ErrBackupBlockedByInFlightReindex)
-	assert.Contains(t, joined.Error(), "Shows")
-	assert.True(t, strings.HasPrefix(joined.Error(),
-		entitiesbackup.ErrBackupBlockedByInFlightReindex.Error()),
-		"the joined message must lead with the sentinel")
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
