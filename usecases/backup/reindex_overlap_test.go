@@ -118,21 +118,6 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 		assert.True(t, slot.saw(backup.Success))
 	})
 
-	t.Run("a refusal stops the capture from ever reading as transferred", func(t *testing.T) {
-		u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
-		refusal := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-			backup.ErrReindexOverlappedBackup, class)
-		sourcer.setOverlapRefusal(refusal)
-
-		err := u.all(context.Background(), []string{class}, desc, nil, "", "")
-
-		require.ErrorIs(t, err, backup.ErrReindexOverlappedBackup)
-		assert.False(t, slot.saw(backup.Transferred),
-			"a backup a migration overlapped must never be offered for commit")
-		assert.False(t, slot.saw(backup.Success))
-		assert.Equal(t, backup.Failed, desc.Status)
-	})
-
 	t.Run("a capture that already failed is not asked", func(t *testing.T) {
 		u, sourcer, _, desc := uploadFixture(t, class, errors.New("no space left on device"), nil)
 
@@ -140,6 +125,62 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 		assert.Empty(t, sourcer.overlapCalls(),
 			"there is nothing to judge when the capture never completed")
 	})
+}
+
+// TestHowACheckErrorIsPublished pins the line between a refusal and an
+// operator abort. Both arrive as the check's error on the operation's own
+// context, and they publish differently: a refusal has to end FAILED even
+// when its own cause wraps a cancellation, while a cancel has to end
+// CANCELLED, because publishing FAILED there would burn the backup id.
+func TestHowACheckErrorIsPublished(t *testing.T) {
+	const class = "Article"
+
+	tests := []struct {
+		name         string
+		refusal      error
+		wantStatus   backup.Status
+		wantFailures bool
+	}{
+		{
+			name: "an overlap the check observed",
+			refusal: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+				backup.ErrReindexOverlappedBackup, class),
+			wantStatus:   backup.Failed,
+			wantFailures: true,
+		},
+		{
+			// A contract test on a shape the check does not emit: a
+			// cancelled context is answered as a cancel before a verdict
+			// exists. It pins the rule for whatever emits it next.
+			name: "an unanswerable check whose own cause was cancelled",
+			refusal: fmt.Errorf("%w: the cluster task manager could not be listed: %w",
+				backup.ErrReindexOverlapUndetermined, context.Canceled),
+			wantStatus:   backup.Failed,
+			wantFailures: true,
+		},
+		{
+			name:       "an operator cancelling the backup",
+			refusal:    context.Canceled,
+			wantStatus: backup.Cancelled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
+			sourcer.setOverlapRefusal(tt.refusal)
+
+			require.ErrorIs(t, u.all(context.Background(), []string{class}, desc, nil, "", ""),
+				tt.refusal)
+
+			assert.Equal(t, tt.wantStatus, desc.Status)
+			assert.Equal(t, tt.wantStatus == backup.Cancelled, slot.saw(backup.Cancelled))
+			assert.Equal(t, tt.wantFailures, len(slot.failures) > 0)
+			assert.False(t, slot.saw(backup.Transferred),
+				"a capture the check would not clear must never be offered for commit")
+			assert.False(t, slot.saw(backup.Success))
+		})
+	}
 }
 
 // TestWithMetaFault pins the reason a status poll is served when the
@@ -239,43 +280,6 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 			})
 		}
 	}
-}
-
-// TestCommitTimeOverlapRefusalIsNotAnOperatorAbort is a contract test on
-// publishAsCancelled, not a regression test on a live path: the check never
-// emits an undetermined refusal that wraps a cancellation, because a
-// cancelled context is answered as a cancel before a verdict is built. It
-// pins the rule for whatever does emit that shape next.
-func TestCommitTimeOverlapRefusalIsNotAnOperatorAbort(t *testing.T) {
-	const class = "Article"
-	u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
-	sourcer.setOverlapRefusal(fmt.Errorf("%w: the cluster task manager could not be listed: %w",
-		backup.ErrReindexOverlapUndetermined, context.Canceled))
-
-	err := u.all(context.Background(), []string{class}, desc, nil, "", "")
-
-	require.ErrorIs(t, err, backup.ErrReindexOverlapUndetermined)
-	assert.Equal(t, backup.Failed, desc.Status)
-	assert.False(t, slot.saw(backup.Cancelled),
-		"a refusal is not an operator abort, whatever its cause wraps")
-	require.NotEmpty(t, slot.failures)
-}
-
-// TestOperatorCancelDuringTheOverlapCheckIsCancelled is the other half of
-// the rule above. The check runs on the operation's own context, so an
-// operator cancel arrives as the check's error; that one is an operator
-// abort and must not publish FAILED, which would burn the backup id.
-func TestOperatorCancelDuringTheOverlapCheckIsCancelled(t *testing.T) {
-	const class = "Article"
-	u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
-	sourcer.setOverlapRefusal(context.Canceled)
-
-	err := u.all(context.Background(), []string{class}, desc, nil, "", "")
-
-	require.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, backup.Cancelled, desc.Status)
-	assert.True(t, slot.saw(backup.Cancelled))
-	assert.Empty(t, slot.failures)
 }
 
 // TestCommitTimeOverlapRefusalIsServedWhole pins that the refusal reaches a

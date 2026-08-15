@@ -238,13 +238,6 @@ func TestIsReindexBackupFailure(t *testing.T) {
 			err:  fmt.Errorf("%w: x", backup.ErrReindexOverlapUndetermined),
 			want: true,
 		},
-		{
-			// A cancellation wrapped by a refusal is not an operator abort.
-			name: "an unanswerable check whose cause was cancelled",
-			err: fmt.Errorf("%w: %w",
-				backup.ErrReindexOverlapUndetermined, context.Canceled),
-			want: true,
-		},
 		{name: "a plain cancellation", err: context.Canceled},
 	}
 
@@ -511,6 +504,14 @@ func TestPublishAsCancelled(t *testing.T) {
 			err:  fmt.Errorf("%w: %w", backup.ErrBackupBlockedByInFlightReindex, context.Canceled),
 		},
 		{name: "a restore refusal whose cause was cancelled", err: fmt.Errorf("%w: %w", backup.ErrReindexInFlight, context.Canceled)},
+		{
+			name: "an observed overlap whose cause was cancelled",
+			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlappedBackup, context.Canceled),
+		},
+		{
+			name: "an unanswerable overlap check whose cause was cancelled",
+			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlapUndetermined, context.Canceled),
+		},
 		{name: "a plain cancellation", err: context.Canceled, want: true},
 		{name: "a cancelled operation context", ctxErr: context.Canceled, want: true},
 		{name: "a refusal racing an operator abort", err: fmt.Errorf("%w: x", backup.ErrReindexInFlight), ctxErr: context.Canceled, want: true},

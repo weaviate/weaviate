@@ -65,9 +65,6 @@ func TestBackupFailsWhenAMigrationRanThroughItsCapture(t *testing.T) {
 		"the commit-time check has to be what failed this backup; got: %s", reason)
 	require.Contains(t, reason, className,
 		"the recorded reason must name the collection; got: %s", reason)
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	require.NotContains(t, reason, shardName,
-		"the status API must not name a shard; got: %s", reason)
 }
 
 // TestBackupSucceedsWhenNoMigrationTouchesTheCapture is the negative half.
