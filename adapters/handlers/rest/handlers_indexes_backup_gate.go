@@ -39,6 +39,9 @@ var (
 	// Distinct from a peer that did not answer: here there is no trustworthy
 	// list of peers to ask in the first place.
 	errClusterViewUnavailable = errors.New("this node is missing from its own cluster's member list")
+	// Whether a peer is capturing does not depend on this node's own wiring, so
+	// a missing prober or cluster view is one more way of not being able to ask.
+	errClusterProbeUnwired = errors.New("this node has no wiring to ask its peers about backups")
 )
 
 // Ordered by precedence: a node seen backing up refuses even when another
@@ -147,7 +150,7 @@ func (h *indexesHandlers) localBackupActivity() backup.NodeActivity {
 func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupActivityScan {
 	prober := h.appState.ClusterBackupActivity
 	if prober == nil || h.appState.Cluster == nil {
-		return backupActivityScan{}
+		return backupActivityScan{verdict: backupActivityUnreachable, fault: errClusterProbeUnwired}
 	}
 
 	peers, established := peersToProbe(h.appState.Cluster.AllNames(), h.appState.Cluster.LocalName())

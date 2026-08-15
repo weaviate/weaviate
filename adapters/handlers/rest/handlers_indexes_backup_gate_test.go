@@ -358,6 +358,27 @@ func TestPeersToProbe(t *testing.T) {
 	}
 }
 
+// Whether a peer is capturing does not depend on this node's own wiring, so a
+// gate that cannot ask must answer the same as one whose peers did not answer.
+func TestScanClusterBackupActivityWithoutTheWiringToAsk(t *testing.T) {
+	tests := []struct {
+		name     string
+		appState *state.State
+	}{
+		{name: "no prober", appState: &state.State{Logger: quietLogger(), Cluster: &cluster.State{}}},
+		{name: "no cluster view", appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scan := (&indexesHandlers{appState: tt.appState}).scanClusterBackupActivity(context.Background())
+
+			assert.Equal(t, backupActivityUnreachable, scan.verdict)
+			assert.ErrorIs(t, scan.fault, errClusterProbeUnwired)
+		})
+	}
+}
+
 // A refusal is the line an auditor most wants attributed, and the success line
 // in the same flow already carries the caller.
 func TestBackupActivityRefusalNamesThePrincipal(t *testing.T) {
@@ -401,6 +422,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 		local       backup.NodeActivity
 		wantVerdict backupActivityVerdict
 		wantKind    string
+		wantFault   error
 	}{
 		{
 			name:        "this node started capturing since the pre-commit read",
@@ -414,7 +436,14 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 			wantVerdict: backupActivityBusy,
 			wantKind:    backup.NodeActivityKindRestore,
 		},
-		{name: "still idle", wantVerdict: backupActivityClear},
+		{
+			// Nothing here is wired to answer for the peers, and the refusal
+			// that produces is what proves the rescan went past the local rung
+			// rather than answering from it.
+			name:        "still idle, so the peers are asked too",
+			wantVerdict: backupActivityUnreachable,
+			wantFault:   errClusterProbeUnwired,
+		},
 	}
 
 	for _, tt := range tests {
@@ -428,6 +457,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 
 			assert.Equal(t, tt.wantVerdict, scan.verdict)
 			assert.Equal(t, tt.wantKind, scan.kind)
+			assert.ErrorIs(t, scan.fault, tt.wantFault)
 		})
 	}
 }
