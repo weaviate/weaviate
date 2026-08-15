@@ -34,6 +34,10 @@ type ReindexOverlapVerdict struct {
 	Overlapped   bool
 	Undetermined bool
 
+	// True only while the migration can still end. Decides whether the remedy
+	// is a wait, so the zero value never asks for one that cannot end.
+	Live bool
+
 	Collection string
 	TaskID     string
 
@@ -203,7 +207,7 @@ func decideReindexOverlap(
 		}
 	}
 	if IsLiveReindexTaskStatus(task.Status) {
-		return ReindexOverlapVerdict{Overlapped: true}
+		return ReindexOverlapVerdict{Overlapped: true, Live: true}
 	}
 	if task.FinishedAt.IsZero() {
 		return ReindexOverlapVerdict{
@@ -357,6 +361,9 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) erro
 		matched := matchCapturedClass(classes, verdict.Collection)
 		sentinel = entitiesbackup.ErrReindexOverlappedBackup
 		remedy = "wait for that migration to finish"
+		if !verdict.Live {
+			remedy = "that migration is already over, so a retry under a new backup id is not blocked by it"
+		}
 		if matched == "" {
 			// Nothing observed puts the migration on a collection this backup
 			// captured, only that the two cannot be separated. Same hedge the
@@ -365,8 +372,11 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) erro
 				"backup was being captured, so this capture cannot be cleared"
 		} else {
 			finding = fmt.Sprintf("collection %q was migrated while this backup was being captured", matched)
-			// The remedy renders the collection into URL paths.
-			remedy += ". " + reindex.MigrationRemedy(matched)
+			if verdict.Live {
+				// The remedy renders the collection into URL paths, and every
+				// step it names acts on a task that has not ended.
+				remedy += ". " + reindex.MigrationRemedy(matched)
+			}
 		}
 	}
 	// The detail and remedy are spliced into the text the coordinator classifies

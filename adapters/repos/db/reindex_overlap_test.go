@@ -62,6 +62,7 @@ func TestReindexOverlapRules(t *testing.T) {
 		classes          []string
 		hasLocalWorker   bool
 		wantOverlapped   bool
+		wantLive         bool
 		wantUndetermined bool
 		wantDetail       string
 	}{
@@ -69,7 +70,7 @@ func TestReindexOverlapRules(t *testing.T) {
 			name:           "a task still running at commit overlapped the capture",
 			task:           overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
 			classes:        []string{"Movies"},
-			wantOverlapped: true,
+			wantOverlapped: true, wantLive: true,
 		},
 		{
 			name:           "a task that finished inside the window overlapped it",
@@ -130,7 +131,7 @@ func TestReindexOverlapRules(t *testing.T) {
 			name:           "a task nothing can attribute fails a backup that captured something",
 			task:           unattributableTask(),
 			classes:        []string{"Shows"},
-			wantOverlapped: true,
+			wantOverlapped: true, wantLive: true,
 		},
 		{
 			// The opposite of the restore gate's empty list: a backup that
@@ -143,7 +144,7 @@ func TestReindexOverlapRules(t *testing.T) {
 			name:           "collection matching ignores case",
 			task:           overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
 			classes:        []string{"MOVIES"},
-			wantOverlapped: true,
+			wantOverlapped: true, wantLive: true,
 		},
 		{
 			// The liveness predicate reads it as live, which would publish a
@@ -165,6 +166,7 @@ func TestReindexOverlapRules(t *testing.T) {
 			verdict := lookup(tt.classes, captureStart)
 
 			assert.Equal(t, tt.wantOverlapped, verdict.Overlapped)
+			assert.Equal(t, tt.wantLive, verdict.Live)
 			assert.Equal(t, tt.wantUndetermined, verdict.Undetermined)
 			if tt.wantDetail != "" {
 				assert.Contains(t, verdict.Detail, tt.wantDetail)
@@ -398,7 +400,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 	}{
 		{
 			name:         "an overlap on a collection this backup captured",
-			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies", TaskID: "t1"},
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Live: true, Collection: "Movies", TaskID: "t1"},
 			classes:      []string{"Movies"},
 			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
 			notSentinel:  entitiesbackup.ErrReindexOverlapUndetermined,
@@ -407,7 +409,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 		},
 		{
 			name:         "an overlap the caller spelled differently",
-			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"},
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Live: true, Collection: "Movies"},
 			classes:      []string{"movies"},
 			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
 			wantFinding:  `collection "movies" was migrated`,
@@ -418,7 +420,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 			// The check never attributed this to a captured collection, so the
 			// text may not claim it did.
 			name:         "an overlap on a collection this backup never captured",
-			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Secret"},
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Live: true, Collection: "Secret"},
 			classes:      []string{"Movies"},
 			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
 			wantFinding:  "cannot be attributed to a collection",
@@ -430,12 +432,24 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 		},
 		{
 			name:         "an overlap on a task that named no collection at all",
-			verdict:      ReindexOverlapVerdict{Overlapped: true},
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Live: true},
 			classes:      []string{"Movies"},
 			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
 			wantFinding:  "cannot be attributed to a collection",
 			wantRemedy:   "wait for that migration to finish",
 			notContains:  []string{"Movies", "/v1/schema"},
+		},
+		{
+			// The migration ended before the check ran, so every step of the
+			// live remedy - poll the indexes, cancel while STARTED - is a step
+			// on a task that is already gone.
+			name:         "an overlap by a migration that is already over",
+			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  `collection "Movies" was migrated`,
+			wantRemedy:   "that migration is already over",
+			notContains:  []string{"wait for that migration to finish", "/v1/schema"},
 		},
 		{
 			name: "a backup that outlived the retention window",
