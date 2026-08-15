@@ -310,7 +310,6 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		// Published after the meta write, so a poll that sees FAILED has why.
 		if !cancelled {
 			u.slot.setFailed(withMetaFault(reason, metaErr))
 		}
@@ -390,8 +389,9 @@ Loop:
 	return nil
 }
 
-// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
-// text is served verbatim from the status API, backend messages and all.
+// nonEmptyErrMsg is err's text, or a stand-in when it has none. Callers that
+// serve it to an API reduce a reindex refusal first; everything else reaches
+// the status API as written, backend messages and all.
 func nonEmptyErrMsg(err error) string {
 	if msg := err.Error(); msg != "" {
 		return msg

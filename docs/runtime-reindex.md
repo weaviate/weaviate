@@ -655,9 +655,11 @@ in the node's state, the node:
   `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
 - refuses backups on the shards the task lists
   (`db.NewShardReindexActivityLookup` feeding
-  `DB.AnyLiveReindexForShard`), and, once the task is terminal, still
-  fails any backup whose capture window it overlapped, per collection
-  (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`);
+  `DB.AnyLiveReindexForShard`), and fails any backup that finished its
+  capture while the task was listed, per collection
+  (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`).
+  An unrecognized status reads as live to both, so the overlap check
+  refuses without ever consulting the retention window;
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1514,16 +1516,37 @@ Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
 v1.38 Preview.
 
-Two known holes, both needing state this change does not persist:
+Four known holes, each needing state or a layer this change does not touch:
 
-- The capture start and a task's `FinishedAt` come from different nodes'
-  clocks, so enough skew hides a migration that finished inside the
-  window. Closing it means putting backup state in RAFT.
-- The guarantee is per backup, not per chain. Nothing on disk records
-  whether a base capture was clean, so an incremental backup built on a
-  base taken before this check existed (or with the feature flag off)
-  passes every chain check and its own overlap check while the restored
-  chain is torn. Closing it means a new descriptor field.
+- **Clock skew.** The capture start is the capturing node's clock; a
+  task's `FinishedAt` is the node that ran it, and the GC that drops the
+  record runs on the scheduler leader against that same field. Skew cuts
+  both ways: behind, the check clears a capture whose evidence was
+  already collected; ahead, it refuses a clean capture at 100% of its
+  upload and burns the id. A skew margin was considered and rejected — it
+  is a knob justified only by a guess about clock quality, and it trades
+  a rare fail-open for a common and very expensive fail-closed. Closing
+  it properly means the leader supplying the reference time on the task
+  list response.
+- **Per backup, not per chain.** Nothing on disk records whether a base
+  capture was clean, so an incremental backup built on a base taken
+  before this check existed (or with the feature flag off) passes every
+  chain check and its own overlap check while the restored chain is torn.
+  Closing it means a new descriptor field.
+- **Deleting a collection deletes its migration records.**
+  `DeleteTasksForCollection` runs on DELETE class, so the collection is
+  gone but a capture of it is still restorable and still torn. Closing it
+  means a durable tombstone this change does not persist.
+- **A partitioned old leader answers from its own state.** `Raft.Query`
+  serves the task list out of the local FSM whenever the node believes it
+  is the leader, with no leadership-verification round, so the check can
+  get a confidently wrong "no such task" with no error to distinguish it.
+  Closing it is a linearizable-read change at the RAFT layer.
+
+One route that looks like a hole and is not: `AddTask` overwrites a
+record when a task id is resubmitted, but reindex task ids are
+server-generated with a random suffix, so no caller can produce that
+collision in this namespace.
 
 ## 14. Upgrade / operations: `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
 

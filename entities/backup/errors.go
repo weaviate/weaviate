@@ -26,9 +26,10 @@ var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
 // operator to different places.
 var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runtime-reindex is in flight could not be determined")
 
+// The observed half of the commit-time pair; ErrReindexOverlapUndetermined is
+// the half where the check could not answer.
 var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex overlapped this backup")
 
-// Shares no wording with ErrReindexOverlappedBackup: no overlap was observed.
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
 type ReindexBlockedError struct {
