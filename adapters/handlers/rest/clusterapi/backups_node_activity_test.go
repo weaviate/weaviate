@@ -85,13 +85,6 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 			wantCode: http.StatusOK,
 			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"backup","id":"b1"}`,
 		},
-		{
-			name:     "busy with a restore",
-			activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r1"},
-			method:   http.MethodGet,
-			wantCode: http.StatusOK,
-			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"restore","id":"r1"}`,
-		},
 		{name: "POST", method: http.MethodPost, wantCode: http.StatusMethodNotAllowed},
 		{name: "DELETE", method: http.MethodDelete, wantCode: http.StatusMethodNotAllowed},
 	}

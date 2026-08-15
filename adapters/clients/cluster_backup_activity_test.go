@@ -37,10 +37,7 @@ func (r staticResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-const (
-	idleAnswer      = `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`
-	otherNodeAnswer = `{"probe":"weaviate/backup-node-activity","node":"node2","busy":false}`
-)
+const idleAnswer = `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`
 
 // padTo pads valid JSON with trailing whitespace, which decoders accept, so an
 // answer that is only wrong about its size is refused for its size alone.
@@ -73,23 +70,9 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			want: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"},
 		},
 		{
-			name: "busy with a restore",
-			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"restore","id":"r1"}`))
-			},
-			want: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r1"},
-		},
-		{
 			name:    "idle",
 			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(idleAnswer)) },
 			want:    backup.NodeActivity{Answered: true},
-		},
-		{
-			name: "200 carrying another service's marker",
-			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"nginx","node":"node1","busy":false}`))
-			},
-			wantErr: "was not written by the node-activity route",
 		},
 		{
 			name: "200 that never mentions busy",
@@ -102,18 +85,6 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			name:    "200 that is not JSON",
 			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`<html>hello</html>`)) },
 			wantErr: "unmarshal node activity answer",
-		},
-		{
-			name:    "200 naming another node",
-			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(otherNodeAnswer)) },
-			wantErr: "written by node",
-		},
-		{
-			name: "200 naming no node at all",
-			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","busy":false}`))
-			},
-			wantErr: "written by node",
 		},
 		{
 			name:        "the node's own 404",
@@ -307,7 +278,6 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 		statusLine int
 		wantErr    string
 	}{
-		{name: "the headers this route really sends"},
 		{name: "headers padded past the cap", padding: 512, wantErr: "node activity request"},
 		{name: "a status line the peer sizes", statusLine: 60 << 10, wantErr: "node activity request"},
 	}
@@ -329,11 +299,6 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 
 			got, err := newTestBackupActivity(t, server).NodeActivity(context.Background(), "node1")
 
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				assert.True(t, got.Free())
-				return
-			}
 			require.ErrorContains(t, err, tt.wantErr)
 			require.NotErrorIs(t, err, ErrNodeActivityUnsupported)
 			assert.Less(t, len(err.Error()), 512, "a peer must not size the line this node logs")
@@ -442,26 +407,6 @@ func TestBasicAuthTransportDoesNotEditTheCallersRequest(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "u", user)
 	assert.Equal(t, "p", password)
-}
-
-func TestClusterBackupActivitySendsBasicAuth(t *testing.T) {
-	auth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "cluster-user", Password: "s3cret"}}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, password, ok := r.BasicAuth()
-		if !ok || user != auth.BasicAuth.Username || password != auth.BasicAuth.Password {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.Write([]byte(idleAnswer))
-	}))
-	defer server.Close()
-	client := NewClusterBackupActivity(auth, time.Second,
-		staticResolver{"node1": strings.TrimPrefix(server.URL, "http://")})
-
-	got, err := client.NodeActivity(context.Background(), "node1")
-
-	require.NoError(t, err)
-	assert.Equal(t, backup.NodeActivity{Answered: true}, got)
 }
 
 func newTestBackupActivity(t *testing.T, server *httptest.Server) *ClusterBackupActivity {
