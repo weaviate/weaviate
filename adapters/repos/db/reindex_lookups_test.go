@@ -40,7 +40,7 @@ func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-// Pins: both lookups treat an unrecognized status as in-flight.
+// Pins: every lookup treats an unrecognized status as in-flight.
 func TestReindexLookups_LivenessRule(t *testing.T) {
 	payload := ReindexTaskPayload{
 		MigrationType: ReindexTypeEnableFilterable,
@@ -58,6 +58,10 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 	}{
 		{"backup gate", func(task *distributedtask.Task) bool {
 			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
+		}},
+		{"restore gate", func(task *distributedtask.Task) bool {
+			_, blocked := NewAnyReindexActivityLookup([]*distributedtask.Task{task})([]string{"C"})
+			return blocked
 		}},
 		{"orphan audit", func(task *distributedtask.Task) bool {
 			return NewLiveReindexTrackerLookup([]*distributedtask.Task{task})("T1", 1)
