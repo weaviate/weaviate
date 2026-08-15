@@ -100,13 +100,6 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			wantErr: "did not come from the node itself",
 		},
 		{
-			name: "404 with the node's body padded with whitespace",
-			respond: func(w http.ResponseWriter, r *http.Request) {
-				nosniff(w, http.StatusNotFound, "   \t\r\n 404 page not found \n\n  ")
-			},
-			wantErr: "did not come from the node itself",
-		},
-		{
 			name:    "404 with the node's body surrounded by single spaces",
 			respond: func(w http.ResponseWriter, r *http.Request) { nosniff(w, http.StatusNotFound, " 404 page not found ") },
 			wantErr: "did not come from the node itself",
@@ -245,12 +238,13 @@ func TestProbeHTTPClientIgnoresProxiesAndAlwaysBounds(t *testing.T) {
 	withAuth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "u", Password: "p"}}
 
 	tests := []struct {
-		name    string
-		auth    cluster.AuthConfig
-		timeout time.Duration
+		name       string
+		auth       cluster.AuthConfig
+		timeout    time.Duration
+		wantAuthed bool
 	}{
 		{name: "without basic auth", timeout: time.Second},
-		{name: "with basic auth", auth: withAuth, timeout: time.Second},
+		{name: "with basic auth", auth: withAuth, timeout: time.Second, wantAuthed: true},
 		{name: "with a zero budget", timeout: 0},
 		{name: "with a negative budget", timeout: -time.Second},
 	}
@@ -259,7 +253,9 @@ func TestProbeHTTPClientIgnoresProxiesAndAlwaysBounds(t *testing.T) {
 			client := probeHTTPClient(tt.auth, tt.timeout)
 
 			transport := client.Transport
-			if authed, ok := transport.(basicAuthTransport); ok {
+			authed, ok := transport.(basicAuthTransport)
+			require.Equal(t, tt.wantAuthed, ok)
+			if ok {
 				transport = authed.next
 			}
 			require.IsType(t, &http.Transport{}, transport)

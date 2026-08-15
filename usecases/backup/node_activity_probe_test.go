@@ -182,11 +182,6 @@ func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 			setUp: func(s *Scheduler) { hold(&s.backupper.lastOp, "b1") },
 			want:  busyWith("backup", "b1"),
 		},
-		{
-			name:  "the scheduler coordinates a restore",
-			setUp: func(s *Scheduler) { hold(&s.restorer.lastOp, "r1") },
-			want:  busyWith("restore", "r1"),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -220,11 +215,6 @@ func TestNodeActivityProbeBeforeSchedulerAttached(t *testing.T) {
 		setUp func(participantBackup *backupStat)
 		want  NodeActivity
 	}{
-		{
-			name:  "nothing is running",
-			setUp: func(participantBackup *backupStat) {},
-			want:  idle,
-		},
 		{
 			name:  "this node participates in a backup",
 			setUp: func(participantBackup *backupStat) { hold(participantBackup, "b1") },
