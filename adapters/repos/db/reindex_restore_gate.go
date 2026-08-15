@@ -95,32 +95,34 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	if db.config.RuntimeReindexDisabled {
 		return nil
 	}
-	if hold := db.ReindexHoldFor(collections...); hold != ReindexHoldNone {
-		db.warnRestoreRefusal(collections, hold.String(), "")
-		return restoreHoldRefusal(collections, hold)
-	}
+	// Read before the cluster is asked, answered after it: a live task can be
+	// ended by the operator and a hold cannot, so the arm that offers a remedy
+	// wins when both apply.
+	hold := db.ReindexHoldFor(collections...)
+	var activity ReindexActivity
+	var blocked bool
 	db.reindexAuditMu.RLock()
 	builder := db.anyReindexActivityLookupBuilder
 	db.reindexAuditMu.RUnlock()
 	if builder == nil {
 		db.warnUnwiredGate(&restoreGateWarnBudget, "restore_reindex_gate", "restore",
 			"Check the SetAnyReindexActivityLookup wiring in configure_api.go.")
-		return nil
+	} else if lookup := builder(ctx); lookup != nil {
+		activity, blocked = lookup(collections)
 	}
-	lookup := builder(ctx)
-	if lookup == nil {
-		return nil
-	}
-	activity, blocked := lookup(collections)
-	if !blocked {
-		return nil
-	}
-	if activity.Unreadable {
+	switch {
+	case blocked && !activity.Unreadable:
+		db.warnRestoreRefusal(collections, reindexReasonLiveTask, activity.TaskID)
+		return restoreLiveTaskRefusal(collections, activity)
+	case hold != ReindexHoldNone:
+		db.warnRestoreRefusal(collections, hold.String(), "")
+		return restoreHoldRefusal(collections, hold)
+	case blocked:
+		// An unreadable list observed nothing, so it ranks below a hold.
 		db.warnRestoreRefusal(collections, reindexReasonTaskListUnreadable, "")
 		return restoreUnreadableRefusal()
 	}
-	db.warnRestoreRefusal(collections, reindexReasonLiveTask, activity.TaskID)
-	return restoreLiveTaskRefusal(collections, activity)
+	return nil
 }
 
 func (db *DB) warnRestoreRefusal(collections []string, reason, taskID string) {

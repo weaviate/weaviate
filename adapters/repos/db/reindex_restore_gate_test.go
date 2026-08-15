@@ -251,18 +251,21 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Len(t, warned, 1, "one refused call, one line")
 		assert.Equal(t, reindexReasonTaskListUnreadable, warned[0].Data["reason"])
 	})
-	t.Run("a node-local hold answers before the cluster is asked", func(t *testing.T) {
-		// The hold is a local map read; the DTM question is a
-		// leader-forwarded RAFT query a held collection would be refused
-		// after anyway.
+	t.Run("a node-local hold refuses when nothing else does", func(t *testing.T) {
 		db, hook, built := gatedDB(t, gateFixtures{tasks: []*distributedtask.Task{}, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 		assert.Contains(t, err.Error(), "still removing its temporary index files")
-		assert.Zero(t, built.activity, "the cluster must not be asked once the local answer is no")
+		assert.Equal(t, 1, built.activity, "the arm that outranks the hold has to be asked")
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, ReindexHoldCleanup.String(), hook.AllEntries()[0].Data["reason"])
+	})
+	t.Run("a live task outranks a hold, so the remedy an operator can act on wins", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
+		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
+		require.ErrorContains(t, err, "has an active runtime-reindex task")
+		assert.NotContains(t, err.Error(), "retry once the cleanup finishes")
 	})
 	t.Run("the builder hands back nothing", func(t *testing.T) {
 		db, _, _ := gatedDB(t, gateFixtures{})
