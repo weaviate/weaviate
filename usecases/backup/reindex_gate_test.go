@@ -291,6 +291,22 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.NotContains(t, resp.Err, nodeName)
 		assert.NotContains(t, resp.Err, `shard "`)
 	})
+	t.Run("a node narrowed to no collection is not gated", func(t *testing.T) {
+		// It stays in the fan-out for the blobs only its own descriptor
+		// holds. The gate reads an empty list as every collection, so asking
+		// it here refuses the whole restore over a migration on a collection
+		// this node was not asked to restore.
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/1")
+		backend.On("GetObject", ctx, mock.Anything, BackupFile).Return(nil, backup.ErrNotFound{})
+		m := createManager(sourcer, nil, backend, nil)
+		resp := m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3"})
+		assert.Empty(t, sourcer.gateCalls(), "a node restoring nothing has nothing to gate")
+		assert.NotEqual(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+		assert.NotContains(t, resp.Err, backup.ErrReindexInFlight.Error())
+	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
 		// The kind is the only thing that survives the hop, so a gate that
 		// observed nothing has to carry a kind of its own or the

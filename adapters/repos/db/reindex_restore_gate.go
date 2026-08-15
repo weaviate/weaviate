@@ -30,10 +30,10 @@ type ReindexActivity struct {
 	Unreadable bool
 }
 
-// An empty list means every collection, because a participant handed one
-// restores every collection it holds. If that ever becomes "restore
-// nothing", this reading has to flip in the same commit or every restore
-// is refused.
+// An empty list means every collection. The only caller that hands one is
+// the cluster-wide probe, for a restore whose class list is not known yet; a
+// participant asks about the classes it was given and skips the gate when it
+// was given none.
 type AnyReindexActivityLookup func(collections []string) (ReindexActivity, bool)
 
 type AnyReindexActivityLookupBuilder func(ctx context.Context) AnyReindexActivityLookup

@@ -322,11 +322,19 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
+		// A node the authorization filter narrowed to nothing restores no
+		// collection; it is kept in the fan-out for the blobs only its own
+		// descriptor holds. The gate reads an empty list as every collection,
+		// so asking it here would refuse the whole restore over a migration
+		// nobody asked about.
+		//
 		// Before the descriptor is read: validate() fetches from the backend.
-		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
-			ret.Err = err.Error()
-			ret.ErrKind = classifyRestoreGateErr(err)
-			return ret
+		if len(req.Classes) > 0 {
+			if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = classifyRestoreGateErr(err)
+				return ret
+			}
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
