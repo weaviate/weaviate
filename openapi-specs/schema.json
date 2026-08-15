@@ -2525,6 +2525,60 @@
           ],
           "format": "int64",
           "x-omitempty": true
+        },
+        "vectorCommitLogStats": {
+          "description": "Commit log statistics per vector index of this shard on this node, as of the vector index's last completed compaction cycle. Omitted for unloaded shards, for vector index types without a compacting commit log, and before the first compaction cycle completes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorCommitLogStats"
+          },
+          "x-omitempty": true
+        }
+      }
+    },
+    "VectorCommitLogStats": {
+      "description": "Commit log statistics of a single vector index, as of its last completed compaction cycle.",
+      "properties": {
+        "name": {
+          "description": "The name of the vector index. Empty for the legacy unnamed vector.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "rawFiles": {
+          "description": "The number of unsorted commit log files awaiting conversion, excluding the actively written file.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "condensedFiles": {
+          "description": "The number of condensed commit log files awaiting conversion.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "sortedFiles": {
+          "description": "The number of sorted commit log files awaiting merge or snapshot.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "snapshotTimestamp": {
+          "description": "The newest commit timestamp absorbed into the current snapshot, taken from the snapshot filename (unix seconds). 0 when no snapshot exists.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "totalSizeBytes": {
+          "description": "The combined size in bytes of the commit log files the compactor tracks: the current snapshot, sorted, condensed and raw files, and the actively written file. A duplicate snapshot left behind by a crash is not counted until the next created snapshot supersedes it.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "compactionCycles": {
+          "description": "The number of compaction cycles completed since the shard was loaded.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
         }
       }
     },

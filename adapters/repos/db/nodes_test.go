@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -817,4 +818,43 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 	assert.Empty(t, status, "a closing index must not report shards")
 	require.ErrorIs(t, scanErr, errIndexShutdown,
 		"a scan aborted by shutdown must say so, not report an empty collection")
+}
+
+// stubCommitLogStatsIndex adds the optional CommitlogStats method on top of a
+// plain VectorIndex, the way hnsw (and dynamic wrapping hnsw) provide it.
+type stubCommitLogStatsIndex struct {
+	VectorIndex
+	stats *compact.Stats
+}
+
+func (s stubCommitLogStatsIndex) CommitlogStats() *compact.Stats { return s.stats }
+
+func TestShardVectorCommitLogStats(t *testing.T) {
+	shard := NewMockShardLike(t)
+	shard.EXPECT().ForEachVectorIndex(mock.Anything).RunAndReturn(
+		func(f func(string, VectorIndex) error) error {
+			// map iteration order is random; feed names unsorted on purpose
+			require.NoError(t, f("second", stubCommitLogStatsIndex{stats: &compact.Stats{
+				SortedFiles: 2, SnapshotTimestamp: 1234, TotalSizeBytes: 50, Cycles: 7,
+			}}))
+			require.NoError(t, f("flat", NewMockVectorIndex(t)))
+			require.NoError(t, f("first", stubCommitLogStatsIndex{stats: &compact.Stats{
+				RawFiles: 1, CondensedFiles: 3, Cycles: 1,
+			}}))
+			require.NoError(t, f("pending", stubCommitLogStatsIndex{stats: nil}))
+			return nil
+		})
+
+	got := shardVectorCommitLogStats(shard)
+
+	// "flat" has no CommitlogStats method, "pending" has not completed a
+	// cycle yet: both are left out rather than reported as zeros.
+	require.Len(t, got, 2)
+	assert.Equal(t, &models.VectorCommitLogStats{
+		Name: "first", RawFiles: 1, CondensedFiles: 3, CompactionCycles: 1,
+	}, got[0])
+	assert.Equal(t, &models.VectorCommitLogStats{
+		Name: "second", SortedFiles: 2, SnapshotTimestamp: 1234,
+		TotalSizeBytes: 50, CompactionCycles: 7,
+	}, got[1])
 }

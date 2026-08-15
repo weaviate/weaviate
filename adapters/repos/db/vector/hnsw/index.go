@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -1159,4 +1160,14 @@ func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
 		return h.compressor.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
+}
+
+// CommitlogStats returns commit log compaction statistics as of the last
+// completed compaction cycle. It returns nil when the commit logger keeps no
+// statistics (e.g. the noop logger) or before the first cycle completes.
+func (h *hnsw) CommitlogStats() *compact.Stats {
+	if p, ok := h.commitLog.(interface{ CompactionStats() *compact.Stats }); ok {
+		return p.CompactionStats()
+	}
+	return nil
 }

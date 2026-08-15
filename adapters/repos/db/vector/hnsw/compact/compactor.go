@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -109,6 +110,9 @@ type Compactor struct {
 	config CompactorConfig
 	logger logrus.FieldLogger
 	fs     common.FS
+
+	cycles atomic.Uint64
+	stats  atomic.Pointer[Stats]
 }
 
 // NewCompactor creates a new Compactor.
@@ -188,6 +192,7 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 	// Step 5: Decide action
 	action := c.decideAction(state)
 	if action == ActionNone {
+		c.publishStats(state, c.cycles.Add(1))
 		return ActionNone, nil
 	}
 
@@ -205,7 +210,35 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 		}
 	}
 
+	// The cycle is complete at this point, so count it before attempting to
+	// publish: a failed stats re-scan below must not make the counter skip a
+	// completed cycle.
+	cycles := c.cycles.Add(1)
+
+	// Re-scan so the published stats include the files the action just
+	// created or removed. The extra scan runs only on cycles that did work,
+	// where its cost is negligible next to the merge I/O; idle cycles reuse
+	// the scan from step 5.
+	if state, err = discovery.Scan(); err != nil {
+		c.logger.WithError(err).
+			WithField("action", "hnsw_compactor_stats").
+			Debug("skipping stats update: rescan after compaction action failed")
+	} else {
+		c.publishStats(state, cycles)
+	}
+
 	return action, nil
+}
+
+// Stats returns the directory summary published at the end of the last
+// completed compaction cycle, or nil before the first cycle completes.
+// The returned value is shared between readers and must not be modified.
+func (c *Compactor) Stats() *Stats {
+	return c.stats.Load()
+}
+
+func (c *Compactor) publishStats(state *DirectoryState, cycles uint64) {
+	c.stats.Store(statsFromState(state, cycles))
 }
 
 // isAborted is a small helper that tolerates a nil callback.
