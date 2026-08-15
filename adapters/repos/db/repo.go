@@ -444,6 +444,11 @@ type Config struct {
 	// caller sets it explicitly.
 	RuntimeReindexDisabled bool
 
+	// CompletedTaskTTL mirrors DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS.
+	// The commit-time overlap check reads finished migrations out of the
+	// retained task list, so a zero TTL leaves it nothing to read.
+	CompletedTaskTTL time.Duration
+
 	HNSWMaxLogSize               int64
 	HNSWWaitForCachePrefill      bool
 	HNSWFlatSearchConcurrency    int

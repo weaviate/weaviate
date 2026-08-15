@@ -60,6 +60,9 @@ const (
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	if err := db.refuseIfOverlapCheckCannotAnswer(); err != nil {
+		return err
+	}
 	nodeName := db.localNodeName
 	var errs []error
 	for _, c := range classes {

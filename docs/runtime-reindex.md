@@ -1545,8 +1545,15 @@ commit-time overlap check
 the end of a capture whether a migration ran during it, and a migration
 that both started and finished inside the window is only visible in the
 task list while the task record is still there. With the TTL at `0` the
-record can be gone by the time the backup commits, so the check clears a
-capture it would otherwise have failed.
+record can be gone by the time the backup commits, so the check has no
+evidence to clear a capture against.
+
+With `RUNTIME_REINDEX_ENABLED=true` and the TTL at `0`, a node therefore
+refuses every `POST /v1/backups` with 422 at admission, before any bytes
+are uploaded and before the backup id is consumed. The refusal names both
+env vars. To take backups again, either raise
+`DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` above the time a backup
+takes, or set `RUNTIME_REINDEX_ENABLED=false`. Restores are unaffected.
 
 Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
 every node runs the durable-stamp version. During a mixed-version
