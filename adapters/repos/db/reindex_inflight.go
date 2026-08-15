@@ -64,6 +64,9 @@ func cappedSample(items []string) []string {
 	return append([]string(nil), items[:min(len(items), reindexRefusalSampleLimit)]...)
 }
 
+// Unbudgeted on purpose, unlike warnUnwiredGate above: an unwired gate is one
+// standing condition, while every refusal is a distinct event the operator is
+// owed. One line per gate call, so per request, never per shard or tenant.
 func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) {
 	if db.logger == nil {
 		return
