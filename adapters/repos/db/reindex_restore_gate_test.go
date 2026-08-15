@@ -266,6 +266,9 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	t.Run("an unreadable task list is not reported as a migration", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
 		db := &DB{logger: logger, localNodeName: "node-7"}
+		// Holding nothing, but installed: an uninstalled hold lookup warns on
+		// its own, and the lines counted below are the restore gate's.
+		db.SetReindexHoldLookup(makeHoldBuilder(nil))
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			return func([]string) (ReindexActivity, bool) {
 				return ReindexActivity{Unreadable: true}, true
@@ -277,8 +280,9 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		// Nothing was observed, so nothing may be named or promised.
 		assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 		assert.NotContains(t, err.Error(), "retry after the migration finishes")
-		require.Len(t, warnOrAbove(hook), 1)
-		assert.Equal(t, reindexReasonTaskListUnreadable, warnOrAbove(hook)[0].Data["reason"])
+		warned := warnOrAbove(hook)
+		require.Len(t, warned, 1, "one refused call, one line")
+		assert.Equal(t, reindexReasonTaskListUnreadable, warned[0].Data["reason"])
 	})
 	t.Run("a node-local hold answers before the cluster is asked", func(t *testing.T) {
 		// The hold is a local map read; the DTM question is a
