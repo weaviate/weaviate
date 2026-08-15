@@ -659,10 +659,9 @@ in the node's state, the node:
   capture while the task was listed, per collection
   (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`).
   An unrecognized status reads as live to the shard gate when the payload
-  decodes and is skipped there when it does not
-  (weaviate/0-weaviate-issues#573); the overlap check refuses it as
-  undetermined, because it cannot tell a migration still running from one
-  that ended before the capture began;
+  decodes and is skipped when it does not (weaviate/0-weaviate-issues#573);
+  the overlap check refuses it as undetermined, because it cannot tell a
+  migration still running from one that ended before the capture began;
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1528,12 +1527,11 @@ Six known holes, each needing state or a layer this change does not touch:
   both ways: behind, the check clears a capture whose evidence was
   already collected; ahead, it refuses a clean capture at 100% of its
   upload and burns the id. Closing it properly means a reference time
-  supplied on the task list response. The TTL value is also read per
-  node. A rolling restart that changes
-  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` leaves un-restarted nodes
-  judging against the old value while the smallest value in the cluster
-  is already collecting; finish the restart everywhere before relying on
-  backups taken through it.
+  supplied on the task list response. The TTL is read per node too: during
+  a rolling restart that changes
+  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`, the cluster's smallest value
+  already collects while un-restarted nodes judge against the old one, so
+  finish the restart everywhere before relying on backups taken through it.
 - **Per backup, not per chain.** Nothing on disk records whether a base
   capture was clean, so an incremental backup built on a base taken
   before this check existed (or with the feature flag off) passes every
@@ -1555,7 +1553,6 @@ Six known holes, each needing state or a layer this change does not touch:
   finishes between the capture's start and its commit leaves nothing for
   the overlap check to read. Closing it means recording each node's
   cleanup runs somewhere the check can see them.
-
 - **The refusal survives per node, not per cluster.** The commit-phase
   aggregation reads participants in map order, so a sibling can clobber
   the refusal's reason or relabel the operation `CANCELLED` and make the
@@ -1576,11 +1573,10 @@ because the per-property blockmax truth is durable in the schema stamp.
 One reader does depend on FINISHED reindex tasks lingering: the
 commit-time overlap check
 ([`reindex_overlap.go`](../adapters/repos/db/reindex_overlap.go)) asks at
-the end of a capture whether a migration ran during it, and a migration
-that both started and finished inside the window is only visible in the
-task list while the task record is still there. With the TTL at `0` the
-record can be gone by the time the backup commits, so the check has no
-evidence to clear a capture against.
+the end of a capture whether a migration ran during it, and one that both
+started and finished inside the window is only visible while its record is
+still listed. With the TTL at `0` that record can be gone by the time the
+backup commits, leaving the check no evidence to clear the capture against.
 
 With `RUNTIME_REINDEX_ENABLED=true` and the TTL at `0`, a node therefore
 refuses every `POST /v1/backups` with 422 at admission, before any bytes
