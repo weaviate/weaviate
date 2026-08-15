@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,8 @@ func TestOldNodeAnswersTheProbePathFromTheCatchAll(t *testing.T) {
 // The realistic wiring failure is a nil *backup.NodeActivityProbe, which a plain
 // interface nil check does not catch.
 func TestBackupNodeActivityWithoutAProbe(t *testing.T) {
-	backups := NewBackups(nil, nodeActivityProbe(nil), NewNoopAuthHandler())
+	logger, _ := logrustest.NewNullLogger()
+	backups := NewBackups(nil, nodeActivityProbe(nil), NewNoopAuthHandler(), logger)
 	req := httptest.NewRequest(http.MethodGet, clusterprobe.BackupNodeActivityPath, nil)
 	rec := httptest.NewRecorder()
 

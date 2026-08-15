@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +44,8 @@ func (p *stubProber) Activity() backup.NodeActivity {
 
 func serveNodeActivity(t *testing.T, prober *stubProber, auth cluster.AuthConfig) *httptest.Server {
 	t.Helper()
-	backups := clusterapi.NewBackups(nil, prober, clusterapi.NewBasicAuthHandler(auth))
+	logger, _ := logrustest.NewNullLogger()
+	backups := clusterapi.NewBackups(nil, prober, clusterapi.NewBasicAuthHandler(auth), logger)
 	mux := http.NewServeMux()
 	mux.Handle(clusterprobe.BackupNodeActivityPath, backups.NodeActivity())
 	server := httptest.NewServer(mux)
@@ -129,6 +132,65 @@ func TestBackupNodeActivityRouteAuth(t *testing.T) {
 			assert.Equal(t, tt.wantCalls, prober.calls)
 			if tt.wantCode == http.StatusUnauthorized {
 				assert.Empty(t, body)
+			}
+		})
+	}
+}
+
+// This route is called once per peer per gate evaluation, so what it logs
+// scales with cluster size times submission rate. The verdict is Debug; the
+// fault is a condition that holds for the life of the process, so it is said
+// once however many peers ask.
+func TestBackupNodeActivityRouteLogs(t *testing.T) {
+	const probes = 5
+
+	tests := []struct {
+		name string
+		// The unwired case hands NewBackups an untyped nil: a nil *stubProber
+		// would still satisfy the prober interface.
+		newHandler func(logrus.FieldLogger) http.Handler
+		wantLevel  logrus.Level
+		wantLines  int
+		wantFields map[string]any
+	}{
+		{
+			name: "a wired probe logs its verdict every time",
+			newHandler: func(logger logrus.FieldLogger) http.Handler {
+				prober := &stubProber{activity: backup.NodeActivity{Busy: true, Kind: "backup", ID: "b1"}}
+				return clusterapi.NewBackups(nil, prober, clusterapi.NewNoopAuthHandler(), logger).NodeActivity()
+			},
+			wantLevel: logrus.DebugLevel,
+			wantLines: probes,
+			wantFields: map[string]any{
+				"busy": true, "kind": "backup", "id": `"b1"`,
+			},
+		},
+		{
+			name: "an unwired probe is warned about once",
+			newHandler: func(logger logrus.FieldLogger) http.Handler {
+				return clusterapi.NewBackups(nil, nil, clusterapi.NewNoopAuthHandler(), logger).NodeActivity()
+			},
+			wantLevel: logrus.WarnLevel,
+			wantLines: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			handler := tt.newHandler(logger)
+
+			for range probes {
+				req := httptest.NewRequest(http.MethodGet, clusterprobe.BackupNodeActivityPath, nil)
+				handler.ServeHTTP(httptest.NewRecorder(), req)
+			}
+
+			require.Len(t, hook.AllEntries(), tt.wantLines)
+			for _, entry := range hook.AllEntries() {
+				assert.Equal(t, tt.wantLevel, entry.Level)
+				for field, want := range tt.wantFields {
+					assert.Equal(t, want, entry.Data[field])
+				}
 			}
 		})
 	}
