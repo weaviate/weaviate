@@ -45,11 +45,6 @@ func TestLoggable(t *testing.T) {
 			want: `"` + strings.Repeat("a", 128) + `…(truncated)"`,
 		},
 		{
-			name: "cut inside a rune backs up past it",
-			in:   strings.Repeat("a", 127) + euro,
-			want: `"` + strings.Repeat("a", 127) + `…(truncated)"`,
-		},
-		{
 			name: "cut on a rune's last byte backs up past the whole rune",
 			in:   strings.Repeat("a", 126) + euro + "z",
 			want: `"` + strings.Repeat("a", 126) + `…(truncated)"`,

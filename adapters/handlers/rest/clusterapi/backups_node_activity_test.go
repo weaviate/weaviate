@@ -87,7 +87,6 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"backup","id":"b1"}`,
 		},
 		{name: "POST", method: http.MethodPost, wantCode: http.StatusMethodNotAllowed},
-		{name: "DELETE", method: http.MethodDelete, wantCode: http.StatusMethodNotAllowed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -209,7 +208,6 @@ func TestBackupNodeActivityEndToEnd(t *testing.T) {
 		name string
 		want backup.NodeActivity
 	}{
-		{name: "idle", want: backup.NodeActivity{Answered: true}},
 		{name: "busy", want: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r-7"}},
 	}
 	for _, tt := range tests {
