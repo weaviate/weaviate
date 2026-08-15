@@ -794,6 +794,12 @@ jobs:
             test: "--acceptance-reindex-mt"
           - name: "backup"
             test: "--acceptance-reindex-backup"
+          - name: "backup-submit"
+            test: "--acceptance-reindex-backup-submit"
+          - name: "backup-overlap"
+            test: "--acceptance-reindex-backup-overlap"
+          - name: "backup-cluster"
+            test: "--acceptance-reindex-backup-cluster"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go

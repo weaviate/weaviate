@@ -59,6 +59,9 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_acceptance_reindex_backup_submit=false
+  run_acceptance_reindex_backup_overlap=false
+  run_acceptance_reindex_backup_cluster=false
   run_acceptance_drop_vector_index=false
   run_acceptance_drop_vector_index_cluster=false
   run_acceptance_drop_vector_index_restart_cluster=false
@@ -122,6 +125,9 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --acceptance-reindex-backup-submit|-arbs) run_all_tests=false; run_acceptance_reindex_backup_submit=true;;
+          --acceptance-reindex-backup-overlap|-arbo) run_all_tests=false; run_acceptance_reindex_backup_overlap=true;;
+          --acceptance-reindex-backup-cluster|-arbc) run_all_tests=false; run_acceptance_reindex_backup_cluster=true;;
           --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
           --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
@@ -175,6 +181,9 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--acceptance-reindex-backup-submit | -arbs"\
+              "--acceptance-reindex-backup-overlap | -arbo"\
+              "--acceptance-reindex-backup-cluster | -arbc"\
               "--acceptance-backups | -ab"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -421,6 +430,21 @@ function main() {
   if $run_acceptance_reindex_backup; then
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
+  fi
+
+  if $run_acceptance_reindex_backup_submit; then
+    echo "running backup × runtime-reindex acceptance tests — submit gate"
+    run_acceptance_reindex_backup_submit
+  fi
+
+  if $run_acceptance_reindex_backup_overlap; then
+    echo "running backup × runtime-reindex acceptance tests — capture window"
+    run_acceptance_reindex_backup_overlap
+  fi
+
+  if $run_acceptance_reindex_backup_cluster; then
+    echo "running backup × runtime-reindex acceptance tests — multi-node"
+    run_acceptance_reindex_backup_cluster
   fi
 
   if $run_acceptance_drop_vector_index; then
@@ -1056,10 +1080,51 @@ function run_acceptance_reindex_mt() {
     test/acceptance/reindex_blockmax_ageout
 }
 
+# The reindex_backup package is split four ways: every test in it imports a
+# 50k-object corpus and waits out a deliberately slowed capture, so one shard
+# does not fit the job budget.
+#
+# This shard is the catch-all and MUST stay one: a test added to the package
+# and to no sub-shard below lands here and runs, rather than silently never
+# running. When adding a sub-shard, add its test names to the SKIP alternation
+# too, or the catch-all double-runs them.
 function run_acceptance_reindex_backup() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-backup"
-  run_aof_group "reindex-backup" \
+  AOF_GROUP_SKIP="$REINDEX_BACKUP_SUBMIT_TESTS|$REINDEX_BACKUP_OVERLAP_TESTS|$REINDEX_BACKUP_CLUSTER_TESTS" \
+    run_aof_group "reindex-backup" \
+    test/acceptance/reindex_backup
+}
+
+# Anchored alternations: an unanchored name is a prefix of any test later named
+# after it, and the two then run in both shards or in neither.
+REINDEX_BACKUP_SUBMIT_TESTS='^TestReindexRefusedWhileBackupRuns$|^TestReindexBlockClearsAfterNodeCrash$|^TestReindexRefusedWhileRestoreRuns$'
+REINDEX_BACKUP_OVERLAP_TESTS='^TestReindexRefusedForTheWholeCaptureWindow$|^TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection$'
+# Deliberately a prefix: every multi-node test in this package stands up three
+# nodes behind MinIO and belongs on the same shard as the next one.
+REINDEX_BACKUP_CLUSTER_TESTS='^TestMultiNode'
+
+function run_acceptance_reindex_backup_submit() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup submit gate"
+  AOF_GROUP_RUN="$REINDEX_BACKUP_SUBMIT_TESTS" \
+    run_aof_group "reindex-backup-submit" \
+    test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_overlap() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup capture window"
+  AOF_GROUP_RUN="$REINDEX_BACKUP_OVERLAP_TESTS" \
+    run_aof_group "reindex-backup-overlap" \
+    test/acceptance/reindex_backup
+}
+
+function run_acceptance_reindex_backup_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup multi-node"
+  AOF_GROUP_RUN="$REINDEX_BACKUP_CLUSTER_TESTS" \
+    run_aof_group "reindex-backup-cluster" \
     test/acceptance/reindex_backup
 }
 

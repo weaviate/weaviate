@@ -542,21 +542,27 @@ func WithEnv(
 	body()
 }
 
-// SingleNodeCompose is the single-node configuration the runtime-reindex
-// suites share: the feature flag on (the server default is off, so a suite
-// that bypasses this silently tests nothing), the legacy searchable path
-// off, and a 1s scheduler tick so task transitions land inside test
-// timeouts. Callers needing extra env keep chaining before Start.
+// WithReindexEnv applies the env every runtime-reindex suite needs, whatever
+// topology the caller is building: the feature flag on (the server default is
+// off, so a suite that skips this silently tests nothing), the legacy
+// searchable path off so a tokenization change has real work to do, and a 1s
+// scheduler tick so task transitions land inside test timeouts.
+func WithReindexEnv(c *docker.Compose) *docker.Compose {
+	return c.
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+}
+
+// SingleNodeCompose is [WithReindexEnv] over one node. Callers needing extra
+// env keep chaining before Start.
 func SingleNodeCompose() *docker.Compose {
-	return SingleNodeComposeWithReindex(true)
+	return WithReindexEnv(docker.New().WithWeaviate())
 }
 
 func SingleNodeComposeWithReindex(enabled bool) *docker.Compose {
-	return docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", strconv.FormatBool(enabled)).
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+	return SingleNodeCompose().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", strconv.FormatBool(enabled))
 }
 
 // StartSingleNode starts [SingleNodeCompose] with no further tuning.
