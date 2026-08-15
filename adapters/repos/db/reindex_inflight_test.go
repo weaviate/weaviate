@@ -385,13 +385,7 @@ func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 // at any level makes the log grow with the collection.
 func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 	const shardCount = 60
-	live := map[[2]string]bool{}
-	shards := make([]string, 0, shardCount)
-	for i := range shardCount {
-		shard := fmt.Sprintf("shard-%02d", i)
-		shards = append(shards, shard)
-		live[[2]string{"Movies", shard}] = true
-	}
+	live, shards := liveShardsOf("Movies", shardCount)
 
 	perShardDB, perShardHook, _ := gatedDB(t, gateFixtures{live: live})
 	perShardIdx := gatedIndex(perShardDB, "Movies")
@@ -420,13 +414,7 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 // must not reach it: a sixty-tenant collection refused once counts once.
 func TestReindexRefusalCountsOperationsNotShards(t *testing.T) {
 	const shardCount = 60
-	live := map[[2]string]bool{}
-	shards := make([]string, 0, shardCount)
-	for i := range shardCount {
-		shard := fmt.Sprintf("shard-%02d", i)
-		shards = append(shards, shard)
-		live[[2]string{"Movies", shard}] = true
-	}
+	live, shards := liveShardsOf("Movies", shardCount)
 
 	registry := prometheus.NewPedanticRegistry()
 	db, _, _ := gatedDB(t, gateFixtures{live: live})
@@ -443,16 +431,41 @@ func TestReindexRefusalCountsOperationsNotShards(t *testing.T) {
 		"one refused backup is one count, whatever the tenant count behind it")
 }
 
-// The transfer's own gate, counted where the transfer is. A replica snapshot is
-// one shard and one operation, so it counts once on whichever of its two
-// branches runs, and never as a backup.
-func TestReindexRefusalCountsAReplicaSnapshotOnce(t *testing.T) {
+// Every gate counts operations, not the shards behind one. A replica snapshot
+// is one shard and one operation, so it counts once on whichever of its two
+// branches runs; a backup the per-shard walk refuses after admission is one
+// refused backup of its class. Neither may count on the other's gate: the two
+// share a rung, and an operator reading the wrong series opens the wrong
+// runbook.
+func TestReindexRefusalCountsOneOperationPerGate(t *testing.T) {
 	tests := []struct {
 		name            string
 		forceNoHardlink bool
+		refuse          func(*Index) error
+		wantGate        string
+		wantSilentGate  string
 	}{
-		{name: "hardlink branch"},
-		{name: "halt-for-duration branch", forceNoHardlink: true},
+		{
+			name:           "a replica snapshot taking the hardlink branch",
+			refuse:         refuseReplicaSnapshot,
+			wantGate:       reindex.GateTransfer,
+			wantSilentGate: reindex.GateBackup,
+		},
+		{
+			name:            "a replica snapshot taking the halt-for-duration branch",
+			forceNoHardlink: true,
+			refuse:          refuseReplicaSnapshot,
+			wantGate:        reindex.GateTransfer,
+			wantSilentGate:  reindex.GateBackup,
+		},
+		{
+			// The migration started after this backup was admitted, so the
+			// per-shard walk is what refuses it.
+			name:           "a backup the per-shard walk refuses after admission",
+			refuse:         refuseLateBackup,
+			wantGate:       reindex.GateBackup,
+			wantSilentGate: reindex.GateTransfer,
+		},
 	}
 
 	for _, tt := range tests {
@@ -467,37 +480,38 @@ func TestReindexRefusalCountsAReplicaSnapshotOnce(t *testing.T) {
 			}))
 			index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
 
-			_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1",
-				"00000000-0000-0000-0000-0000000000f1")
-			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+			require.ErrorIs(t, tt.refuse(index), entitiesbackup.ErrBackupBlockedByInFlightReindex)
 
-			assert.Equal(t, 1.0,
-				gateRefusalCount(t, registry, reindex.GateTransfer, reindex.VerdictLiveTask),
-				"a refused replica snapshot is one refused operation")
-			assert.Zero(t, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
-				"counting a transfer as a backup sends an operator to the wrong runbook")
+			assert.Equal(t, 1.0, gateRefusalCount(t, registry, tt.wantGate, reindex.VerdictLiveTask),
+				"one refused operation is one count, whatever the shard count behind it")
+			assert.Zero(t, gateRefusalCount(t, registry, tt.wantSilentGate, reindex.VerdictLiveTask),
+				"counted on the gate the operator would not look at")
 		})
 	}
 }
 
-// A migration that starts after admission is caught by the per-shard walk
-// instead, and that is still one refused backup of this class.
-func TestReindexRefusalCountsALateBackupRefusalOnce(t *testing.T) {
-	index, _ := newSharedHaltTestShard(t)
-	registry := prometheus.NewPedanticRegistry()
-	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
-		{"TestClass", "shard1"}: true,
-	}))
-	index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil))
+func refuseReplicaSnapshot(index *Index) error {
+	_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1",
+		"00000000-0000-0000-0000-0000000000f1")
+	return err
+}
 
+func refuseLateBackup(index *Index) error {
 	var desc entitiesbackup.ClassDescriptor
-	err := index.descriptor(context.Background(), "reindex-late-refusal", &desc, nil)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	return index.descriptor(context.Background(), "reindex-late-refusal", &desc, nil)
+}
 
-	assert.Equal(t, 1.0, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
-		"a backup refused after admission is one refused operation on this class")
-	assert.Zero(t, gateRefusalCount(t, registry, reindex.GateTransfer, reindex.VerdictLiveTask),
-		"the backup walk shares a rung with the transfer gate but is not one")
+// A collection whose every shard carries a live migration, with the shard names
+// in the order the gates are asked about them.
+func liveShardsOf(collection string, count int) (live map[[2]string]bool, shards []string) {
+	live = make(map[[2]string]bool, count)
+	shards = make([]string, 0, count)
+	for i := range count {
+		shard := fmt.Sprintf("shard-%02d", i)
+		shards = append(shards, shard)
+		live[[2]string{collection, shard}] = true
+	}
+	return live, shards
 }
 
 // A live task can be ended by the operator; a hold cannot, so the arm that
