@@ -264,6 +264,11 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, ReindexHoldCleanup.String(), hook.AllEntries()[0].Data["reason"])
 	})
+	t.Run("the builder hands back nothing", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{})
+		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup { return nil })
+		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
+	})
 	t.Run("the feature flag skips both halves", func(t *testing.T) {
 		db, _, built := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		db.config.RuntimeReindexDisabled = true

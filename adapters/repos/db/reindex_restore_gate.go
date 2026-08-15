@@ -107,7 +107,11 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 			"Check the SetAnyReindexActivityLookup wiring in configure_api.go.")
 		return nil
 	}
-	activity, blocked := builder(ctx)(collections)
+	lookup := builder(ctx)
+	if lookup == nil {
+		return nil
+	}
+	activity, blocked := lookup(collections)
 	if !blocked {
 		return nil
 	}
