@@ -160,6 +160,11 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
+	// The audit deletes without going through [DB.NewStalePartialReindexSweep],
+	// and only for tasks DTM stopped listing, so its own hold is the only thing
+	// standing between the delete and a concurrent capture. It logs from inside.
+	held := ReindexHoldNone
+	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor(className)) }))
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logger)
 	require.NoError(t, err)
 	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
@@ -167,6 +172,8 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.Equal(t, 1, outcome.OrphansFound)
 	assert.Equal(t, 1, outcome.OrphansClean)
 	assert.Empty(t, outcome.FailedDirs)
+	assert.Equal(t, ReindexHoldCleanup, held, "the cleanup must run inside the hold")
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className), "and must not leave it held")
 
 	_, err = os.Stat(knownDir)
 	require.NoError(t, err)
