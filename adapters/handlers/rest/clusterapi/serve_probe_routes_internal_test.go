@@ -110,8 +110,9 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, tt.wantCode, res.StatusCode,
-				"404 means the table does not mount the path, 503 means it mounts it without the "+
-					"app state's probe, and a 200 without credentials means it mounts it unguarded")
+				"404 means the table does not mount the path, 503 means the handler was reached "+
+					"with no prober, so the route no longer goes through the build-time guard, "+
+					"and a 200 without credentials means it mounts it unguarded")
 			if tt.wantBody != "" {
 				assert.JSONEq(t, tt.wantBody, string(body))
 			}
