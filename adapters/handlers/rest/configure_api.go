@@ -1109,8 +1109,11 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
 		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)
 		if err != nil {
-			appState.Logger.WithField("action", "backup_reindex_gate").
-				Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			// At shutdown the failure is this process exiting, not a DTM outage.
+			if serverShutdownCtx.Err() == nil {
+				appState.Logger.WithField("action", "backup_reindex_gate").
+					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			}
 			return func(string, string) bool { return true }
 		}
 		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
@@ -1119,8 +1122,11 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 	repo.SetAnyReindexActivityLookup(func(ctx context.Context) db.AnyReindexActivityLookup {
 		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 		if err != nil {
-			appState.Logger.WithField("action", "restore_reindex_gate").
-				Warnf("restore-reindex gate: cannot list DTM tasks; refusing all restores until DTM is reachable: %v", err)
+			// A caller that hung up cancelled ctx; the refusal stands, the alert would lie.
+			if ctx.Err() == nil {
+				appState.Logger.WithField("action", "restore_reindex_gate").
+					Warnf("restore-reindex gate: cannot list DTM tasks; refusing all restores until DTM is reachable: %v", err)
+			}
 			return func([]string) (db.ReindexActivity, bool) {
 				return db.ReindexActivity{Unreadable: true}, true
 			}
