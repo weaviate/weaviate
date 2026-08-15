@@ -1147,8 +1147,11 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 		tasks, err := db.ListReindexTasksForOverlap(ctx,
 			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays)
 		if err != nil {
-			appState.Logger.WithField("action", "backup_reindex_overlap").
-				Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
+			// A caller that hung up cancelled ctx; the refusal stands, the alert would lie.
+			if ctx.Err() == nil {
+				appState.Logger.WithField("action", "backup_reindex_overlap").
+					Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
+			}
 			// Detail carries no err text: a list error names RAFT internals an
 			// operator cannot act on, and the remedy below is the whole answer.
 			return func([]string, time.Time) db.ReindexOverlapVerdict {
