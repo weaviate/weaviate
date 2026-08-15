@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,6 +183,58 @@ func TestReindexOverlapRules(t *testing.T) {
 	}
 }
 
+// TestListReindexTasksForOverlapRetries pins that a brief RAFT outage does
+// not discard a finished upload: the list is retried before the check gives
+// up, and a cancel stops the wait instead of sitting out the schedule.
+func TestListReindexTasksForOverlapRetries(t *testing.T) {
+	noDelays := []time.Duration{0, 0, 0}
+	listed := map[string][]*distributedtask.Task{
+		ReindexNamespace: {reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor("Movies"))},
+	}
+
+	t.Run("a later attempt answers", func(t *testing.T) {
+		calls := 0
+		got, err := ListReindexTasksForOverlap(context.Background(),
+			func(context.Context) (map[string][]*distributedtask.Task, error) {
+				calls++
+				if calls <= len(noDelays) {
+					return nil, errors.New("leader unknown")
+				}
+				return listed, nil
+			}, noDelays)
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, len(noDelays)+1, calls)
+	})
+
+	t.Run("every attempt fails", func(t *testing.T) {
+		calls := 0
+		_, err := ListReindexTasksForOverlap(context.Background(),
+			func(context.Context) (map[string][]*distributedtask.Task, error) {
+				calls++
+				return nil, errors.New("leader unknown")
+			}, noDelays)
+
+		require.Error(t, err)
+		assert.Equal(t, len(noDelays)+1, calls)
+	})
+
+	t.Run("a cancelled context stops the retries", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+		_, err := ListReindexTasksForOverlap(ctx,
+			func(context.Context) (map[string][]*distributedtask.Task, error) {
+				calls++
+				cancel()
+				return nil, errors.New("leader unknown")
+			}, OverlapListRetryDelays)
+
+		require.Error(t, err)
+		assert.Equal(t, 1, calls, "no waiting out a 30s schedule after a cancel")
+	})
+}
+
 // TestReindexOverlapUnattributableTask pins both sides of a task whose
 // payload names no collection: it fails any backup that captured
 // something, because nothing says which collection it rewrote, and it
@@ -314,6 +367,36 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, "commit-time overlap", hook.AllEntries()[0].Data["gate"])
+	})
+
+	t.Run("a builder that answers with no lookup passes and reports", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		db := &DB{logger: logger}
+		db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup { return nil })
+		overlapCheckWarnBudget = reindexGateWarnBudget{}
+
+		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
+		require.Len(t, hook.AllEntries(), 1)
+		assert.Equal(t, "commit-time overlap", hook.AllEntries()[0].Data["gate"])
+	})
+
+	t.Run("an operator cancel is not an unanswerable check", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		logger, hook := logrustest.NewNullLogger()
+		db := &DB{logger: logger}
+		db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
+			cancel()
+			return func([]string, time.Time) ReindexOverlapVerdict {
+				return ReindexOverlapVerdict{Undetermined: true, Detail: "the cluster task manager could not be listed"}
+			}
+		})
+
+		err := db.RefuseIfReindexOverlapped(ctx, []string{"Movies"}, captureStart)
+
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined,
+			"the operator stopped this backup; it must publish as cancelled, not failed")
+		require.Empty(t, hook.AllEntries())
 	})
 
 	t.Run("a wide backup logs one bounded entry", func(t *testing.T) {
