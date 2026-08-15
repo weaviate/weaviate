@@ -123,10 +123,9 @@ func (db *DB) warnRestoreRefusal(collections []string, reason, taskID string) {
 	db.warnRefusal("restore_reindex_gate", reason,
 		"restore-reindex gate: refusing this restore; the published refusal names a collection only",
 		logrus.Fields{
-			"task_id":                 taskID,
-			"requested_class_count":   len(collections),
-			"requested_classes":       cappedSample(collections),
-			"covers_every_collection": len(collections) == 0,
+			"task_id":               taskID,
+			"requested_class_count": len(collections),
+			"requested_classes":     cappedSample(collections),
 		})
 }
 

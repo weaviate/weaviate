@@ -62,8 +62,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // precheck to obtain a fresh DTM snapshot.
 //
 // Calls before installation default to "no live reindex", reported at most
-// once an hour per gate. Production installs this before the server serves,
-// so an external backup request cannot land before it. The WARN
+// once an hour per gate; installation precedes serving. The WARN
 // is the operator-facing signal if startup ordering ever breaks the
 // wiring; the prior conservative-refuse default broke every module-test
 // fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].
