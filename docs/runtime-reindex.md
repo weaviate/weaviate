@@ -1518,7 +1518,7 @@ Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
 v1.38 Preview.
 
-Six known holes, each needing state or a layer this change does not touch:
+Seven known holes, each needing state or a layer this change does not touch:
 
 - **Clock skew.** The capture start is the capturing node's clock; a
   task's `FinishedAt` is stamped by the node that recorded it, and the
@@ -1553,6 +1553,9 @@ Six known holes, each needing state or a layer this change does not touch:
   finishes between the capture's start and its commit leaves nothing for
   the overlap check to read. Closing it means recording each node's
   cleanup runs somewhere the check can see them.
+- **A terminal task whose local worker has not stopped.** `HasActiveWorker`
+  covers the unit phase only: PREP and SWAP answer false, and are covered
+  only because both statuses are live to the per-shard gate.
 - **The refusal survives per node, not per cluster.** The commit-phase
   aggregation reads participants in map order, so a sibling can clobber
   the refusal's reason or relabel the operation `CANCELLED` and make the
@@ -1580,10 +1583,12 @@ backup commits, leaving the check no evidence to clear the capture against.
 
 With `RUNTIME_REINDEX_ENABLED=true` and the TTL at `0`, a node therefore
 refuses every `POST /v1/backups` with 422 at admission, before any bytes
-are uploaded and before the backup id is consumed. The refusal names both
-env vars. To take backups again, either raise
-`DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` above the time a backup
-takes, or set `RUNTIME_REINDEX_ENABLED=false`. Restores are unaffected.
+are uploaded and before the backup id is consumed. Raise
+`DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` above the time a backup takes
+to lift it; the refusal names that variable and no other. Turning
+`RUNTIME_REINDEX_ENABLED` off lifts it too, but that flag gates only the
+submit endpoints, so a migration already running keeps writing while every
+backup gate goes quiet. Restores are unaffected.
 
 Turning the feature off skips the check, but two things about *failed*
 backups change for everyone, because the reason a status poll serves is

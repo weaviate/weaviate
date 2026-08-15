@@ -83,6 +83,9 @@ func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) 
 const (
 	reindexReasonLiveTask           = "activity_lookup_live_task"
 	reindexReasonTaskListUnreadable = "task_list_unreadable"
+
+	reindexReasonOverlapObserved     = "overlap_observed"
+	reindexReasonOverlapUndetermined = "overlap_undetermined"
 )
 
 // Unwired admits: refusing breaks every fixture that skips the install path.

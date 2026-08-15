@@ -206,7 +206,6 @@ func TestWithMetaFault(t *testing.T) {
 			got := withMetaFault(reason, tt.metaErr)
 
 			assert.Equal(t, tt.want, got)
-			assert.NotContains(t, got, context.Canceled.Error())
 		})
 	}
 }

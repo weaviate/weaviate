@@ -515,9 +515,8 @@ func isFinalStatus(st backup.Status) bool {
 // existing callers and tests continue to match.
 //
 // A reindex refusal that observed something is rebuilt from classes, never
-// forwarded. The unanswerable-check one is forwarded: it names no node, shard
-// or collection, and rebuilding it would drop the only text that says which
-// two settings to change.
+// forwarded; the unanswerable-check one is forwarded whole (see
+// overlapCheckUnanswerableByParticipant).
 func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit

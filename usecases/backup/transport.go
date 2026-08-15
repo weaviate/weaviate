@@ -103,9 +103,8 @@ const (
 	CanCommitErrRestoreReindexUndetermined CanCommitErrorKind = "restore_reindex_undetermined"
 
 	// The participant's commit-time overlap check is configured so that it
-	// could never clear a capture. Nothing is in flight, and the fix is two
-	// environment variables its own text names, so the coordinator forwards
-	// this kind rather than rebuilding it. Same rolling-upgrade cost as above.
+	// could never clear a capture. Its text is forwarded whole, not rebuilt
+	// (see overlapCheckUnanswerableByParticipant). Same cost as above.
 	CanCommitErrOverlapCheckUnanswerable CanCommitErrorKind = "overlap_check_unanswerable"
 
 	// CanCommitErrCannotCommit is the generic fallback used when the
