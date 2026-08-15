@@ -254,9 +254,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err != nil {
 			return nil, err
 		}
-		// Kept, a node narrowed to nothing commits with an empty class list.
 		meta.Include(allowed)
-		meta.RemoveEmpty()
 	}
 
 	if gateErr := s.refuseRestoreDuringReindex(ctx, meta.Classes()); gateErr != nil {

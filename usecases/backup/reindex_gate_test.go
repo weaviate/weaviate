@@ -352,11 +352,12 @@ func TestPublishAsCancelled(t *testing.T) {
 	}
 }
 
-// TestRestoreDropsNodesNarrowedToNothing pins that a node whose classes RBAC
-// filtered out entirely leaves the descriptor. Left in, it is asked to commit
-// with an empty class list, which the participant gate reads as the widest
-// question and refuses over collections nothing is migrating.
-func TestRestoreDropsNodesNarrowedToNothing(t *testing.T) {
+// TestRestoreKeepsNodesNarrowedToNothing pins that a node whose classes the
+// authorization filter removed entirely stays in the descriptor and is still
+// asked to commit. What a node restores is not only classes: the dynamic-user
+// and RBAC blobs come from its own descriptor, so dropping the node drops
+// those with it.
+func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	const (
 		backendName = "s3"
 		id          = "1234"
@@ -366,6 +367,7 @@ func TestRestoreDropsNodesNarrowedToNothing(t *testing.T) {
 		node2       = "node2"
 	)
 	ctx := context.Background()
+	any := mock.Anything
 	auth := authorization.NewMockAuthorizer(t)
 	auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything,
 		"backups/collections/"+deniedCls).
@@ -386,28 +388,38 @@ func TestRestoreDropsNodesNarrowedToNothing(t *testing.T) {
 	}
 	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
 	fs.auth = auth
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("HomeDir", any, any, any).Return("bucket/" + id)
 	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
 	fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Maybe()
-	// Refusing at canCommit stops the restore right after the fan-out, which
-	// is the only thing this pins.
-	fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: id}, nil)
-	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	_, _ = fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+	fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+	fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{}).Maybe()
+	// Every node accepts, so the fan-out runs whole and what each one was
+	// asked stays observable. Failing the write that follows it ends the
+	// restore on this goroutine, before the commit phase starts one of its
+	// own that would still be calling the client during the assertions.
+	fs.client.On("CanCommit", any, any, any).
+		Return(&CanCommitResponse{Method: OpRestore, ID: id, Timeout: time.Minute}, nil)
+	fs.backend.On("PutObject", any, any, GlobalRestoreFile, any).
+		Return(errors.New("bucket is read only"))
+	fs.client.On("Abort", any, any, any).Return(nil).Maybe()
+
+	_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 		Backend: backendName, ID: id,
 	}, false)
+	require.ErrorContains(t, err, "put initial metadata",
+		"the restore must have got past the fan-out")
 
-	var fannedOut int
+	asked := map[string][]string{}
 	for _, call := range fs.client.Calls {
 		if call.Method != "CanCommit" {
 			continue
 		}
-		fannedOut++
-		assert.NotEmptyf(t, call.Arguments.Get(2).(*Request).Classes,
-			"node %q was asked to commit with no classes; the participant gate reads "+
-				"that as every collection", call.Arguments.Get(1))
+		req := call.Arguments.Get(2).(*Request)
+		asked[req.NodeName] = req.Classes
 	}
-	require.NotZero(t, fannedOut, "the fan-out must have run")
+	require.Contains(t, asked, node2,
+		"the node the authorization filter narrowed to nothing must still be asked "+
+			"to commit, or the blobs only it holds are never restored")
+	assert.Empty(t, asked[node2], "and asked with the empty class list it was left with")
+	assert.Equal(t, []string{allowedCls}, asked[node1])
 }
