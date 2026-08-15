@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
@@ -257,7 +259,7 @@ func TestBackupActivityRefusal(t *testing.T) {
 			registry := prometheus.NewPedanticRegistry()
 			h := &indexesHandlers{appState: &state.State{
 				Logger:             quietLogger(),
-				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil),
+				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil, nil),
 			}}
 
 			resp := h.backupActivityRefusal(nil, "Books", tt.scan)
@@ -276,38 +278,165 @@ func TestBackupActivityRefusal(t *testing.T) {
 	}
 }
 
-// Fails when the gate wrote a label pair nothing declared.
+// refusalCount reads the named series and proves the refusal touched only it:
+// every counter series exists at zero from construction, so "the right one went
+// up" is only half the claim.
 func refusalCount(t *testing.T, registry *prometheus.Registry, verdict string) float64 {
 	t.Helper()
 	families, err := registry.Gather()
 	require.NoError(t, err)
-	require.Len(t, families, 1)
-	require.Len(t, families[0].GetMetric(), 1, "one refusal writes one series")
 
-	labels := map[string]string{}
-	for _, pair := range families[0].GetMetric()[0].GetLabel() {
-		labels[pair.GetName()] = pair.GetValue()
+	want := map[string]string{"gate": reindex.GateSubmit, "verdict": verdict}
+	var found float64
+	matched := false
+	for _, family := range families {
+		if family.GetName() != "weaviate_reindex_gate_refusals_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			labels := map[string]string{}
+			for _, pair := range metric.GetLabel() {
+				labels[pair.GetName()] = pair.GetValue()
+			}
+			value := metric.GetCounter().GetValue()
+			if reflect.DeepEqual(labels, want) {
+				found, matched = value, true
+				continue
+			}
+			assert.Zerof(t, value, "one refusal also incremented %v", labels)
+		}
 	}
-	assert.Equal(t, map[string]string{"gate": reindex.GateSubmit, "verdict": verdict}, labels)
-	return families[0].GetMetric()[0].GetCounter().GetValue()
+	require.Truef(t, matched, "the gate wrote no %v series", want)
+	return found
 }
 
-func TestOtherNodes(t *testing.T) {
+// TestPeersToProbe pins the difference between "nobody else holds a backup"
+// and "this node cannot establish who is in the cluster". Memberlist names this
+// node once it is up, so its absence is the second answer, and reading it as
+// the first admits a submission on a cluster whose state was never known.
+func TestPeersToProbe(t *testing.T) {
 	tests := []struct {
-		name  string
-		all   []string
-		local string
-		want  []string
+		name            string
+		all             []string
+		local           string
+		wantPeers       []string
+		wantEstablished bool
 	}{
-		{name: "not in a cluster yet", want: []string{}},
-		{name: "alone", all: []string{"n1"}, local: "n1", want: []string{}},
-		{name: "three nodes", all: []string{"n1", "n2", "n3"}, local: "n2", want: []string{"n1", "n3"}},
-		{name: "local name unknown", all: []string{"n1", "n2"}, want: []string{"n1", "n2"}},
+		{
+			name:            "alone, and the view says so",
+			all:             []string{"n1"},
+			local:           "n1",
+			wantPeers:       []string{},
+			wantEstablished: true,
+		},
+		{
+			name:            "three nodes",
+			all:             []string{"n1", "n2", "n3"},
+			local:           "n2",
+			wantPeers:       []string{"n1", "n3"},
+			wantEstablished: true,
+		},
+		{
+			name:  "the member list is empty, so the view has not converged",
+			local: "n1",
+		},
+		{
+			name:  "this node is missing from a populated list, so members were reaped",
+			all:   []string{"n2", "n3"},
+			local: "n1",
+		},
+		{
+			name: "no local name to check against",
+			all:  []string{"n1", "n2"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, otherNodes(tt.all, tt.local))
+			peers, established := peersToProbe(tt.all, tt.local)
+
+			assert.Equal(t, tt.wantEstablished, established)
+			assert.Equal(t, tt.wantPeers, peers)
 		})
 	}
+}
+
+// A cluster view that cannot be established has to refuse, and the reason has
+// to be distinguishable from a peer that simply did not answer.
+func TestScanClusterBackupActivityWithoutAClusterView(t *testing.T) {
+	h := &indexesHandlers{appState: &state.State{
+		Logger:                quietLogger(),
+		ClusterBackupActivity: staticProber{},
+		Cluster:               &cluster.State{},
+	}}
+
+	scan := h.scanClusterBackupActivity(context.Background())
+
+	assert.Equal(t, backupActivityUnreachable, scan.verdict)
+	assert.ErrorIs(t, scan.fault, errClusterViewUnavailable)
+}
+
+// staticProber answers idle for every peer, so a test that reaches the fan-out
+// can be told apart from one that refused before it.
+type staticProber struct{}
+
+func (staticProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
+	return backup.NodeActivity{}, nil
+}
+
+// TestRescanBackupActivityReadsTheLocalRung pins the post-commit rung order. A
+// capture clears the reindex gate before it takes its slot, so a node that read
+// idle pre-commit can be capturing by the time the RAFT write lands — and on a
+// single node the local slots are the only rung the fan-out has.
+func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
+	tests := []struct {
+		name        string
+		local       backup.NodeActivity
+		wantVerdict backupActivityVerdict
+		wantKind    string
+	}{
+		{
+			name:        "this node started capturing since the pre-commit read",
+			local:       busy(backup.NodeActivityKindBackup, "b1"),
+			wantVerdict: backupActivityBusy,
+			wantKind:    backup.NodeActivityKindBackup,
+		},
+		{
+			name:        "this node is restoring",
+			local:       busy(backup.NodeActivityKindRestore, "r1"),
+			wantVerdict: backupActivityBusy,
+			wantKind:    backup.NodeActivityKindRestore,
+		},
+		{name: "still idle", wantVerdict: backupActivityClear},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &indexesHandlers{appState: &state.State{
+				Logger:         quietLogger(),
+				BackupActivity: fixedActivity{activity: tt.local},
+			}}
+
+			scan := h.rescanBackupActivity(context.Background())
+
+			assert.Equal(t, tt.wantVerdict, scan.verdict)
+			assert.Equal(t, tt.wantKind, scan.kind)
+		})
+	}
+}
+
+type fixedActivity struct{ activity backup.NodeActivity }
+
+func (f fixedActivity) Activity() backup.NodeActivity     { return f.activity }
+func (fixedActivity) AttachScheduler(_ *backup.Scheduler) {}
+
+// A nil probe must read as "not wired" rather than panic, which is what a typed
+// nil stored in this interface would otherwise do.
+func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
+	appState := &state.State{}
+	appState.SetBackupActivity(nil)
+
+	require.Nil(t, appState.BackupActivity)
+	h := &indexesHandlers{appState: appState}
+	assert.NotPanics(t, func() { assert.False(t, h.localBackupActivity().Busy) })
 }

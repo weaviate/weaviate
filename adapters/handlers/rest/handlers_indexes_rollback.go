@@ -78,6 +78,36 @@ func (o rollbackOutcome) auditEvent() (event string, level logrus.Level) {
 	return "reindex_submit_rollback_failed", logrus.ErrorLevel
 }
 
+// The metric label, drawn from the same closed set the counter declares.
+func (o rollbackOutcome) label() string {
+	switch o {
+	case rollbackCancelled:
+		return "cancelled"
+	case rollbackCancelledAfterRetry:
+		return "cancelled_after_retry"
+	case rollbackTaskGone:
+		return "task_gone"
+	case rollbackTaskTerminal:
+		return "task_terminal"
+	case rollbackRefused:
+		return "refused"
+	case rollbackFailed:
+		return "failed"
+	}
+	return "failed"
+}
+
+// RollbackOutcomeLabels is every value [rollbackOutcome.label] can return, so
+// each series exists at zero before the first rollback rather than appearing
+// only once one has happened.
+func RollbackOutcomeLabels() []string {
+	return []string{
+		rollbackCancelled.label(), rollbackCancelledAfterRetry.label(),
+		rollbackTaskGone.label(), rollbackTaskTerminal.label(),
+		rollbackRefused.label(), rollbackFailed.label(),
+	}
+}
+
 func (o rollbackOutcome) summary() string {
 	switch o {
 	case rollbackCancelled:
@@ -110,6 +140,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	// rolling back on it would destroy a migration that committed cleanly.
 	if scan.verdict == backupActivityUnreachable {
 		h.logBackupActivityRefusal(collection, "unreachable", scan)
+		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
 		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
 				"backup-activity probe. Reindex task %q was committed and is running; "+
@@ -117,6 +148,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	}
 
 	h.logBackupActivityRefusal(collection, "busy", scan)
+	h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, submitRefusalVerdict(scan.kind))
 
 	// Detached from the request: the answer below is a 409 whether or not the
 	// caller is still there, and a task left running would 409 that caller's
@@ -126,6 +158,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 
 	outcome, fault := rollbackReindexSubmit(rollbackCtx, svc, taskID)
 	h.logRollbackOutcome(collection, taskID, outcome, fault)
+	h.appState.ReindexGateMetrics.RolledBack(outcome.label())
 
 	if outcome.landed() {
 		return jsonResponder(http.StatusConflict,

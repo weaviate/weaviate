@@ -795,9 +795,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
-	nodeActivityProbe := backup.NewNodeActivityProbe(backupManager)
-	appState.NodeActivityProbe = nodeActivityProbe
-	appState.BackupActivity = nodeActivityProbe
+	appState.SetBackupActivity(backup.NewNodeActivityProbe(backupManager))
 	appState.ClusterBackupActivity = clients.NewClusterBackupActivity(
 		appState.ServerConfig.Config.Cluster.AuthConfig,
 		appState.ServerConfig.Config.MinimumInternalTimeout, appState.Cluster)
@@ -1123,7 +1121,7 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 	gateMetrics := reindexuc.NewGateMetrics(metricsRegisterer, map[string]func() int{
 		db.ReindexHoldSubmit.String():  func() int { return provider.OpenHolds(db.ReindexHoldSubmit) },
 		db.ReindexHoldCleanup.String(): func() int { return provider.OpenHolds(db.ReindexHoldCleanup) },
-	})
+	}, RollbackOutcomeLabels())
 	repo.SetReindexGateMetrics(gateMetrics)
 	appState.ReindexGateMetrics = gateMetrics
 

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,7 +34,12 @@ import (
 // submission for as long as its client is willing to wait.
 const clusterBackupProbeTimeout = 5 * time.Second
 
-var errProbeLeftNoAnswer = errors.New("the probe left no answer")
+var (
+	errProbeLeftNoAnswer = errors.New("the probe left no answer")
+	// Distinct from a peer that did not answer: here there is no trustworthy
+	// list of peers to ask in the first place.
+	errClusterViewUnavailable = errors.New("this node is missing from its own cluster's member list")
+)
 
 // Ordered by precedence: a node seen backing up refuses even when another
 // node's answer never arrived.
@@ -138,13 +144,16 @@ func (h *indexesHandlers) localBackupActivity() backup.NodeActivity {
 	return h.appState.BackupActivity.Activity()
 }
 
-// A node that has not joined a cluster yet has nobody to ask, so it admits.
 func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupActivityScan {
 	prober := h.appState.ClusterBackupActivity
 	if prober == nil || h.appState.Cluster == nil {
 		return backupActivityScan{}
 	}
-	peers := otherNodes(h.appState.Cluster.AllNames(), h.appState.Cluster.LocalName())
+
+	peers, established := peersToProbe(h.appState.Cluster.AllNames(), h.appState.Cluster.LocalName())
+	if !established {
+		return backupActivityScan{verdict: backupActivityUnreachable, fault: errClusterViewUnavailable}
+	}
 	if len(peers) == 0 {
 		return backupActivityScan{}
 	}
@@ -154,16 +163,47 @@ func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupA
 	return scanBackupActivity(probeCtx, peers, prober.NodeActivity, h.appState.Logger)
 }
 
-// The local slots were read directly a moment ago, and asking this node over
-// HTTP would answer from those same four slots one round trip later.
-func otherNodes(all []string, local string) []string {
-	peers := make([]string, 0, len(all))
+// peersToProbe reports which nodes to ask, and whether the membership answer
+// can be trusted at all.
+//
+// Memberlist names this node as soon as it is up, so a list that does not
+// contain it is not the same answer as "no peers hold a backup" — it is a view
+// that has not converged, or one whose members were reaped under a partition.
+// Reading either as an empty peer set admits a submission on a cluster whose
+// state was never established. Only a list that names this node and nobody
+// else is genuinely a node running alone.
+//
+// The local slots were read directly a moment ago, so this node is dropped from
+// the fan-out: asking it over HTTP would answer from those same four slots one
+// round trip later.
+func peersToProbe(all []string, local string) (peers []string, established bool) {
+	if local == "" || !slices.Contains(all, local) {
+		return nil, false
+	}
+
+	peers = make([]string, 0, len(all))
 	for _, node := range all {
 		if node != local {
 			peers = append(peers, node)
 		}
 	}
-	return peers
+	return peers, true
+}
+
+// rescanBackupActivity re-asks both rungs after the RAFT write.
+//
+// The local slots have to be read again, not just the peers. A capture clears
+// the reindex gate before it occupies its slot, and two backend round trips sit
+// in that gap, so the pre-commit read can see an idle node that is already
+// committed to capturing. By now the sweep and the RAFT write have elapsed and
+// that capture has renewed. Skipping this rung leaves the whole rollback path
+// unreachable on a single node, which is the topology where the local rung is
+// the only rung there is.
+func (h *indexesHandlers) rescanBackupActivity(ctx context.Context) backupActivityScan {
+	if local := refuseOnLocalBackupActivity(h.localBackupActivity()); local.verdict != backupActivityClear {
+		return local
+	}
+	return h.scanClusterBackupActivity(ctx)
 }
 
 // A no-op before the provider exists, which precedes the handler being served.

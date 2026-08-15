@@ -1098,7 +1098,7 @@ function run_acceptance_reindex_backup() {
 
 # Anchored alternations: an unanchored name is a prefix of any test later named
 # after it, and the two then run in both shards or in neither.
-REINDEX_BACKUP_SUBMIT_TESTS='^TestReindexRefusedWhileBackupRuns$|^TestReindexBlockClearsAfterNodeCrash$|^TestReindexRefusedWhileRestoreRuns$'
+REINDEX_BACKUP_SUBMIT_TESTS='^TestReindexRefusedWhileBackupRuns$|^TestReindexBlockClearsAfterNodeCrash$|^TestReindexRefusedWhileRestoreRuns$|^TestReindexSubmitRollsItselfBackOnASingleNode$'
 REINDEX_BACKUP_OVERLAP_TESTS='^TestReindexRefusedForTheWholeCaptureWindow$|^TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection$'
 # Deliberately a prefix: every multi-node test in this package stands up three
 # nodes behind MinIO and belongs on the same shard as the next one.

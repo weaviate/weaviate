@@ -22,7 +22,7 @@ import (
 
 func TestGateMetricsRefused(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
-	metrics := NewGateMetrics(registry, nil)
+	metrics := NewGateMetrics(registry, nil, nil)
 
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
 	metrics.Refused(GateSubmit, VerdictBackupBusy)
@@ -45,7 +45,7 @@ func TestGateMetricsRefusedWithoutARegistry(t *testing.T) {
 func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	open := 0
-	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return open }})
+	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return open }}, nil)
 
 	require.Equal(t, 0.0, gaugeValue(t, registry))
 	open = 3
@@ -63,7 +63,7 @@ func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	}
 
 	registry := prometheus.NewPedanticRegistry()
-	metrics := NewGateMetrics(registry, nil)
+	metrics := NewGateMetrics(registry, nil, nil)
 	for _, gate := range gates {
 		for _, verdict := range verdicts {
 			metrics.Refused(gate, verdict)
@@ -78,7 +78,37 @@ func gaugeValue(t *testing.T, registry *prometheus.Registry) float64 {
 	t.Helper()
 	families, err := registry.Gather()
 	require.NoError(t, err)
-	require.Len(t, families, 1)
-	require.Len(t, families[0].GetMetric(), 1)
-	return families[0].GetMetric()[0].GetGauge().GetValue()
+	for _, family := range families {
+		if family.GetName() != "weaviate_reindex_open_holds" {
+			continue
+		}
+		require.Len(t, family.GetMetric(), 1)
+		return family.GetMetric()[0].GetGauge().GetValue()
+	}
+	t.Fatal("the open-holds gauge was never registered")
+	return 0
+}
+
+// TestGateMetricsExposeEverySeriesFromTheStart is the alerting contract. A
+// CounterVec with no children emits nothing at all, and "no data" is a
+// different alerting state from zero — an operator watching a refusal rate
+// would see neither until the first refusal ever happened.
+func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
+	registry := prometheus.NewPedanticRegistry()
+	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return 0 }},
+		[]string{"cancelled", "failed"})
+
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	names := map[string]int{}
+	for _, family := range families {
+		names[family.GetName()] = len(family.GetMetric())
+	}
+
+	assert.Equal(t, 13, names["weaviate_reindex_gate_refusals_total"],
+		"every gate/verdict pair production can emit must exist at zero")
+	assert.Equal(t, 2, names["weaviate_reindex_submit_rollbacks_total"],
+		"every rollback outcome must exist at zero")
+	assert.Equal(t, 1, names["weaviate_reindex_open_holds"])
 }

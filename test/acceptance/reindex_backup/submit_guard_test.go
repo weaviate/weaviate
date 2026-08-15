@@ -13,11 +13,15 @@ package reindex_backup_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -222,4 +226,94 @@ func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID, reindexhelpers.WithTimeout(60*time.Second))
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, migratingClass, propName,
 		"searchable", reindexhelpers.WithTimeout(180*time.Second))
+}
+
+// TestReindexSubmitRollsItselfBackOnASingleNode drives the post-commit rung.
+//
+// One node is the only topology where this is deterministic, and it is also the
+// one where the fan-out has no peers to ask, so the local re-read is the whole
+// gate. A capture clears the reindex gate before it occupies its slot, so a
+// submission can pass the pre-commit read and still lose: by the time the sweep
+// and the RAFT write are done, the capture has renewed and the submission has
+// to undo itself.
+//
+// Either outcome is legitimate — the pre-commit rung may win the race — so this
+// asserts what must hold in both cases, and reports which one it observed.
+func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
+	ctx := context.Background()
+
+	compose := startGuardNode(ctx, t)
+	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+	t.Cleanup(func() { dumpWeaviateLogs(ctx, t, compose.GetWeaviate().Container(), "weaviate") })
+
+	restURI := compose.GetWeaviate().URI()
+	helper.SetupClient(restURI)
+	t.Cleanup(helper.ResetClient)
+
+	const (
+		className = "ReindexGuard_Rollback"
+		propName  = "body"
+		backend   = "filesystem"
+		backupID  = "reindex-guard-rollback"
+	)
+
+	createBodyClass(t, className, propName)
+	importBodies(t, className, guardDataset)
+
+	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
+	require.NoError(t, err, "the capture must be admitted: nothing is migrating yet")
+
+	run := probeReindexDuringBackup(t, restURI, className, propName, "whitespace",
+		localBackupStatus(t, backend, backupID), 5*time.Minute)
+	blocked := assertReindexBlocked(t, run, backupID)
+
+	// Whichever rung answered, no task may be left running against the capture.
+	// A rollback that landed names none; one that could not names the task it
+	// left behind, and that task must be the caller's own.
+	taskID := refusalTaskID(t, blocked.body)
+	if taskID == "" {
+		t.Logf("the pre-commit rung refused before any RAFT write: %s", blocked.body)
+	} else {
+		t.Logf("a submission reached the post-commit rung and could not be stopped: task %s", taskID)
+		require.Contains(t, taskID, className,
+			"the named task must be the one this request committed; got: %s", taskID)
+		require.Equal(t, "STARTED", reindexTaskStatus(t, restURI, taskID),
+			"a task the refusal names as unstoppable must actually still be running")
+	}
+
+	require.NotEmpty(t, blocked.body)
+	requireNoLiveMigration(t, restURI, className)
+
+	// And the capture the submission gave way to must still publish as good.
+	captured := awaitBackupTerminal(t, localBackupSnapshot(t, backend, backupID), 10*time.Minute)
+	require.Equalf(t, string(entitiesbackup.Success), captured.status,
+		"the capture the submission gave way to must not fail (reason=%q)", captured.errMessage)
+}
+
+// refusalTaskID returns the typed task id a refusal carries, or "" when it
+// carries none. Read off the field, not the prose, which is the whole point of
+// the field existing.
+func refusalTaskID(t *testing.T, body string) string {
+	t.Helper()
+	var parsed models.IndexRefusalResponse
+	require.NoErrorf(t, json.Unmarshal([]byte(body), &parsed),
+		"a refusal body must decode as an IndexRefusalResponse: %s", body)
+	return parsed.TaskID
+}
+
+// requireNoLiveMigration proves the rollback actually stopped what it committed:
+// a task left live here would be running against the capture.
+func requireNoLiveMigration(t *testing.T, restURI, className string) {
+	t.Helper()
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+	require.True(t, ok, "tasks endpoint must answer")
+
+	var live []string
+	for _, task := range tasks["reindex"] {
+		if strings.HasPrefix(task.ID, className+":") && liveReindexStatus(task.Status) {
+			live = append(live, task.ID+"="+task.Status)
+		}
+	}
+	require.Emptyf(t, live,
+		"a migration on %s is live while the capture is still running: %v", className, live)
 }

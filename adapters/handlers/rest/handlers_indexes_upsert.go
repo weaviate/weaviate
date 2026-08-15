@@ -730,7 +730,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	// A capture that started while the RAFT write was in flight was admitted by
 	// its own gate before this hold closed, so the submission has to give way.
-	if scan := h.scanClusterBackupActivity(ctx); scan.verdict != backupActivityClear {
+	if scan := h.rescanBackupActivity(ctx); scan.verdict != backupActivityClear {
 		return h.rollbackSubmit(ctx, principal, h.appState.ClusterService, collection, taskID,
 			reindexCancelRemedy(collection, propertyName, migrationType), scan,
 			func() { unlockProperty(); releaseSubmitHold() })

@@ -168,6 +168,19 @@ type State struct {
 	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
+// SetBackupActivity stores the probe, keeping a nil concrete pointer a nil
+// interface. A typed nil inside a non-nil interface defeats every == nil guard
+// that reads this field, and turns a missing probe into a panic instead of the
+// answer those guards exist to give.
+func (s *State) SetBackupActivity(probe *backup.NodeActivityProbe) {
+	s.NodeActivityProbe = probe
+	if probe == nil {
+		s.BackupActivity = nil
+		return
+	}
+	s.BackupActivity = probe
+}
+
 // LocalBackupActivity reports whether this node holds a backup or restore slot.
 type LocalBackupActivity interface {
 	Activity() backup.NodeActivity

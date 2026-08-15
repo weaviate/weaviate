@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/runtime"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 const rolledBackTaskID = "Movies:change-tokenization:title:ab3f"
@@ -265,6 +267,9 @@ func TestRollbackSubmitResponses(t *testing.T) {
 		wantNotContains []string
 		wantCancels     int
 		wantTaskID      string
+		// The counter labels this exit must produce.
+		wantRefusalVerdict  string
+		wantRollbackOutcome string
 	}{
 		{
 			name:            "a peer backing up, rolled back",
@@ -274,6 +279,9 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantContains:    []string{"reindex blocked: a backup is running in the cluster; retry after it finishes"},
 			wantNotContains: []string{rolledBackTaskID, "node-3", "backup-42"},
 			wantCancels:     1,
+
+			wantRefusalVerdict:  reindex.VerdictBackupBusy,
+			wantRollbackOutcome: "cancelled",
 		},
 		{
 			name:            "a peer restoring, rolled back",
@@ -283,6 +291,9 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantContains:    []string{"reindex blocked: a restore is running in the cluster; retry after it finishes"},
 			wantNotContains: []string{rolledBackTaskID, "restore-9"},
 			wantCancels:     1,
+
+			wantRefusalVerdict:  reindex.VerdictRestoreBusy,
+			wantRollbackOutcome: "cancelled",
 		},
 		{
 			name:       "a peer backing up, and the task could not be stopped",
@@ -297,6 +308,11 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			},
 			wantNotContains: []string{"node-3", "backup-42"},
 			wantTaskID:      rolledBackTaskID,
+
+			// The two outcomes that leave a migration running while a capture
+			// is in flight are exactly what an operator pages on.
+			wantRefusalVerdict:  reindex.VerdictBackupBusy,
+			wantRollbackOutcome: "refused",
 		},
 		{
 			name:     "a peer that did not answer",
@@ -310,6 +326,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantNotContains: []string{"node-3", "connection refused"},
 			wantCancels:     0,
 			wantTaskID:      rolledBackTaskID,
+
+			wantRefusalVerdict: reindex.VerdictUnreachable,
 		},
 	}
 
@@ -319,7 +337,11 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			if tt.taskStatus != "" {
 				canceller.tasks = []*distributedtask.Task{rolledBackTask(t, tt.taskStatus)}
 			}
-			h := &indexesHandlers{appState: &state.State{Logger: quietLogger()}}
+			registry := prometheus.NewPedanticRegistry()
+			h := &indexesHandlers{appState: &state.State{
+				Logger:             quietLogger(),
+				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil, RollbackOutcomeLabels()),
+			}}
 
 			released := 0
 			resp := h.rollbackSubmit(context.Background(), nil, canceller, "Movies", rolledBackTaskID,
@@ -345,6 +367,15 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			assert.Equal(t, tt.wantCancels, canceller.cancelCalls)
 			assert.Equal(t, 1, released,
 				"the property lock and the collection gate are released before the rollback runs")
+
+			// A post-commit refusal is the one an operator alerts on, and it
+			// reached the counter through a different path than the pre-commit
+			// one, so it needs its own assertion.
+			assert.Equalf(t, 1.0, refusalCount(t, registry, tt.wantRefusalVerdict),
+				"the post-commit refusal must reach the same counter the pre-commit one does")
+			if tt.wantRollbackOutcome != "" {
+				assert.Equal(t, 1.0, rollbackCount(t, registry, tt.wantRollbackOutcome))
+			}
 		})
 	}
 }
@@ -417,5 +448,47 @@ func TestReindexCancelRemedy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, reindexCancelRemedy("Movies", "title", tt.migrationType))
 		})
+	}
+}
+
+// rollbackCount reads one outcome series off the rollback counter.
+func rollbackCount(t *testing.T, registry *prometheus.Registry, outcome string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "weaviate_reindex_submit_rollbacks_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, pair := range metric.GetLabel() {
+				if pair.GetName() == "outcome" && pair.GetValue() == outcome {
+					return metric.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	t.Fatalf("no rollback series for outcome %q", outcome)
+	return 0
+}
+
+// TestRollbackOutcomeLabelsAreBounded pins that every outcome has a label and
+// that an unrecognized one collapses rather than minting a series.
+func TestRollbackOutcomeLabelsAreBounded(t *testing.T) {
+	labels := RollbackOutcomeLabels()
+	require.Len(t, labels, 6, "one label per outcome, and no more")
+
+	seen := map[string]struct{}{}
+	for _, label := range labels {
+		_, duplicate := seen[label]
+		require.Falsef(t, duplicate, "two outcomes share the label %q", label)
+		seen[label] = struct{}{}
+	}
+	for _, outcome := range []rollbackOutcome{
+		rollbackCancelled, rollbackCancelledAfterRetry, rollbackTaskGone,
+		rollbackTaskTerminal, rollbackRefused, rollbackFailed, rollbackOutcome(99),
+	} {
+		assert.Containsf(t, seen, outcome.label(),
+			"outcome %d produced the unbounded label %q", outcome, outcome.label())
 	}
 }
