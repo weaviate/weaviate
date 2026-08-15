@@ -43,8 +43,7 @@ type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
 
-// OverlapListRetryDelays waits between list attempts: the check runs after
-// the whole upload, and nothing can delete what a failed check discards.
+// OverlapListRetryDelays: a failed check discards a whole finished upload.
 var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
@@ -201,8 +200,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 	if verdict.allowsBackup() {
 		return nil
 	}
-	// An operator's cancel arrives on this ctx and kills the list the check
-	// runs on. That is the operator stopping the backup, so it stays CANCELLED.
+	// An operator's cancel arrives on this ctx; that stays a cancel, not a refusal.
 	if verdict.Undetermined && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -225,8 +223,7 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 		})
 }
 
-// Two errors, never both: an undetermined answer must not match the
-// observed-overlap error, or a check that saw nothing reads as one that did.
+// Two errors, never both: an undetermined answer must not match the observed one.
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict) error {
 	if verdict.Undetermined {
 		return fmt.Errorf("%w: %s",
