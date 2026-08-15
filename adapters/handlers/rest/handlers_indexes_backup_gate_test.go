@@ -27,9 +27,11 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
@@ -492,4 +494,39 @@ func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
 	require.Nil(t, appState.BackupActivity)
 	h := &indexesHandlers{appState: appState}
 	assert.NotPanics(t, func() { assert.False(t, h.localBackupActivity().Busy) })
+}
+
+// The two lines that hand the shared counters to the DB and to the handlers are
+// installs, not calls: Refused and RolledBack are no-ops on a nil receiver, so
+// dropping either leaves every gate refusing correctly and reporting nothing.
+// No gate test covers them — each injects its own metrics by hand.
+func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
+	registry := prometheus.NewPedanticRegistry()
+	// The gauge reads the hold registry off the DB, so the provider has to be
+	// bound to the same one the gates read.
+	repo := &db.DB{}
+	appState := &state.State{
+		Logger: quietLogger(),
+		ReindexProvider: db.NewReindexProvider(repo, nil, nil, quietLogger(), "node-1", nil,
+			context.Background()),
+		ServerConfig: &config.WeaviateConfig{},
+	}
+
+	installReindexGateLookups(appState, repo, context.Background(), registry)
+
+	require.NotNil(t, appState.ReindexGateMetrics, "the handlers were left counting into nothing")
+	appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictBackupBusy)
+	assert.Equal(t, 1.0, refusalCount(t, registry, reindex.VerdictBackupBusy))
+
+	series := map[string]int{}
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		series[family.GetName()] = len(family.GetMetric())
+	}
+	// Gathered, so the gauges really read the provider at scrape time.
+	assert.Equal(t, 2, series["weaviate_reindex_open_holds"],
+		"one gauge per hold kind, both scraping the live provider")
+	assert.Equal(t, len(RollbackOutcomeLabels()), series["weaviate_reindex_submit_rollbacks_total"],
+		"every rollback outcome exists at zero before the first rollback")
 }
