@@ -12,7 +12,6 @@
 package reindex_backup_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -23,19 +22,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestRestoreRefusedDuringInFlightReindex pins both halves of the restore
+// testRestoreRefusedDuringInFlightReindex pins both halves of the restore
 // gate while a migration is live.
 //
 // The second arm is what makes the first one mean something. A gate that
 // refused every restore while anything migrated anywhere would pass the
 // first arm and be unusable.
-func TestRestoreRefusedDuringInFlightReindex(t *testing.T) {
-	ctx := context.Background()
-	compose := startGuardNode(ctx, t)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-	restURI := compose.GetWeaviate().URI()
+func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 	helper.SetupClient(restURI)
-	t.Cleanup(helper.ResetClient)
 	const (
 		unrelatedClass = "RestoreGuard_Payload"
 		reindexClass   = "RestoreGuard_Migrating"

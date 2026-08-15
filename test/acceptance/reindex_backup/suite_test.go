@@ -118,6 +118,10 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	t.Run("CancelClearsTrackerDirsViaOnTaskCompleted", func(t *testing.T) {
 		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, compose.GetWeaviate().URI())
 	})
+
+	t.Run("RestoreRefusedDuringInFlightReindex", func(t *testing.T) {
+		testRestoreRefusedDuringInFlightReindex(t, compose.GetWeaviate().URI())
+	})
 }
 
 // testBaselineBackupRoundTrip backs up, deletes, and restores a class
