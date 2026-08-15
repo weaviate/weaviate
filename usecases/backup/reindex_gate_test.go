@@ -160,21 +160,57 @@ func TestRestoreGateOrdering(t *testing.T) {
 		}, false)
 		require.ErrorAs(t, err, &backup.ErrNotFound{})
 	})
-	t.Run("a wildcard include widens the question instead of narrowing it to nothing", func(t *testing.T) {
-		// There is no descriptor to expand the pattern against. Passing
-		// it through would ask the gate about a collection that does not
-		// exist, and the restore would be admitted on that answer.
+	t.Run("naming no class at all is asked cluster-wide", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
-			Backend: backendName, ID: id, Include: []string{"MyCl*"},
+			Backend: backendName, ID: id,
+		}, false)
+		require.ErrorAs(t, err, &backup.ErrNotFound{})
+		require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
+			"a restore naming nothing covers everything, so the gate is asked about everything")
+	})
+	t.Run("a literal include is never checked for cluster-wide permission", func(t *testing.T) {
+		// The caller was already authorized on exactly these names one
+		// step up. Asking again, silently, would let a caller without
+		// cluster-wide permission fall through to the 404.
+		auth := authorization.NewMockAuthorizer(t)
+		auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(nil).Maybe()
+		fs := newFakeScheduler(nil)
+		fs.auth = auth
+		fs.selector.setReindexGate(reindexRefusal(cls))
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
 		require.Error(t, err)
-		require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
-			"an unresolvable pattern must be asked cluster-wide, never as a literal name")
+		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls())
+		auth.AssertNotCalled(t, "AuthorizeSilent",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
+	// One wildcard anywhere in the list settles it, including behind a
+	// literal that follows it: there is no descriptor to expand the pattern
+	// against, and passing the list through would ask the gate about a
+	// collection that does not exist, admitting the restore on that answer.
+	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
+		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+				Backend: backendName, ID: id, Include: include,
+			}, false)
+			require.Error(t, err)
+			require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
+				"an unresolvable pattern must be asked cluster-wide, never as a literal name")
+		})
+	}
 	t.Run("a known id is gated on the resolved class list", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.selector.setReindexGate(reindexRefusal(cls))

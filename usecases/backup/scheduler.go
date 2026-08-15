@@ -238,11 +238,18 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
-			// The gate answers before existence does, deliberately.
-			if gateClasses, mayAsk := s.reindexGateScopeForUnknownID(ctx, pr, req.Include); mayAsk {
-				if gateErr := s.refuseRestoreDuringReindex(ctx, gateClasses); gateErr != nil {
-					return nil, backup.NewErrUnprocessable(gateErr)
-				}
+			// The gate answers before existence does, deliberately. A
+			// caller that named literal classes was already authorized on
+			// those; asking anything wider needs cluster-wide permission,
+			// or the answer discloses a migration the caller cannot see.
+			var gateErr error
+			if literalIncludes(req.Include) {
+				gateErr = s.refuseRestoreDuringReindex(ctx, append([]string(nil), req.Include...))
+			} else if s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, authorization.Backups()...) == nil {
+				gateErr = s.refuseRestoreDuringReindex(ctx, nil)
+			}
+			if gateErr != nil {
+				return nil, backup.NewErrUnprocessable(gateErr)
 			}
 			return nil, backup.NewErrNotFound(err)
 		}
@@ -307,25 +314,19 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// A caller that named literal classes was already authorized on those;
-// answering anything wider without cluster-wide permission discloses a
-// migration the caller cannot see.
-func (s *Scheduler) reindexGateScopeForUnknownID(ctx context.Context, pr *models.Principal, include []string) ([]string, bool) {
-	// No descriptor here to expand a pattern against, so "Mov*" would ask a
-	// name-matching gate about nothing.
-	literal := len(include) > 0
+// literalIncludes reports whether include names collections outright. There
+// is no descriptor at this point to expand a pattern against, so "Mov*"
+// would ask a name-matching gate about nothing.
+func literalIncludes(include []string) bool {
+	if len(include) == 0 {
+		return false
+	}
 	for _, pattern := range include {
 		if strings.ContainsAny(pattern, "*?") {
-			literal = false
+			return false
 		}
 	}
-	if literal {
-		return append([]string(nil), include...), true
-	}
-	if err := s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, authorization.Backups()...); err != nil {
-		return nil, false
-	}
-	return nil, true
+	return true
 }
 
 func (s *Scheduler) refuseRestoreDuringReindex(ctx context.Context, collections []string) error {
