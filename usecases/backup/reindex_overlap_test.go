@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -157,6 +158,55 @@ func TestCommitTimeOverlapRefusalIsNotAnOperatorAbort(t *testing.T) {
 	assert.False(t, slot.saw(backup.Cancelled),
 		"a refusal is not an operator abort, whatever its cause wraps")
 	require.NotEmpty(t, slot.failures)
+}
+
+// TestOperatorCancelDuringTheOverlapCheckIsCancelled is the other half of
+// the rule above. The check runs on the operation's own context, so an
+// operator cancel arrives as the check's error; that one is an operator
+// abort and must not publish FAILED, which would burn the backup id.
+func TestOperatorCancelDuringTheOverlapCheckIsCancelled(t *testing.T) {
+	const class = "Article"
+	u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
+	sourcer.setOverlapRefusal(context.Canceled)
+
+	err := u.all(context.Background(), []string{class}, desc, nil, "", "")
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, backup.Cancelled, desc.Status)
+	assert.True(t, slot.saw(backup.Cancelled))
+	assert.Empty(t, slot.failures)
+}
+
+// TestCommitTimeOverlapRefusalIsServedWhole pins that the refusal reaches a
+// status poll intact: its own text first, with a co-occurring metadata write
+// fault after it. Wrapping the refusal instead buries the reason behind
+// whatever the wrapper of the moment says.
+func TestCommitTimeOverlapRefusalIsServedWhole(t *testing.T) {
+	const (
+		backupID = "1"
+		class    = "Article"
+	)
+	refusal := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrReindexOverlappedBackup, class)
+
+	logger, _ := test.NewNullLogger()
+	bp := &backupper{logger: logger}
+	require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+	u, sourcer, desc := uploadFixtureWithSlot(t, class, nil,
+		errors.New("meta write rejected"), &bp.lastOp)
+	sourcer.setOverlapRefusal(refusal)
+
+	require.ErrorIs(t, u.all(context.Background(), []string{class}, desc, nil, "", ""),
+		backup.ErrReindexOverlappedBackup)
+
+	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
+		&StatusRequest{Method: OpCreate, ID: backupID})
+
+	require.Equal(t, backup.Failed, res.Status)
+	assert.True(t, strings.HasPrefix(res.Err, refusal.Error()),
+		"the reason has to lead; got: %s", res.Err)
+	assert.Contains(t, res.Err, "uploading the backup metadata also failed")
+	assert.Equal(t, refusal.Error(), desc.Error)
 }
 
 // TestGateRefusalIsRedactedOnTheStatusAPI pins that the shard the
