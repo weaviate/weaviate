@@ -193,6 +193,26 @@ func TestReindexHoldForCollection(t *testing.T) {
 	}
 }
 
+// The cleanup hold is raised on FAILED as well as on CANCELLED, so the
+// refusal is read off a real terminal run. The e2e drives the cancel; this
+// drives the failure.
+func holdRefusalAfterTerminal(t *testing.T, status distributedtask.TaskStatus) error {
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, serverCtx: context.Background(), db: &DB{}}
+	held := ReindexHoldNone
+	// The cleanup logs from inside the hold, so a hook sees what a gate would.
+	logger.AddHook(onEachLogLine(func() { held = max(held, p.holds.HoldFor("Movies")) }))
+	require.NoError(t, p.OnTaskCompleted(reindexTask("T_terminal", status,
+		`{"migrationType":"change-tokenization","collection":"Movies","properties":["title"]}`)))
+	require.Equal(t, ReindexHoldCleanup, held, "%s must raise the cleanup hold", status)
+	return reindexHoldRefusal("Movies", held)
+}
+
+type onEachLogLine func()
+
+func (onEachLogLine) Levels() []logrus.Level     { return logrus.AllLevels }
+func (h onEachLogLine) Fire(*logrus.Entry) error { h(); return nil }
+
 // The arms are not interchangeable, so each one's wording is pinned
 // against the reading that inverts it.
 func TestReindexRefusalTexts(t *testing.T) {
@@ -213,10 +233,10 @@ func TestReindexRefusalTexts(t *testing.T) {
 			},
 		},
 		{
-			name:    "a cancelled task still tearing its files down",
-			refusal: reindexHoldRefusal("Movies", ReindexHoldCleanup),
+			name:    "a stopped task still tearing its files down",
+			refusal: holdRefusalAfterTerminal(t, distributedtask.TaskStatusFailed),
 			mustContain: []string{
-				"a cancelled migration is still removing its temporary index files",
+				"a stopped migration (FAILED or CANCELLED) is still removing its temporary index files",
 				"retry once the cleanup finishes",
 			},
 			// The task is already terminal, so a cancel has nothing left
