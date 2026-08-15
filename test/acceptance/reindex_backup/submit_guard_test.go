@@ -228,17 +228,10 @@ func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 		"searchable", reindexhelpers.WithTimeout(180*time.Second))
 }
 
-// TestReindexSubmitRollsItselfBackOnASingleNode drives the post-commit rung.
-//
-// One node is the only topology where this is deterministic, and it is also the
-// one where the fan-out has no peers to ask, so the local re-read is the whole
-// gate. A capture clears the reindex gate before it occupies its slot, so a
-// submission can pass the pre-commit read and still lose: by the time the sweep
-// and the RAFT write are done, the capture has renewed and the submission has
-// to undo itself.
-//
-// Either outcome is legitimate — the pre-commit rung may win the race — so this
-// asserts what must hold in both cases, and reports which one it observed.
+// TestReindexSubmitRollsItselfBackOnASingleNode drives the post-commit rung on
+// the only topology where it is deterministic, and the one where the fan-out
+// has no peers so the local re-read is the whole gate. Either rung may win the
+// race, so this asserts what has to hold whichever did, and logs which it saw.
 func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 	ctx := context.Background()
 
@@ -290,9 +283,7 @@ func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 		"the capture the submission gave way to must not fail (reason=%q)", captured.errMessage)
 }
 
-// refusalTaskID returns the typed task id a refusal carries, or "" when it
-// carries none. Read off the field, not the prose, which is the whole point of
-// the field existing.
+// Read off the field, not the prose, which is the point of the field.
 func refusalTaskID(t *testing.T, body string) string {
 	t.Helper()
 	var parsed models.IndexRefusalResponse
@@ -301,8 +292,7 @@ func refusalTaskID(t *testing.T, body string) string {
 	return parsed.TaskID
 }
 
-// requireNoLiveMigration proves the rollback actually stopped what it committed:
-// a task left live here would be running against the capture.
+// A task left live here would be running against the capture.
 func requireNoLiveMigration(t *testing.T, restURI, className string) {
 	t.Helper()
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)

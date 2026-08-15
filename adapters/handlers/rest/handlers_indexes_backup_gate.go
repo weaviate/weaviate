@@ -163,19 +163,14 @@ func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupA
 	return scanBackupActivity(probeCtx, peers, prober.NodeActivity, h.appState.Logger)
 }
 
-// peersToProbe reports which nodes to ask, and whether the membership answer
-// can be trusted at all.
+// peersToProbe reports which nodes to ask, and whether the answer can be
+// trusted at all. Memberlist names this node as soon as it is up, so a list
+// without it has not converged or was reaped under a partition — neither of
+// which is "no peer holds a backup". Only a list naming this node and nobody
+// else is a node genuinely running alone.
 //
-// Memberlist names this node as soon as it is up, so a list that does not
-// contain it is not the same answer as "no peers hold a backup" — it is a view
-// that has not converged, or one whose members were reaped under a partition.
-// Reading either as an empty peer set admits a submission on a cluster whose
-// state was never established. Only a list that names this node and nobody
-// else is genuinely a node running alone.
-//
-// The local slots were read directly a moment ago, so this node is dropped from
-// the fan-out: asking it over HTTP would answer from those same four slots one
-// round trip later.
+// This node is dropped from the fan-out: its slots were just read directly, and
+// asking over HTTP answers from those same four one round trip later.
 func peersToProbe(all []string, local string) (peers []string, established bool) {
 	if local == "" || !slices.Contains(all, local) {
 		return nil, false
@@ -190,15 +185,12 @@ func peersToProbe(all []string, local string) (peers []string, established bool)
 	return peers, true
 }
 
-// rescanBackupActivity re-asks both rungs after the RAFT write.
-//
-// The local slots have to be read again, not just the peers. A capture clears
-// the reindex gate before it occupies its slot, and two backend round trips sit
-// in that gap, so the pre-commit read can see an idle node that is already
-// committed to capturing. By now the sweep and the RAFT write have elapsed and
-// that capture has renewed. Skipping this rung leaves the whole rollback path
-// unreachable on a single node, which is the topology where the local rung is
-// the only rung there is.
+// rescanBackupActivity re-asks both rungs after the RAFT write. The local slots
+// have to be read again, not just the peers: a capture clears the reindex gate
+// before it occupies its slot, with two backend round trips in the gap, so the
+// pre-commit read can see an idle node already committed to capturing. Skipping
+// this rung also leaves the rollback path unreachable on a single node, where
+// the local slots are the only rung there is.
 func (h *indexesHandlers) rescanBackupActivity(ctx context.Context) backupActivityScan {
 	if local := refuseOnLocalBackupActivity(h.localBackupActivity()); local.verdict != backupActivityClear {
 		return local

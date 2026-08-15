@@ -38,9 +38,6 @@ const (
 	VerdictOverlapUnsure = "overlap_undetermined"
 )
 
-// RollbackOutcomes is the closed set a rollback can end in, and the label
-// vocabulary of the counter below. The caller supplies it so a seventh outcome
-// cannot be added without deciding whether it gets a series.
 type GateMetrics struct {
 	refusals  *prometheus.CounterVec
 	rollbacks *prometheus.CounterVec
@@ -72,10 +69,8 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
 		}, []string{"outcome"}),
 	}
 
-	// A CounterVec with no children emits nothing at all, and "no data" is a
-	// different alerting state from zero. Every series either counter can
-	// produce is enumerable, so all of them start at zero and an operator can
-	// alert on a rate from the first scrape.
+	// A CounterVec with no children emits nothing, and "no data" is a different
+	// alerting state from zero. Every series is enumerable, so all start at zero.
 	for gate, verdicts := range reachableVerdicts {
 		for _, verdict := range verdicts {
 			metrics.refusals.WithLabelValues(gate, verdict)
@@ -87,8 +82,7 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
 	return metrics
 }
 
-// reachableVerdicts is what each gate can actually answer. A pair missing here
-// is only ever absent from /metrics until the first time it fires.
+// A pair missing here is absent from /metrics until the first time it fires.
 var reachableVerdicts = map[string][]string{
 	GateSubmit:  {VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable},
 	GateBackup:  {VerdictLiveTask, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
@@ -107,9 +101,8 @@ func (m *GateMetrics) Refused(gate, verdict string) {
 	m.refusals.WithLabelValues(gate, verdict).Inc()
 }
 
-// RolledBack counts how a submission that lost the race to a backup ended. The
-// two outcomes that leave a migration running while a capture is in flight are
-// the ones worth alerting on, and a log line is not something to alert on.
+// The two outcomes that leave a migration running while a capture is in flight
+// are what an operator pages on, and a log line is not something to page on.
 func (m *GateMetrics) RolledBack(outcome string) {
 	if m == nil {
 		return

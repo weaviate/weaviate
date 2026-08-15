@@ -97,9 +97,7 @@ func (o rollbackOutcome) label() string {
 	return "failed"
 }
 
-// RollbackOutcomeLabels is every value [rollbackOutcome.label] can return, so
-// each series exists at zero before the first rollback rather than appearing
-// only once one has happened.
+// Every value label can return, so each series exists at zero from the start.
 func RollbackOutcomeLabels() []string {
 	return []string{
 		rollbackCancelled.label(), rollbackCancelledAfterRetry.label(),
