@@ -81,6 +81,10 @@ func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 	mux.Handle(clusterprobe.BackupNodeActivityPath, backups.NodeActivity())
+	// A path variant the exact match misses falls to the catch-all, whose 404 is
+	// byte for byte the one that means "too old to have this route", and that
+	// clears a node this one is backing up.
+	mux.Handle(clusterprobe.BackupNodeActivityPath+"/", backups.NodeActivity())
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
 	mux.Handle("/exports/commit", exportsHandler.Commit())
