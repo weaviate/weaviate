@@ -254,12 +254,17 @@ func TestReindexRefusalTexts(t *testing.T) {
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 		{
-			name:    "no back-reference to ask",
-			refusal: reindexStartupWindowRefusal("Movies"),
-			mustContain: []string{
-				"startup window",
-				"retry once the node has finished bootstrapping",
-			},
+			name:        "no back-reference to ask",
+			refusal:     gatedIndex(nil, "Movies").refuseIfReindexInFlight("shard-1"),
+			mustContain: []string{"startup window", "retry once the node has finished bootstrapping"},
+			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
+		},
+		{
+			// The gate DB.Backupable calls. Admit here and a backup captures
+			// a collection a migration may be halfway through rewriting.
+			name:        "no back-reference, from the gate a backup goes through",
+			refusal:     gatedIndex(nil, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}),
+			mustContain: []string{"startup window", "retry once the node has finished bootstrapping"},
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 	}
@@ -300,9 +305,7 @@ func TestReindexRefusalsRedactPlacement(t *testing.T) {
 		"hold":      gatedIndex(db, "Held").refuseIfReindexInFlight(shardName),
 		"many shards": gatedIndex(db, "Movies").
 			refuseIfAnyShardReindexInFlight([]string{shardName}),
-		"no back-reference": (&Index{
-			Config: IndexConfig{ClassName: schema.ClassName("Movies")},
-		}).refuseIfReindexInFlight(shardName),
+		"no back-reference": gatedIndex(nil, "Movies").refuseIfReindexInFlight(shardName),
 	}
 	for name, refusal := range refusals {
 		t.Run(name, func(t *testing.T) {
