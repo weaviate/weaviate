@@ -48,19 +48,7 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		backend  = "s3"
 	)
 
-	compose := startGuardCluster(ctx, t, bucket)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	nodes := clusterNodes(compose, guardClusterSize)
-	t.Cleanup(func() { dumpClusterLogs(ctx, t, compose, nodes) })
-
-	helper.SetupClient(nodes[0].uri)
-	t.Cleanup(helper.ResetClient)
-
-	leader := raftLeaderName(t, nodes[0].uri, 60*time.Second)
-	awaitClusterMembers(t, nodes[0].uri, nodeNames(nodes), 60*time.Second)
-	topo := resolveGuardTopology(t, nodes, leader, propName)
-	coordinator := nodeByName(t, nodes, leader)
+	nodes, leader, topo, coordinator := startGuardTopology(ctx, t, bucket, propName)
 	t.Logf("topology: leader %q owns capture class %q, probe %q owns reindex class %q; sampled: %v",
 		leader, topo.backupClass, topo.probe.name, topo.reindexClass, topo.placements)
 
@@ -127,19 +115,7 @@ func TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode(t *testing.T) {
 		bucket   = "reindex-guard-refusal-bucket"
 	)
 
-	compose := startGuardCluster(ctx, t, bucket)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	nodes := clusterNodes(compose, guardClusterSize)
-	t.Cleanup(func() { dumpClusterLogs(ctx, t, compose, nodes) })
-
-	helper.SetupClient(nodes[0].uri)
-	t.Cleanup(helper.ResetClient)
-
-	leader := raftLeaderName(t, nodes[0].uri, 60*time.Second)
-	awaitClusterMembers(t, nodes[0].uri, nodeNames(nodes), 60*time.Second)
-	topo := resolveGuardTopology(t, nodes, leader, propName)
-	coordinator := nodeByName(t, nodes, leader)
+	nodes, leader, topo, coordinator := startGuardTopology(ctx, t, bucket, propName)
 
 	// The class the leader does NOT own is the one that migrates, so the
 	// refusal has to travel back from a participant.
@@ -207,6 +183,27 @@ func TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode(t *testing.T) {
 	}, 60*time.Second, 500*time.Millisecond,
 		"the same capture must be admitted once the migration has drained")
 	awaitBackupSuccess(t, nodeBackupStatus(coordinator.uri, "s3", drainedBackupID), drainedBackupID, 10*time.Minute)
+}
+
+// startGuardTopology brings the cluster up and resolves the placement both
+// cluster tests are written against: a class the RAFT leader owns, and one it does not.
+func startGuardTopology(ctx context.Context, t *testing.T, bucket, propName string) (
+	nodes []clusterNode, leader string, topo guardTopology, coordinator clusterNode,
+) {
+	t.Helper()
+	compose := startGuardCluster(ctx, t, bucket)
+	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+
+	nodes = clusterNodes(compose, guardClusterSize)
+	t.Cleanup(func() { dumpClusterLogs(ctx, t, compose, nodes) })
+
+	helper.SetupClient(nodes[0].uri)
+	t.Cleanup(helper.ResetClient)
+
+	leader = raftLeaderName(t, nodes[0].uri, 60*time.Second)
+	awaitClusterMembers(t, nodes[0].uri, nodeNames(nodes), 60*time.Second)
+	topo = resolveGuardTopology(t, nodes, leader, propName)
+	return nodes, leader, topo, nodeByName(t, nodes, leader)
 }
 
 // resolveGuardTopology creates single-shard, RF=1 classes until one lands on
