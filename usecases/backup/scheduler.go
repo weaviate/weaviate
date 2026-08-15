@@ -314,6 +314,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
+// wildcardAlphabet is read by literalIncludes and expandWildcards; if the
+// two disagree, the gate's scope and the include expansion diverge.
+const wildcardAlphabet = "*?"
+
 // literalIncludes reports whether include names collections outright. There
 // is no descriptor at this point to expand a pattern against, so "Mov*"
 // would ask a name-matching gate about nothing.
@@ -322,7 +326,7 @@ func literalIncludes(include []string) bool {
 		return false
 	}
 	for _, pattern := range include {
-		if strings.ContainsAny(pattern, "*?") {
+		if strings.ContainsAny(pattern, wildcardAlphabet) {
 			return false
 		}
 	}
@@ -1224,7 +1228,7 @@ func expandWildcards(patterns, candidates []string) []string {
 
 	for _, pattern := range patterns {
 		// Check if pattern contains wildcard characters
-		if strings.ContainsAny(pattern, "*?") {
+		if strings.ContainsAny(pattern, wildcardAlphabet) {
 			// Expand wildcard pattern against candidates
 			for _, candidate := range candidates {
 				if matchesWildcard(pattern, candidate) {
