@@ -51,7 +51,7 @@ func TestOldNodeAnswersTheProbePathFromTheCatchAll(t *testing.T) {
 // An unwired probe must answer 503, not the 404 that would let this node pass.
 func TestBackupNodeActivityWithoutAProbe(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
-	backups := NewBackups(nil, nodeActivityProbe(nil), NewNoopAuthHandler(), logger)
+	backups := NewBackups(nil, nil, NewNoopAuthHandler(), logger)
 	req := httptest.NewRequest(http.MethodGet, clusterprobe.BackupNodeActivityPath, nil)
 	rec := httptest.NewRecorder()
 

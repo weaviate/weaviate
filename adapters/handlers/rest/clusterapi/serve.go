@@ -60,7 +60,7 @@ func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
-	backups := NewBackups(appState.BackupManager, nodeActivityProbe(appState.BackupActivity), auth, appState.Logger)
+	backups := NewBackups(appState.BackupManager, requireNodeActivityProbe(appState.BackupActivity), auth, appState.Logger)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
@@ -193,11 +193,14 @@ func (s *Server) Close(ctx context.Context) error {
 	return eg.Wait()
 }
 
-// nodeActivityProbe keeps an unwired probe an untyped nil, so the handler's nil
-// check answers 503 instead of panicking on the first field it reads.
-func nodeActivityProbe(p *backup.NodeActivityProbe) nodeActivityProber {
+// requireNodeActivityProbe pins the order app state is filled in: the probe is
+// assigned a dozen lines before the cluster server is built, and this table
+// snapshots it. A reordering would leave every node answering 503 for the life
+// of the process, which refuses every submission that gates on the probe, with
+// one warning per process as the only signal.
+func requireNodeActivityProbe(p *backup.NodeActivityProbe) nodeActivityProber {
 	if p == nil {
-		return nil
+		panic("clusterapi: cluster mux built before the backup node-activity probe was assigned")
 	}
 	return p
 }
