@@ -92,7 +92,6 @@ func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	return mux
 }
 
-// NewServer creates a new cluster API server instance
 func NewServer(appState *state.State) *Server {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
 	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)

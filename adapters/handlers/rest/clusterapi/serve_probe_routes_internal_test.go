@@ -68,11 +68,8 @@ func probeAppState(t *testing.T) *state.State {
 	}
 }
 
-// The answer says whether the cluster is mid-backup and names the operation, so
-// the table must mount the route behind the cluster's own credentials. A node
-// that loses the route, its guard, or the app state's probe either discloses
-// that to anyone who asks, or answers every peer "nothing running here", which
-// is the one answer a peer may not act on.
+// The probe route discloses whether the cluster is mid-backup, so it must
+// stay behind the cluster's own credentials.
 func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 	server := httptest.NewServer(newClusterMux(probeAppState(t), NewBasicAuthHandler(probeAuth)))
 	defer server.Close()
