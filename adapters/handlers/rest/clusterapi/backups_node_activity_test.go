@@ -109,26 +109,31 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 	}
 }
 
-// The answer says whether the cluster is mid-backup, so a caller that fails the
-// cluster's basic auth must not learn it — and must not cost a slot read either.
+// The answer says whether this node is mid-backup, so a caller that fails the
+// cluster's basic auth must not learn it, nor cost a slot read. The last row
+// pins the default config, where no credentials are set and anyone reads it.
 func TestBackupNodeActivityRouteAuth(t *testing.T) {
-	auth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "node", Password: "s3cret"}}
+	secured := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "node", Password: "s3cret"}}
 
 	tests := []struct {
 		name       string
+		auth       cluster.AuthConfig
 		user, pass string
 		wantCode   int
 		wantCalls  int
 	}{
-		{name: "no credentials", wantCode: http.StatusUnauthorized},
-		{name: "wrong password", user: "node", pass: "guess", wantCode: http.StatusUnauthorized},
-		{name: "wrong user", user: "intruder", pass: "s3cret", wantCode: http.StatusUnauthorized},
-		{name: "the cluster's own credentials", user: "node", pass: "s3cret", wantCode: http.StatusOK, wantCalls: 1},
+		{name: "no credentials", auth: secured, wantCode: http.StatusUnauthorized},
+		{name: "wrong password", auth: secured, user: "node", pass: "guess", wantCode: http.StatusUnauthorized},
+		{name: "wrong user", auth: secured, user: "intruder", pass: "s3cret", wantCode: http.StatusUnauthorized},
+		{name: "the cluster's own credentials", auth: secured, user: "node", pass: "s3cret", wantCode: http.StatusOK, wantCalls: 1},
+		// CLUSTER_BASIC_AUTH_USERNAME and _PASSWORD have no default, and an empty
+		// pair makes the wrapper a pass-through.
+		{name: "no basic auth configured answers anyone", wantCode: http.StatusOK, wantCalls: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			prober := &stubProber{activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"}}
-			server := serveNodeActivity(t, prober, auth)
+			server := serveNodeActivity(t, prober, tt.auth)
 
 			res := do(t, server, http.MethodGet, tt.user, tt.pass)
 			defer res.Body.Close()
