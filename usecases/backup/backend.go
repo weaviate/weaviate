@@ -410,10 +410,9 @@ func failureMessageForStatus(err error) string {
 }
 
 // withMetaFault names a failed metadata write after the reason, not around
-// it. The write fault is a second error's text spliced into the string the
-// coordinator classifies, so it goes through reasonSafeText. The reason is
-// left as it arrived: how the coordinator treats a capture failure that
-// quotes a cancel is not this function's to decide.
+// it. The write fault is spliced into the string the coordinator classifies,
+// so it goes through reasonSafeText. The reason is left as it arrived, by
+// design: what the coordinator makes of it is not this function's call.
 func withMetaFault(reason string, metaErr error) string {
 	if metaErr == nil {
 		return reason

@@ -268,8 +268,8 @@ func TestAllReindexRefusals(t *testing.T) {
 	}
 }
 
-// TestIsReindexBackupFailure pins the wider question: all four errors count,
-// because all four mean a reindex check is why a capture will not be published.
+// TestIsReindexBackupFailure pins the wider question: every reindex sentinel
+// means a check is why a capture will not be published.
 func TestIsReindexBackupFailure(t *testing.T) {
 	tests := []struct {
 		name string

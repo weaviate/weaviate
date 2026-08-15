@@ -1138,17 +1138,9 @@ func TestCommitAllManyFailures(t *testing.T) {
 }
 
 // TestOneNodeRefusingFailsTheWholeBackup pins that the commit-time overlap
-// check is a cluster-wide guarantee. The check runs per node and sees only
-// that node's shards, so a migration confined to one node is invisible
-// everywhere else; if a create tolerated that node's refusal, the coordinator
-// would publish a descriptor whose other nodes all say Success while one
-// node's data is torn.
-//
-// It also pins the dependency the refusal text has on the coordinator: the
-// reclassifier turns a participant's Failed into Cancelled whenever
-// context.Canceled's text appears in the reason, and a cancelled backup id
-// can be re-posted, so a refusal that quoted a cancel would let the next
-// backup silently overwrite the torn one.
+// check is a cluster-wide guarantee. The check sees only its own node's
+// shards, so a create that tolerated one node's refusal would publish a
+// descriptor whose other nodes all say Success while that node's data is torn.
 func TestOneNodeRefusingFailsTheWholeBackup(t *testing.T) {
 	t.Parallel()
 	const (
@@ -1175,8 +1167,7 @@ func TestOneNodeRefusingFailsTheWholeBackup(t *testing.T) {
 			wantInError: backup.ErrReindexOverlapUndetermined.Error(),
 		},
 		{
-			// Not a shape the check emits, and the reason the refusals are
-			// scrubbed of this text before they are published.
+			// Not a shape the check emits: the refusals are scrubbed of this text.
 			name:        "a reason that quotes a cancelled request",
 			reason:      "upload aborted: " + context.Canceled.Error(),
 			wantStatus:  backup.Cancelled,

@@ -29,9 +29,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// recordingSlot records the sequence a node's operation slot was driven
-// through, so a test can assert what the slot was never told rather than
-// only what it ended on.
+// recordingSlot records the whole sequence a node's operation slot was driven
+// through, so a test can assert what the slot was never told.
 type recordingSlot struct {
 	mu       sync.Mutex
 	statuses []backup.Status
@@ -99,9 +98,8 @@ func uploadFixtureWithSlot(t *testing.T, class string, descErr, metaErr error, s
 		sourcer, desc
 }
 
-// TestCommitTimeOverlapCheckPlacement pins where the check sits: after
-// the capture, before anything says the capture is publishable, asked
-// about what this node captured and from when it started.
+// TestCommitTimeOverlapCheckPlacement pins where the check sits: after the
+// capture, before anything says the capture is publishable.
 func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	const class = "Article"
 
@@ -127,11 +125,9 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	})
 }
 
-// TestHowACheckErrorIsPublished pins the line between a refusal and an
-// operator abort. Both arrive as the check's error on the operation's own
-// context, and they publish differently: a refusal has to end FAILED even
-// when its own cause wraps a cancellation, while a cancel has to end
-// CANCELLED, because publishing FAILED there would burn the backup id.
+// TestHowACheckErrorIsPublished pins the line between a refusal and an operator
+// abort: a refusal ends FAILED even when its cause wraps a cancellation, and a
+// cancel ends CANCELLED.
 func TestHowACheckErrorIsPublished(t *testing.T) {
 	const class = "Article"
 
@@ -149,9 +145,8 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 			wantFailures: true,
 		},
 		{
-			// A contract test on a shape the check does not emit: a
-			// cancelled context is answered as a cancel before a verdict
-			// exists. It pins the rule for whatever emits it next.
+			// A shape the check does not emit: a cancelled context is answered
+			// as a cancel before a verdict exists. Pinned for whatever does.
 			name: "an unanswerable check whose own cause was cancelled",
 			refusal: fmt.Errorf("%w: the cluster task manager could not be listed: %w",
 				backup.ErrReindexOverlapUndetermined, context.Canceled),
@@ -183,10 +178,8 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 	}
 }
 
-// TestWithMetaFault pins the reason a status poll is served when the
-// metadata write fails alongside the capture: the capture's own reason
-// first, the write fault named after it, and nothing in either half that
-// the coordinator would read as an operator abort.
+// TestWithMetaFault pins the reason a status poll is served when the metadata
+// write fails alongside the capture.
 func TestWithMetaFault(t *testing.T) {
 	const reason = `backup blocked: collection "Article" was migrated`
 
@@ -219,11 +212,9 @@ func TestWithMetaFault(t *testing.T) {
 }
 
 // TestOrdinaryCaptureFailureWithAFailedMetaWrite pins the one place the
-// migration kill switch is not a byte-identical no-op. The shape has
-// nothing to do with migrations — an ordinary capture failure whose
-// metadata write also failed — and the reason a poll is served leads with
-// the capture's own text instead of wrapping it in the write fault, which
-// is what keeps a per-shard refusal's shard name off the status API.
+// migration kill switch is not a byte-identical no-op: an ordinary capture
+// failure whose metadata write also failed now leads with the capture's own
+// text instead of wrapping it in the write fault.
 func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
 	const class = "Article"
 	u, _, slot, desc := uploadFixture(t, class,
@@ -238,16 +229,9 @@ func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
 	assert.Contains(t, slot.failures[0], "meta write rejected")
 }
 
-// TestPublishedReasonNeverReadsAsACancel pins the dependency the reason
-// composition has on the coordinator: a participant that publishes FAILED
-// with context.Canceled's text in the reason is relabelled CANCELLED, and a
-// cancelled backup id can be re-posted, so a torn capture would be quietly
-// overwritten by a clean one under the same id.
-//
-// The refusals below are the shapes the check actually emits, none of which
-// quotes a cancel — the builder that could have deliberately keeps the list
-// error out of its detail. What this pins is that the metadata fault spliced
-// in beside them cannot put that text back.
+// TestPublishedReasonNeverReadsAsACancel pins that a published reason never
+// quotes a cancel. The refusals below are the shapes the check actually emits;
+// what this pins is that a spliced-in metadata fault cannot put that text back.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
 
@@ -288,9 +272,7 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 }
 
 // TestCommitTimeOverlapRefusalIsServedWhole pins that the refusal reaches a
-// status poll intact: its own text first, with a co-occurring metadata write
-// fault after it. Wrapping the refusal instead buries the reason behind
-// whatever the wrapper of the moment says.
+// status poll intact, with a co-occurring metadata write fault after it.
 func TestCommitTimeOverlapRefusalIsServedWhole(t *testing.T) {
 	const (
 		backupID = "1"
@@ -319,10 +301,8 @@ func TestCommitTimeOverlapRefusalIsServedWhole(t *testing.T) {
 	assert.Equal(t, refusal.Error(), desc.Error)
 }
 
-// TestGateRefusalIsRedactedOnTheStatusAPI pins that the shard the
-// per-shard gate refused never reaches a status poll. The gate's own text
-// is served, with a co-occurring metadata fault named beside it rather
-// than wrapped around it.
+// TestGateRefusalIsRedactedOnTheStatusAPI pins that the shard the per-shard
+// gate refused never reaches a status poll.
 func TestGateRefusalIsRedactedOnTheStatusAPI(t *testing.T) {
 	const (
 		backupID = "1"

@@ -53,9 +53,8 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 	return []modulecapabilities.BackupBackend{bsp.backend}
 }
 
-// reindexGateStub answers both reindex questions for whichever fake embeds
-// it: the restore gate and the commit-time overlap check. The zero value
-// admits, so tests that do not exercise either need set nothing.
+// reindexGateStub answers both reindex questions for whichever fake embeds it.
+// The zero value admits, so tests that do not exercise either need set nothing.
 type reindexGateStub struct {
 	mu              sync.Mutex
 	refusal         error
@@ -64,8 +63,6 @@ type reindexGateStub struct {
 	overlapAskedFor []overlapQuestion
 }
 
-// overlapQuestion is one call to the commit-time check, so a test can assert
-// what it was asked about and from when.
 type overlapQuestion struct {
 	classes []string
 	since   time.Time
@@ -85,14 +82,12 @@ func (g *reindexGateStub) RefuseIfReindexOverlapped(ctx context.Context, classes
 	return g.overlapRefusal
 }
 
-// setOverlapRefusal makes the commit-time check fail with err (nil passes).
 func (g *reindexGateStub) setOverlapRefusal(err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.overlapRefusal = err
 }
 
-// overlapCalls returns what the commit-time check was asked, in order.
 func (g *reindexGateStub) overlapCalls() []overlapQuestion {
 	g.mu.Lock()
 	defer g.mu.Unlock()
