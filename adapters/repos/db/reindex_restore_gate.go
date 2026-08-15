@@ -136,14 +136,17 @@ func restoreRefusal(detail string) error {
 
 func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) error {
 	subject, named := restoreSubject(collections, activity.Collection)
-	// The remedy renders the collection into URL paths.
-	remedy := ""
-	if named {
-		remedy = " " + reindex.MigrationRemedy(activity.Collection)
+	if !named {
+		// Nothing observed puts the task on this collection, only that it
+		// exists and that this restore cannot be separated from it.
+		return restoreRefusal(fmt.Sprintf(
+			"a runtime-reindex is in flight that cannot be attributed to a collection, "+
+				"so %s cannot be restored; retry after the migration finishes.", subject))
 	}
+	// The remedy renders the collection into URL paths.
 	return restoreRefusal(fmt.Sprintf(
-		"%s has an active runtime-reindex task; retry after the migration finishes.%s",
-		subject, remedy))
+		"%s has an active runtime-reindex task; retry after the migration finishes. %s",
+		subject, reindex.MigrationRemedy(activity.Collection)))
 }
 
 func restoreUnreadableRefusal() error {

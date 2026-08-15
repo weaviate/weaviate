@@ -272,6 +272,9 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `collection "Shows"`,
 			"it is the only collection the refusal can be about from where the caller stands")
+		// Being the subject is not the same as being the one migrating.
+		// Nothing observed says a task is on Shows.
+		assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 	})
 	t.Run("an unreadable task list is not reported as a migration", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
