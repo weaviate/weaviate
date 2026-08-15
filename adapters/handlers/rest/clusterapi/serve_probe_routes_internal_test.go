@@ -51,6 +51,8 @@ func (s thisServer) NodeHostname(string) (string, bool) {
 	return strings.TrimPrefix(string(s), "http://"), true
 }
 
+var probeAuth = cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "node", Password: "s3cret"}}
+
 // probeAppState carries the fields newClusterMux reads while building the
 // table. The rest it only stores, so a nil is never dereferenced.
 func probeAppState(t *testing.T) *state.State {
@@ -66,29 +68,64 @@ func probeAppState(t *testing.T) *state.State {
 	}
 }
 
-// A node that loses either the route or the app state's probe answers every
-// peer in the one way a peer may not act on: "nothing running here".
-func TestClusterMuxServesTheProbeRoute(t *testing.T) {
-	server := httptest.NewServer(newClusterMux(probeAppState(t), NewNoopAuthHandler()))
+// The answer says whether the cluster is mid-backup and names the operation, so
+// the table must mount the route behind the cluster's own credentials. A node
+// that loses the route, its guard, or the app state's probe either discloses
+// that to anyone who asks, or answers every peer "nothing running here", which
+// is the one answer a peer may not act on.
+func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
+	server := httptest.NewServer(newClusterMux(probeAppState(t), NewBasicAuthHandler(probeAuth)))
 	defer server.Close()
 
-	res, err := server.Client().Get(server.URL + clusterprobe.BackupNodeActivityPath)
-	require.NoError(t, err)
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	require.NoError(t, err)
+	tests := []struct {
+		name       string
+		user, pass string
+		wantCode   int
+		wantBody   string
+	}{
+		{
+			name:     "no credentials",
+			wantCode: http.StatusUnauthorized,
+		},
+		{
+			name:     "the cluster's own credentials",
+			user:     probeAuth.BasicAuth.Username,
+			pass:     probeAuth.BasicAuth.Password,
+			wantCode: http.StatusOK,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, server.URL+clusterprobe.BackupNodeActivityPath, nil)
+			require.NoError(t, err)
+			if tt.user != "" {
+				req.SetBasicAuth(tt.user, tt.pass)
+			}
 
-	require.Equal(t, http.StatusOK, res.StatusCode,
-		"404 means the table does not mount the path, 503 means it mounts it without the app state's probe")
-	assert.JSONEq(t, `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`, string(body))
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantCode, res.StatusCode,
+				"404 means the table does not mount the path, 503 means it mounts it without the "+
+					"app state's probe, and a 200 without credentials means it mounts it unguarded")
+			if tt.wantBody != "" {
+				assert.JSONEq(t, tt.wantBody, string(body))
+			}
+		})
+	}
 }
 
 // The same table read by the client that ships with it, so a route that is
-// mounted but unreadable fails here too.
+// mounted but unreadable fails here too, as does a client whose credentials are
+// not the ones the table demands.
 func TestClusterMuxAnswersTheRealClient(t *testing.T) {
-	server := httptest.NewServer(newClusterMux(probeAppState(t), NewNoopAuthHandler()))
+	server := httptest.NewServer(newClusterMux(probeAppState(t), NewBasicAuthHandler(probeAuth)))
 	defer server.Close()
-	client := clients.NewClusterBackupActivity(cluster.AuthConfig{}, time.Second, thisServer(server.URL))
+	client := clients.NewClusterBackupActivity(probeAuth, time.Second, thisServer(server.URL))
 
 	activity, err := client.NodeActivity(context.Background(), "node1")
 
