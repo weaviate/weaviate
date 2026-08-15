@@ -40,7 +40,13 @@ func quietLogger() *logrus.Logger {
 }
 
 func busy(kind, id string) backup.NodeActivity {
-	return backup.NodeActivity{Busy: true, Kind: kind, ID: id}
+	return backup.NodeActivity{Answered: true, Busy: true, Kind: kind, ID: id}
+}
+
+// The one reading that clears a rung, spelled out so a zero value in a fixture
+// cannot pass for it.
+func idle() backup.NodeActivity {
+	return backup.NodeActivity{Answered: true}
 }
 
 func probeFromMap(answers map[string]backup.NodeActivity, faults map[string]error,
@@ -179,14 +185,25 @@ func TestOpenSubmitBackupGateOrder(t *testing.T) {
 		},
 		{
 			name:      "this node is idle, so the gate closes and then the peers are asked",
+			local:     idle(),
 			cluster:   backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
 			wantSteps: []string{"local", "hold", "cluster"},
 			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
 		},
 		{
 			name:      "the whole cluster is clear",
+			local:     idle(),
 			wantSteps: []string{"local", "hold", "cluster"},
 			wantScan:  backupActivityScan{},
+		},
+		{
+			// Nothing said this node is free, so no hold may be raised on the
+			// strength of it and no peer needs asking.
+			name:      "this node's own slots left no answer",
+			wantSteps: []string{"local"},
+			wantScan: backupActivityScan{
+				verdict: backupActivityUnreachable, fault: errProbeLeftNoAnswer,
+			},
 		},
 	}
 
@@ -441,6 +458,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 			// that produces is what proves the rescan went past the local rung
 			// rather than answering from it.
 			name:        "still idle, so the peers are asked too",
+			local:       idle(),
 			wantVerdict: backupActivityUnreachable,
 			wantFault:   errClusterProbeUnwired,
 		},

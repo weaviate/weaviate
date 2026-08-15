@@ -64,8 +64,13 @@ type backupActivityScan struct {
 }
 
 func refuseOnLocalBackupActivity(activity backup.NodeActivity) backupActivityScan {
-	if !activity.Busy {
+	if activity.Free() {
 		return backupActivityScan{}
+	}
+	// The absence of Busy is not the same as an answer: a reader that took a
+	// zero value off a dropped error would otherwise clear a capturing node.
+	if !activity.Answered {
+		return backupActivityScan{verdict: backupActivityUnreachable, fault: errProbeLeftNoAnswer}
 	}
 	return backupActivityScan{verdict: backupActivityBusy, kind: activity.Kind, id: activity.ID}
 }
@@ -144,7 +149,9 @@ func probeBackupActivity(ctx context.Context, node string,
 // Idle before MakeAppState installs the probe, which precedes anything served.
 func (h *indexesHandlers) localBackupActivity() backup.NodeActivity {
 	if h.appState.BackupActivity == nil {
-		return backup.NodeActivity{}
+		// Answered, because idle-by-wiring is an answer: only a probe that ran
+		// and left nothing behind reads as unreachable.
+		return backup.NodeActivity{Answered: true}
 	}
 	return h.appState.BackupActivity.Activity()
 }
