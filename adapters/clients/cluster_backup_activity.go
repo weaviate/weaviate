@@ -46,7 +46,7 @@ func (c *ClusterBackupActivity) NodeActivity(ctx context.Context, nodeName strin
 		ErrNodeActivityUnsupported, "node activity", &res); err != nil {
 		return backup.NodeActivity{}, err
 	}
-	activity, err := res.Activity()
+	activity, err := res.Activity(nodeName)
 	if err != nil {
 		return backup.NodeActivity{}, fmt.Errorf("node activity: %w", err)
 	}

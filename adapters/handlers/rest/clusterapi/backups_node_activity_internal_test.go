@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -42,9 +41,11 @@ func TestOldNodeAnswersTheProbePathFromTheCatchAll(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, http.StatusNotFound, res.StatusCode)
-	assert.Equal(t, clusterprobe.NodeNotFoundHeaderValue,
-		res.Header.Get(clusterprobe.NodeNotFoundHeader))
-	assert.Equal(t, clusterprobe.NodeNotFoundBody, strings.TrimSpace(string(body)))
+	assert.Equal(t, []string{clusterprobe.NodeNotFoundHeaderValue},
+		res.Header.Values(clusterprobe.NodeNotFoundHeader),
+		"the node writes the sentinel once, so a second value came from elsewhere")
+	assert.Equal(t, clusterprobe.NodeNotFoundBody, string(body),
+		"the constants are what the caller compares byte for byte, so they are net/http's own bytes")
 }
 
 // A node that serves the route but has no probe wired must answer 503, not 404:

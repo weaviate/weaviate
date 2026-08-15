@@ -29,6 +29,19 @@ type slots struct {
 	participantRestore *backupStat
 }
 
+// idle and busyWith spell out that a probe always answers, so no row can want
+// the zero value, which means "nobody told us anything".
+var idle = NodeActivity{Answered: true}
+
+func busyWith(kind, id string) NodeActivity {
+	return NodeActivity{Answered: true, Busy: true, Kind: kind, ID: id}
+}
+
+// newIdleProbe is the smallest probe a Scheduler can register with.
+func newIdleProbe() *NodeActivityProbe {
+	return NewNodeActivityProbe(&Handler{backupper: &backupper{}, restorer: &restorer{}})
+}
+
 func newProbeFixture() (*NodeActivityProbe, slots) {
 	participant := &Handler{backupper: &backupper{}, restorer: &restorer{}}
 	scheduler := &Scheduler{backupper: &coordinator{}, restorer: &coordinator{}}
@@ -55,27 +68,27 @@ func TestNodeActivityProbe(t *testing.T) {
 		{
 			name:  "nothing is running",
 			setUp: func(s slots) {},
-			want:  NodeActivity{},
+			want:  idle,
 		},
 		{
 			name:  "this node participates in a backup",
 			setUp: func(s slots) { hold(s.participantBackup, "b1") },
-			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want:  busyWith("backup", "b1"),
 		},
 		{
 			name:  "this node participates in a restore",
 			setUp: func(s slots) { hold(s.participantRestore, "r1") },
-			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+			want:  busyWith("restore", "r1"),
 		},
 		{
 			name:  "this node coordinates a backup",
 			setUp: func(s slots) { hold(s.coordinatorBackup, "b2") },
-			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b2"},
+			want:  busyWith("backup", "b2"),
 		},
 		{
 			name:  "this node coordinates a restore",
 			setUp: func(s slots) { hold(s.coordinatorRestore, "r2") },
-			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r2"},
+			want:  busyWith("restore", "r2"),
 		},
 		{
 			name: "all four slots hold, the coordinator's backup is reported",
@@ -85,7 +98,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				hold(s.participantBackup, "b1")
 				hold(s.participantRestore, "r1")
 			},
-			want: NodeActivity{Busy: true, Kind: "backup", ID: "b2"},
+			want: busyWith("backup", "b2"),
 		},
 		{
 			name: "a coordinated restore outranks a participated backup",
@@ -93,7 +106,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				hold(s.coordinatorRestore, "r2")
 				hold(s.participantBackup, "b1")
 			},
-			want: NodeActivity{Busy: true, Kind: "restore", ID: "r2"},
+			want: busyWith("restore", "r2"),
 		},
 		{
 			name: "a participated backup outranks a participated restore",
@@ -101,7 +114,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				hold(s.participantBackup, "b1")
 				hold(s.participantRestore, "r1")
 			},
-			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want: busyWith("backup", "b1"),
 		},
 		{
 			name: "a running backup that moved on from its first status",
@@ -109,7 +122,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				hold(s.participantBackup, "b1")
 				s.participantBackup.set(backup.Transferring)
 			},
-			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want: busyWith("backup", "b1"),
 		},
 		{
 			name: "a cancelled backup still occupies its slot",
@@ -117,7 +130,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				hold(s.participantBackup, "b1")
 				s.participantBackup.set(backup.Cancelled)
 			},
-			want: NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want: busyWith("backup", "b1"),
 		},
 		{
 			// Scheduler.CancelRestore writes Cancelled to the coordinator slot
@@ -130,7 +143,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				s.coordinatorRestore.reset()
 				s.coordinatorRestore.set(backup.Cancelled)
 			},
-			want: NodeActivity{},
+			want: idle,
 		},
 		{
 			name: "a released slot that a late failure wrote a status to",
@@ -139,7 +152,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				s.participantBackup.reset()
 				s.participantBackup.setFailed("the coordinator went away")
 			},
-			want: NodeActivity{},
+			want: idle,
 		},
 		{
 			name: "every slot released again",
@@ -149,7 +162,7 @@ func TestNodeActivityProbe(t *testing.T) {
 				s.coordinatorBackup.reset()
 				s.participantRestore.reset()
 			},
-			want: NodeActivity{},
+			want: idle,
 		},
 	}
 	for _, tt := range tests {
@@ -165,7 +178,8 @@ func TestNodeActivityProbe(t *testing.T) {
 // The registration lives inside NewScheduler so that no build order can produce
 // a Scheduler the probe does not see. Such a node answers "not busy" for a whole
 // backup it is itself coordinating, which is the one answer a caller gating on
-// the probe cannot survive.
+// the probe cannot survive. Every row here coordinates something, since an idle
+// Scheduler reads the same attached or not.
 func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -173,24 +187,19 @@ func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 		want  NodeActivity
 	}{
 		{
-			name:  "the scheduler coordinates nothing",
-			setUp: func(s *Scheduler) {},
-			want:  NodeActivity{},
-		},
-		{
 			name:  "the scheduler coordinates a backup",
 			setUp: func(s *Scheduler) { hold(&s.backupper.lastOp, "b1") },
-			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want:  busyWith("backup", "b1"),
 		},
 		{
 			name:  "the scheduler coordinates a restore",
 			setUp: func(s *Scheduler) { hold(&s.restorer.lastOp, "r1") },
-			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+			want:  busyWith("restore", "r1"),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			probe := NewNodeActivityProbe(&Handler{backupper: &backupper{}, restorer: &restorer{}})
+			probe := newIdleProbe()
 
 			scheduler := NewScheduler(nil, nil, nil, nil, nil, nil, nil,
 				&fakeSchemaManger{}, nil, probe, logrus.New())
@@ -213,12 +222,12 @@ func TestNodeActivityProbeBeforeSchedulerAttached(t *testing.T) {
 		{
 			name:  "nothing is running",
 			setUp: func(participantBackup *backupStat) {},
-			want:  NodeActivity{},
+			want:  idle,
 		},
 		{
 			name:  "this node participates in a backup",
 			setUp: func(participantBackup *backupStat) { hold(participantBackup, "b1") },
-			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want:  busyWith("backup", "b1"),
 		},
 	}
 	for _, tt := range tests {
