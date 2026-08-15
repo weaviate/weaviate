@@ -245,8 +245,8 @@ func getRandomSeed() *rand.Rand {
 // exercise the gate. Tests that exercise the gate overwrite this
 // with their own lookup.
 func installNoLiveReindexLookup(db *DB) {
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return false }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, bool) {
+		return func(string, string) bool { return false }, false
 	})
 }
 

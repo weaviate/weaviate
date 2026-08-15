@@ -1124,7 +1124,7 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 	appState.ReindexGateMetrics = gateMetrics
 
 	// A list failure refuses every backup: admitting one races a migration.
-	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
+	repo.SetShardReindexActivityLookup(func() (db.ShardReindexActivityLookup, bool) {
 		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)
 		if err != nil {
 			// At shutdown the failure is this process exiting, not a DTM outage.
@@ -1132,9 +1132,9 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 				appState.Logger.WithField("action", "backup_reindex_gate").
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 			}
-			return func(string, string) bool { return true }
+			return nil, true
 		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger), false
 	})
 
 	repo.SetAnyReindexActivityLookup(func(ctx context.Context) db.AnyReindexActivityLookup {

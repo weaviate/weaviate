@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -26,16 +27,22 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 // makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
-	return func() ShardReindexActivityLookup {
+	return func() (ShardReindexActivityLookup, bool) {
 		return func(collection, shardName string) bool {
 			return live[[2]string{collection, shardName}]
-		}
+		}, false
 	}
+}
+
+// The builder a node produces when its cluster task list cannot be listed.
+func unreadableActivityBuilder() ShardReindexActivityLookupBuilder {
+	return func() (ShardReindexActivityLookup, bool) { return nil, true }
 }
 
 // A nil live or tasks field leaves that lookup uninstalled. Holds are raised
@@ -92,14 +99,39 @@ func gatedIndex(db *DB, className string) *Index {
 	return &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(className)}}
 }
 
+// The counter vector itself is unexported by the reindex package, so its
+// registry is the only way in.
+func gateRefusalCount(t *testing.T, registry *prometheus.Registry, gate, verdict string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "weaviate_reindex_gate_refusals_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			labels := map[string]string{}
+			for _, pair := range metric.GetLabel() {
+				labels[pair.GetName()] = pair.GetValue()
+			}
+			if labels["gate"] == gate && labels["verdict"] == verdict {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+	t.Fatalf("the gate wrote no %s/%s series", gate, verdict)
+	return 0
+}
+
 // The swapped-tuple rows are live with the arguments the other way round,
 // so a call site that passed (shardName, collection) reds them.
 func TestAnyLiveReindexForShard(t *testing.T) {
 	tests := []struct {
-		name    string
-		live    map[[2]string]bool
-		builder ShardReindexActivityLookupBuilder
-		want    bool
+		name           string
+		live           map[[2]string]bool
+		builder        ShardReindexActivityLookupBuilder
+		want           bool
+		wantUnreadable bool
 	}{
 		{name: "live task on the tuple", live: map[[2]string]bool{{"MyClass", "shard1"}: true}, want: true},
 		{name: "no live task anywhere", live: map[[2]string]bool{}},
@@ -118,7 +150,13 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			name:    "builder never installed",
 			builder: nil,
 		},
-		{name: "builder hands back nothing", builder: func() ShardReindexActivityLookup { return nil }},
+		{name: "builder hands back nothing", builder: func() (ShardReindexActivityLookup, bool) { return nil, false }},
+		{
+			// Nothing was read, so nothing is live; the caller is told which.
+			name:           "the cluster task list could not be read",
+			builder:        unreadableActivityBuilder(),
+			wantUnreadable: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,9 +167,33 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			case tt.builder != nil:
 				db.SetShardReindexActivityLookup(tt.builder)
 			}
-			require.Equal(t, tt.want, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			live, unreadable := db.AnyLiveReindexForShard("MyClass", "shard1")
+			require.Equal(t, tt.want, live)
+			require.Equal(t, tt.wantUnreadable, unreadable)
 		})
 	}
+}
+
+// A cluster whose task list cannot be listed refuses every backup on this
+// collection, and an operator repairs that rather than waiting it out, so it
+// must not read as the migration verdict.
+func TestReindexBackupRefusal_TaskListUnreadable(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	registry := prometheus.NewPedanticRegistry()
+	db := &DB{logger: logger, localNodeName: "node-7"}
+	db.SetShardReindexActivityLookup(unreadableActivityBuilder())
+	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+
+	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
+
+	warned := warnOrAbove(hook)
+	require.Len(t, warned, 1, "one refusal, one operator-facing entry")
+	assert.Equal(t, reindexReasonTaskListUnreadable, warned[0].Data["reason"])
+	assert.Equal(t, 1.0,
+		gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictTaskListUnreadable))
+	assert.Zero(t, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
+		"an unreachable cluster and a running migration are the two states an operator "+
+			"most needs to tell apart")
 }
 
 func TestReindexHoldForCollection(t *testing.T) {

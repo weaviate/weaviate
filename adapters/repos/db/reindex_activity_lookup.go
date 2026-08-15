@@ -25,8 +25,11 @@ import (
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
-type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
+// ShardReindexActivityLookupBuilder returns a fresh snapshot. unreadable says
+// the cluster task list could not be read at all, which refuses every shard the
+// same way a live migration does but is a cluster to repair rather than a
+// migration to wait out.
+type ShardReindexActivityLookupBuilder func() (lookup ShardReindexActivityLookup, unreadable bool)
 
 // NewShardReindexActivityLookup snapshots which shards a reindex is
 // working on. A shard whose migration this build cannot prove is finished

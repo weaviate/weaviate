@@ -101,9 +101,9 @@ const (
 )
 
 // Unwired admits: refusing breaks every fixture that skips the install path.
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+func (db *DB) AnyLiveReindexForShard(collection, shardName string) (live, unreadable bool) {
 	if db.config.RuntimeReindexDisabled {
-		return false
+		return false, false
 	}
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
@@ -111,13 +111,13 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	if activityBuilder == nil {
 		db.warnUnwiredGate(&shardGateWarnBudget, "backup_reindex_gate", "backup",
 			"Check the SetShardReindexActivityLookup wiring in configure_api.go.")
-		return false
+		return false, false
 	}
-	lookup := activityBuilder()
-	if lookup == nil {
-		return false
+	lookup, unreadable := activityBuilder()
+	if unreadable || lookup == nil {
+		return false, unreadable
 	}
-	return lookup(collection, shardName)
+	return lookup(collection, shardName), false
 }
 
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
@@ -176,9 +176,17 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 // unrecognized hold carries its number into the log so it can be diagnosed,
 // and a number in a metric label mints a series per value.
 func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHold) (reason, verdict string, refusal error) {
-	if db.AnyLiveReindexForShard(collection, shardName) {
+	live, unreadable := db.AnyLiveReindexForShard(collection, shardName)
+	switch {
+	case unreadable:
+		// Only the verdict and the log reason split off here. The published
+		// text stays the live-task one this path already sent, and its wording
+		// is reported rather than changed under a metrics fix.
+		reason, verdict = reindexReasonTaskListUnreadable, reindex.VerdictTaskListUnreadable
+		refusal = reindexLiveTaskRefusal(collection)
+	case live:
 		reason, verdict, refusal = reindexReasonLiveTask, reindex.VerdictLiveTask, reindexLiveTaskRefusal(collection)
-	} else if hold != ReindexHoldNone {
+	case hold != ReindexHoldNone:
 		reason, verdict, refusal = hold.String(), reindexHoldVerdict(hold), reindexHoldRefusal(collection, hold)
 	}
 	if refusal == nil {

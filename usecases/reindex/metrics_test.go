@@ -56,7 +56,7 @@ func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	gates := []string{GateSubmit, GateBackup, GateRestore, GateOverlap}
 	verdicts := []string{
 		VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable, VerdictLiveTask,
-		VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown,
+		VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown,
 		VerdictOverlap, VerdictOverlapUnsure,
 	}
 
@@ -102,7 +102,7 @@ func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
 		names[family.GetName()] = len(family.GetMetric())
 	}
 
-	assert.Equal(t, 13, names["weaviate_reindex_gate_refusals_total"],
+	assert.Equal(t, 15, names["weaviate_reindex_gate_refusals_total"],
 		"every gate/verdict pair production can emit must exist at zero")
 	assert.Equal(t, 2, names["weaviate_reindex_submit_rollbacks_total"],
 		"every rollback outcome must exist at zero")

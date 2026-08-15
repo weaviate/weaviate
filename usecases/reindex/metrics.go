@@ -27,15 +27,18 @@ const (
 )
 
 const (
-	VerdictBackupBusy    = "backup_busy"
-	VerdictRestoreBusy   = "restore_busy"
-	VerdictUnreachable   = "unreachable"
-	VerdictLiveTask      = "live_task"
-	VerdictHoldSubmit    = "hold_submit"
-	VerdictHoldCleanup   = "hold_cleanup"
-	VerdictHoldUnknown   = "hold_unrecognized"
-	VerdictOverlap       = "overlap_observed"
-	VerdictOverlapUnsure = "overlap_undetermined"
+	VerdictBackupBusy  = "backup_busy"
+	VerdictRestoreBusy = "restore_busy"
+	VerdictUnreachable = "unreachable"
+	VerdictLiveTask    = "live_task"
+	// Told apart from VerdictLiveTask because an operator acts on them
+	// differently: one is waited out, the other is a cluster to repair.
+	VerdictTaskListUnreadable = "task_list_unreadable"
+	VerdictHoldSubmit         = "hold_submit"
+	VerdictHoldCleanup        = "hold_cleanup"
+	VerdictHoldUnknown        = "hold_unrecognized"
+	VerdictOverlap            = "overlap_observed"
+	VerdictOverlapUnsure      = "overlap_undetermined"
 )
 
 type GateMetrics struct {
@@ -85,8 +88,8 @@ func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int,
 // A pair missing here is absent from /metrics until the first time it fires.
 var reachableVerdicts = map[string][]string{
 	GateSubmit:  {VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable},
-	GateBackup:  {VerdictLiveTask, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
-	GateRestore: {VerdictLiveTask, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
+	GateBackup:  {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
+	GateRestore: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 	GateOverlap: {VerdictOverlap, VerdictOverlapUnsure},
 }
 

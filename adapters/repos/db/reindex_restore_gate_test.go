@@ -18,12 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 func reindexTask(id string, status distributedtask.TaskStatus, payload string) *distributedtask.Task {
@@ -217,12 +219,14 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	})
 	t.Run("an unreadable task list is not reported as a migration", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
+		registry := prometheus.NewPedanticRegistry()
 		db := &DB{logger: logger, localNodeName: "node-7"}
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			return func([]string) (ReindexActivity, bool) {
 				return ReindexActivity{Unreadable: true}, true
 			}
 		})
+		db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "could not be read")
@@ -232,6 +236,9 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		warned := warnOrAbove(hook)
 		require.Len(t, warned, 1, "one refused call, one line")
 		assert.Equal(t, reindexReasonTaskListUnreadable, warned[0].Data["reason"])
+		// The refusal reaches the caller, so it has to reach the counter too.
+		assert.Equal(t, 1.0,
+			gateRefusalCount(t, registry, reindex.GateRestore, reindex.VerdictTaskListUnreadable))
 	})
 	t.Run("a node-local hold refuses when nothing else does", func(t *testing.T) {
 		db, hook, built := gatedDB(t, gateFixtures{tasks: []*distributedtask.Task{}, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
@@ -306,7 +313,8 @@ func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	overlapCheckWarnBudget = reindexGateWarnBudget{}
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	require.False(t, db.AnyLiveReindexForShard("Movies", "shard-1"))
+	live, _ := db.AnyLiveReindexForShard("Movies", "shard-1")
+	require.False(t, live)
 	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
 	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
 	gates := make(map[string]int)
