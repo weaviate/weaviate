@@ -38,7 +38,7 @@ var (
 	errProbeLeftNoAnswer = errors.New("the probe left no answer")
 	// Distinct from a peer that did not answer: here there is no trustworthy
 	// list of peers to ask in the first place.
-	errClusterViewUnavailable = errors.New("this node is missing from its own cluster's member list")
+	errClusterViewUnavailable = errors.New("this node cannot identify itself in its own cluster's member list")
 	// Whether a peer is capturing does not depend on this node's own wiring, so
 	// a missing prober or cluster view is one more way of not being able to ask.
 	errClusterProbeUnwired = errors.New("this node has no wiring to ask its peers about backups")
@@ -111,7 +111,9 @@ func probeBackupActivity(ctx context.Context, node string,
 	activity, err := probe(ctx, node)
 	switch {
 	// A deliberate fail-open: refusing here would 503 every submission for the
-	// length of a rolling upgrade. The commit-time backstop covers the hole.
+	// length of a rolling upgrade. A backup on such a peer is still refused at
+	// commit time by the overlap check; a restore on one is not covered at all,
+	// which is the accepted cost of not refusing every submission mid-upgrade.
 	case errors.Is(err, clients.ErrNodeActivityUnsupported):
 		return backupActivityScan{}
 	case err != nil:
@@ -252,8 +254,10 @@ func submitRefusalVerdict(kind string) string {
 	return reindex.VerdictBackupBusy
 }
 
-// A kind this build cannot name still refuses, but as a backup: the string came
-// off the wire and must not reach an operator-facing body verbatim.
+// A kind this build cannot name still refuses, but as a backup. Defense in
+// depth: the probe decoder rejects an unnameable kind before it gets here, so
+// only a locally-read slot can produce one, and no unvetted string may reach an
+// operator-facing body verbatim.
 func publishableActivityKind(kind string) string {
 	if kind == backup.NodeActivityKindRestore {
 		return backup.NodeActivityKindRestore

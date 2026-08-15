@@ -195,7 +195,7 @@ func TestBackupActivityRefusal(t *testing.T) {
 			wantVerdict: reindex.VerdictRestoreBusy,
 		},
 		{
-			name:        "a kind off the wire this build cannot name",
+			name:        "a kind this build cannot name",
 			scan:        backupActivityScan{verdict: backupActivityBusy, kind: "offload\nnode-3", id: "backup-42"},
 			wantCode:    http.StatusConflict,
 			wantBody:    "reindex blocked: a backup is running in the cluster; retry after it finishes",
