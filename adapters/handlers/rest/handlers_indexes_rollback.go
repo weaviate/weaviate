@@ -110,13 +110,13 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 
 	// Nobody answering is what a disconnected client produces on its own, and
 	// rolling back on it would destroy a migration that committed cleanly.
+	strippedID := namespacing.StripOwnNamespace(principal, taskID)
 	if scan.verdict == backupActivityUnreachable {
 		h.logBackupActivityRefusal(collection, "unreachable", scan)
-		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal, fmt.Sprintf(
+		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
 				"backup-activity probe. Reindex task %q was committed and is running; "+
-				"cancel it if a backup turns out to have been in flight",
-			namespacing.StripOwnNamespace(principal, taskID))))
+				"cancel it if a backup turns out to have been in flight", strippedID)))
 	}
 
 	h.logBackupActivityRefusal(collection, "busy", scan)
@@ -134,11 +134,20 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 		return jsonResponder(http.StatusConflict,
 			errorResponse(principal, backupBusyRefusal(scan.kind)))
 	}
-	return jsonResponder(http.StatusConflict, errorResponse(principal, fmt.Sprintf(
+	return jsonResponder(http.StatusConflict, refusalNamingTask(principal, strippedID, fmt.Sprintf(
 		"reindex blocked: a %s is running in the cluster, and reindex task %q that this request "+
 			"committed could not be stopped; %s stops it, then retry",
-		publishableActivityKind(scan.kind), namespacing.StripOwnNamespace(principal, taskID),
-		cancelRemedy)))
+		publishableActivityKind(scan.kind), strippedID, cancelRemedy)))
+}
+
+// refusalNamingTask puts the task id in a field of its own as well as in the
+// prose, because an id read out of a sentence breaks when the sentence is
+// reworded.
+func refusalNamingTask(principal *models.Principal, taskID, msg string) *models.IndexRefusalResponse {
+	return &models.IndexRefusalResponse{
+		ErrorResponse: *errorResponse(principal, msg),
+		TaskID:        taskID,
+	}
 }
 
 // The caller named the property in their own request, so a refusal that sends

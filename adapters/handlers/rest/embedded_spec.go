@@ -6006,9 +6006,9 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, ` + "`" + `taskId` + "`" + ` names it and it has to be cancelled before a retry can succeed.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           },
           "422": {
@@ -6030,9 +6030,9 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, ` + "`" + `taskId` + "`" + ` names it.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           }
         },
@@ -6271,9 +6271,9 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, ` + "`" + `taskId` + "`" + ` names it and it has to be cancelled before a retry can succeed.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           },
           "422": {
@@ -6295,9 +6295,9 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, ` + "`" + `taskId` + "`" + ` names it.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           }
         },
@@ -9362,6 +9362,23 @@ func init() {
       "type": "string",
       "enum": [
         "oidc"
+      ]
+    },
+    "IndexRefusalResponse": {
+      "description": "A refusal from the reindex submit endpoints. Carries the same ` + "`" + `error` + "`" + ` list every Weaviate endpoint returns, and adds ` + "`" + `taskId` + "`" + ` when the refusal is about a reindex task the client has to act on. Branch on the HTTP status and read ` + "`" + `taskId` + "`" + `; do not parse the message text.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ErrorResponse"
+        },
+        {
+          "properties": {
+            "taskId": {
+              "description": "The reindex task this refusal is about. On 409 it is the task this request committed and then could not stop, so it is still running and has to be cancelled before a retry can succeed. On 503 it is the task this request committed while the cluster could not be confirmed free of backups. Absent when the request committed nothing, which is every other refusal.",
+              "type": "string"
+            }
+          }
+        }
       ]
     },
     "IndexStatus": {
@@ -18324,9 +18341,9 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, ` + "`" + `taskId` + "`" + ` names it and it has to be cancelled before a retry can succeed.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           },
           "422": {
@@ -18348,9 +18365,9 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, ` + "`" + `taskId` + "`" + ` names it.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           }
         },
@@ -18589,9 +18606,9 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "The submission cannot proceed. Either a conflicting reindex task is already in flight and the message names it, or a backup or restore is running in the cluster. In the second case the message names only the operation kind, never a node or a backup ID; if this request had already committed a task that could not then be stopped, ` + "`" + `taskId` + "`" + ` names it and it has to be cancelled before a retry can succeed.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           },
           "422": {
@@ -18613,9 +18630,9 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Reindex preconditions cannot be verified: the cluster service is unavailable, an in-flight task's payload cannot be parsed, or a node did not answer the backup-activity probe. Fail-closed; retry. When this request had already committed a task, ` + "`" + `taskId` + "`" + ` names it.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/IndexRefusalResponse"
             }
           }
         },
@@ -21865,6 +21882,23 @@ func init() {
       "type": "string",
       "enum": [
         "oidc"
+      ]
+    },
+    "IndexRefusalResponse": {
+      "description": "A refusal from the reindex submit endpoints. Carries the same ` + "`" + `error` + "`" + ` list every Weaviate endpoint returns, and adds ` + "`" + `taskId` + "`" + ` when the refusal is about a reindex task the client has to act on. Branch on the HTTP status and read ` + "`" + `taskId` + "`" + `; do not parse the message text.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ErrorResponse"
+        },
+        {
+          "properties": {
+            "taskId": {
+              "description": "The reindex task this refusal is about. On 409 it is the task this request committed and then could not stop, so it is still running and has to be cancelled before a retry can succeed. On 503 it is the task this request committed while the cluster could not be confirmed free of backups. Absent when the request committed nothing, which is every other refusal.",
+              "type": "string"
+            }
+          }
+        }
       ]
     },
     "IndexStatus": {

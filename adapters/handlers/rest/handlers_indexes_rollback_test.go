@@ -13,11 +13,14 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const rolledBackTaskID = "Movies:change-tokenization:title:ab3f"
@@ -347,6 +351,63 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			assert.Equal(t, tt.wantCancels, canceller.cancelCalls)
 			assert.Equal(t, 1, released,
 				"the property lock and the collection gate are released before the rollback runs")
+		})
+	}
+}
+
+// TestRollbackSubmitCarriesTheTaskID pins the machine-readable path. The prose
+// names the id too, but prose gets reworded and a field does not — and a
+// refusal that left nothing running must not name one, or a client scripting
+// off the field cancels a task that no longer exists.
+func TestRollbackSubmitCarriesTheTaskID(t *testing.T) {
+	tests := []struct {
+		name       string
+		scan       backupActivityScan
+		taskStatus distributedtask.TaskStatus
+		wantCode   int
+		wantTaskID string
+	}{
+		{
+			name:       "the task this request committed is still running",
+			scan:       backupActivityScan{verdict: backupActivityBusy, kind: "backup"},
+			taskStatus: distributedtask.TaskStatusPreparing,
+			wantCode:   http.StatusConflict,
+			wantTaskID: rolledBackTaskID,
+		},
+		{
+			name:       "nobody answered, so the task was left committed",
+			scan:       backupActivityScan{verdict: backupActivityUnreachable, node: "node-3"},
+			wantCode:   http.StatusServiceUnavailable,
+			wantTaskID: rolledBackTaskID,
+		},
+		{
+			name:       "the rollback landed, so there is nothing left to name",
+			scan:       backupActivityScan{verdict: backupActivityBusy, kind: "backup"},
+			taskStatus: distributedtask.TaskStatusStarted,
+			wantCode:   http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canceller := &scriptedCanceller{}
+			if tt.taskStatus != "" {
+				canceller.tasks = []*distributedtask.Task{rolledBackTask(t, tt.taskStatus)}
+			}
+			h := &indexesHandlers{appState: &state.State{Logger: quietLogger()}}
+
+			resp := h.rollbackSubmit(context.Background(), nil, canceller, "Movies", rolledBackTaskID,
+				reindexCancelRemedy("Movies", "title", db.ReindexTypeChangeTokenization),
+				tt.scan, func() {})
+
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			var body models.IndexRefusalResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Equal(t, tt.wantTaskID, body.TaskID)
+			require.Len(t, body.Error, 1, "the error list every client already parses is untouched")
 		})
 	}
 }
