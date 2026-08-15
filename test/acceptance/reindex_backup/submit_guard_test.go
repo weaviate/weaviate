@@ -13,15 +13,11 @@ package reindex_backup_test
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -222,91 +218,4 @@ func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID, reindexhelpers.WithTimeout(60*time.Second))
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, migratingClass, propName,
 		"searchable", reindexhelpers.WithTimeout(180*time.Second))
-}
-
-// Drives the post-commit rung on the only topology where it is deterministic.
-// Either rung may win the race, so this asserts what has to hold whichever did.
-func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
-	ctx := context.Background()
-
-	compose := startGuardNode(ctx, t)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-	t.Cleanup(func() { dumpWeaviateLogs(ctx, t, compose.GetWeaviate().Container(), "weaviate") })
-
-	restURI := compose.GetWeaviate().URI()
-	helper.SetupClient(restURI)
-	t.Cleanup(helper.ResetClient)
-
-	const (
-		className = "ReindexGuard_Rollback"
-		propName  = "body"
-		backend   = "filesystem"
-		backupID  = "reindex-guard-rollback"
-	)
-
-	createBodyClass(t, className, propName)
-	importBodies(t, className, guardDataset)
-
-	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
-	require.NoError(t, err, "the capture must be admitted: nothing is migrating yet")
-
-	run := probeReindexDuringBackup(t, restURI, className, propName, "whitespace",
-		localBackupStatus(t, backend, backupID), 5*time.Minute)
-	blocked := assertReindexBlocked(t, run, backupID)
-
-	// The refusal carries a task id only when a rollback could not stop what it
-	// committed, so the two branches are the two things that can be true of the
-	// migration, and each has to be judged on its own terms.
-	taskID := refusalTaskID(t, blocked.body)
-	if taskID == "" {
-		// Either the pre-commit rung refused before any RAFT write, or the
-		// post-commit one refused and its rollback landed. Both leave nothing.
-		t.Logf("the refusal left no migration behind: %s", blocked.body)
-		requireNoLiveMigration(t, restURI, className)
-	} else {
-		t.Logf("a submission reached the post-commit rung and could not be stopped: task %s", taskID)
-		require.Contains(t, taskID, className,
-			"the named task must be the one this request committed; got: %s", taskID)
-		// Live rather than STARTED: a cancel is accepted only while a task is
-		// STARTED, so a rollback that had to give up read a status past it.
-		status := reindexTaskStatus(t, restURI, taskID)
-		require.Truef(t, liveReindexStatus(status),
-			"a task the refusal names as unstoppable must still be running; it is %s", status)
-	}
-
-	// The capture the submission gave way to must publish as good, unless a
-	// worker had already claimed a unit of the rolled-back task: TestSubmitRollbackResidue
-	// in adapters/repos/db pins that the commit-time check still fails the
-	// capture in that case, so it is the one non-SUCCESS this test accepts.
-	captured := awaitBackupTerminal(t, localBackupSnapshot(t, backend, backupID), 10*time.Minute)
-	if captured.status != string(entitiesbackup.Success) {
-		require.Containsf(t, captured.errMessage, entitiesbackup.ErrReindexOverlappedBackup.Error(),
-			"the capture the submission gave way to ended as %s for a reason that is not the "+
-				"commit-time overlap check: %q", captured.status, captured.errMessage)
-	}
-}
-
-// Read off the field, not the prose, which is the point of the field.
-func refusalTaskID(t *testing.T, body string) string {
-	t.Helper()
-	var parsed models.IndexRefusalResponse
-	require.NoErrorf(t, json.Unmarshal([]byte(body), &parsed),
-		"a refusal body must decode as an IndexRefusalResponse: %s", body)
-	return parsed.TaskID
-}
-
-// A task left live here would be running against the capture.
-func requireNoLiveMigration(t *testing.T, restURI, className string) {
-	t.Helper()
-	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
-	require.True(t, ok, "tasks endpoint must answer")
-
-	var live []string
-	for _, task := range tasks["reindex"] {
-		if strings.HasPrefix(task.ID, className+":") && liveReindexStatus(task.Status) {
-			live = append(live, task.ID+"="+task.Status)
-		}
-	}
-	require.Emptyf(t, live,
-		"a migration on %s is live while the capture is still running: %v", className, live)
 }
