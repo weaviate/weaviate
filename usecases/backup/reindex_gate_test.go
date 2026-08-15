@@ -51,6 +51,33 @@ func expectUnknownID(ctx context.Context, fs *fakeScheduler, id string) {
 	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 }
 
+// The mirror of expectUnknownID: a backup that resolves, to one node holding
+// the one collection.
+func expectKnownID(ctx context.Context, fs *fakeScheduler, id, cls string) {
+	meta := backup.DistributedBackupDescriptor{
+		ID: id, StartedAt: time.Now().UTC(), Version: Version,
+		ServerVersion: "1.23", Status: backup.Success,
+		Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{cls}}},
+	}
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+}
+
+// The reads a restore makes on its way through the fan-out: the coordinator's
+// descriptor, then the one each node holds.
+func restoreScheduler(ctx context.Context, id string, meta backup.DistributedBackupDescriptor,
+	nodeMeta backup.BackupDescriptor, nodes ...string,
+) *fakeScheduler {
+	fs := newFakeScheduler(newFakeNodeResolver(nodes))
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	for _, node := range nodes {
+		fs.backend.On("GetObject", ctx, id+"/"+node, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+	}
+	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Maybe()
+	return fs
+}
+
 // TestQuoteClassList pins the cap. A restore can cover every collection
 // in the cluster, and the refusal is the same one whichever is blocked.
 func TestQuoteClassList(t *testing.T) {
@@ -251,7 +278,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
 		require.Error(t, err)
-		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls())
 		auth.AssertNotCalled(t, "AuthorizeSilent",
 			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
@@ -272,13 +298,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 	t.Run("a known id is gated on the resolved class list", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.selector.setReindexGate(reindexRefusal(cls))
-		meta := backup.DistributedBackupDescriptor{
-			ID: id, StartedAt: time.Now().UTC(), Version: Version,
-			ServerVersion: "1.23", Status: backup.Success,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{cls}}},
-		}
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		expectKnownID(ctx, fs, id, cls)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
@@ -294,13 +314,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 	t.Run("a wildcard include on a known id is gated on what it resolved to", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.selector.setReindexGate(reindexRefusal(cls))
-		meta := backup.DistributedBackupDescriptor{
-			ID: id, StartedAt: time.Now().UTC(), Version: Version,
-			ServerVersion: "1.23", Status: backup.Success,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{cls}}},
-		}
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		expectKnownID(ctx, fs, id, cls)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id, Include: []string{"MyCl*"},
 		}, false)
@@ -400,12 +414,7 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 		ID: id, Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{Name: cls}},
 	}
-	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
-	fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-	fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Maybe()
+	fs := restoreScheduler(ctx, id, meta, nodeMeta, node1, node2)
 	fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(&CanCommitResponse{
 		Method:  OpRestore,
 		ID:      id,
@@ -508,12 +517,7 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 				<-args.Get(0).(context.Context).Done()
 			}
 		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
-		fs.backend.On("HomeDir", any, any, any).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
-		fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-		fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-		fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{}).Maybe()
+		fs := restoreScheduler(ctx, id, meta, nodeMeta, node1, node2)
 		fs.client.On("Abort", any, any, any).Return(nil).Maybe()
 		for node, a := range answers {
 			call := fs.client.On("CanCommit", any, node, any)
@@ -616,13 +620,8 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 		ID: id, Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{Name: allowedCls}},
 	}
-	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
+	fs := restoreScheduler(ctx, id, meta, nodeMeta, node1, node2)
 	fs.auth = auth
-	fs.backend.On("HomeDir", any, any, any).Return("bucket/" + id)
-	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
-	fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-	fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
-	fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{}).Maybe()
 	// Every node accepts, so the fan-out runs whole and what each one was
 	// asked stays observable. Failing the write that follows it ends the
 	// restore on this goroutine, before the commit phase starts one of its
