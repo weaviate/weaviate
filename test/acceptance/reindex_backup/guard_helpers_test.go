@@ -32,8 +32,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// guardDataset is sized so a change-tokenization migration over it stays
-// live on CI long enough to land a backup or a restore inside.
+// Sized so a migration over it stays live for seconds on CI. Every test here
+// needs a window to land an operation inside, and each says what it does if the
+// window closes early rather than passing vacuously.
 const guardDataset = 50_000
 
 // Only the leading probe decides a verdict; the rest are diagnostic detail.
@@ -48,8 +49,7 @@ func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	return compose
 }
 
-// createBodyClass creates a single word-tokenized text property, which is
-// what a change-tokenization migration needs to have work to do.
+// Word-tokenized, which is what gives a change-tokenization migration work.
 func createBodyClass(t *testing.T, className, propName string) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -61,8 +61,7 @@ func createBodyClass(t *testing.T, className, propName string) {
 	})
 }
 
-// createBackupOf backs up several collections in one operation, which the
-// single-class helpers in test/helper cannot express.
+// Several collections in one operation, which test/helper cannot express.
 func createBackupOf(t *testing.T, backend, backupID string, classes ...string) {
 	t.Helper()
 	params := clientbackups.NewBackupsCreateParams().
@@ -110,8 +109,7 @@ func requireNoPlacement(t *testing.T, msg, shardName string) {
 	}
 }
 
-// reindexTaskStatus reads a task's DTM status, so a test can prove the
-// migration was still live on both sides of the window it tested.
+// So a test can prove the migration was live on both sides of its window.
 func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	t.Helper()
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
@@ -139,12 +137,12 @@ func liveReindexStatus(status string) bool {
 	}
 }
 
-// slowBackupConfig throttles the upload so a test has time to submit a
-// migration before the backup commits: CPUPercentage 1 serializes the zip and
-// BestCompression raises the per-byte CPU cost. It is a widened window, not a
-// barrier: descriptor generation is unthrottled hardlinking and finishes long
-// before the throttled upload does, so throttling only the upload is exactly
-// what makes the per-shard gate lose the race to the commit-time check.
+// Widens the in-flight window so a test has time to submit a migration before
+// the backup commits: CPUPercentage 1 serializes the zip and BestCompression
+// raises the per-byte CPU cost. A window, not a barrier: descriptor generation
+// is unthrottled hardlinking and finishes long before the throttled upload
+// does, so throttling only the upload is what makes the per-shard gate lose
+// the race to the commit-time check.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
@@ -161,9 +159,8 @@ func backupTerminal(status string) bool {
 	}
 }
 
-// backupSnapshot is the whole status payload, not just the status string:
-// judging whether a capture and a migration overlapped needs the
-// server-stamped window and the failure reason as well.
+// The whole payload, not just the status: judging an overlap needs the
+// server-stamped window and the failure reason too.
 type backupSnapshot struct {
 	status      string
 	startedAt   time.Time
@@ -173,7 +170,6 @@ type backupSnapshot struct {
 
 func (s backupSnapshot) terminal() bool { return backupTerminal(s.status) }
 
-// localBackupSnapshot reads the whole status payload off the node under test.
 func localBackupSnapshot(t *testing.T, backend, backupID string) func() (backupSnapshot, bool) {
 	return func() (backupSnapshot, bool) {
 		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
@@ -233,8 +229,6 @@ func awaitBackupTerminal(t *testing.T, snapshotOf func() (backupSnapshot, bool),
 	return last
 }
 
-// awaitBackupSuccess blocks until the backup reports SUCCESS, failing on any
-// other terminal status.
 func awaitBackupSuccess(t *testing.T, statusOf func() (string, bool), backupID string, deadline time.Duration) {
 	t.Helper()
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -273,8 +267,6 @@ type probeRun struct {
 	lastStatus   string
 }
 
-// probeReindexDuringBackup submits until the first 409 or the operation goes
-// terminal.
 func probeReindexDuringBackup(
 	t *testing.T,
 	probeURI, collection, property, targetTokenization string,
@@ -347,7 +339,6 @@ func assertReindexBlocked(t *testing.T, run probeRun, operationID string) reinde
 	return first
 }
 
-// guardMessage flattens an error payload to plain message text.
 func guardMessage(body string) string {
 	var payload models.ErrorResponse
 	if json.Unmarshal([]byte(body), &payload) == nil {
@@ -376,8 +367,7 @@ func heldBackupSlotRefusal(httpStatus int, body string) bool {
 		strings.Contains(guardMessage(body), "is running in the cluster")
 }
 
-// tryReindexSubmit treats a transport error as a retryable observation rather
-// than a failure, which a node still booting produces.
+// A transport error is retryable, not a failure: a booting node produces one.
 func tryReindexSubmit(restURI, collection, property, targetTokenization string) (int, string, bool) {
 	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/searchable",
 		restURI, collection, property)
@@ -400,8 +390,7 @@ func tryReindexSubmit(restURI, collection, property, targetTokenization string) 
 	return resp.StatusCode, string(body), true
 }
 
-// awaitReindexAccepted submits until the request is admitted, riding out the
-// submit gate's own refusal and nothing else, and returns the task id.
+// Rides out the submit gate's own refusal, and nothing else.
 func awaitReindexAccepted(
 	t *testing.T, restURI, collection, property, targetTokenization string, deadline time.Duration,
 ) string {
@@ -466,8 +455,7 @@ func reindexTaskStartedAt(t *testing.T, restURI, taskID string) time.Time {
 	return time.Time{}
 }
 
-// awaitNodeServing blocks until the node serves the class again, so a
-// post-restart deadline measures the block lifting, not boot time.
+// So a post-restart deadline measures the block lifting, not boot time.
 func awaitNodeServing(t *testing.T, restURI, className string, deadline time.Duration) {
 	t.Helper()
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -498,7 +486,6 @@ func getJSON(url string, out any) bool {
 	return json.Unmarshal(body, out) == nil
 }
 
-// dumpWeaviateLogs prints a container's last 200 log lines on test failure.
 func dumpWeaviateLogs(ctx context.Context, t *testing.T, container testcontainers.Container, label string) {
 	if !t.Failed() {
 		return

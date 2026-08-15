@@ -55,7 +55,6 @@ func startGuardCluster(ctx context.Context, t *testing.T, bucket string) *docker
 	return compose
 }
 
-// clusterNode pairs a Weaviate node name with the URI the test reaches it on.
 type clusterNode struct {
 	name string
 	uri  string
@@ -96,7 +95,6 @@ func dumpClusterLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 	}
 }
 
-// shardOwners returns the node names holding at least one shard of the class.
 func shardOwners(restURI, className string) ([]string, bool) {
 	var parsed struct {
 		Nodes []struct {
@@ -122,7 +120,6 @@ func shardOwners(restURI, className string) ([]string, bool) {
 	return owners, true
 }
 
-// awaitSingleShardOwner blocks until exactly one node reports a shard of the class.
 func awaitSingleShardOwner(t *testing.T, restURI, className string, deadline time.Duration) string {
 	t.Helper()
 	var owner string
@@ -179,8 +176,7 @@ func awaitClusterMembers(t *testing.T, restURI string, want []string, deadline t
 	}
 }
 
-// raftLeaderName resolves the current RAFT leader, which is enrolled as a
-// backup participant whatever it owns.
+// The leader is enrolled as a backup participant whatever it owns.
 func raftLeaderName(t *testing.T, restURI string, deadline time.Duration) string {
 	t.Helper()
 	var leader string
@@ -203,8 +199,7 @@ func raftLeaderName(t *testing.T, restURI string, deadline time.Duration) string
 	return leader
 }
 
-// awaitClassVisible blocks until the node's own schema view serves the class,
-// which is what the handler under test reads.
+// The node's own schema view, which is what the handler under test reads.
 func awaitClassVisible(t *testing.T, restURI, className, nodeName string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
@@ -214,8 +209,7 @@ func awaitClassVisible(t *testing.T, restURI, className, nodeName string) {
 		"class %s must be locally visible on %s before the test drives it", className, nodeName)
 }
 
-// createSingleShardClass puts a whole class on one node, so a test can say
-// which node holds a stake in an operation and which does not.
+// A whole class on one node, so a test can say who holds a stake and who does not.
 func createSingleShardClass(t *testing.T, className, propName string) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -229,8 +223,7 @@ func createSingleShardClass(t *testing.T, className, propName string) {
 	})
 }
 
-// startS3Backup fires the create call and returns once accepted, leaving the
-// transfer in flight.
+// Returns once accepted, leaving the transfer in flight.
 func startS3Backup(restURI, className, backupID, bucket string) error {
 	payload := map[string]interface{}{
 		"id":      backupID,
@@ -259,8 +252,7 @@ func startS3Backup(restURI, className, backupID, bucket string) error {
 	return nil
 }
 
-// tryS3Backup returns the status and body of a create call, so a caller can
-// assert on a refusal instead of only on success.
+// The status and body, so a caller can assert on a refusal, not only success.
 func tryS3Backup(restURI, className, backupID, bucket string) (int, string, bool) {
 	payload := map[string]interface{}{
 		"id":      backupID,
@@ -285,15 +277,13 @@ func tryS3Backup(restURI, className, backupID, bucket string) (int, string, bool
 	return resp.StatusCode, string(respBody), true
 }
 
-// nodeBackupStatus reads status straight off one node, since the shared client
-// only ever targets one host.
+// Straight off one node: the shared client only ever targets one host.
 func nodeBackupStatus(restURI, backend, backupID string) func() (string, bool) {
 	url := fmt.Sprintf("http://%s/v1/backups/%s/%s", restURI, backend, backupID)
 	return func() (string, bool) {
 		// A pointer, like the generated payload: status is omitempty, so a body
-		// without it decodes cleanly into the zero value. Reporting that as a
-		// good read makes the backup look live forever and makes every failed
-		// read count as a successful one in the vacuity check.
+		// without it decodes into the zero value, and reporting that as a good
+		// read makes the backup look live forever.
 		var parsed struct {
 			Status *string `json:"status"`
 		}
