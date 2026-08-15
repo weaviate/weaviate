@@ -152,11 +152,12 @@ func NewReindexOverlapLookup(
 		}
 
 		// Last, so a task that answered outranks the guess this makes when
-		// none did. A third clock: age is this node's, while the GC that drops
-		// the evidence runs on the scheduler leader against the task's own
-		// FinishedAt. Behind, this clears a capture whose evidence was already
-		// collected; ahead, it burns a clean capture's id at 100%. Closing it
-		// needs the leader's clock on the task list response.
+		// none did. A third clock: age is this node's, while the evidence is
+		// dropped by whichever node's tick finds it expired, re-checked by the
+		// applying node against a FinishedAt the recording node stamped.
+		// Behind, this clears a capture whose evidence was already collected;
+		// ahead, it burns a clean capture's id at 100%. Closing it needs a
+		// reference time on the task list response.
 		if age := now().Sub(since); age >= completedTaskTTL {
 			return ReindexOverlapVerdict{
 				Undetermined: true,
@@ -220,11 +221,16 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// The only route here that clears a capture: PENDING is a one-way status,
-// so a unit still PENDING here had no worker write progress for it. See
-// [ReindexProvider.processOneUnit] (claims before the shard lookup) and
+// The only route here that clears a capture, and it stands on two legs.
+// No task worker wrote: PENDING is one-way, and the claim that leaves it
+// precedes the shard lookup — see [ReindexProvider.processOneUnit] and
 // [distributedtask.ThrottledRecorder] (a 0.0 claim is never throttled).
 // hasLocalWorker covers only the window before that claim lands.
+// The cleanup the cancellation itself triggers does write inside the capture
+// window, unseen from here, and still cannot tear a staged capture:
+// [Index.backupShardWithHardlinks] holds the shard's load mutex across
+// list-then-link, staged files keep inodes of their own, and a capture of
+// either side of that cleanup restores to the same data.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -291,10 +297,10 @@ func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {
 	db.reindexOverlapLookupBuilder = builder
 }
 
-// Known limitation: the capture start and a task's FinishedAt come from
-// different nodes' clocks. Enough skew either way hides a migration that
-// finished inside the window or fails a capture nothing touched. Closing it
-// means putting backup state in RAFT.
+// RefuseIfReindexOverlapped fails a finished capture whose window a migration
+// overlapped; the uploader asks once per node at commit. Known limitation: the
+// capture start and a task's FinishedAt come from different nodes' clocks, and
+// enough skew either way hides an overlap or fails a capture nothing touched.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		return nil
