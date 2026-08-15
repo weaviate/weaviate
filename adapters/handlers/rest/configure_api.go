@@ -1131,6 +1131,12 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 	repo.SetReindexHoldLookup(appState.ReindexProvider.ReindexHoldLookupBuilder())
 }
 
+// initReindexAndDistributedTasks builds the reindex provider, registers it in
+// the distributedtask providers map, constructs the scheduler, and wires the
+// cross-FSM conflict + schema-mutation detectors on the cluster service.
+// Mutates appState (ReindexProvider, DistributedTaskScheduler) and the
+// providers map. The scheduler is NOT started — caller gates Start() on RAFT
+// readiness.
 func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,

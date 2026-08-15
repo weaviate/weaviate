@@ -21,11 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestUniqueShardsFromPayload_Dedupes pins that the helper used by
-// [autoCleanupAfterTerminal] to enumerate shards collapses duplicates
-// — multi-property semantic migrations route N units to the same
-// shard, and we must register each shard exactly once so the
-// matching unregister loop releases the slot symmetrically.
+// TestUniqueShardsFromPayload_Dedupes pins that duplicate shard names in
+// payload.UnitToShard collapse to one entry — multi-property migrations
+// route several units to the same shard.
 func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",
@@ -53,10 +51,9 @@ func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
 	require.Nil(t, uniqueShardsFromPayload(payload))
 }
 
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins defensive
-// handling of a UnitToShard entry whose value is an empty string —
-// a malformed payload should not produce a zero-string registration
-// that the gate would silently never match.
+// TestUniqueShardsFromPayload_SkipsEmptyShardName pins that a
+// UnitToShard entry whose value is an empty string is dropped, not
+// returned as a shard name.
 func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",

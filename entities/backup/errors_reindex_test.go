@@ -50,10 +50,9 @@ func TestReindexSentinelTexts(t *testing.T) {
 	}
 }
 
-// TestReindexSentinelsAreDistinguishable pins that the four chains never
-// cross. A caller mapping a refusal to an HTTP status branches on exactly
-// one of them, and the commit-time pair has to stay separable so an
-// overlap the check observed does not read as one it could not answer.
+// TestReindexSentinelsAreDistinguishable pins that the two sentinels never
+// cross: a caller mapping a refusal to an HTTP status branches on exactly
+// one of them.
 func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 	for _, s := range reindexSentinels {
 		t.Run(s.name, func(t *testing.T) {

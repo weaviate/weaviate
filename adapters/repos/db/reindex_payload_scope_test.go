@@ -59,8 +59,8 @@ func TestDecodeReindexTaskPayload(t *testing.T) {
 			wantCollection: "Movies",
 		},
 		{
-			// The shape §13 calls "a field a newer node retyped": the
-			// struct decode fails outright, the collection still reads.
+			// A field a newer node retyped: the struct decode fails
+			// outright, the collection still reads.
 			name:           "shard map retyped by a newer node",
 			payload:        `{"collection":"Movies","unitToShard":"shardA"}`,
 			wantScope:      ReindexPayloadScopeCollection,
