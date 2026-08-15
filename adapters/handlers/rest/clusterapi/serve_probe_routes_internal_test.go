@@ -120,8 +120,8 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 }
 
 // The table snapshots the probe, and startup assigns it a dozen lines earlier.
-// A reordering must stop this node here rather than leave every peer answered
-// 503 for the life of the process.
+// A reordering must stop this node here, not surface later as a nil-pointer
+// panic on every peer request that reaches the route.
 func TestClusterMuxRefusesToBuildBeforeTheProbeIsAssigned(t *testing.T) {
 	appState := probeAppState(t)
 	appState.BackupActivity = nil
