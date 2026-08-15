@@ -1147,7 +1147,8 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 		tasks, err := db.ListReindexTasksForOverlap(ctx,
 			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays)
 		if err != nil {
-			// A caller that hung up cancelled ctx; the refusal stands, the alert would lie.
+			// A caller that hung up cancelled ctx, and an undetermined verdict
+			// on a cancelled ctx publishes as a cancel, so the alert would lie.
 			if ctx.Err() == nil {
 				appState.Logger.WithField("action", "backup_reindex_overlap").
 					Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
@@ -1156,9 +1157,9 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 			// operator cannot act on, and the remedy below is the whole answer.
 			return func([]string, time.Time) db.ReindexOverlapVerdict {
 				return db.ReindexOverlapVerdict{
-					Undetermined: true,
-					Detail:       "the cluster task manager could not be listed at commit time",
-					Remedy:       "restore RAFT reachability from this node",
+					Outcome: db.ReindexOverlapUndetermined,
+					Detail:  "the cluster task manager could not be listed at commit time",
+					Remedy:  "restore RAFT reachability from this node",
 				}
 			}
 		}

@@ -52,9 +52,9 @@ func (e ReindexBlockedError) Error() string { return e.Msg }
 func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
 
 // ReindexOverlapCheckError carries the refusing node's own text to the
-// coordinator, which forwards it instead of rebuilding one: rebuilding would
-// drop the two environment variables an operator has to change. The text
-// names no node, shard or collection, so nothing needs redacting first.
+// coordinator, which forwards it whole rather than rebuilding it (see
+// overlapCheckUnanswerableByParticipant). It names no node, shard or
+// collection, so nothing needs redacting first.
 type ReindexOverlapCheckError struct {
 	Msg string
 }

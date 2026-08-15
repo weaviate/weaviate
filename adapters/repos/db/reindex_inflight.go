@@ -79,6 +79,9 @@ func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) 
 const (
 	reindexReasonLiveTask           = "activity_lookup_live_task"
 	reindexReasonTaskListUnreadable = "task_list_unreadable"
+
+	reindexReasonOverlapObserved     = "overlap_observed"
+	reindexReasonOverlapUndetermined = "overlap_undetermined"
 )
 
 // Lists DTM once. nil means nothing to ask: the flag is off, or the lookup is not wired

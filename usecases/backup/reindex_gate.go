@@ -84,10 +84,12 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// A commit-time overlap verdict keeps the id spent even under an operator
-// abort: a capture exists and may be torn, and CANCELLED would make the id
-// re-postable over it. Every other refusal loses to the abort, because the
-// operation context is the abort signal itself.
+// A commit-time overlap verdict keeps this node's answer FAILED even under an
+// operator abort: a capture exists and may be torn, and CANCELLED would make
+// the id re-postable over it. That holds per node only; the commit-phase
+// aggregation can still relabel the whole operation CANCELLED from a sibling
+// (weaviate/0-weaviate-issues#586, pre-existing). Every other refusal loses to
+// the abort, because the operation context is the abort signal itself.
 func publishAsCancelled(err, ctxErr error) bool {
 	if errors.Is(err, backup.ErrReindexOverlappedBackup) ||
 		errors.Is(err, backup.ErrReindexOverlapUndetermined) {

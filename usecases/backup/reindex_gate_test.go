@@ -187,13 +187,30 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			backupErr: backup.ReindexOverlapCheckError{
 				Msg: backup.ErrReindexOverlapCheckUnanswerable.Error() +
 					": DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0; raise it above the time a " +
-					"backup takes, or set RUNTIME_REINDEX_ENABLED=false",
+					"backup takes",
 			},
-			wantKind: CanCommitErrOverlapCheckUnanswerable,
-			wantContains: []string{
-				"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "RUNTIME_REINDEX_ENABLED",
-			},
+			wantKind:        CanCommitErrOverlapCheckUnanswerable,
+			wantContains:    []string{"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS"},
 			wantNotContains: []string{"in flight", "retry after it finishes", "Movies", "Shows"},
+		},
+		{
+			// A quoted cancel in the peer's text would relabel this FAILED
+			// backup CANCELLED, and a cancelled id can be posted again.
+			name:            "a configuration refusal whose text quotes a cancelled context",
+			classes:         []string{"Movies"},
+			backupErr:       backup.ReindexOverlapCheckError{Msg: "the check cannot answer: " + context.Canceled.Error()},
+			wantKind:        CanCommitErrOverlapCheckUnanswerable,
+			wantContains:    []string{"a canceled context"},
+			wantNotContains: []string{context.Canceled.Error()},
+		},
+		{
+			// A node one release behind sets the kind and leaves the text empty.
+			name:            "a configuration refusal that arrived without its text",
+			classes:         []string{"Movies", "Shows"},
+			backupErr:       backup.ReindexOverlapCheckError{},
+			wantKind:        CanCommitErrOverlapCheckUnanswerable,
+			wantContains:    []string{backup.ErrReindexOverlapCheckUnanswerable.Error()},
+			wantNotContains: []string{"Movies", "Shows"},
 		},
 	}
 	for _, tt := range tests {
@@ -237,6 +254,13 @@ func TestIsReindexRefusal(t *testing.T) {
 		},
 		{name: "backup undetermined sentinel", err: backupUndeterminedByParticipant(), want: true},
 		{name: "the generic canCommit failure", err: errCannotCommit},
+		{
+			name: "the unanswerable overlap check",
+			err:  fmt.Errorf("canCommit: %w", backup.ErrReindexOverlapCheckUnanswerable),
+			want: true,
+		},
+		{name: "a commit-time overlap", err: fmt.Errorf("commit: %w", backup.ErrReindexOverlappedBackup)},
+		{name: "a commit-time undetermined overlap", err: fmt.Errorf("commit: %w", backup.ErrReindexOverlapUndetermined)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
