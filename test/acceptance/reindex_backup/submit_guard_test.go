@@ -267,8 +267,11 @@ func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 		t.Logf("a submission reached the post-commit rung and could not be stopped: task %s", taskID)
 		require.Contains(t, taskID, className,
 			"the named task must be the one this request committed; got: %s", taskID)
-		require.Equal(t, "STARTED", reindexTaskStatus(t, restURI, taskID),
-			"a task the refusal names as unstoppable must actually still be running")
+		// Live rather than STARTED: a cancel is accepted only while a task is
+		// STARTED, so a rollback that had to give up read a status past it.
+		status := reindexTaskStatus(t, restURI, taskID)
+		require.Truef(t, liveReindexStatus(status),
+			"a task the refusal names as unstoppable must still be running; it is %s", status)
 	}
 
 	// The capture the submission gave way to must publish as good, unless a
