@@ -235,11 +235,10 @@ func decideReindexOverlap(
 // The cleanup the cancellation itself triggers deletes files inside the
 // capture window, unseen from here, and still cannot publish a torn capture:
 // the sweep only unlinks names, so a hardlink staged before it keeps the
-// bytes, and linking an already-swept file fails the capture loudly with
-// ENOENT. The no-hardlink fallback stages nothing; there a swept file fails
-// the upload's own open the same loud way, since the sweep writes no delete
-// marker to mask it. And a capture on either side of the whole sweep
-// restores to the same data.
+// bytes, and linking (or, without hardlinks, opening for the upload) an
+// already-swept file fails the capture loudly with ENOENT, since the sweep
+// writes no delete marker to mask it. A capture on either side of the whole
+// sweep restores to the same data.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
