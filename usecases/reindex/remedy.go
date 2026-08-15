@@ -22,6 +22,7 @@ import (
 const (
 	cancelPropertySegment  = "<property>"
 	cancelIndexTypeSegment = "<indexType>"
+	tasksRoute             = "GET /v1/tasks"
 )
 
 // From the generated enum, so a refusal cannot name a spelling the API rejects.
@@ -38,6 +39,16 @@ func IndexesRoute(collection string) string {
 func CancelRoute(collection, property, indexType string) string {
 	return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/cancel",
 		collection, property, indexType)
+}
+
+// ClusterMigrationRemedy is for a refusal that names no collection, so it
+// points at the one route that needs none. The task list is what the refusal
+// was read from, so it carries the migration being waited on.
+func ClusterMigrationRemedy() string {
+	return fmt.Sprintf(
+		`%s lists every distributed task in the cluster, the runtime-reindex among them, `+
+			`and reports when it reaches a terminal state`,
+		tasksRoute)
 }
 
 func MigrationRemedy(collection string) string {

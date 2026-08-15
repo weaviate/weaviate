@@ -137,11 +137,13 @@ func restoreRefusal(detail string) error {
 func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) error {
 	subject, named := restoreSubject(collections, activity.Collection)
 	if !named {
-		// Nothing observed puts the task on this collection, only that it
-		// exists and that this restore cannot be separated from it.
+		// The subject is not the collection the task is on: either nothing
+		// attributes the task to one, or attributing it would name a
+		// collection the caller did not ask about.
 		return restoreRefusal(fmt.Sprintf(
-			"a runtime-reindex is in flight that cannot be attributed to a collection, "+
-				"so %s cannot be restored; retry after the migration finishes.", subject))
+			"a runtime-reindex is in flight, and this refusal does not name the collection "+
+				"it is on, so %s cannot be restored; retry after the migration finishes. %s",
+			subject, reindex.ClusterMigrationRemedy()))
 	}
 	return restoreRefusal(fmt.Sprintf(
 		"%s has an active runtime-reindex task; retry after the migration finishes. %s",

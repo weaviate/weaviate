@@ -41,6 +41,15 @@ func TestRenderedRoutes(t *testing.T) {
 	}
 }
 
+// The refusal that uses this one withholds the collection, so the remedy has
+// to work without one rather than hand out a template to fill in.
+func TestClusterMigrationRemedy(t *testing.T) {
+	remedy := ClusterMigrationRemedy()
+	assert.Contains(t, remedy, "GET /v1/tasks")
+	assert.NotContains(t, remedy, "<")
+	assert.NotContains(t, remedy, "{")
+}
+
 func TestMigrationRemedy(t *testing.T) {
 	remedy := MigrationRemedy("Movies")
 	assert.Contains(t, remedy, "GET /v1/schema/Movies/indexes")

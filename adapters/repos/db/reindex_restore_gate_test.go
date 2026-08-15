@@ -244,6 +244,11 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			"with several collections in play the refusal must not pick one to name")
 		assert.NotContains(t, err.Error(), "Movies",
 			"the collection the subject withheld must not come back in the remedy's URLs")
+		// The task here is attributable; what withholds the collection is
+		// the refusal, so saying the task cannot be attributed is false.
+		assert.NotContains(t, err.Error(), "cannot be attributed")
+		assert.Contains(t, err.Error(), "GET /v1/tasks",
+			"a refusal that names no collection still owes a route to check")
 	})
 	t.Run("a caller that named one collection is told about that one", func(t *testing.T) {
 		unattributable := []*distributedtask.Task{
