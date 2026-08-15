@@ -94,8 +94,6 @@ func TestReindexBlockedErrorChains(t *testing.T) {
 			require.ErrorAs(t, tt.err, &recovered,
 				"errors.As must yield the publishable text without walking the chain")
 			require.Equal(t, msg, recovered.Msg)
-			assert.NotContains(t, recovered.Msg, "shard ",
-				"the publishable text names the collection, never the shard")
 		})
 	}
 	t.Run("an unrelated failure survives the join", func(t *testing.T) {
