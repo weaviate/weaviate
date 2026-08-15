@@ -27,12 +27,9 @@ import (
 )
 
 // ReindexOverlapVerdict is what the commit-time check concluded about one
-// capture. Overlapped and Undetermined are mutually exclusive and must never
-// both be set: the zero value means nothing overlapped and the capture may be
-// published, Overlapped means a migration rewrote it, and Undetermined means
-// the check could not answer, which also refuses the capture. Collection and
-// TaskID are filled only when a specific task produced the verdict, and TaskID
-// is for the node log, never for the published message.
+// capture. Overlapped and Undetermined are mutually exclusive: the zero value
+// allows the capture to be published, and either flag refuses it. TaskID is
+// for the node log, never for the published message.
 type ReindexOverlapVerdict struct {
 	Overlapped   bool
 	Undetermined bool
@@ -58,8 +55,8 @@ type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 // peer answers false here.
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
 
-// OverlapListRetryDelays is worth roughly 30 seconds of waiting because the
-// alternative is discarding an upload that already finished.
+// OverlapListRetryDelays is worth the wait: the alternative is discarding an
+// upload that already finished.
 var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
@@ -98,9 +95,8 @@ type overlapCandidate struct {
 }
 
 // The check reads the collection name and nothing else, so it decodes that
-// field alone. Decoding the whole payload would materialize the unit and
-// tenant lists — on a 100k-tenant collection, hundreds of thousands of
-// strings per retained task, at the end of every backup on every node.
+// field alone. Decoding the whole payload would materialize every retained
+// task's unit and tenant lists, at the end of every backup on every node.
 func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate {
 	out := make([]overlapCandidate, 0, len(tasks))
 	for _, task := range tasks {
@@ -114,8 +110,7 @@ func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate 
 // NewReindexOverlapLookup asks whether a migration overlapped a capture, not
 // whether one is running: a migration that starts and finishes inside the
 // capture window is absent from every liveness answer and still rewrote the
-// captured files. It runs once per commit, and the lookup it returns is a pure
-// function of the task list it closed over.
+// captured files.
 func NewReindexOverlapLookup(
 	tasks []*distributedtask.Task,
 	completedTaskTTL time.Duration,
@@ -213,10 +208,9 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// Only a cancel that landed before any unit left PENDING wrote nothing, which
-// takes two conditions: no unit out of PENDING, and no worker registered on
-// this node. The one thing that produces it is an operator cancelling their
-// own submission. Anything else fails the capture.
+// Only a cancel that landed before any unit left PENDING and before a worker
+// registered on this node wrote nothing. That is what an operator cancelling
+// their own submission produces; anything else fails the capture.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -249,8 +243,7 @@ func decideCancelledReindexOverlap(
 // refuseIfOverlapCheckCannotAnswer refuses at admission what the commit-time
 // check would refuse after the whole upload. A zero TTL collects a finished
 // migration on the next scheduler tick, so no capture can ever be cleared
-// against one, and the backup id and the uploaded bytes are already spent by
-// the time the check says so.
+// against one, and by then the backup id and the uploaded bytes are spent.
 func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if db.config.RuntimeReindexDisabled || db.config.CompletedTaskTTL > 0 {
 		return nil
@@ -340,10 +333,8 @@ const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against t
 	"after the migration finished"
 
 // Two errors, never both: an undetermined answer must not match the observed
-// one. Both fill the same three slots, because an operator reading either one
-// needs the same three things: what the check found, that this backup id
-// cannot be reused and what has to change first, and that the bytes already
-// uploaded are still sitting there.
+// one. Both are worded alike, because an operator reading either needs the
+// same things from it.
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) error {
 	sentinel, finding, remedy := entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail, verdict.Remedy
 	if !verdict.Undetermined {
@@ -362,10 +353,8 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) erro
 }
 
 // overlapSubject echoes the caller's own spelling of the captured class the
-// verdict points at, and reports which one matched. Printing the task's
-// spelling instead would let a name this backup never captured reach the API
-// whenever the decoder attributes a task to something the caller did not ask
-// about.
+// verdict points at. Printing the task's spelling instead would let a name
+// this backup never captured reach the API.
 func overlapSubject(classes []string, blocking string) (subject, matched string) {
 	for _, class := range classes {
 		if strings.EqualFold(class, blocking) {

@@ -30,7 +30,6 @@ var (
 	commitTime   = captureStart.Add(10 * time.Minute)
 )
 
-// noLocalWorker is the answer a node with nothing running gives.
 func noLocalWorker(distributedtask.TaskDescriptor) bool { return false }
 
 func overlapTask(status distributedtask.TaskStatus, finishedAt time.Time, units map[string]*distributedtask.Unit) *distributedtask.Task {
@@ -39,8 +38,7 @@ func overlapTask(status distributedtask.TaskStatus, finishedAt time.Time, units 
 	return task
 }
 
-// unattributableTask is a task whose payload names no collection, so every
-// gate reads it as covering the whole cluster.
+// unattributableTask names no collection, so it reads as cluster-wide.
 func unattributableTask() *distributedtask.Task {
 	task := reindexTask("t1", distributedtask.TaskStatusStarted, `not json`)
 	task.Units = units(distributedtask.UnitStatusInProgress)
@@ -55,10 +53,7 @@ func units(statuses ...distributedtask.UnitStatus) map[string]*distributedtask.U
 	return out
 }
 
-// TestReindexOverlapRules walks every shape the commit-time check has to
-// decide. The question is overlap, not liveness: a migration that started
-// and finished inside the capture window is gone from every "is anything
-// running?" answer and still left the captured files half-rewritten.
+// TestReindexOverlapRules walks every shape the commit-time check has to decide.
 func TestReindexOverlapRules(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -102,15 +97,11 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantDetail:       "without recording when it finished",
 		},
 		{
-			// What a submission that lost the race to a backup produces: the
-			// cancel landed before any unit was claimed, so nothing was written.
 			name:    "a cancelled task that never left PENDING wrote nothing",
 			task:    overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusPending)),
 			classes: []string{"Movies"},
 		},
 		{
-			// A cancel that landed after a worker claimed a unit did not
-			// arrive before the writes it was meant to prevent.
 			name:           "a cancelled task with a claimed unit still overlapped",
 			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusInProgress)),
 			classes:        []string{"Movies"},
@@ -123,9 +114,8 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantOverlapped: true,
 		},
 		{
-			// A defensive default rather than a state anything produces: a
-			// cancel writes the unit map, so an empty one is a record this
-			// build has no way to read.
+			// Defensive, not a state anything produces: a cancel writes the
+			// unit map, so an empty one is a record this build cannot read.
 			name:             "a cancelled task with no units is unknown, not untouched",
 			task:             overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), nil),
 			classes:          []string{"Movies"},
@@ -133,9 +123,6 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantDetail:       "recorded no units",
 		},
 		{
-			// A worker registers before its first progress report flips a
-			// unit out of PENDING, so all-PENDING units and a live worker
-			// is not the same state as all-PENDING and nothing running.
 			name:           "a live local worker means all-PENDING is not proof nothing was written",
 			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending)),
 			classes:        []string{"Movies"},
@@ -148,8 +135,6 @@ func TestReindexOverlapRules(t *testing.T) {
 			classes: []string{"Shows"},
 		},
 		{
-			// A task naming no collection is the only shape that skips the
-			// class match, so it fails any backup that captured something.
 			name:           "a task nothing can attribute fails a backup that captured something",
 			task:           unattributableTask(),
 			classes:        []string{"Shows"},
@@ -157,8 +142,7 @@ func TestReindexOverlapRules(t *testing.T) {
 		},
 		{
 			// The opposite of the restore gate's empty list: a backup that
-			// captured nothing has nothing that could have been rewritten,
-			// even against the task that skips the class match.
+			// captured nothing has nothing that could have been rewritten.
 			name:    "a backup that captured no class cannot be overlapped",
 			task:    unattributableTask(),
 			classes: nil,
@@ -192,9 +176,8 @@ func TestReindexOverlapRules(t *testing.T) {
 	}
 }
 
-// TestListReindexTasksForOverlapRetries pins that a brief RAFT outage does
-// not discard a finished upload: the list is retried before the check gives
-// up, and a cancel stops the wait instead of sitting out the schedule.
+// TestListReindexTasksForOverlapRetries pins that a brief RAFT outage does not
+// discard a finished upload.
 func TestListReindexTasksForOverlapRetries(t *testing.T) {
 	noDelays := []time.Duration{0, 0, 0}
 	listed := map[string][]*distributedtask.Task{
@@ -244,11 +227,9 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 	})
 }
 
-// TestReindexOverlapRetentionWindow pins the one answer the check cannot
-// give, and where in the order it gives it. A backup that outlived the
-// window in which finished tasks stay listed cannot be cleared, because
-// the task that would have failed it may already have been dropped. A
-// task that is still listed answers first, whatever the window says.
+// TestReindexOverlapRetentionWindow pins the one answer the check cannot give:
+// a backup that outlived the retention window cannot be cleared, because the
+// task that would have failed it may already have been dropped.
 func TestReindexOverlapRetentionWindow(t *testing.T) {
 	liveMatching := overlapTask(distributedtask.TaskStatusStarted, time.Time{},
 		units(distributedtask.UnitStatusInProgress))
@@ -283,8 +264,6 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
 		{
-			// The value under which the evidence is guaranteed gone: every
-			// terminal task is collectable on the next scheduler tick.
 			name: "a zero window retains nothing, so nothing can be cleared",
 			ttl:  0, age: time.Minute,
 			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
@@ -332,9 +311,8 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 	}
 }
 
-// TestReindexOverlapRanksTheStrongestAnswer pins that the scan does not
-// stop at the first task that refuses. An earlier task nobody can judge
-// must not hide a later one that proves the capture was rewritten.
+// TestReindexOverlapRanksTheStrongestAnswer pins that the scan does not stop
+// at the first task that refuses.
 func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
 	unanswerable := reindexTask("a", distributedtask.TaskStatusCancelled, payloadFor("Movies"))
 	unanswerable.FinishedAt = captureStart.Add(time.Minute)
@@ -349,9 +327,8 @@ func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
 	require.Equal(t, "b", verdict.TaskID)
 }
 
-// TestBackupableRefusesWhenTheOverlapCheckCannotAnswer pins the admission
-// half of the same rule. Refusing here costs an operator one 422; refusing
-// at commit time costs them the whole upload and the backup id with it.
+// TestBackupableRefusesWhenTheOverlapCheckCannotAnswer pins that a backup is
+// refused at admission when the commit-time check could never answer.
 func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -364,8 +341,6 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 		{name: "the feature is on and the window is wide", ttl: 120 * time.Hour},
 		{name: "the feature is off, so no check needs the evidence", disabled: true, ttl: 0},
 		{
-			// An uninstalled check admits at commit time, so refusing here
-			// would refuse a backup nothing was ever going to judge.
 			name: "the check is not installed", unwired: true, ttl: 0,
 		},
 	}
@@ -409,14 +384,8 @@ func TestReindexOverlapNamesTheSameTask(t *testing.T) {
 	}
 }
 
-// TestReindexOverlapRefusalWording pins the three things every refusal has
-// to say, whichever answer produced it: what the check found, that this
-// backup id cannot be reused and what has to change before a new one will
-// work, and that the bytes already uploaded are still sitting there. It
-// also pins that the two answers stay distinguishable all the way out — a
-// caller matching the observed sentinel on an undetermined answer would
-// report a backup nobody could judge as one a migration is known to have
-// torn.
+// TestReindexOverlapRefusalWording pins what every refusal has to say and that
+// the observed and undetermined answers stay distinguishable all the way out.
 func TestReindexOverlapRefusalWording(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -438,8 +407,6 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 			wantRemedy:   "GET /v1/schema/Movies/indexes",
 		},
 		{
-			// The caller's spelling, not the task's: the task's would
-			// disclose a name this backup never captured.
 			name:         "an overlap the caller spelled differently",
 			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"},
 			classes:      []string{"movies"},
@@ -623,11 +590,10 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 }
 
-// TestAdmissionAndCommitCheckDisagree walks the payload shapes the two
-// backup checks decide from: the shard gate that admits a backup, and the
-// commit-time check that judges it after the capture. Where they disagree
-// the backup is admitted and then fails after the whole upload, so each
-// disagreement is written down here rather than left to be found that way.
+// TestAdmissionAndCommitCheckDisagree walks the payload shapes where the shard
+// gate that admits a backup and the commit-time check that judges it disagree.
+// Every disagreement here is a backup admitted and then failed after the whole
+// upload.
 func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 	tests := []struct {
 		name                 string
@@ -644,8 +610,8 @@ func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 		{
 			// Admission skips a task it cannot decode; the commit-time check
 			// reads the same task as naming no collection and refuses every
-			// backup. Deliberate current behavior, filed as
-			// weaviate/0-weaviate-issues#573; red the day that is fixed.
+			// backup. Deliberate, filed as weaviate/0-weaviate-issues#573;
+			// red the day that is fixed.
 			name:              "a task whose shard set did not decode",
 			payload:           `{"collection":"Movies","unitToShard":"shard-1"}`,
 			wantCommitRefuses: true,
@@ -679,9 +645,7 @@ func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 }
 
 // TestReindexOverlapScopingReadsTheCollectionFieldAlone pins how the check
-// scopes each payload shape. A payload naming no collection scopes to the
-// whole cluster, including one truncated mid-name: the name is there in the
-// bytes and must stay unread.
+// scopes each payload shape; naming no collection scopes to the whole cluster.
 func TestReindexOverlapScopingReadsTheCollectionFieldAlone(t *testing.T) {
 	payloads := []struct {
 		name           string
@@ -708,8 +672,7 @@ func TestReindexOverlapScopingReadsTheCollectionFieldAlone(t *testing.T) {
 		{name: "an empty collection", payload: `{"collection":"","unitToShard":{"u1":"s1"}}`},
 		{
 			// The name is right there in the bytes and must stay unread: a
-			// truncated payload gives no grounds to leave any other
-			// collection open to a backup.
+			// truncated payload is no grounds to leave a collection open.
 			name:    "truncated with the name still in the bytes",
 			payload: `{"collection":"Movies","unitToShard":{"u1":"sha`,
 		},
@@ -727,9 +690,7 @@ func TestReindexOverlapScopingReadsTheCollectionFieldAlone(t *testing.T) {
 }
 
 // TestReindexOverlapRefusalNamesOnlyACapturedClass pins that the published
-// refusal echoes the caller's own spelling of a class the caller asked
-// about. Echoing the task's instead would disclose a collection this
-// backup never captured whenever a task is attributed to one.
+// refusal never names a collection this backup did not capture.
 func TestReindexOverlapRefusalNamesOnlyACapturedClass(t *testing.T) {
 	t.Run("the captured spelling wins over the task's", func(t *testing.T) {
 		err := reindexOverlapRefusal(
@@ -748,10 +709,7 @@ func TestReindexOverlapRefusalNamesOnlyACapturedClass(t *testing.T) {
 	})
 }
 
-// TestHasActiveWorker walks the disjunct that makes the all-PENDING waiver
-// sound. A worker registers its handle before any unit goroutine starts, so
-// a task whose units are all still PENDING can already be writing, and
-// runningHandles is the only field that says so.
+// TestHasActiveWorker walks the disjunct behind the all-PENDING waiver.
 func TestHasActiveWorker(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "t1", Version: 1}
 	other := distributedtask.TaskDescriptor{ID: "t2", Version: 1}
