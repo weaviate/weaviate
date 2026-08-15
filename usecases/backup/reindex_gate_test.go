@@ -236,34 +236,6 @@ func TestRefusalRank(t *testing.T) {
 	require.Greater(t, unanswerable, inFlight)
 }
 
-// TestIsReindexBackupFailure pins the wider question: every reindex sentinel
-// means a check is why a capture will not be published.
-func TestIsReindexBackupFailure(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "an overlap the commit-time check observed",
-			err:  fmt.Errorf("%w: x", backup.ErrReindexOverlappedBackup),
-			want: true,
-		},
-		{
-			name: "an overlap the commit-time check could not answer",
-			err:  fmt.Errorf("%w: x", backup.ErrReindexOverlapUndetermined),
-			want: true,
-		},
-		{name: "a plain cancellation", err: context.Canceled},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, isReindexBackupFailure(tt.err))
-		})
-	}
-}
-
 // TestRestoreGateOrdering pins the gate's contract on both arms of
 // Scheduler.Restore: what it is asked about, and what it is asked before.
 func TestRestoreGateOrdering(t *testing.T) {
@@ -527,6 +499,18 @@ func TestPublishAsCancelled(t *testing.T) {
 		{
 			name: "an unanswerable overlap check whose cause was cancelled",
 			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlapUndetermined, context.Canceled),
+		},
+		{
+			// The refusal is what happened; that the operator cancelled the
+			// backup at the same instant does not make it an abort.
+			name:   "an observed overlap on a cancelled operation",
+			err:    fmt.Errorf("%w: x", backup.ErrReindexOverlappedBackup),
+			ctxErr: context.Canceled,
+		},
+		{
+			name:   "an unanswerable overlap check on a cancelled operation",
+			err:    fmt.Errorf("%w: x", backup.ErrReindexOverlapUndetermined),
+			ctxErr: context.Canceled,
 		},
 		{name: "a plain cancellation", err: context.Canceled, want: true},
 		{name: "a cancelled operation context", ctxErr: context.Canceled, want: true},
