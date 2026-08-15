@@ -588,6 +588,24 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 		require.Empty(t, hook.AllEntries())
 	})
 
+	t.Run("an expired deadline is still an unanswerable check", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), captureStart)
+		defer cancel()
+		logger, _ := logrustest.NewNullLogger()
+		db := &DB{logger: logger}
+		db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
+			return func([]string, time.Time) ReindexOverlapVerdict {
+				return ReindexOverlapVerdict{Undetermined: true, Detail: "d", Remedy: "r"}
+			}
+		})
+
+		err := db.RefuseIfReindexOverlapped(ctx, []string{"Movies"}, captureStart)
+
+		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
+		require.NotErrorIs(t, err, context.DeadlineExceeded,
+			"nobody aborted this backup, and a bare timeout names no sentinel and no remedy")
+	})
+
 	t.Run("a wide backup logs one bounded entry", func(t *testing.T) {
 		classes := make([]string, 0, 500)
 		for i := range 500 {

@@ -236,7 +236,6 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 				require.Equal(t, backup.Failed, desc.Status)
 				require.NotEmpty(t, slot.failures)
 				assert.NotContains(t, slot.failures[0], context.Canceled.Error())
-	
 			})
 		}
 	}

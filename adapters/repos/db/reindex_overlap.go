@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,6 +26,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
+// ReindexOverlapVerdict is what the commit-time check concluded about one
+// capture. Overlapped and Undetermined are mutually exclusive and must never
+// both be set: the zero value means nothing overlapped and the capture may be
+// published, Overlapped means a migration rewrote it, and Undetermined means
+// the check could not answer, which also refuses the capture. Collection and
+// TaskID are filled only when a specific task produced the verdict, and TaskID
+// is for the node log, never for the published message.
 type ReindexOverlapVerdict struct {
 	Overlapped   bool
 	Undetermined bool
@@ -42,16 +50,24 @@ func (v ReindexOverlapVerdict) allowsBackup() bool { return !v.Overlapped && !v.
 // or after since. An empty classes list captured nothing, so nothing overlaps it.
 type ReindexOverlapLookup func(classes []string, since time.Time) ReindexOverlapVerdict
 
+// ReindexOverlapLookupBuilder snapshots the cluster task list, which can
+// block for the whole retry schedule below. Returning nil means allow.
 type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
+// ReindexWorkerLookup answers for the local node only: a task running on a
+// peer answers false here.
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
 
-// OverlapListRetryDelays: a failed check discards a whole finished upload.
+// OverlapListRetryDelays is worth roughly 30 seconds of waiting because the
+// alternative is discarding an upload that already finished.
 var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
 
-// ListReindexTasksForOverlap retries list on the delays schedule.
+// ListReindexTasksForOverlap retries list on the delays schedule. A namespace
+// absent from the answer yields no tasks, which the caller reads as allow. A
+// cancelled context returns the last list error rather than the context error,
+// so the caller still sees why the list failed.
 func ListReindexTasksForOverlap(
 	ctx context.Context,
 	list func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -95,8 +111,11 @@ func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate 
 	return out
 }
 
-// A migration can start and finish inside the capture window, so liveness
-// answers nothing here; this asks whether one overlapped the capture.
+// NewReindexOverlapLookup asks whether a migration overlapped a capture, not
+// whether one is running: a migration that starts and finishes inside the
+// capture window is absent from every liveness answer and still rewrote the
+// captured files. It runs once per commit, and the lookup it returns is a pure
+// function of the task list it closed over.
 func NewReindexOverlapLookup(
 	tasks []*distributedtask.Task,
 	completedTaskTTL time.Duration,
@@ -138,7 +157,11 @@ func NewReindexOverlapLookup(
 		}
 
 		// Last, so a task that answered outranks the guess this makes when
-		// none did.
+		// none did. A third clock: age is this node's, while the GC that drops
+		// the evidence runs on the scheduler leader against the task's own
+		// FinishedAt. Behind, this clears a capture whose evidence was already
+		// collected; ahead, it burns a clean capture's id at 100%. Closing it
+		// needs the leader's clock on the task list response.
 		if age := now().Sub(since); age >= completedTaskTTL {
 			return ReindexOverlapVerdict{
 				Undetermined: true,
@@ -190,8 +213,10 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// Only a cancel that landed before any unit left PENDING wrote nothing, the
-// state a submission that lost a race to a backup ends in. Anything else fails.
+// Only a cancel that landed before any unit left PENDING wrote nothing, which
+// takes two conditions: no unit out of PENDING, and no worker registered on
+// this node. The one thing that produces it is an operator cancelling their
+// own submission. Anything else fails the capture.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -238,15 +263,19 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 			"migration feature off")
 }
 
+// SetReindexOverlapLookup installs the builder the commit-time check reads
+// from. An uninstalled lookup admits, for the reason given on
+// [DB.SetShardReindexActivityLookup].
 func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexOverlapLookupBuilder = builder
 }
 
-// Known limitation: the capture start and FinishedAt come from different
-// nodes' clocks, so enough skew hides a migration that finished inside the
-// window. Closing this means putting backup state in RAFT.
+// Known limitation: the capture start and a task's FinishedAt come from
+// different nodes' clocks. Enough skew either way hides a migration that
+// finished inside the window or fails a capture nothing touched. Closing it
+// means putting backup state in RAFT.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		return nil
@@ -270,8 +299,10 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 	if verdict.allowsBackup() {
 		return nil
 	}
-	// An operator's cancel arrives on this ctx; that stays a cancel, not a refusal.
-	if verdict.Undetermined && ctx.Err() != nil {
+	// An operator's cancel arrives on this ctx; that stays a cancel, not a
+	// refusal. A deadline is not a cancel, and publishing it would name
+	// neither sentinel and give no remedy.
+	if verdict.Undetermined && errors.Is(ctx.Err(), context.Canceled) {
 		return ctx.Err()
 	}
 	db.warnOverlapRefusal(classes, verdict)
@@ -284,7 +315,7 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 		reason = "overlap_undetermined"
 	}
 	db.warnRefusal("backup_reindex_overlap", reason,
-		"commit-time overlap check: failing this backup; the published failure names a collection only",
+		"commit-time overlap check: failing this backup",
 		logrus.Fields{
 			"task_id":              verdict.TaskID,
 			"captured_class_count": len(classes),

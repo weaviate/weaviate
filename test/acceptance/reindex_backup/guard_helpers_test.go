@@ -117,8 +117,10 @@ func liveReindexStatus(status string) bool {
 }
 
 // slowBackupConfig throttles the upload so a test has time to submit a
-// migration before the backup commits. It does not slow the snapshot, so it
-// does not decide which of the two guards sees the migration first.
+// migration before the backup commits. It is a widened window, not a barrier:
+// descriptor generation is unthrottled hardlinking and finishes long before
+// the throttled upload does, so throttling only the upload is exactly what
+// makes the per-shard gate lose the race to the commit-time check.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,

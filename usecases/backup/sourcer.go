@@ -32,6 +32,13 @@ type Sourcer interface { // implemented by the index
 
 	// RefuseIfReindexOverlapped fails a finished capture that a runtime-reindex
 	// rewrote. since is when the capture started, not the commit instant.
+	//
+	// The guarantee is per capture, not per chain: an incremental backup whose
+	// base predates this check passes every chain check and its own overlap
+	// check while the restored chain is torn. Widening since to the chain's
+	// earliest start is not available as a fix, because it would trip the
+	// retention guard on any chain older than the completed-task TTL and so
+	// fail every incremental backup.
 	RefuseIfReindexOverlapped(_ context.Context, classes []string, since time.Time) error
 
 	// BackupDescriptors returns a channel of class descriptors.
