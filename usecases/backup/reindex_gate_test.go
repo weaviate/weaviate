@@ -43,6 +43,14 @@ func reindexUndetermined() error {
 		backup.ErrReindexActivityUndetermined)
 }
 
+// An id nothing was ever stored under: every read the scheduler tries on
+// the way to resolving it answers not-found.
+func expectUnknownID(ctx context.Context, fs *fakeScheduler, id string) {
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+}
+
 // TestQuoteClassList pins the cap. A restore can cover every collection
 // in the cluster, and the refusal is the same one whichever is blocked.
 func TestQuoteClassList(t *testing.T) {
@@ -198,9 +206,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 		// told that, not sent to fix an id that was never the problem.
 		fs := newFakeScheduler(nil)
 		fs.selector.setReindexGate(reindexRefusal(cls))
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		expectUnknownID(ctx, fs, id)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
@@ -214,9 +220,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 	})
 	t.Run("a mistyped id still 404s when nothing is migrating", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		expectUnknownID(ctx, fs, id)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
@@ -224,9 +228,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 	})
 	t.Run("naming no class at all is asked cluster-wide", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		expectUnknownID(ctx, fs, id)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id,
 		}, false)
@@ -244,9 +246,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.auth = auth
 		fs.selector.setReindexGate(reindexRefusal(cls))
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		expectUnknownID(ctx, fs, id)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
@@ -260,9 +260,7 @@ func TestRestoreGateOrdering(t *testing.T) {
 	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
 		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
 			fs := newFakeScheduler(nil)
-			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			expectUnknownID(ctx, fs, id)
 			_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 				Backend: backendName, ID: id, Include: include,
 			}, false)
@@ -326,9 +324,7 @@ func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
 	fs := newFakeScheduler(nil)
 	fs.auth = auth
 	fs.selector.setReindexGate(reindexRefusal("SomeoneElsesClass"))
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
-	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	expectUnknownID(ctx, fs, id)
 	_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 		Backend: backendName, ID: id,
 	}, false)
@@ -349,17 +345,11 @@ func TestParticipantRestoreGate(t *testing.T) {
 		resp := m.OnCanCommit(ctx, req)
 		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
 		assert.Contains(t, resp.Err, "restore blocked")
+		assert.NotContains(t, resp.Err, nodeName)
+		assert.NotContains(t, resp.Err, `shard "`)
 		assert.Zero(t, resp.Timeout, "a refused participant promises nothing")
 		require.Equal(t, [][]string{{"MyClass"}}, sourcer.gateCalls())
 		backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
-	})
-	t.Run("the refusal names no node and no shard", func(t *testing.T) {
-		sourcer := &fakeSourcer{}
-		sourcer.setReindexGate(reindexRefusal("MyClass"))
-		m := createManager(sourcer, nil, newFakeBackend(), nil)
-		resp := m.OnCanCommit(ctx, req)
-		assert.NotContains(t, resp.Err, nodeName)
-		assert.NotContains(t, resp.Err, `shard "`)
 	})
 	t.Run("a node narrowed to no collection is not gated", func(t *testing.T) {
 		sourcer := &fakeSourcer{}
