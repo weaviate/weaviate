@@ -1103,7 +1103,9 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-// Before the HTTP server serves; a call that lands early gets a list failure.
+// Runs after the internal cluster listener is already serving canCommit,
+// so a peer's request landing before this line is admitted ungated; only
+// the public API waits for it.
 func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context) {
 	// A list failure refuses every backup: admitting one races a migration.
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {

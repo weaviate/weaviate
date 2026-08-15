@@ -125,8 +125,9 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			},
 		},
 		{
-			// Unwired admits: the install lands before the server serves,
-			// and refusing broke every fixture that builds a bare DB.
+			// Unwired admits: refusing broke every fixture that builds a bare DB.
+			// The window is real but short: the cluster listener serves before
+			// the install lands.
 			name:    "builder never installed",
 			builder: nil,
 		},
