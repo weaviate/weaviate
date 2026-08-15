@@ -20,8 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// slots names the four operation slots a node can hold, so a case can set them
-// up through the same renew/reset/set calls the backup subsystem makes.
+// slots drives operation state through the same calls the backup subsystem makes.
 type slots struct {
 	coordinatorBackup  *backupStat
 	coordinatorRestore *backupStat
@@ -29,15 +28,12 @@ type slots struct {
 	participantRestore *backupStat
 }
 
-// idle and busyWith spell out that a probe always answers, so no row can want
-// the zero value, which means "nobody told us anything".
 var idle = NodeActivity{Answered: true}
 
 func busyWith(kind, id string) NodeActivity {
 	return NodeActivity{Answered: true, Busy: true, Kind: kind, ID: id}
 }
 
-// newIdleProbe is the smallest probe a Scheduler can register with.
 func newIdleProbe() *NodeActivityProbe {
 	return NewNodeActivityProbe(&Handler{backupper: &backupper{}, restorer: &restorer{}})
 }
@@ -133,10 +129,8 @@ func TestNodeActivityProbe(t *testing.T) {
 			want: busyWith("backup", "b1"),
 		},
 		{
-			// Scheduler.CancelRestore writes Cancelled to the coordinator slot
-			// whether or not it still holds one, and nothing ever clears a status.
-			// Reading the status as "held" would make this node report busy for
-			// the rest of its life.
+			// Scheduler.CancelRestore writes Cancelled whether or not it still holds
+			// the slot, which is where a released slot with a status comes from.
 			name: "a released slot that a late cancel wrote a status to",
 			setUp: func(s slots) {
 				hold(s.coordinatorRestore, "r2")
@@ -175,11 +169,8 @@ func TestNodeActivityProbe(t *testing.T) {
 	}
 }
 
-// The registration lives inside NewScheduler, and a Scheduler will not be built
-// without a probe, so no build order produces one the probe cannot see. Such a
-// node answers "not busy" for a whole backup it is itself coordinating, which is
-// the one answer a caller gating on the probe cannot survive. Every row here
-// coordinates something, since an idle Scheduler reads the same attached or not.
+// Every row here coordinates something: an idle Scheduler reads the same whether
+// or not it is attached, so only a busy one proves the registration.
 func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -210,8 +201,6 @@ func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 	}
 }
 
-// Accepting a nil probe would leave the hazard above open on exactly the node
-// that hit it, so the build stops here rather than answering wrongly later.
 func TestNewSchedulerRefusesToBuildWithoutAProbe(t *testing.T) {
 	assert.Panics(t, func() {
 		NewScheduler(nil, nil, nil, nil, nil, nil, nil, &fakeSchemaManger{}, nil, nil, logrus.New())

@@ -146,8 +146,7 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			wantErr: "did not come from the node itself",
 		},
 		{
-			// nginx's add_header appends rather than replaces, so a second value is
-			// evidence of a middlebox, whatever the second value says.
+			// nginx's add_header appends rather than replaces, which is how a second value gets there.
 			name: "404 with the node's body and a second sentinel value",
 			respond: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Add(clusterprobe.NodeNotFoundHeader, clusterprobe.NodeNotFoundHeaderValue)
@@ -271,10 +270,6 @@ func TestClusterBackupActivityUnreachable(t *testing.T) {
 	}
 }
 
-// The probe must not go through HTTP_PROXY/HTTPS_PROXY: a proxy answering in a
-// peer's stead 404s, and the caller reads a 404 as "too old to ask", so one
-// proxy would report every node in the cluster free of backups. And no
-// configured budget may leave the caller unbounded.
 func TestProbeHTTPClientIgnoresProxiesAndAlwaysBounds(t *testing.T) {
 	withAuth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "u", Password: "p"}}
 
@@ -303,9 +298,6 @@ func TestProbeHTTPClientIgnoresProxiesAndAlwaysBounds(t *testing.T) {
 	}
 }
 
-// Response headers are the one part of an answer the peer sizes and the probe
-// does not read through a limiter. The stdlib default is 10 MiB, and under the
-// fan-out that is 10 MiB per node, on a route whose real headers are three.
 func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -339,9 +331,6 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 	}
 }
 
-// A peer that answers 3xx names the host that answers in its stead. The probe
-// must not ask it: a valid marker from a host we never addressed reads as a node
-// with nothing running, and reaching it at all is what hands over the credential.
 func TestClusterBackupActivityRefusesRedirects(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -425,11 +414,8 @@ func (t *recordingTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
 }
 
-// An http.RoundTripper may not edit the request it is given; that is the
-// contract, and the only thing this pins. It is not what keeps the credential
-// from a redirect target: a RoundTripper runs once per hop, so it re-adds the
-// header the stdlib stripped. Only CheckRedirect covers that, which the test
-// above pins by watching who was contacted.
+// This pins only the RoundTripper contract. What keeps the credential from a
+// redirect target is CheckRedirect, pinned by the redirect test above.
 func TestBasicAuthTransportDoesNotEditTheCallersRequest(t *testing.T) {
 	inner := &recordingTransport{}
 	transport := basicAuthTransport{next: inner, auth: cluster.BasicAuth{Username: "u", Password: "p"}}
@@ -447,9 +433,6 @@ func TestBasicAuthTransportDoesNotEditTheCallersRequest(t *testing.T) {
 	assert.Equal(t, "p", password)
 }
 
-// Where the cluster configures basic auth, the route sits behind it like every
-// sibling route, so the probe has to present the cluster's own credentials to
-// read a peer at all.
 func TestClusterBackupActivitySendsBasicAuth(t *testing.T) {
 	auth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "cluster-user", Password: "s3cret"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

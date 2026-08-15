@@ -116,10 +116,8 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 }
 
 // attachScheduler adds the coordinator slots. It is unexported so that
-// [NewScheduler] stays the only way to reach it: a Scheduler that exists but is
-// not attached makes this node report itself idle while it coordinates a
-// backup, and that is the one answer a caller gating on the probe cannot
-// survive.
+// [NewScheduler] stays the only way to reach it, which is what keeps every
+// Scheduler visible to a probe.
 func (p *NodeActivityProbe) attachScheduler(scheduler *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -131,9 +129,7 @@ type activitySlot struct {
 	kind string
 }
 
-// Node names the node this probe answers for, so a caller can tell an answer
-// from the node it addressed apart from one a reassigned address routed
-// elsewhere.
+// Node names the node this probe answers for.
 func (p *NodeActivityProbe) Node() string {
 	return p.participant.node
 }

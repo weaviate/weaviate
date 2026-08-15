@@ -148,10 +148,6 @@ func TestBackupNodeActivityRouteAuth(t *testing.T) {
 	}
 }
 
-// This route is called once per peer per gate evaluation, so what it logs
-// scales with cluster size times submission rate. The verdict is Debug; the
-// fault is a condition that holds for the life of the process, so it is said
-// once however many peers ask.
 func TestBackupNodeActivityRouteLogs(t *testing.T) {
 	const probes = 5
 
@@ -213,9 +209,6 @@ func (n oneNode) NodeHostname(string) (string, bool) {
 	return strings.TrimPrefix(string(n), "http://"), true
 }
 
-// The handler and the client were written as two independent halves. This is
-// where they meet over a real connection, agreeing on method, status, headers
-// and the shape of the body.
 func TestBackupNodeActivityEndToEnd(t *testing.T) {
 	auth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "node", Password: "s3cret"}}
 

@@ -48,10 +48,7 @@ func TestOldNodeAnswersTheProbePathFromTheCatchAll(t *testing.T) {
 		"the constants are what the caller compares byte for byte, so they are net/http's own bytes")
 }
 
-// A node that serves the route but has no probe wired must answer 503, not 404:
-// 404 is the one code that tells the caller to give up and let this node pass.
-// The realistic wiring failure is a nil *backup.NodeActivityProbe, which a plain
-// interface nil check does not catch.
+// An unwired probe must answer 503, not the 404 that would let this node pass.
 func TestBackupNodeActivityWithoutAProbe(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	backups := NewBackups(nil, nodeActivityProbe(nil), NewNoopAuthHandler(), logger)

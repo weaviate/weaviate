@@ -123,8 +123,6 @@ func TestNodeActivityResponseActivity(t *testing.T) {
 	}
 }
 
-// A peer controls every string in an answer, so nothing this build cannot
-// vouch for may reach a log or an error unquoted.
 func TestNodeActivityResponseQuotesPeerStrings(t *testing.T) {
 	busy := true
 	res := NodeActivityResponse{Probe: "forged\nprobe: still fine", Node: "node1", Busy: &busy, Kind: "k", ID: "i"}

@@ -19,9 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 )
 
-// The wanted values are spelled out as literals on purpose. Comparing a
-// constant to itself passes however it is reworded, and a reworded constant is
-// exactly the change that disables the gate without failing anything.
+// Literals on purpose: a constant compared to itself passes however it is reworded.
 func TestWireConstants(t *testing.T) {
 	tests := []struct {
 		name string

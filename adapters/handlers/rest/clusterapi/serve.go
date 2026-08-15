@@ -47,9 +47,8 @@ type Server struct {
 var _ types.ClusterServer = (*Server)(nil)
 
 // newClusterMux builds the route table the internal server serves. It is split
-// out of NewServer so that a test can drive the real table — the real handlers
-// on the real paths — without the gRPC and RAFT wiring the rest of NewServer
-// needs.
+// out of NewServer so a test can drive the real handlers on the real paths
+// without the gRPC and RAFT wiring.
 func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
