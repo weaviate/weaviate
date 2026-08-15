@@ -14,6 +14,7 @@ package backup
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -32,7 +33,7 @@ func newProbeFixture() (*NodeActivityProbe, slots) {
 	participant := &Handler{backupper: &backupper{}, restorer: &restorer{}}
 	scheduler := &Scheduler{backupper: &coordinator{}, restorer: &coordinator{}}
 	probe := NewNodeActivityProbe(participant)
-	probe.AttachScheduler(scheduler)
+	probe.attachScheduler(scheduler)
 	return probe, slots{
 		coordinatorBackup:  &scheduler.backupper.lastOp,
 		coordinatorRestore: &scheduler.restorer.lastOp,
@@ -155,6 +156,45 @@ func TestNodeActivityProbe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			probe, s := newProbeFixture()
 			tt.setUp(s)
+
+			assert.Equal(t, tt.want, probe.Activity())
+		})
+	}
+}
+
+// The registration lives inside NewScheduler so that no build order can produce
+// a Scheduler the probe does not see. Such a node answers "not busy" for a whole
+// backup it is itself coordinating, which is the one answer a caller gating on
+// the probe cannot survive.
+func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
+	tests := []struct {
+		name  string
+		setUp func(s *Scheduler)
+		want  NodeActivity
+	}{
+		{
+			name:  "the scheduler coordinates nothing",
+			setUp: func(s *Scheduler) {},
+			want:  NodeActivity{},
+		},
+		{
+			name:  "the scheduler coordinates a backup",
+			setUp: func(s *Scheduler) { hold(&s.backupper.lastOp, "b1") },
+			want:  NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+		},
+		{
+			name:  "the scheduler coordinates a restore",
+			setUp: func(s *Scheduler) { hold(&s.restorer.lastOp, "r1") },
+			want:  NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe := NewNodeActivityProbe(&Handler{backupper: &backupper{}, restorer: &restorer{}})
+
+			scheduler := NewScheduler(nil, nil, nil, nil, nil, nil, nil,
+				&fakeSchemaManger{}, nil, probe, logrus.New())
+			tt.setUp(scheduler)
 
 			assert.Equal(t, tt.want, probe.Activity())
 		})

@@ -191,7 +191,7 @@ func Test_Authorization(t *testing.T) {
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 				selector.On("RefuseIfAnyReindexInFlight", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, logger)
+				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, nil, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {

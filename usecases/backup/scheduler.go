@@ -82,6 +82,7 @@ func NewScheduler(
 	nodeResolver NodeResolver,
 	schema schemaManger,
 	staticAPIKeyUsers []string,
+	activity *NodeActivityProbe,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
@@ -104,6 +105,12 @@ func NewScheduler(
 			schema,
 			logger, nodeResolver, backends,
 		),
+	}
+	// Registering here rather than at the call site is what makes the
+	// registration compile-enforced: a node whose probe cannot see its Scheduler
+	// answers "not busy" for a whole backup it is itself coordinating.
+	if activity != nil {
+		activity.attachScheduler(m)
 	}
 	return m
 }

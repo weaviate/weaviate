@@ -1518,7 +1518,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
-	appState.BackupActivity.AttachScheduler(backupScheduler)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
@@ -1722,6 +1721,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
+		appState.BackupActivity,
 		appState.Logger)
 	return backupScheduler
 }
