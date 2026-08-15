@@ -399,7 +399,7 @@ func TestReindexOverlapNamesTheSameTask(t *testing.T) {
 // judge as one a migration is known to have torn.
 func TestReindexOverlapRefusalWording(t *testing.T) {
 	t.Run("observed", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"})
+		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"}, []string{"Movies"})
 
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
 		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
@@ -411,7 +411,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 		err := reindexOverlapRefusal(ReindexOverlapVerdict{
 			Undetermined: true,
 			Detail:       "this backup ran for 2h0m0s, longer than the 1h0m0s a finished migration stays listed",
-		})
+		}, []string{"Movies"})
 
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapUndetermined)
 		require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup,
@@ -423,7 +423,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 	})
 
 	t.Run("observed but unattributable", func(t *testing.T) {
-		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true})
+		err := reindexOverlapRefusal(ReindexOverlapVerdict{Overlapped: true}, nil)
 
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlappedBackup)
 		assert.Contains(t, err.Error(), "a collection this backup captured")
@@ -520,52 +520,127 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 }
 
-// TestGateAndCommitCheckAgree pins that the restore gate and the commit-time
-// check read the same task payloads the same way, so the two never disagree
-// about whether a task touches a collection.
-func TestGateAndCommitCheckAgree(t *testing.T) {
+// TestAdmissionAndCommitCheckDisagree walks the payload shapes the two
+// backup checks decide from: the shard gate that admits a backup, and the
+// commit-time check that judges it after the capture. Where they disagree
+// the backup is admitted and then fails after the whole upload, so each
+// disagreement is written down here rather than left to be found that way.
+func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 	tests := []struct {
-		name        string
-		payload     string
-		wantRefused bool
+		name                 string
+		payload              string
+		wantAdmissionRefuses bool
+		wantCommitRefuses    bool
 	}{
 		{
-			name:        "a task naming the collection and its shards",
-			payload:     `{"collection":"Movies","unitToShard":{"u1":"shard-1"}}`,
-			wantRefused: true,
+			name:                 "a task naming the collection and its shards",
+			payload:              `{"collection":"Movies","unitToShard":{"u1":"shard-1"}}`,
+			wantAdmissionRefuses: true,
+			wantCommitRefuses:    true,
 		},
 		{
-			name:        "a task whose shard set did not decode",
-			payload:     `{"collection":"Movies","unitToShard":"shard-1"}`,
-			wantRefused: true,
+			// Admission skips a task it cannot decode; the commit-time check
+			// reads the same task as naming no collection and refuses every
+			// backup. Deliberate current behavior, filed as
+			// weaviate/0-weaviate-issues#573; red the day that is fixed.
+			name:              "a task whose shard set did not decode",
+			payload:           `{"collection":"Movies","unitToShard":"shard-1"}`,
+			wantCommitRefuses: true,
 		},
 		{
-			name:        "a task that cannot be attributed at all",
-			payload:     `not json`,
-			wantRefused: true,
+			name:              "a task that cannot be attributed at all",
+			payload:           `not json`,
+			wantCommitRefuses: true,
 		},
 		{
-			name:        "a task on another collection",
-			payload:     `{"collection":"Shows","unitToShard":{"u1":"shard-1"}}`,
-			wantRefused: false,
+			name:    "a task on another collection",
+			payload: `{"collection":"Shows","unitToShard":{"u1":"shard-1"}}`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := reindexTask("t1", distributedtask.TaskStatusStarted, tt.payload)
+			logger, _ := logrustest.NewNullLogger()
 
-			// The restore gate reads the same task list through the same decoder.
-			decoded := DecodeReindexTaskPayload(task.Payload)
-			_, live := NewAnyReindexActivityLookup([]*distributedtask.Task{task})([]string{"Movies"})
-			gateRefuses := decoded.Scope == ReindexPayloadScopeCluster || live
+			admissionRefuses := NewShardReindexActivityLookup(
+				[]*distributedtask.Task{task}, logger)("Movies", "shard-1")
+			commitRefuses := NewReindexOverlapLookup([]*distributedtask.Task{task},
+				24*time.Hour, noLocalWorker,
+				func() time.Time { return commitTime })([]string{"Movies"}, captureStart).Overlapped
 
-			commitCheck := NewReindexOverlapLookup([]*distributedtask.Task{task},
-				24*time.Hour, noLocalWorker, func() time.Time { return commitTime })
-			commitCheckRefuses := commitCheck([]string{"Movies"}, captureStart).Overlapped
-
-			assert.Equal(t, tt.wantRefused, gateRefuses, "restore gate")
-			assert.Equal(t, tt.wantRefused, commitCheckRefuses, "commit-time check")
+			assert.Equal(t, tt.wantAdmissionRefuses, admissionRefuses, "admission gate")
+			assert.Equal(t, tt.wantCommitRefuses, commitRefuses, "commit-time check")
 		})
 	}
+}
+
+// TestReindexOverlapScopingReadsTheCollectionFieldAlone pins how the check
+// scopes each payload shape. A payload naming no collection scopes to the
+// whole cluster, including one truncated mid-name: the name is there in the
+// bytes and must stay unread.
+func TestReindexOverlapScopingReadsTheCollectionFieldAlone(t *testing.T) {
+	payloads := []struct {
+		name           string
+		payload        string
+		wantCollection string
+	}{
+		{
+			name:    "collection and shards both decode",
+			payload: `{"collection":"Movies","unitToShard":{"u1":"s1"}}`, wantCollection: "Movies",
+		},
+		{
+			name:    "a field this build does not know",
+			payload: `{"collection":"Movies","futureField":{"a":1}}`, wantCollection: "Movies",
+		},
+		{
+			name:    "the shard map retyped by a newer node",
+			payload: `{"collection":"Movies","unitToShard":"s1"}`, wantCollection: "Movies",
+		},
+		{
+			name:    "the collection field renamed by a newer node",
+			payload: `{"class":"Movies","unitToShard":{"u1":"s1"}}`,
+		},
+		{name: "not json at all", payload: `not json`},
+		{name: "an empty collection", payload: `{"collection":"","unitToShard":{"u1":"s1"}}`},
+		{
+			// The name is right there in the bytes and must stay unread: a
+			// truncated payload gives no grounds to leave any other
+			// collection open to a backup.
+			name:    "truncated with the name still in the bytes",
+			payload: `{"collection":"Movies","unitToShard":{"u1":"sha`,
+		},
+	}
+
+	for _, p := range payloads {
+		t.Run(p.name, func(t *testing.T) {
+			collection, named := ExtractReindexTaskCollection([]byte(p.payload))
+
+			require.Equal(t, p.wantCollection, collection)
+			require.Equal(t, p.wantCollection != "", named,
+				"cluster-wide is exactly the payload that names no collection")
+		})
+	}
+}
+
+// TestReindexOverlapRefusalNamesOnlyACapturedClass pins that the published
+// refusal echoes the caller's own spelling of a class the caller asked
+// about. Echoing the task's instead would disclose a collection this
+// backup never captured whenever a task is attributed to one.
+func TestReindexOverlapRefusalNamesOnlyACapturedClass(t *testing.T) {
+	t.Run("the captured spelling wins over the task's", func(t *testing.T) {
+		err := reindexOverlapRefusal(
+			ReindexOverlapVerdict{Overlapped: true, Collection: "Movies"}, []string{"movies"})
+
+		assert.Contains(t, err.Error(), `collection "movies"`)
+		assert.NotContains(t, err.Error(), `"Movies"`)
+	})
+
+	t.Run("a name this backup did not capture is not named", func(t *testing.T) {
+		err := reindexOverlapRefusal(
+			ReindexOverlapVerdict{Overlapped: true, Collection: "Secret"}, []string{"Movies"})
+
+		assert.Contains(t, err.Error(), "a collection this backup captured")
+		assert.NotContains(t, err.Error(), "Secret")
+	})
 }
