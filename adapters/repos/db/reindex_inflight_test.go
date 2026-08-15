@@ -154,18 +154,20 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 
 func TestReindexHoldForCollection(t *testing.T) {
 	tests := []struct {
-		name     string
-		disabled bool
-		holds    map[string]ReindexHold
-		builder  ReindexHoldLookupBuilder
-		query    string
-		want     ReindexHold
+		name      string
+		disabled  bool
+		holds     map[string]ReindexHold
+		builder   ReindexHoldLookupBuilder
+		query     string
+		want      ReindexHold
+		wantBuilt int
 	}{
 		{
-			name:  "cleanup hold",
-			holds: map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
-			query: "MyClass",
-			want:  ReindexHoldCleanup,
+			name:      "cleanup hold",
+			holds:     map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
+			query:     "MyClass",
+			want:      ReindexHoldCleanup,
+			wantBuilt: 1,
 		},
 		{
 			name:     "feature off",
@@ -174,37 +176,24 @@ func TestReindexHoldForCollection(t *testing.T) {
 			query:    "MyClass",
 		},
 		{name: "builder never installed", query: "MyClass", builder: nil},
-		{name: "builder hands back nothing", query: "MyClass", builder: func() ReindexHoldLookup { return nil }},
+		{name: "builder hands back nothing", query: "MyClass", builder: func() ReindexHoldLookup { return nil }, wantBuilt: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
+			built := 0
+			counted := func(builder ReindexHoldLookupBuilder) ReindexHoldLookupBuilder {
+				return func() ReindexHoldLookup { built++; return builder() }
+			}
 			switch {
 			case tt.holds != nil:
-				db.SetReindexHoldLookup(makeHoldBuilder(tt.holds))
+				db.SetReindexHoldLookup(counted(makeHoldBuilder(tt.holds)))
 			case tt.builder != nil:
-				db.SetReindexHoldLookup(tt.builder)
+				db.SetReindexHoldLookup(counted(tt.builder))
 			}
 			require.Equal(t, tt.want, db.ReindexHoldFor(tt.query))
-		})
-	}
-}
-
-func TestReindexHoldForCollection_KillSwitchSkipsTheLookup(t *testing.T) {
-	for _, disabled := range []bool{true, false} {
-		t.Run(fmt.Sprintf("disabled=%v", disabled), func(t *testing.T) {
-			built := 0
-			db := &DB{config: Config{RuntimeReindexDisabled: disabled}}
-			db.SetReindexHoldLookup(func() ReindexHoldLookup {
-				built++
-				return func([]string) ReindexHold { return ReindexHoldCleanup }
-			})
-			db.ReindexHoldFor("MyClass")
-			if disabled {
-				require.Zero(t, built, "the flag must be read before any lookup is built")
-			} else {
-				require.Equal(t, 1, built)
-			}
+			require.Equal(t, tt.wantBuilt, built,
+				"the flag must be read before any lookup is built")
 		})
 	}
 }
