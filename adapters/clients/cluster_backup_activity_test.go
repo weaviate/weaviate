@@ -216,19 +216,37 @@ func TestClusterBackupActivityUnreachable(t *testing.T) {
 	server.Close()
 
 	tests := []struct {
-		name    string
-		node    string
-		wantErr string
+		name     string
+		node     string
+		canceled bool
+		wantErr  string
+		// wantIs pins the cause a caller has to act on differently: an operator
+		// cancel is not a node that stopped answering.
+		wantIs error
 	}{
 		{name: "node is not a cluster member", node: "node2", wantErr: "cannot resolve hostname"},
 		{name: "node does not answer", node: "node1", wantErr: "node activity request"},
+		{
+			name: "the operator canceled the probe", node: "node1", canceled: true,
+			wantErr: "node activity request", wantIs: context.Canceled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := client.NodeActivity(context.Background(), tt.node)
+			ctx := context.Background()
+			if tt.canceled {
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+
+			got, err := client.NodeActivity(ctx, tt.node)
 
 			require.ErrorContains(t, err, tt.wantErr)
 			require.NotErrorIs(t, err, ErrNodeActivityUnsupported)
+			if tt.wantIs != nil {
+				require.ErrorIs(t, err, tt.wantIs)
+			}
 			assert.False(t, got.Free(), "a node we could not reach must not read as a free node")
 		})
 	}
@@ -272,10 +290,14 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 		// statusLine sizes the status line instead of the headers, because the
 		// stdlib quotes a malformed one whole into the error it hands back.
 		statusLine int
-		wantErr    string
+		// trailer is sent after the last chunk, where a line the stdlib cannot
+		// parse is quoted whole into the body-read error.
+		trailer string
+		wantErr string
 	}{
 		{name: "headers padded past the cap", padding: 512, wantErr: "node activity request"},
 		{name: "a status line the peer sizes", statusLine: 60 << 10, wantErr: "node activity request"},
+		{name: "a malformed trailer the peer sizes", trailer: strings.Repeat("A", 3400), wantErr: "read node activity answer"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -283,6 +305,13 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 				if tt.statusLine > 0 {
 					conn, _, _ := w.(http.Hijacker).Hijack()
 					conn.Write([]byte(strings.Repeat("A", tt.statusLine) + "\r\n\r\n"))
+					conn.Close()
+					return
+				}
+				if tt.trailer != "" {
+					conn, _, _ := w.(http.Hijacker).Hijack()
+					fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n0\r\n%s\r\n\r\n",
+						len(idleAnswer), idleAnswer, tt.trailer)
 					conn.Close()
 					return
 				}
