@@ -143,7 +143,7 @@ func (o *BackupsRestoreForbidden) WriteResponse(rw http.ResponseWriter, producer
 const BackupsRestoreNotFoundCode int = 404
 
 /*
-BackupsRestoreNotFound Backup not found on the specified backend with the given ID.
+BackupsRestoreNotFound Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.
 
 swagger:response backupsRestoreNotFound
 */
@@ -188,7 +188,7 @@ func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsRestoreUnprocessableEntityCode int = 422
 
 /*
-BackupsRestoreUnprocessableEntity Invalid backup restoration request. Check requirements and request body.
+BackupsRestoreUnprocessableEntity The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.
 
 swagger:response backupsRestoreUnprocessableEntity
 */

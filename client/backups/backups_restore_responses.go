@@ -275,7 +275,7 @@ func NewBackupsRestoreNotFound() *BackupsRestoreNotFound {
 /*
 BackupsRestoreNotFound describes a response with status code 404, with default header values.
 
-Backup not found on the specified backend with the given ID.
+Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.
 */
 type BackupsRestoreNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewBackupsRestoreUnprocessableEntity() *BackupsRestoreUnprocessableEntity {
 /*
 BackupsRestoreUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration request. Check requirements and request body.
+The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.
 */
 type BackupsRestoreUnprocessableEntity struct {
 	Payload *models.ErrorResponse
