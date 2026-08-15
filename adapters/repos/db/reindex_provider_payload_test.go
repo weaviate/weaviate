@@ -69,4 +69,13 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "Foo", got)
 	})
+
+	t.Run("truncated payload is rejected with the name still in the bytes", func(t *testing.T) {
+		// The name is right there and must stay unread: the backup overlap
+		// check scopes a task by this answer, and a truncated payload is no
+		// grounds to leave a collection open.
+		got, ok := ExtractReindexTaskCollection([]byte(`{"collection":"Foo","unitToShard":{"u1":"sha`))
+		assert.False(t, ok)
+		assert.Equal(t, "", got)
+	})
 }
