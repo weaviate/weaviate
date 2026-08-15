@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -37,10 +40,19 @@ type backups struct {
 	manager  backupManager
 	activity nodeActivityProber
 	auth     auth
+	logger   logrus.FieldLogger
+
+	// Whether a probe is wired cannot change while the process runs, so one
+	// warning says everything a repeat would. The route answers once per peer
+	// per gate evaluation, so a warning per call would scale with cluster size
+	// times submission rate.
+	warnUnwired sync.Once
 }
 
-func NewBackups(manager backupManager, activity nodeActivityProber, auth auth) *backups {
-	return &backups{manager: manager, activity: activity, auth: auth}
+func NewBackups(manager backupManager, activity nodeActivityProber, auth auth,
+	logger logrus.FieldLogger,
+) *backups {
+	return &backups{manager: manager, activity: activity, auth: auth, logger: logger}
 }
 
 func (b *backups) CanCommit() http.Handler {
@@ -60,14 +72,26 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 			return
 		}
 
+		log := b.logger.WithField("action", "backup_node_activity_probe")
+
 		// 503, not 404: 404 would tell the caller to give up and let this node pass.
 		if b.activity == nil {
+			b.warnUnwired.Do(func() {
+				log.Warn("backup node activity probe is not wired on this node, so every peer " +
+					"asking whether a backup is running is answered 503")
+			})
 			http.Error(w, "backup activity probe not wired on this node, so it cannot say "+
 				"whether a backup is running", http.StatusServiceUnavailable)
 			return
 		}
 
-		data, err := json.Marshal(backup.NewNodeActivityResponse(b.activity.Activity()))
+		activity := b.activity.Activity()
+		log.WithField("busy", activity.Busy).
+			WithField("kind", activity.Kind).
+			WithField("id", clusterprobe.Loggable(activity.ID)).
+			Debug("backup node activity probe answered")
+
+		data, err := json.Marshal(backup.NewNodeActivityResponse(activity))
 		if err != nil {
 			http.Error(w, fmt.Errorf("marshal response: %w", err).Error(), http.StatusInternalServerError)
 			return

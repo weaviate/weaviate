@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -60,9 +61,10 @@ func TestInternalBackupsAPI(t *testing.T) {
 
 func setupClusterAPI(t *testing.T, nodes []*backupNode) map[string]string {
 	hosts := make(map[string]string)
+	logger, _ := logrustest.NewNullLogger()
 
 	for _, node := range nodes {
-		backupsHandler := clusterapi.NewBackups(node.backupManager, nil, clusterapi.NewNoopAuthHandler())
+		backupsHandler := clusterapi.NewBackups(node.backupManager, nil, clusterapi.NewNoopAuthHandler(), logger)
 
 		mux := http.NewServeMux()
 		mux.Handle("/backups/can-commit", backupsHandler.CanCommit())
