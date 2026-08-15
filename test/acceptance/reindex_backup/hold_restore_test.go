@@ -18,6 +18,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,15 +51,15 @@ const (
 // gate, which nothing else in CI reaches: deleting the SetReindexHoldLookup
 // wiring leaves every other test green.
 //
-// A cancelled migration goes terminal in DTM while its temporary index
-// files are still on disk. The cluster-wide arm has stopped answering by
-// then, so a refusal in this window can only have come from the hold.
+// The window is small and it opens early: the sweep starts within
+// milliseconds of the cancel and is usually done before the task reaches a
+// terminal status in DTM. So the probe runs across the cancel rather than
+// after it, and the arm that answered is read off the refusal's own words —
+// while the task is still live the cluster-wide arm refuses the same probe.
 //
 // The hold is only observable if the cleanup has something to clean up;
 // see awaitTrackerDirs.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
-	// TODO(weaviate/0-weaviate-issues#590): delete once this has been seen green.
-	t.Skip("never observed passing; see weaviate/0-weaviate-issues#590")
 	ctx := context.Background()
 	compose := startGuardNode(ctx, t)
 	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
@@ -85,17 +86,14 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 		reindexhelpers.WithTimeout(120*time.Second))
 	awaitTrackerDirs(t, ctx, compose.GetWeaviate().Container(), className, propName,
 		holdWindowTrackerShards, 120*time.Second)
+	probe := startHoldProbe(t, backend, unknownBackupID, className)
 	reindexhelpers.CancelIndexRaw(t, restURI, className, propName, "searchable")
 
-	awaitReindexTaskTerminal(t, restURI, taskID, 120*time.Second)
-
-	refusal := pollForHoldRefusal(t, backend, unknownBackupID, className, 120*time.Second)
+	refusal := probe.awaitHoldRefusal(t, 120*time.Second)
 	require.NotEmptyf(t, refusal,
 		"the teardown window closed before any probe landed; raise holdWindowTrackerShards "+
 			"and holdWindowObjectsPerTenant so the cleanup has more to delete")
 
-	require.Containsf(t, refusal, "still removing its temporary index files",
-		"the refusal must say the cleanup is what blocks it; got: %s", refusal)
 	require.Containsf(t, refusal, className,
 		"the refusal must name the collection it is about; got: %s", refusal)
 	require.NotContainsf(t, refusal, `shard "`,
@@ -162,38 +160,81 @@ func importTenantBodies(t *testing.T, className, propName, tenant string, count 
 	require.NotNil(t, resp)
 }
 
-// awaitReindexTaskTerminal takes the cluster-wide arm out of the answer set,
-// so a 422 after it returns is unambiguously the hold.
-func awaitReindexTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Duration) {
-	t.Helper()
-	// A plain loop, not require.Eventuallyf: that one evaluates its message
-	// arguments before it polls, so the status it reported would always be
-	// the zero value.
-	deadline := time.Now().Add(timeout)
-	last := ""
-	for time.Now().Before(deadline) {
-		last = reindexTaskStatus(t, restURI, taskID)
-		if !liveReindexStatus(last) {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	t.Fatalf("task %s must reach a terminal status before the probes start; last status %q",
-		taskID, last)
+// holdRefusalMarker is the wording only the cleanup arm produces. Both arms
+// answer 422 on the same probe, so the status code alone attributes nothing.
+const holdRefusalMarker = "still removing its temporary index files"
+
+// holdProbe asks for the same unknown backup id over and over and keeps the
+// first refusal the cleanup hold answered.
+type holdProbe struct {
+	mu      sync.Mutex
+	refusal string
+	liveArm int
+	stop    chan struct{}
+	done    chan struct{}
+	once    sync.Once
 }
 
-// pollForHoldRefusal returns "" if the deadline passed with no refusal.
-func pollForHoldRefusal(t *testing.T, backend, backupID, className string, timeout time.Duration) string {
+// startHoldProbe begins probing immediately, so the caller can issue the
+// cancel with the probe already in flight.
+func startHoldProbe(t *testing.T, backend, backupID, className string) *holdProbe {
 	t.Helper()
+	p := &holdProbe{stop: make(chan struct{}), done: make(chan struct{})}
+	t.Cleanup(p.shutdown)
+	go func() {
+		defer close(p.done)
+		for {
+			select {
+			case <-p.stop:
+				return
+			default:
+			}
+			var refused *clientbackups.BackupsRestoreUnprocessableEntity
+			if errors.As(restoreClasses(t, backend, backupID, className), &refused) {
+				p.record(errorResponseMessage(refused.Payload))
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	return p
+}
+
+func (p *holdProbe) record(msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !strings.Contains(msg, holdRefusalMarker) {
+		p.liveArm++
+		return
+	}
+	if p.refusal == "" {
+		p.refusal = msg
+	}
+}
+
+// awaitHoldRefusal returns "" if the deadline passed with the hold never
+// answering, whatever the other arm did meanwhile.
+func (p *holdProbe) awaitHoldRefusal(t *testing.T, timeout time.Duration) string {
+	t.Helper()
+	defer p.shutdown()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		var refused *clientbackups.BackupsRestoreUnprocessableEntity
-		if errors.As(restoreClasses(t, backend, backupID, className), &refused) {
-			return errorResponseMessage(refused.Payload)
+		p.mu.Lock()
+		refusal, liveArm := p.refusal, p.liveArm
+		p.mu.Unlock()
+		if refusal != "" {
+			t.Logf("the hold answered a probe; the live-task arm had answered %d before it", liveArm)
+			return refusal
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	return ""
+}
+
+func (p *holdProbe) shutdown() {
+	p.once.Do(func() {
+		close(p.stop)
+		<-p.done
+	})
 }
 
 // awaitTrackerDirs blocks until at least want shards carry a tracker dir
