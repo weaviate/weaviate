@@ -114,8 +114,6 @@ type ReindexProvider struct {
 	// Guarded by [mu]. Set after the guard, cleared from a defer so any
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
-
-	holds ReindexHoldRegistry
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -1715,7 +1713,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}
-	p.holds.Hold(payload.Collection, ReindexHoldCleanup, func() {
+	// Outer hold: it also covers the gaps between the sweeps below.
+	p.db.reindexHolds.Hold(payload.Collection, ReindexHoldCleanup, func() {
 		cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 		defer cancel()
 		// One sweep for the whole loop: every tuple asks the same unloaded shards.
@@ -1978,7 +1977,7 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 func (p *ReindexProvider) ReindexHoldLookupBuilder() ReindexHoldLookupBuilder {
 	return func() ReindexHoldLookup {
 		return func(collections []string) ReindexHold {
-			return p.holds.HoldFor(collections...)
+			return p.db.reindexHolds.HoldFor(collections...)
 		}
 	}
 }

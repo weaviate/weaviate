@@ -132,11 +132,11 @@ func TestReindexHoldString(t *testing.T) {
 }
 
 func TestReindexHoldLookupBuilder(t *testing.T) {
-	p := &ReindexProvider{}
+	p := &ReindexProvider{db: &DB{}}
 	lookup := p.ReindexHoldLookupBuilder()()
 	require.NotNil(t, lookup)
 	require.Equal(t, ReindexHoldNone, lookup([]string{"Movies"}))
-	release := p.holds.acquire("Movies", ReindexHoldCleanup)
+	release := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
 	require.Equal(t, ReindexHoldCleanup, lookup([]string{"Movies"}),
 		"the lookup must observe a hold raised after it was built")
 	release()

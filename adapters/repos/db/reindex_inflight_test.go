@@ -201,7 +201,7 @@ func holdRefusalAfterTerminal(t *testing.T, status distributedtask.TaskStatus) e
 	p := &ReindexProvider{logger: logger, serverCtx: context.Background(), db: &DB{}}
 	held := ReindexHoldNone
 	// The cleanup logs from inside the hold, so a hook sees what a gate would.
-	logger.AddHook(onEachLogLine(func() { held = max(held, p.holds.HoldFor("Movies")) }))
+	logger.AddHook(onEachLogLine(func() { held = max(held, p.db.reindexHolds.HoldFor("Movies")) }))
 	require.NoError(t, p.OnTaskCompleted(reindexTask("T_terminal", status,
 		`{"migrationType":"change-tokenization","collection":"Movies","properties":["title"]}`)))
 	require.Equal(t, ReindexHoldCleanup, held, "%s must raise the cleanup hold", status)
@@ -212,6 +212,18 @@ type onEachLogLine func()
 
 func (onEachLogLine) Levels() []logrus.Level     { return logrus.AllLevels }
 func (h onEachLogLine) Fire(*logrus.Entry) error { h(); return nil }
+
+// The cancel handler and the submit-time pre-cleanup run this sweep with no hold
+// of their own and no live task left for the other gate. It logs from inside it.
+func TestStalePartialReindexSweepRaisesTheHold(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{indices: map[string]*Index{indexID("Movies"): {Config: IndexConfig{ClassName: "Movies"}, logger: logger}}}
+	held := ReindexHoldNone
+	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor("Movies")) }))
+	require.NoError(t, db.NewStalePartialReindexSweep()(context.Background(), "Movies", "title", "searchable"))
+	require.Equal(t, ReindexHoldCleanup, held, "the sweep must run inside the hold")
+	require.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor("Movies"), "and must not leave it held")
+}
 
 // The arms are not interchangeable, so each one's wording is pinned
 // against the reading that inverts it.

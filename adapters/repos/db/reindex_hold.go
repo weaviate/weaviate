@@ -37,13 +37,9 @@ func (h ReindexHold) String() string {
 
 // Refcounted, because overlapping teardowns on one collection would let the
 // first to finish reopen the gate under the second. Collection-wide, because
-// the sweep it guards walks every local shard.
-//
-// It covers the sweep from the moment it is taken, and no earlier. The
-// caller takes it after waiting for the terminal task's local work to
-// drain, by which point DTM already reports the task terminal, so neither
-// gate refuses in between; and on a drain timeout or an unreadable payload
-// it is never taken at all.
+// the sweep it guards walks every local shard. It covers a sweep from the
+// moment it is taken and no earlier: a terminal task whose drain times out is
+// never swept, and so never held.
 type ReindexHoldRegistry struct {
 	mu    sync.RWMutex
 	holds map[string]map[ReindexHold]int

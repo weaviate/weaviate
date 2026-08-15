@@ -136,6 +136,10 @@ type DB struct {
 	anyReindexActivityLookupBuilder   AnyReindexActivityLookupBuilder
 	reindexHoldLookupBuilder          ReindexHoldLookupBuilder
 
+	// Carries its own lock. Here, not on [ReindexProvider], because most of
+	// what raises it are DB methods the provider never sees.
+	reindexHolds ReindexHoldRegistry
+
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 

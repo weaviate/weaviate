@@ -352,11 +352,13 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				}
 				var cleaned int
 				var failed []string
+				// Neither cleaner goes through [DB.NewStalePartialReindexSweep], so its
+				// hold is taken here too; DTM stopped listing an orphan by definition.
+				clean := func() { cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger) }
 				if shard != nil {
-					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
-				} else {
-					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
+					clean = func() { cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger) }
 				}
+				db.reindexHolds.Hold(collection, ReindexHoldCleanup, clean)
 				outcome.OrphansClean += cleaned
 				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
 			}
