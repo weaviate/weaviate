@@ -68,8 +68,8 @@ func probeAppState(t *testing.T) *state.State {
 	}
 }
 
-// The probe route discloses whether the cluster is mid-backup, so it must
-// stay behind the cluster's own credentials.
+// The probe route discloses whether this node is mid-backup, so it is served
+// through the cluster's auth wrapper, which enforces credentials when configured.
 func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 	server := httptest.NewServer(newClusterMux(probeAppState(t), NewBasicAuthHandler(probeAuth)))
 	defer server.Close()
@@ -107,9 +107,9 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, tt.wantCode, res.StatusCode,
-				"404 means the table does not mount the path, 503 means the handler was reached "+
-					"with no prober, so the route no longer goes through the build-time guard, "+
-					"and a 200 without credentials means it mounts it unguarded")
+				"404 means the table does not mount the path, 503 means the probe could not "+
+					"decide, which an idle node never does, and a 200 without credentials "+
+					"means the table mounts the route unguarded")
 			if tt.wantBody != "" {
 				assert.JSONEq(t, tt.wantBody, string(body))
 			}
@@ -128,8 +128,8 @@ func TestClusterMuxRefusesToBuildBeforeTheProbeIsAssigned(t *testing.T) {
 }
 
 // The same table read by the client that ships with it, so a route that is
-// mounted but unreadable fails here too, as does a client whose credentials are
-// not the ones the table demands.
+// mounted but unreadable fails here too, as does a client that stops sending the
+// credentials the table demands. A mismatch is unrepresentable: one config feeds both.
 func TestClusterMuxAnswersTheRealClient(t *testing.T) {
 	server := httptest.NewServer(newClusterMux(probeAppState(t), NewBasicAuthHandler(probeAuth)))
 	defer server.Close()
