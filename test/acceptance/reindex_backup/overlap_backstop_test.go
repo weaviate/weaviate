@@ -38,7 +38,7 @@ func TestBackupFailsWhenAMigrationRanThroughItsCapture(t *testing.T) {
 	t.Cleanup(helper.ResetClient)
 
 	const (
-		className = "OverlapBackstop_Spanned"
+		className = "OverlapBackstop_Overlapped"
 		backend   = "filesystem"
 		backupID  = "overlap-backstop"
 	)

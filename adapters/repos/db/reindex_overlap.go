@@ -90,7 +90,7 @@ func NewReindexOverlapLookup(
 				Undetermined: true,
 				Detail: fmt.Sprintf(
 					"this backup ran for %s, longer than the %s a finished migration stays listed, "+
-						"so a migration that spanned it may already have been dropped",
+						"so a migration that overlapped it may already have been dropped",
 					age.Round(time.Second), completedTaskTTL),
 			}
 		}
