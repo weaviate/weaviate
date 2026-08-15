@@ -256,6 +256,7 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if !wired {
 		return nil
 	}
+	db.gateMetrics().Refused(reindex.GateOverlap, reindex.VerdictOverlapUnanswerable)
 	// Its own sentinel: nothing is in flight, and the in-flight one would be rebuilt
 	// into a wait for a migration that does not exist. RUNTIME_REINDEX_ENABLED=false
 	// is no way out either: it gates submits, not migrations already running.

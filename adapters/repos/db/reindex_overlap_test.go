@@ -18,12 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 var (
@@ -381,7 +383,9 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			registry := prometheus.NewPedanticRegistry()
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled, CompletedTaskTTL: tt.ttl}}
+			db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
 			if !tt.unwired {
 				db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
 					return NewReindexOverlapLookup(nil, tt.ttl, noLocalWorker, time.Now)
@@ -390,10 +394,15 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 
 			err := db.Backupable(context.Background(), nil)
 
+			refusals := gateRefusalCount(t, registry,
+				reindex.GateOverlap, reindex.VerdictOverlapUnanswerable)
 			if !tt.wantRefused {
 				require.NoError(t, err)
+				assert.Zero(t, refusals, "an admitted backup must not count as refused")
 				return
 			}
+			assert.Equal(t, 1.0, refusals,
+				"a refusal the caller sees has to reach the counter an operator sees")
 			require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapCheckUnanswerable)
 			require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 				"nothing is in flight; that sentinel makes the coordinator promise a migration will end")

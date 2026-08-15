@@ -42,6 +42,9 @@ const (
 	VerdictHoldUnknown        = "hold_unrecognized"
 	VerdictOverlap            = "overlap_observed"
 	VerdictOverlapUnsure      = "overlap_undetermined"
+	// Refused before the capture starts, not judged after it: the retention
+	// window makes the commit-time check unable to ever answer.
+	VerdictOverlapUnanswerable = "overlap_unanswerable"
 )
 
 type GateMetrics struct {
@@ -93,7 +96,7 @@ var reachableVerdicts = map[string][]string{
 	GateSubmit:  {VerdictBackupBusy, VerdictRestoreBusy, VerdictUnreachable},
 	GateBackup:  {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 	GateRestore: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
-	GateOverlap: {VerdictOverlap, VerdictOverlapUnsure},
+	GateOverlap: {VerdictOverlap, VerdictOverlapUnsure, VerdictOverlapUnanswerable},
 	// The same rung as the backup gate, so the same findings.
 	GateTransfer: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 }
