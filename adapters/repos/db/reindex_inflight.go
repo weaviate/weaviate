@@ -125,10 +125,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	_, verdict, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
-	if refusal != nil {
-		i.db.gateMetrics().Refused(reindex.GateBackup, verdict)
-	}
+	// Deliberately uncounted: this runs once per shard, and a backup refused
+	// over sixty tenants is one refused operation. The admission gate below
+	// sees the operation, so it is the rung that counts.
+	_, _, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
 	return refusal
 }
 

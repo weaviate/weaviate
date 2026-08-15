@@ -426,6 +426,33 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		"the singular field would name one of 60 shards as if it were the one")
 }
 
+// The counter is per operation, so the shard count behind one refused backup
+// must not reach it: a sixty-tenant collection refused once counts once.
+func TestReindexRefusalCountsOperationsNotShards(t *testing.T) {
+	const shardCount = 60
+	live := map[[2]string]bool{}
+	shards := make([]string, 0, shardCount)
+	for i := range shardCount {
+		shard := fmt.Sprintf("shard-%02d", i)
+		shards = append(shards, shard)
+		live[[2]string{"Movies", shard}] = true
+	}
+
+	registry := prometheus.NewPedanticRegistry()
+	db, _, _ := gatedDB(t, gateFixtures{live: live})
+	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+	idx := gatedIndex(db, "Movies")
+
+	require.Error(t, idx.refuseIfAnyShardReindexInFlight(shards))
+	// The per-shard rung runs inside that same backup, once per shard.
+	for _, shard := range shards {
+		require.Error(t, idx.refuseIfReindexInFlight(shard))
+	}
+
+	assert.Equal(t, 1.0, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
+		"one refused backup is one count, whatever the tenant count behind it")
+}
+
 // A live task can be ended by the operator; a hold cannot, so the arm that
 // offers a remedy has to win regardless of the order the shards come in.
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
