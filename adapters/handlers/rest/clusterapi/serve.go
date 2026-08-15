@@ -46,15 +46,11 @@ type Server struct {
 // Ensure Server implements interfaces.ClusterServer
 var _ types.ClusterServer = (*Server)(nil)
 
-// NewServer creates a new cluster API server instance
-func NewServer(appState *state.State) *Server {
-	port := appState.ServerConfig.Config.Cluster.DataBindPort
-	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
-
-	appState.Logger.WithField("port", port).
-		WithField("action", "cluster_api_startup").
-		Debugf("serving cluster api on port %d", port)
-
+// newClusterMux builds the route table the internal server serves. It is split
+// out of NewServer so that a test can drive the real table — the real handlers
+// on the real paths — without the gRPC and RAFT wiring the rest of NewServer
+// needs.
+func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
 		appState.DB,
@@ -93,6 +89,20 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/exports/status", exportsHandler.Status())
 
 	mux.Handle("/", index())
+
+	return mux
+}
+
+// NewServer creates a new cluster API server instance
+func NewServer(appState *state.State) *Server {
+	port := appState.ServerConfig.Config.Cluster.DataBindPort
+	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
+
+	appState.Logger.WithField("port", port).
+		WithField("action", "cluster_api_startup").
+		Debugf("serving cluster api on port %d", port)
+
+	mux := newClusterMux(appState, auth)
 
 	grpcServer := grpc.NewServer(grpc.Config{
 		State:                              appState,
