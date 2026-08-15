@@ -45,6 +45,14 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 		defer release()
 		require.Equal(t, ReindexHoldNone, r.HoldFor("Shows"))
 	})
+	t.Run("no collection means every one", func(t *testing.T) {
+		r := &ReindexHoldRegistry{}
+		require.Equal(t, ReindexHoldNone, r.HoldFor())
+		release := r.acquire("Movies", ReindexHoldCleanup)
+		defer release()
+		require.Equal(t, ReindexHoldCleanup, r.HoldFor(),
+			"an unscoped read must report a hold on any collection")
+	})
 	t.Run("keys are case-folded", func(t *testing.T) {
 		// A hold is raised from a task payload and read with the schema's
 		// spelling of the class name; nothing guarantees the two match.
