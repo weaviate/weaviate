@@ -1232,11 +1232,12 @@ func initReindexAndDistributedTasks(
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
+		// The stamp hazard is about other nodes' binary versions, so it does
+		// not depend on this node's migration flag.
 		warn := appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
+		warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
 		if appState.ServerConfig.Config.RuntimeReindexEnabled {
-			warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately, leaving the commit-time backup overlap check nothing to read; every backup is refused at admission until DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is raised or RUNTIME_REINDEX_ENABLED is turned off")
-		} else {
-			warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+			warn.Warn("TTL=0 also leaves the commit-time backup overlap check nothing to read; every backup is refused at admission until DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is raised or RUNTIME_REINDEX_ENABLED is turned off")
 		}
 	}
 
