@@ -335,6 +335,15 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		storeDurable = err == nil
 	}
 
+	// Release the indexcounter's fd on unload same as every other per-shard
+	// resource above -- Drop (shard deletion) already closes it, but nothing
+	// closed it on a plain unload, leaving it to the *os.File finalizer
+	// (non-deterministic, least likely to run promptly under the memory
+	// pressure that makes fds scarce in the first place).
+	if s.counter != nil {
+		ec.AddWrapf(s.counter.Close(), "close indexcounter")
+	}
+
 	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
 	if capturedHT != nil && storeDurable {
 		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
