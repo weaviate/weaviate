@@ -42,6 +42,11 @@ var reindexSentinels = []struct {
 		err:  ErrReindexOverlapUndetermined,
 		text: "backup blocked: the runtime-reindex overlap could not be determined",
 	},
+	{
+		name: "admission, overlap check cannot answer",
+		err:  ErrReindexOverlapCheckUnanswerable,
+		text: "backup blocked: the runtime-reindex overlap check cannot answer",
+	},
 }
 
 func TestReindexSentinelTexts(t *testing.T) {

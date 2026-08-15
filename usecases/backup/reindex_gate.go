@@ -69,10 +69,15 @@ func allReindexRefusals(err error) bool {
 
 // Ranks concurrent refusals so the reported one is deterministic: an observed
 // migration tells the operator what to wait for, an undetermined one does not.
+// The configuration refusal outranks both: it is the only one that does not
+// clear on its own.
 func refusalRank(err error) int {
 	if errors.Is(err, backup.ErrReindexActivityUndetermined) ||
 		errors.Is(err, backup.ErrBackupReindexActivityUndetermined) {
 		return 0
+	}
+	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
+		return 2
 	}
 	return 1
 }
