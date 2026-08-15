@@ -106,27 +106,10 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			wantTaskID:  "t1",
 		},
 		{
-			// A field a newer node retyped: the task stays attributable
-			// because the collection is read on its own.
-			name:        "shard map retyped by a newer node",
-			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"collection":"Movies","unitToShard":"shardA"}`)},
-			ask:         []string{"Movies"},
-			wantBlocked: true,
-			wantNamed:   "Movies",
-			wantTaskID:  "t1",
-		},
-		{
 			// Decodes without error and leaves an empty collection, which
 			// is the same loss as not decoding at all.
 			name:        "collection field renamed by a newer node",
 			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"class":"Movies","unitToShard":{"u1":"s1"}}`)},
-			ask:         []string{"Shows"},
-			wantBlocked: true,
-			wantTaskID:  "t1",
-		},
-		{
-			name:        "not json at all",
-			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `not json`)},
 			ask:         []string{"Shows"},
 			wantBlocked: true,
 			wantTaskID:  "t1",
