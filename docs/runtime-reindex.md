@@ -664,9 +664,11 @@ in the node's state, the node:
   `DB.AnyLiveReindexForShard`), and fails any backup that finished its
   capture while the task was listed, per collection
   (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`).
-  An unrecognized status reads as live to the shard gate; the overlap
-  check refuses it as undetermined instead, because it cannot tell a
-  migration still running from one that ended before the capture began;
+  An unrecognized status reads as live to the shard gate when the payload
+  decodes and is skipped there when it does not
+  (weaviate/0-weaviate-issues#573); the overlap check refuses it as
+  undetermined, because it cannot tell a migration still running from one
+  that ended before the capture began;
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1524,7 +1526,7 @@ Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
 v1.38 Preview.
 
-Five known holes, each needing state or a layer this change does not touch:
+Six known holes, each needing state or a layer this change does not touch:
 
 - **Clock skew.** The capture start is the capturing node's clock; a
   task's `FinishedAt` is stamped by the node that recorded it, and the
@@ -1533,7 +1535,12 @@ Five known holes, each needing state or a layer this change does not touch:
   both ways: behind, the check clears a capture whose evidence was
   already collected; ahead, it refuses a clean capture at 100% of its
   upload and burns the id. Closing it properly means a reference time
-  supplied on the task list response.
+  supplied on the task list response. The TTL value is also read per
+  node. A rolling restart that changes
+  `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` leaves un-restarted nodes
+  judging against the old value while the smallest value in the cluster
+  is already collecting; finish the restart everywhere before relying on
+  backups taken through it.
 - **Per backup, not per chain.** Nothing on disk records whether a base
   capture was clean, so an incremental backup built on a base taken
   before this check existed (or with the feature flag off) passes every
@@ -1555,6 +1562,11 @@ Five known holes, each needing state or a layer this change does not touch:
   finishes between the capture's start and its commit leaves nothing for
   the overlap check to read. Closing it means recording each node's
   cleanup runs somewhere the check can see them.
+
+- **The refusal survives per node, not per cluster.** The commit-phase
+  aggregation reads participants in map order, so a sibling can clobber
+  the refusal's reason or relabel the operation `CANCELLED` and make the
+  spent id re-postable (weaviate/0-weaviate-issues#586, pre-existing).
 
 One route that looks like a hole and is not: `AddTask` overwrites a
 record when a task id is resubmitted, but reindex task ids are
@@ -1590,8 +1602,8 @@ now taken before the metadata write rather than rebuilt after it:
 
 - When a capture fails and writing its metadata fails too, the served
   reason leads with why the capture failed and names the metadata fault
-  after it. Before, both were wrapped in one `upload ...` message led by
-  the write fault.
+  after it. Before, both were wrapped in one
+  `upload <capture error>: <metadata error>` message.
 - A metadata write error whose own text quotes a cancelled context no
   longer reads to the coordinator as an operator abort when the capture
   itself also failed. Such a backup now ends `FAILED` with its id spent,

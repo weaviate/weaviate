@@ -382,7 +382,7 @@ func TestUnanswerableOverlapCheckSurvivesTheRPC(t *testing.T) {
 	assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
 	assert.Contains(t, err.Error(), "RUNTIME_REINDEX_ENABLED")
 	assert.NotContains(t, err.Error(), "in flight")
-	assert.NotContains(t, err.Error(), "retry after the migration finishes")
+	assert.NotContains(t, err.Error(), "retry after it finishes")
 	for _, class := range []string{"Movies", "Shows"} {
 		assert.NotContains(t, err.Error(), class,
 			"the cause is this node's configuration, not any collection")
