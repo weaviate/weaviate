@@ -1058,7 +1058,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"undetermined must not also match errCannotCommit, got: %v", err)
 				assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
-				assert.NotContains(t, err.Error(), "retry after the migration finishes")
+				assert.NotContains(t, err.Error(), "runtime-reindex work is in progress")
 			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),

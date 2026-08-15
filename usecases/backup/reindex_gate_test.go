@@ -89,7 +89,7 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	require.ErrorIs(t, err, backup.ErrReindexInFlight)
 	assert.Contains(t, err.Error(), `"Movies"`)
 	assert.Contains(t, err.Error(), `"Shows"`)
-	assert.Contains(t, err.Error(), "retry after the migration finishes")
+	assert.Contains(t, err.Error(), "retry after it finishes")
 
 	// The sentinel is stated once even though a participant's own message
 	// already opens with it.
@@ -139,7 +139,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 				"class Ghost doesn't exist",
 				`collection "Movies" has an active runtime-reindex task`,
 			},
-			wantNotContains: []string{`in flight on "Ghost"`},
+			wantNotContains: []string{`in progress on "Ghost"`},
 		},
 	}
 	for _, tt := range tests {
@@ -425,7 +425,7 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	assert.Contains(t, err.Error(), backup.ErrReindexActivityUndetermined.Error())
 	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
 	assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
-	assert.NotContains(t, err.Error(), "retry after the migration finishes")
+	assert.NotContains(t, err.Error(), "runtime-reindex work is in progress")
 	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
 }
 

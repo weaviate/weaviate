@@ -23,6 +23,8 @@ import (
 
 const maxNamedClasses = 5
 
+// Any refusal sentinel anywhere in the chain. onlyReindexRefusals in
+// handler.go is the stricter form: every element of a join must refuse.
 func isReindexRefusal(err error) bool {
 	return errors.Is(err, backup.ErrReindexInFlight) ||
 		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
@@ -48,15 +50,17 @@ func publishAsCancelled(err, ctxErr error) bool {
 		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
 }
 
+// The kind does not say whether the peer saw a live task or a local
+// cleanup hold, so the rebuilt words claim neither.
 func backupRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"%w: a runtime-reindex is in flight on %s; retry after the migration finishes",
+		"%w: runtime-reindex work is in progress on %s; retry after it finishes",
 		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes))
 }
 
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"restore blocked: %w: a runtime-reindex is in flight on %s; retry after the migration finishes",
+		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes",
 		backup.ErrReindexInFlight, blockedSubject(classes))
 }
 
