@@ -182,6 +182,10 @@ func TestReindexBackupRefusal_TaskListUnreadable(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	db := &DB{logger: logger, localNodeName: "node-7"}
 	db.SetShardReindexActivityLookup(unreadableActivityBuilder())
+	// Holding nothing, but installed: an uninstalled hold lookup warns on its
+	// own from a package-global budget, so the line counted below would be the
+	// backup gate's only when some earlier test happened to burn that budget.
+	db.SetReindexHoldLookup(makeHoldBuilder(nil))
 	db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
 
 	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
