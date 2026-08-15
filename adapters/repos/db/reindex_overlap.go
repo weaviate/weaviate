@@ -161,7 +161,9 @@ func NewReindexOverlapLookup(
 		// applying node against a FinishedAt the recording node stamped.
 		// Behind, this clears a capture whose evidence was already collected;
 		// ahead, it burns a clean capture's id at 100%. Closing it needs a
-		// reference time on the task list response.
+		// reference time on the task list response. The TTL itself is per node
+		// too: during a rolling restart that changes it, the smallest value in
+		// the cluster is what drops the evidence, not this one.
 		if age := now().Sub(since); age >= completedTaskTTL {
 			return ReindexOverlapVerdict{
 				Undetermined: true,
@@ -230,11 +232,14 @@ func decideReindexOverlap(
 // precedes the shard lookup — see [ReindexProvider.processOneUnit] and
 // [distributedtask.ThrottledRecorder] (a 0.0 claim is never throttled).
 // hasLocalWorker covers only the window before that claim lands.
-// The cleanup the cancellation itself triggers does write inside the capture
-// window, unseen from here, and still cannot tear a staged capture:
-// [Index.backupShardWithHardlinks] holds the shard's load mutex across
-// list-then-link, staged files keep inodes of their own, and a capture of
-// either side of that cleanup restores to the same data.
+// The cleanup the cancellation itself triggers deletes files inside the
+// capture window, unseen from here, and still cannot publish a torn capture:
+// the sweep only unlinks names, so a hardlink staged before it keeps the
+// bytes, and linking an already-swept file fails the capture loudly with
+// ENOENT. The no-hardlink fallback stages nothing; there a swept file fails
+// the upload's own open the same loud way, since the sweep writes no delete
+// marker to mask it. And a capture on either side of the whole sweep
+// restores to the same data.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -247,6 +252,8 @@ func decideCancelledReindexOverlap(
 		}
 	}
 	for _, unit := range task.Units {
+		// A unit status this build cannot name reads as a write, diverging from
+		// the task-status rule at the top of decideReindexOverlap.
 		if unit.Status != distributedtask.UnitStatusPending {
 			return ReindexOverlapVerdict{Overlapped: true}
 		}
@@ -265,8 +272,10 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if db.config.RuntimeReindexDisabled || db.config.CompletedTaskTTL > 0 {
 		return nil
 	}
-	// Exactly the condition under which the commit-time check runs at all: an
-	// uninstalled one admits, so admitting here keeps the two the same answer.
+	// Not a production state: installReindexGateLookups wires the builder
+	// before the listener. This guard exists for fixtures, where "migrations
+	// on, nothing retained" is a Config literal's zero value and refusing
+	// would fail every backup test.
 	db.reindexAuditMu.RLock()
 	wired := db.reindexOverlapLookupBuilder != nil
 	db.reindexAuditMu.RUnlock()

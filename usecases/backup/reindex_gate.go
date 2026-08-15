@@ -46,6 +46,8 @@ func refusalRank(err error) int {
 	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
 		return 2
 	}
+	// The two commit-time sentinels never reach this function: they arise
+	// after canCommit, and isReindexRefusal does not admit them.
 	return 1
 }
 
