@@ -317,7 +317,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantCancels:     0,
 			wantTaskID:      rolledBackTaskID,
 
-			wantRefusalVerdict: reindex.VerdictUnreachable,
+			wantRefusalVerdict:  reindex.VerdictUnreachable,
+			wantRollbackOutcome: "not_attempted",
 		},
 		{
 			// The rollback has to outlive the request: a task left running
@@ -484,7 +485,7 @@ func rollbackCount(t *testing.T, registry *prometheus.Registry, outcome string) 
 // An unrecognized outcome must collapse onto a known label, not mint a series.
 func TestRollbackOutcomeLabelsAreBounded(t *testing.T) {
 	labels := RollbackOutcomeLabels()
-	require.Len(t, labels, 6, "one label per outcome, and no more")
+	require.Len(t, labels, 7, "one label per outcome, and no more")
 
 	seen := map[string]struct{}{}
 	for _, label := range labels {
@@ -494,7 +495,8 @@ func TestRollbackOutcomeLabelsAreBounded(t *testing.T) {
 	}
 	for _, outcome := range []rollbackOutcome{
 		rollbackCancelled, rollbackCancelledAfterRetry, rollbackTaskGone,
-		rollbackTaskTerminal, rollbackRefused, rollbackFailed, rollbackOutcome(99),
+		rollbackTaskTerminal, rollbackRefused, rollbackFailed, rollbackNotAttempted,
+		rollbackOutcome(99),
 	} {
 		assert.Containsf(t, seen, outcome.label(),
 			"outcome %d produced the unbounded label %q", outcome, outcome.label())

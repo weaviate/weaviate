@@ -45,6 +45,10 @@ const (
 	rollbackTaskTerminal
 	rollbackRefused
 	rollbackFailed
+	// The submission committed and no rollback was even tried, because nothing
+	// answered the probe and a silent peer is what a disconnected client
+	// produces on its own.
+	rollbackNotAttempted
 )
 
 // landed is true when no reindex will run from the rolled-back submission.
@@ -52,7 +56,7 @@ func (o rollbackOutcome) landed() bool {
 	switch o {
 	case rollbackCancelled, rollbackCancelledAfterRetry, rollbackTaskGone, rollbackTaskTerminal:
 		return true
-	case rollbackRefused, rollbackFailed:
+	case rollbackRefused, rollbackFailed, rollbackNotAttempted:
 		return false
 	}
 	return false
@@ -74,6 +78,8 @@ func (o rollbackOutcome) auditEvent() (event string, level logrus.Level) {
 		return "reindex_submit_rollback_refused", logrus.ErrorLevel
 	case rollbackFailed:
 		return "reindex_submit_rollback_failed", logrus.ErrorLevel
+	case rollbackNotAttempted:
+		return "reindex_submit_rollback_not_attempted", logrus.ErrorLevel
 	}
 	return "reindex_submit_rollback_failed", logrus.ErrorLevel
 }
@@ -93,6 +99,8 @@ func (o rollbackOutcome) label() string {
 		return "refused"
 	case rollbackFailed:
 		return "failed"
+	case rollbackNotAttempted:
+		return "not_attempted"
 	}
 	return "failed"
 }
@@ -102,7 +110,7 @@ func RollbackOutcomeLabels() []string {
 	return []string{
 		rollbackCancelled.label(), rollbackCancelledAfterRetry.label(),
 		rollbackTaskGone.label(), rollbackTaskTerminal.label(),
-		rollbackRefused.label(), rollbackFailed.label(),
+		rollbackRefused.label(), rollbackFailed.label(), rollbackNotAttempted.label(),
 	}
 }
 
@@ -120,6 +128,8 @@ func (o rollbackOutcome) summary() string {
 		return "rollback: the task store refuses to cancel the reindex task this request had just committed; it is still running"
 	case rollbackFailed:
 		return "rollback: could not reach the task store to stop the reindex task this request had just committed; it is still running"
+	case rollbackNotAttempted:
+		return "rollback: not attempted, because no node answered the backup-activity probe; the reindex task this request had just committed is still running"
 	}
 	return ""
 }
@@ -139,6 +149,12 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	if scan.verdict == backupActivityUnreachable {
 		h.logBackupActivityRefusal(principal, collection, "unreachable", scan)
 		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
+		// Its own series and its own audit event: this is the one exit that
+		// leaves a migration running with a capture possibly in flight, and it
+		// must be distinguishable from the harmless pre-commit refusal, which
+		// logs and counts the same admission verdict.
+		h.logRollbackOutcome(principal, collection, taskID, rollbackNotAttempted, scan.fault)
+		h.appState.ReindexGateMetrics.RolledBack(rollbackNotAttempted.label())
 		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
 				"backup-activity probe. Reindex task %q was committed and is running; "+
