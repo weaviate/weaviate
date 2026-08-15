@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -57,7 +58,9 @@ func quoteClassList(classes []string) string {
 	if len(classes) == 0 {
 		return "the collections being restored"
 	}
-	named := classes
+	// Sorted so the same restore is refused with the same words on every
+	// retry: the caller's list arrives in map order.
+	named := slices.Sorted(slices.Values(classes))
 	if len(named) > maxNamedClasses {
 		named = named[:maxNamedClasses]
 	}

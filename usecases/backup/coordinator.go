@@ -586,17 +586,28 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		return nil
 	})
 
+	// The whole operation's class list, not the slice of it a given node
+	// holds: the refusal describes what was asked for, and which classes
+	// share a node is placement the caller has no other way to learn.
+	requested := req.Classes
+
 	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
+	var refusal error
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
-				err = canCommitErrFromResponse(resp, req.Classes)
+				err = canCommitErrFromResponse(resp, requested)
 			}
 			if err != nil {
 				if isReindexRefusal(err) {
 					// A migration is a cluster fact, not a property of the node.
+					mutex.Lock()
+					if refusal == nil {
+						refusal = err
+					}
+					mutex.Unlock()
 					return err
 				}
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
@@ -610,6 +621,15 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, nodes)
+		mutex.RLock()
+		first := refusal
+		mutex.RUnlock()
+		if first != nil {
+			// A refusal tells the caller what to do; whatever else the
+			// fan-out reported is usually a peer's connection going down
+			// with it.
+			return nil, first
+		}
 		return nil, err
 	}
 	return nodes, nil

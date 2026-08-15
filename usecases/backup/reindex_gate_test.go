@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,10 +61,19 @@ func TestQuoteClassList(t *testing.T) {
 			classes: []string{"A", "B", "C", "D", "E", "F", "G"},
 			want:    `"A", "B", "C", "D", "E" and 2 more`,
 		},
+		{
+			// The list comes out of a map, so the same restore would
+			// otherwise name a different five collections on every retry.
+			name:    "arriving in map order",
+			classes: []string{"G", "C", "A", "F", "B", "E", "D"},
+			want:    `"A", "B", "C", "D", "E" and 2 more`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			original := append([]string(nil), tt.classes...)
 			require.Equal(t, tt.want, quoteClassList(tt.classes))
+			require.Equal(t, original, tt.classes, "the caller's slice is not reordered")
 		})
 	}
 }
@@ -350,6 +361,121 @@ func TestPublishAsCancelled(t *testing.T) {
 			require.Equal(t, tt.want, publishAsCancelled(tt.err, tt.ctxErr))
 		})
 	}
+}
+
+// TestCanCommitRefusalOutranksPeerFailure pins two properties of a fan-out
+// one participant refuses: the caller gets the refusal even when a peer's
+// own failure was recorded first, and every refusing node describes the
+// restore that was asked for rather than the slice of it that lives on it.
+func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
+	const (
+		backendName = "s3"
+		id          = "1234"
+		clsA        = "Movies"
+		clsB        = "Shows"
+		node1       = "node1"
+		node2       = "node2"
+	)
+	ctx := context.Background()
+	any := mock.Anything
+	meta := backup.DistributedBackupDescriptor{
+		ID: id, StartedAt: time.Now().UTC(), Version: Version,
+		ServerVersion: "1.23", Status: backup.Success, Leader: node1,
+		Nodes: map[string]*backup.NodeDescriptor{
+			node1: {Classes: []string{clsA}},
+			node2: {Classes: []string{clsB}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID: id, Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{Name: clsA}, {Name: clsB}},
+	}
+	type answer struct {
+		resp *CanCommitResponse
+		err  error
+	}
+	refusalNaming := func(cls string) *CanCommitResponse {
+		return &CanCommitResponse{
+			Method: OpRestore, ID: id,
+			Err:     reindexRefusal(cls).Error(),
+			ErrKind: CanCommitErrRestoreBlockedByReindex,
+		}
+	}
+
+	// restore runs one fan-out in which the two participants answer in a
+	// chosen order rather than a raced one: neither returns until both are
+	// in flight, and then the one not named first waits for the context to
+	// be cancelled, which an error group does only after it has already
+	// recorded the other answer.
+	restore := func(t *testing.T, first string, answers map[string]answer) error {
+		t.Helper()
+		var inFlight sync.WaitGroup
+		inFlight.Add(len(answers))
+		sequenced := func(node string) func(mock.Arguments) {
+			return func(args mock.Arguments) {
+				inFlight.Done()
+				inFlight.Wait()
+				if node == first {
+					return
+				}
+				<-args.Get(0).(context.Context).Done()
+			}
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
+		fs.backend.On("HomeDir", any, any, any).Return("bucket/" + id)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+		fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+		fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{}).Maybe()
+		fs.client.On("Abort", any, any, any).Return(nil).Maybe()
+		for node, a := range answers {
+			call := fs.client.On("CanCommit", any, node, any)
+			if a.err != nil {
+				call.Return(nil, a.err)
+			} else {
+				call.Return(a.resp, nil)
+			}
+			call.Run(sequenced(node))
+		}
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+			Backend: backendName, ID: id,
+		}, false)
+		require.Error(t, err)
+		return err
+	}
+
+	t.Run("a refusal outranks a peer's own failure", func(t *testing.T) {
+		for _, first := range []string{node1, node2} {
+			t.Run("answering first: "+first, func(t *testing.T) {
+				err := restore(t, first, map[string]answer{
+					node1: {err: errors.New("connection refused")},
+					node2: {resp: refusalNaming(clsB)},
+				})
+				require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+					"a refusal is 422 whichever answer the fan-out recorded first")
+				assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
+				assert.NotContains(t, err.Error(), "connection refused")
+				assert.NotContains(t, err.Error(), node1)
+			})
+		}
+	})
+
+	t.Run("two refusing nodes describe the same restore", func(t *testing.T) {
+		bodies := make([]string, 0, 2)
+		for _, first := range []string{node1, node2} {
+			bodies = append(bodies, restore(t, first, map[string]answer{
+				node1: {resp: refusalNaming(clsA)},
+				node2: {resp: refusalNaming(clsB)},
+			}).Error())
+		}
+		for _, body := range bodies {
+			assert.Contains(t, body, strconv.Quote(clsA))
+			assert.Contains(t, body, strconv.Quote(clsB),
+				"the refusal covers the restore, not the classes co-resident with the node that answered")
+		}
+		require.Equal(t, bodies[0], bodies[1],
+			"the same restore must be refused in the same words whichever node answered first")
+	})
 }
 
 // TestRestoreKeepsNodesNarrowedToNothing pins that a node whose classes the
