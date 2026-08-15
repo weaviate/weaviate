@@ -302,14 +302,24 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name    string
 		padding int
-		wantErr string
+		// statusLine sizes the status line instead of the headers, because the
+		// stdlib quotes a malformed one whole into the error it hands back.
+		statusLine int
+		wantErr    string
 	}{
 		{name: "the headers this route really sends"},
 		{name: "headers padded past the cap", padding: 512, wantErr: "node activity request"},
+		{name: "a status line the peer sizes", statusLine: 60 << 10, wantErr: "node activity request"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.statusLine > 0 {
+					conn, _, _ := w.(http.Hijacker).Hijack()
+					conn.Write([]byte(strings.Repeat("A", tt.statusLine) + "\r\n\r\n"))
+					conn.Close()
+					return
+				}
 				for i := range tt.padding {
 					w.Header().Set(fmt.Sprintf("X-Pad-%d", i), strings.Repeat("p", 1<<10))
 				}
@@ -326,6 +336,7 @@ func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
 			}
 			require.ErrorContains(t, err, tt.wantErr)
 			require.NotErrorIs(t, err, ErrNodeActivityUnsupported)
+			assert.Less(t, len(err.Error()), 512, "a peer must not size the line this node logs")
 			assert.False(t, got.Free(), "a peer that oversizes its headers must not read as a free node")
 		})
 	}

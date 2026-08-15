@@ -107,7 +107,7 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 
 	res, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s request: %w", what, err)
+		return fmt.Errorf("%s request: %s", what, clusterprobe.Loggable(err.Error()))
 	}
 	defer res.Body.Close()
 
