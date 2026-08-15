@@ -112,6 +112,7 @@ type HybridSearch struct {
 	SubSearches          interface{}   `json:"subSearches"`
 	Type                 string        `json:"type"`
 	Alpha                float64       `json:"alpha"`
+	AutoTuneAlpha        bool          `json:"autoTuneAlpha"`
 	Query                string        `json:"query"`
 	Vector               models.Vector `json:"vector"`
 	Properties           []string      `json:"properties"`

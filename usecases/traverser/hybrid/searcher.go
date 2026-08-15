@@ -88,6 +88,10 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				return nil, err
 			}
 
+			if params.AutoTuneAlpha && alpha > 0 {
+				alpha = ComputeAdaptiveAlpha(res, alpha)
+			}
+
 			found = append(found, res)
 			weights = append(weights, 1-alpha)
 			names = append(names, "keyword")

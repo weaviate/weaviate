@@ -49,6 +49,16 @@ func TestHybrid(t *testing.T) {
 			output:            &searchparams.HybridSearch{NearVectorParams: &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{1, 2}}}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: nilweights},
 		},
+		{
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}, "autoTuneAlpha": true},
+			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, AutoTuneAlpha: true, FusionAlgorithm: 1},
+			outputCombination: nil,
+		},
+		{
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}},
+			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, AutoTuneAlpha: false, FusionAlgorithm: 1},
+			outputCombination: nil,
+		},
 	}
 
 	for _, tt := range cases {

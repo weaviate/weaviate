@@ -55,6 +55,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Search weight",
 			Type:        graphql.Float,
 		},
+		"autoTuneAlpha": &graphql.InputObjectFieldConfig{
+			Description: "Derive alpha per-query from BM25 result confidence instead of using a fixed value",
+			Type:        graphql.Boolean,
+		},
 		"maxVectorDistance": &graphql.InputObjectFieldConfig{
 			Description: "Removes all results that have a vector distance larger than the given value",
 			Type:        graphql.Float,
