@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -89,6 +90,34 @@ func (s *Store) Bucket(name string) *Bucket {
 	defer s.bucketAccessLock.RUnlock()
 
 	return s.bucketNoLock(name)
+}
+
+// DurableRaftFloor returns the highest raft applied index whose
+// materialization into this store is durable in fsynced segments across
+// every bucket — the safe upper bound for raft log compaction (a snapshot
+// above it would discard entries whose only materialization is in un-flushed
+// memtables). Buckets with no un-flushed writes impose no cap; a store whose
+// buckets are all clean returns MaxUint64.
+//
+// Concurrency contract: the caller must read the raft applied index BEFORE
+// calling this and cap that pre-read value. Any bucket holding writes from
+// entries at or below such a pre-read applied index was necessarily
+// registered in bucketsByName before those writes completed — i.e. before
+// the applied index advanced past them — so the iteration below cannot miss
+// it. Buckets created after the applied read can only hold writes from newer
+// entries, which the pre-read cap never covers. Floors advance monotonically
+// per bucket, so racing flush completions only make the result conservative.
+func (s *Store) DurableRaftFloor() uint64 {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	floor := uint64(math.MaxUint64)
+	for _, b := range s.bucketsByName {
+		if f := b.DurableRaftFloor(); f < floor {
+			floor = f
+		}
+	}
+	return floor
 }
 
 // bucketNoLock returns a bucket by name; caller must hold bucketAccessLock.

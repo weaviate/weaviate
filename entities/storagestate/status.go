@@ -25,8 +25,12 @@ const (
 	StatusShutdown    Status = "SHUTDOWN"
 )
 
+// ErrStatusReadOnlyWithReason builds the operator-facing read-only error. It
+// %w-wraps ErrStatusReadOnly — errors.Is classification (the transient-error
+// classifier, the raft apply path's park decision) depends on the sentinel
+// being in the chain — while keeping the exact message text unchanged.
 var ErrStatusReadOnlyWithReason = func(reason string) error {
-	return fmt.Errorf("store is read-only due to: %v", reason)
+	return fmt.Errorf("%w due to: %v", ErrStatusReadOnly, reason)
 }
 
 var (

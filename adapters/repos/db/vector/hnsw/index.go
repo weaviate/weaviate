@@ -820,6 +820,16 @@ func (h *hnsw) Flush() error {
 	return h.commitLog.Flush()
 }
 
+// SyncCommitLog makes the commit log's accepted tail durable (buffered flush
+// + fsync). Used by the raft snapshot durability gate before log compaction;
+// commit loggers without a sync capability (no-op loggers) are a no-op.
+func (h *hnsw) SyncCommitLog() error {
+	if s, ok := h.commitLog.(interface{ SyncCommitLog() error }); ok {
+		return s.SyncCommitLog()
+	}
+	return nil
+}
+
 func (h *hnsw) Entrypoint() uint64 {
 	h.RLock()
 	defer h.RUnlock()

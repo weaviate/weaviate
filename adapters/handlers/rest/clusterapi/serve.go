@@ -36,9 +36,10 @@ const (
 
 // Server represents the cluster API server
 type Server struct {
-	server   *http.Server
-	appState *state.State
-	grpc     *grpc.Server
+	server       *http.Server
+	appState     *state.State
+	grpc         *grpc.Server
+	shardStarted bool
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -148,6 +149,16 @@ func NewServer(appState *state.State) *Server {
 
 // Serve starts the server and blocks until an error occurs
 func (s *Server) Serve() error {
+	// Start the shard RAFT registry if configured
+	if s.appState.ShardRegistry != nil {
+		s.appState.Logger.WithField("action", "cluster_api_startup").
+			Info("starting shard RAFT registry")
+		if err := s.appState.ShardRegistry.Start(); err != nil {
+			return fmt.Errorf("start shard RAFT registry: %w", err)
+		}
+		s.shardStarted = true
+	}
+
 	s.appState.Logger.WithField("action", "cluster_api_startup").
 		Infof("cluster api server is ready to handle requests on %s", s.server.Addr)
 	return s.server.ListenAndServe()
@@ -158,6 +169,18 @@ func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
 
+	// Shutdown shard RAFT registry if it was started
+	if s.shardStarted && s.appState.ShardRegistry != nil {
+		s.appState.Logger.WithField("action", "cluster_api_shutdown").
+			Info("shutting down shard RAFT registry")
+		if err := s.appState.ShardRegistry.Shutdown(); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Warn("error shutting down shard RAFT registry")
+		}
+	}
+
+	// Now shutdown the servers after the replicated indices have been closed
 	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
 	eg.Go(func() error {
 		if err := s.server.Shutdown(ctx); err != nil {

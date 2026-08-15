@@ -196,14 +196,16 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		}
 	}
 
+	// ID parsing/derivation depends only on the object's own content:
+	// deterministic under the raft apply path's typed error contract.
 	uuidParsed, err := uuid.Parse(object.ID().String())
 	if err != nil {
-		return errors.Wrap(err, "invalid id")
+		return enterrors.Deterministic(errors.Wrap(err, "invalid id"))
 	}
 
 	idBytes, err := uuidParsed.MarshalBinary()
 	if err != nil {
-		return err
+		return enterrors.Deterministic(err)
 	}
 
 	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)

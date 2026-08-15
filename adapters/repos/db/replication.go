@@ -932,17 +932,16 @@ type ChangeLogReplayEntry struct {
 	Payload []byte
 }
 
-type changeLogReplayCtxKey struct{}
-
 // withChangeLogReplay marks a write as change-log replay so putObjectLSM/DeleteObject
-// drop it when the local object is newer (atomic under the docIdLock).
+// drop it when the local object is newer (atomic under the docIdLock). It is
+// the shared LWW replay guard (usecases/objects), also set by the shard RAFT
+// FSM for its at-least-once applies.
 func withChangeLogReplay(ctx context.Context) context.Context {
-	return context.WithValue(ctx, changeLogReplayCtxKey{}, true)
+	return objects.WithLWWReplayGuard(ctx)
 }
 
 func fromChangeLogReplay(ctx context.Context) bool {
-	v, _ := ctx.Value(changeLogReplayCtxKey{}).(bool)
-	return v
+	return objects.HasLWWReplayGuard(ctx)
 }
 
 // OverwriteObjectsFromChangeLog replays entries under pure LWW by
