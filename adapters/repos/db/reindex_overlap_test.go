@@ -356,17 +356,28 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 	tests := []struct {
 		name        string
 		disabled    bool
+		unwired     bool
 		ttl         time.Duration
 		wantRefused bool
 	}{
 		{name: "the feature is on and nothing is retained", ttl: 0, wantRefused: true},
 		{name: "the feature is on and the window is wide", ttl: 120 * time.Hour},
 		{name: "the feature is off, so no check needs the evidence", disabled: true, ttl: 0},
+		{
+			// An uninstalled check admits at commit time, so refusing here
+			// would refuse a backup nothing was ever going to judge.
+			name: "the check is not installed", unwired: true, ttl: 0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled, CompletedTaskTTL: tt.ttl}}
+			if !tt.unwired {
+				db.SetReindexOverlapLookup(func(context.Context) ReindexOverlapLookup {
+					return NewReindexOverlapLookup(nil, tt.ttl, noLocalWorker, time.Now)
+				})
+			}
 
 			err := db.Backupable(context.Background(), nil)
 
