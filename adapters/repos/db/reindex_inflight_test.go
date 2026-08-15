@@ -67,24 +67,31 @@ type gateFixtures struct {
 	tasks []*distributedtask.Task
 }
 
+// gateCounters tallies how many lookups each gate built, which is what
+// separates one read per collection from one read per shard.
+type gateCounters struct{ activity, hold int }
+
 // gatedDB builds a DB whose gates answer from the fixtures, with a logger
-// whose entries the caller can count and a tally of cluster-wide lookups
-// built.
-func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *int) {
+// whose entries the caller can count and a tally of the lookups built.
+func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters) {
 	t.Helper()
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 	db := &DB{logger: logger, localNodeName: "node-7"}
-	built := 0
+	var built gateCounters
 	if f.live != nil {
 		db.SetShardReindexActivityLookup(makeActivityBuilder(f.live))
 	}
 	if f.holds != nil {
-		db.SetReindexHoldLookup(makeHoldBuilder(f.holds))
+		holdBuilder := makeHoldBuilder(f.holds)
+		db.SetReindexHoldLookup(func() ReindexHoldLookup {
+			built.hold++
+			return holdBuilder()
+		})
 	}
 	if f.tasks != nil {
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
-			built++
+			built.activity++
 			return NewAnyReindexActivityLookup(f.tasks)
 		})
 	}
@@ -385,6 +392,24 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		"the sample must be capped")
 	assert.Nil(t, entry.Data["shard"],
 		"the singular field would name one of 60 shards as if it were the one")
+}
+
+// TestReindexHoldReadOncePerRefusal pins that a refusal over a collection's
+// shards reads the hold once. A hold belongs to the collection, so a read
+// per shard is a read per tenant, and it can also answer one way for the
+// shards seen before a hold was taken and another for the rest.
+func TestReindexHoldReadOncePerRefusal(t *testing.T) {
+	const shardCount = 50
+	shards := make([]string, 0, shardCount)
+	for i := range shardCount {
+		shards = append(shards, fmt.Sprintf("shard-%02d", i))
+	}
+	db, _, built := gatedDB(t, gateFixtures{
+		live:  map[[2]string]bool{},
+		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
+	})
+	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards))
+	assert.Equal(t, 1, built.hold, "one hold read for the whole collection")
 }
 
 // TestRefuseIfAnyShardReindexInFlight_ArmSelection pins which wording a

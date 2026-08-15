@@ -58,11 +58,10 @@ func (db *DB) warnUnwiredGate(budget *reindexGateWarnBudget, action, gate, detai
 
 const reindexRefusalSampleLimit = 10
 
+// Copied, not sliced: the sample outlives the call as a log field, and
+// authorization.Backups uppercases class lists in place.
 func cappedSample(items []string) []string {
-	if len(items) > reindexRefusalSampleLimit {
-		return items[:reindexRefusalSampleLimit]
-	}
-	return items
+	return append([]string(nil), items[:min(len(items), reindexRefusalSampleLimit)]...)
 }
 
 func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) {
@@ -105,7 +104,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	_, refusal := i.db.reindexBackupRefusal(collection, shardName)
+	_, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
 	return refusal
 }
 
@@ -115,6 +114,12 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		return reindexStartupWindowRefusal(collection)
 	}
 
+	// One read for the whole loop. A hold is a property of the collection,
+	// so reading it per shard costs one read per tenant and lets the loop
+	// answer one way for the shards it saw before a hold was taken and
+	// another for the rest.
+	hold := i.db.ReindexHoldFor(collection)
+
 	var (
 		refusal error
 		reason  string
@@ -122,7 +127,7 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		sample  []string
 	)
 	for _, shardName := range shards {
-		shardReason, shardRefusal := i.db.reindexBackupRefusal(collection, shardName)
+		shardReason, shardRefusal := i.db.reindexBackupRefusal(collection, shardName, hold)
 		if shardRefusal == nil {
 			continue
 		}
@@ -141,14 +146,17 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 	return refusal
 }
 
-func (db *DB) reindexBackupRefusal(collection, shardName string) (string, error) {
-	reason, refusal := "", error(nil)
-	switch hold := db.ReindexHoldFor(collection); {
-	case db.AnyLiveReindexForShard(collection, shardName):
+func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHold) (string, error) {
+	var (
+		reason  string
+		refusal error
+	)
+	if db.AnyLiveReindexForShard(collection, shardName) {
 		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
-	case hold != ReindexHoldNone:
+	} else if hold != ReindexHoldNone {
 		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
-	default:
+	}
+	if refusal == nil {
 		return "", nil
 	}
 	// One line per shard, at the level base used; the fan-out is bounded by

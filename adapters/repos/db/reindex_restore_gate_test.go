@@ -240,7 +240,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 			"the restore chain and the backup chain must stay separable")
 		assert.Contains(t, err.Error(), `collection "Movies"`)
-		assert.Equal(t, 1, *built, "the gate asks once per call")
+		assert.Equal(t, 1, built.activity, "the gate asks once per call")
 
 		// The task id and the node reach the operator, not the caller.
 		assert.NotContains(t, err.Error(), "t1")
@@ -302,7 +302,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, entitiesbackup.ErrReindexInFlight)
 		assert.Contains(t, err.Error(), "still removing its temporary index files")
-		assert.Zero(t, *built, "the cluster must not be asked once the local answer is no")
+		assert.Zero(t, built.activity, "the cluster must not be asked once the local answer is no")
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, ReindexHoldCleanup.String(), hook.AllEntries()[0].Data["reason"])
 	})
@@ -311,13 +311,13 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not recognize")
-		assert.Zero(t, *built)
+		assert.Zero(t, built.activity)
 	})
 	t.Run("the feature flag skips both halves", func(t *testing.T) {
 		db, _, built := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		db.config.RuntimeReindexDisabled = true
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
-		assert.Zero(t, *built, "the flag must be read before any lookup is built")
+		assert.Zero(t, built.activity, "the flag must be read before any lookup is built")
 	})
 	t.Run("an unwired gate admits and reports", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
@@ -348,6 +348,29 @@ func TestRefuseIfAnyReindexInFlight_WideRequestLogsBounded(t *testing.T) {
 	entry := hook.AllEntries()[0]
 	assert.Equal(t, len(classes), entry.Data["requested_class_count"])
 	assert.Len(t, entry.Data["requested_classes"], reindexRefusalSampleLimit)
+}
+
+// TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest pins that the
+// sampled class list in the log is a copy. authorization.Backups
+// uppercases its input in place, which is why Scheduler.Restore copies
+// req.Include before authorizing, and a log field sharing that array
+// would be rewritten under it.
+func TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest(t *testing.T) {
+	classes := make([]string, 0, 20)
+	for i := range 20 {
+		classes = append(classes, fmt.Sprintf("Class%02d", i))
+	}
+	live := []*distributedtask.Task{
+		reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor(classes[0])),
+	}
+	db, hook, _ := gatedDB(t, gateFixtures{tasks: live})
+	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), classes))
+	require.Len(t, hook.AllEntries(), 1)
+	logged := hook.AllEntries()[0].Data["requested_classes"].([]string)
+	require.Equal(t, "Class00", logged[0])
+
+	classes[0] = "CLASS00"
+	assert.Equal(t, "Class00", logged[0], "the log field must not follow the caller's slice")
 }
 
 // TestReindexGateWarnBudget pins the hourly budget an unwired gate
