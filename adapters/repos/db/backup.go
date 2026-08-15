@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -244,6 +245,11 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+	// The admission gate counted only what it could see. A migration that
+	// started since is refused by the per-shard walk below, and that is still
+	// one refused backup of this class however many shards report it.
+	defer func() { i.countReindexGateRefusal(reindex.GateBackup, err) }()
+
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}

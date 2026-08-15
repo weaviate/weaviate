@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 const replicaStagingPrefix = ".replica-staging-"
@@ -79,6 +80,9 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// are served from the live shard root in this mode. The inactivity timeout
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
 	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
+		// The hardlink branch above counts its own refusal, and the two are
+		// exclusive, so one snapshot still counts once.
+		i.countReindexGateRefusal(reindex.GateTransfer, err)
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}

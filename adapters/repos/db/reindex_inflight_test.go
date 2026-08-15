@@ -453,6 +453,63 @@ func TestReindexRefusalCountsOperationsNotShards(t *testing.T) {
 		"one refused backup is one count, whatever the tenant count behind it")
 }
 
+// The transfer's own gate, counted where the transfer is. A replica snapshot is
+// one shard and one operation, so it counts once on whichever of its two
+// branches runs, and never as a backup.
+func TestReindexRefusalCountsAReplicaSnapshotOnce(t *testing.T) {
+	tests := []struct {
+		name            string
+		forceNoHardlink bool
+	}{
+		{name: "hardlink branch"},
+		{name: "halt-for-duration branch", forceNoHardlink: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.forceNoHardlink {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			}
+			index, _ := newSharedHaltTestShard(t)
+			registry := prometheus.NewPedanticRegistry()
+			index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+				{"TestClass", "shard1"}: true,
+			}))
+			index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+
+			_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1",
+				"00000000-0000-0000-0000-0000000000f1")
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+			assert.Equal(t, 1.0,
+				gateRefusalCount(t, registry, reindex.GateTransfer, reindex.VerdictLiveTask),
+				"a refused replica snapshot is one refused operation")
+			assert.Zero(t, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
+				"counting a transfer as a backup sends an operator to the wrong runbook")
+		})
+	}
+}
+
+// A migration that starts after admission is caught by the per-shard walk
+// instead, and that is still one refused backup of this class.
+func TestReindexRefusalCountsALateBackupRefusalOnce(t *testing.T) {
+	index, _ := newSharedHaltTestShard(t)
+	registry := prometheus.NewPedanticRegistry()
+	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"TestClass", "shard1"}: true,
+	}))
+	index.db.SetReindexGateMetrics(reindex.NewGateMetrics(registry, nil, nil))
+
+	var desc entitiesbackup.ClassDescriptor
+	err := index.descriptor(context.Background(), "reindex-late-refusal", &desc, nil)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+
+	assert.Equal(t, 1.0, gateRefusalCount(t, registry, reindex.GateBackup, reindex.VerdictLiveTask),
+		"a backup refused after admission is one refused operation on this class")
+	assert.Zero(t, gateRefusalCount(t, registry, reindex.GateTransfer, reindex.VerdictLiveTask),
+		"the backup walk shares a rung with the transfer gate but is not one")
+}
+
 // A live task can be ended by the operator; a hold cannot, so the arm that
 // offers a remedy has to win regardless of the order the shards come in.
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {

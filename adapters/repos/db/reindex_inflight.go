@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -125,11 +126,36 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	// Deliberately uncounted: this runs once per shard, and a backup refused
-	// over sixty tenants is one refused operation. The admission gate below
-	// sees the operation, so it is the rung that counts.
-	_, _, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
-	return refusal
+	// Uncounted here: this runs once per shard, and a backup refused over sixty
+	// tenants is one refused operation. The verdict rides out on the error so
+	// that whichever caller is a whole operation can count it once.
+	_, verdict, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
+	if refusal == nil {
+		return nil
+	}
+	return reindexGateRefusal{inner: refusal, verdict: verdict}
+}
+
+// reindexGateRefusal carries a shard-level refusal's metric verdict out to its
+// caller. Only the caller knows whether its own call is one whole operation or
+// one shard of a larger one, and the counter counts operations.
+type reindexGateRefusal struct {
+	inner   error
+	verdict string
+}
+
+func (e reindexGateRefusal) Error() string { return e.inner.Error() }
+
+func (e reindexGateRefusal) Unwrap() error { return e.inner }
+
+// countReindexGateRefusal counts a refusal the caller has established is one
+// operation of its own. Any other error belongs to another gate, or to none.
+func (i *Index) countReindexGateRefusal(gate string, err error) {
+	var refusal reindexGateRefusal
+	if i.db == nil || !errors.As(err, &refusal) {
+		return
+	}
+	i.db.gateMetrics().Refused(gate, refusal.verdict)
 }
 
 func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {

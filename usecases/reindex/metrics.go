@@ -24,6 +24,9 @@ const (
 	GateBackup  = "backup"
 	GateRestore = "restore"
 	GateOverlap = "overlap"
+	// A shard transfer meets the same rung a backup does, but an operator
+	// chasing a stalled replica movement must not have to read it as a backup.
+	GateTransfer = "transfer"
 )
 
 const (
@@ -91,6 +94,8 @@ var reachableVerdicts = map[string][]string{
 	GateBackup:  {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 	GateRestore: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 	GateOverlap: {VerdictOverlap, VerdictOverlapUnsure},
+	// The same rung as the backup gate, so the same findings.
+	GateTransfer: {VerdictLiveTask, VerdictTaskListUnreadable, VerdictHoldSubmit, VerdictHoldCleanup, VerdictHoldUnknown},
 }
 
 // Refused counts one refusal whatever it covers: a gate that closed over sixty

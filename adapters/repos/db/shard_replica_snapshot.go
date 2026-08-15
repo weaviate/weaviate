@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 // CreateReplicaSnapshot requires stagingRoot to exist and the filesystem to
@@ -37,6 +38,9 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 		return nil, err
 	}
 	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+		// One snapshot of one shard is one operation, so unlike the backup walk
+		// this rung also feeds, the refusal is counted where it is met.
+		s.index.countReindexGateRefusal(reindex.GateTransfer, err)
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
 	defer func() {
