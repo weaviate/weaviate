@@ -26,36 +26,61 @@ const (
 	maxNodeActivityIDLen = 128
 )
 
+// NodeActivity is what one node said about itself. The zero value is "nobody
+// told us anything", which is why Free, and never the absence of Busy, is what
+// clears a node: a caller that drops the error still cannot read a refusal as
+// an idle node.
 type NodeActivity struct {
-	Busy bool
-	Kind string
-	ID   string
+	Answered bool
+	Busy     bool
+	Kind     string
+	ID       string
+}
+
+// Free reports the one verdict that lets a node past a gate on backup activity.
+func (a NodeActivity) Free() bool {
+	return a.Answered && !a.Busy
 }
 
 type NodeActivityResponse struct {
 	Probe string `json:"probe"`
+	// Node names the writer. Without it an answer from a host that a reassigned
+	// member address routed us to is indistinguishable from the node we asked
+	// about, and clears that node while it backs up.
+	Node string `json:"node"`
 	// A pointer, so an answer that never mentions it is refused, not read as false.
 	Busy *bool  `json:"busy"`
 	Kind string `json:"kind,omitempty"`
 	ID   string `json:"id,omitempty"`
 }
 
-func NewNodeActivityResponse(activity NodeActivity) NodeActivityResponse {
+func NewNodeActivityResponse(node string, activity NodeActivity) NodeActivityResponse {
+	// An activity this build could not decide leaves as busy: on this route
+	// "unsure" must never travel as "free".
+	busy := !activity.Free()
 	return NodeActivityResponse{
 		Probe: clusterprobe.BackupNodeActivityMarker,
-		Busy:  &activity.Busy,
+		Node:  node,
+		Busy:  &busy,
 		Kind:  activity.Kind,
 		ID:    activity.ID,
 	}
 }
 
-// Activity reports what an answer says; a refusal means "cannot tell", never "node free".
-func (r NodeActivityResponse) Activity() (NodeActivity, error) {
+// Activity reports what the node named addressed said; a refusal means "cannot
+// tell", never "node free".
+func (r NodeActivityResponse) Activity(addressed string) (NodeActivity, error) {
 	if r.Probe != clusterprobe.BackupNodeActivityMarker {
 		return NodeActivity{}, fmt.Errorf("answer is marked %s, want %q: it was not written by the "+
 			"node-activity route, so it cannot mean the node is free; check for an HTTP proxy or "+
 			"another service on the cluster port", clusterprobe.Loggable(r.Probe),
 			clusterprobe.BackupNodeActivityMarker)
+	}
+	if r.Node != addressed {
+		return NodeActivity{}, fmt.Errorf("answer is written by node %s, not by %s which we "+
+			"addressed: a node can only speak for itself, so this cannot mean the node is free; "+
+			"check for a member address that has been reassigned",
+			clusterprobe.Loggable(r.Node), clusterprobe.Loggable(addressed))
 	}
 	if r.Busy == nil {
 		return NodeActivity{}, fmt.Errorf("answer has no %q field, so it cannot mean the node is free", "busy")
@@ -76,7 +101,7 @@ func (r NodeActivityResponse) Activity() (NodeActivity, error) {
 		return NodeActivity{}, fmt.Errorf("answer is not busy but names kind %s and id %s",
 			clusterprobe.Loggable(r.Kind), clusterprobe.Loggable(r.ID))
 	}
-	return NodeActivity{Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
+	return NodeActivity{Answered: true, Busy: *r.Busy, Kind: r.Kind, ID: r.ID}, nil
 }
 
 type NodeActivityProbe struct {
@@ -106,9 +131,16 @@ type activitySlot struct {
 	kind string
 }
 
-// Activity reads the four slots under four separate locks and is stale by the
-// time it returns, so it is a backstop against a backup already running and
-// never a reservation against one about to start.
+// Node names the node this probe answers for, so a caller can tell an answer
+// from the node it addressed apart from one a reassigned address routed
+// elsewhere.
+func (p *NodeActivityProbe) Node() string {
+	return p.participant.node
+}
+
+// Activity reads each slot under its own lock and is stale by the time it
+// returns, so it is a backstop against a backup already running and never a
+// reservation against one about to start.
 func (p *NodeActivityProbe) Activity() NodeActivity {
 	p.mu.RLock()
 	scheduler := p.scheduler
@@ -129,8 +161,8 @@ func (p *NodeActivityProbe) Activity() NodeActivity {
 		// "held". The status is no substitute: set and setFailed also write it to a
 		// slot that was already released, and this node would then never idle again.
 		if id := slot.stat.get().ID; id != "" {
-			return NodeActivity{Busy: true, Kind: slot.kind, ID: id}
+			return NodeActivity{Answered: true, Busy: true, Kind: slot.kind, ID: id}
 		}
 	}
-	return NodeActivity{}
+	return NodeActivity{Answered: true}
 }

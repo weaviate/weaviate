@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/clusterprobe"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -35,7 +37,10 @@ func (r staticResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-const idleAnswer = `{"probe":"weaviate/backup-node-activity","busy":false}`
+const (
+	idleAnswer      = `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`
+	otherNodeAnswer = `{"probe":"weaviate/backup-node-activity","node":"node2","busy":false}`
+)
 
 // padTo pads valid JSON with trailing whitespace, which decoders accept, so an
 // answer that is only wrong about its size is refused for its size alone.
@@ -63,31 +68,33 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 		{
 			name: "busy with a backup",
 			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","busy":true,"kind":"backup","id":"b1"}`))
+				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"backup","id":"b1"}`))
 			},
-			want: backup.NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			want: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"},
 		},
 		{
 			name: "busy with a restore",
 			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","busy":true,"kind":"restore","id":"r1"}`))
+				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"restore","id":"r1"}`))
 			},
-			want: backup.NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+			want: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r1"},
 		},
 		{
 			name:    "idle",
 			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(idleAnswer)) },
-			want:    backup.NodeActivity{},
+			want:    backup.NodeActivity{Answered: true},
 		},
 		{
-			name:    "200 carrying another service's marker",
-			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"probe":"nginx","busy":false}`)) },
+			name: "200 carrying another service's marker",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"probe":"nginx","node":"node1","busy":false}`))
+			},
 			wantErr: "was not written by the node-activity route",
 		},
 		{
 			name: "200 that never mentions busy",
 			respond: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(`{"probe":"weaviate/backup-node-activity"}`))
+				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node1"}`))
 			},
 			wantErr: `answer has no "busy" field`,
 		},
@@ -95,6 +102,18 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			name:    "200 that is not JSON",
 			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`<html>hello</html>`)) },
 			wantErr: "unmarshal node activity answer",
+		},
+		{
+			name:    "200 naming another node",
+			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(otherNodeAnswer)) },
+			wantErr: "written by node",
+		},
+		{
+			name: "200 naming no node at all",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","busy":false}`))
+			},
+			wantErr: "written by node",
 		},
 		{
 			name:        "the node's own 404",
@@ -105,9 +124,52 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			name: "404 with the node's body but no nosniff",
 			respond: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte("404 page not found\n"))
+				w.Write([]byte(clusterprobe.NodeNotFoundBody))
 			},
 			wantErr: "did not come from the node itself",
+		},
+		{
+			name: "404 with the node's body padded with whitespace",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				nosniff(w, http.StatusNotFound, "   \t\r\n 404 page not found \n\n  ")
+			},
+			wantErr: "did not come from the node itself",
+		},
+		{
+			name:    "404 with the node's body surrounded by single spaces",
+			respond: func(w http.ResponseWriter, r *http.Request) { nosniff(w, http.StatusNotFound, " 404 page not found ") },
+			wantErr: "did not come from the node itself",
+		},
+		{
+			name:    "404 with the node's body but its trailing newline stripped",
+			respond: func(w http.ResponseWriter, r *http.Request) { nosniff(w, http.StatusNotFound, "404 page not found") },
+			wantErr: "did not come from the node itself",
+		},
+		{
+			// nginx's add_header appends rather than replaces, so a second value is
+			// evidence of a middlebox, whatever the second value says.
+			name: "404 with the node's body and a second sentinel value",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Add(clusterprobe.NodeNotFoundHeader, clusterprobe.NodeNotFoundHeaderValue)
+				w.Header().Add(clusterprobe.NodeNotFoundHeader, "sniff-away")
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(clusterprobe.NodeNotFoundBody))
+			},
+			wantErr: "did not come from the node itself",
+		},
+		{
+			// The body alone must never be enough: hoisting the check above the
+			// status switch would let these two clear a node.
+			name:    "200 carrying the node's own 404 body",
+			respond: func(w http.ResponseWriter, r *http.Request) { nosniff(w, http.StatusOK, clusterprobe.NodeNotFoundBody) },
+			wantErr: "unmarshal node activity answer",
+		},
+		{
+			name: "503 carrying the node's own 404 body",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				nosniff(w, http.StatusServiceUnavailable, clusterprobe.NodeNotFoundBody)
+			},
+			wantErr: "status 503",
 		},
 		{
 			name:    "404 with nosniff but a proxy's body",
@@ -130,13 +192,6 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			wantErr: "status 503",
 		},
 		{
-			name: "503 carrying a not-wired sentinel",
-			respond: func(w http.ResponseWriter, r *http.Request) {
-				nosniff(w, http.StatusServiceUnavailable, "weaviate/probe-not-wired")
-			},
-			wantErr: "status 503",
-		},
-		{
 			name:         "401 with an empty body",
 			respond:      func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) },
 			unauthorized: true,
@@ -151,7 +206,7 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 		{
 			name:    "an answer exactly at the size cap",
 			respond: func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(padTo(64 << 10))) },
-			want:    backup.NodeActivity{},
+			want:    backup.NodeActivity{Answered: true},
 		},
 		{
 			name:    "an answer one byte over the size cap",
@@ -184,7 +239,10 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			default:
 				require.NoError(t, err)
 			}
-			assert.Equal(t, tt.want, got, "no refused answer may read as a free node")
+			if !tt.want.Free() {
+				assert.False(t, got.Free(), "no refused answer may read as a free node")
+			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -208,7 +266,7 @@ func TestClusterBackupActivityUnreachable(t *testing.T) {
 
 			require.ErrorContains(t, err, tt.wantErr)
 			require.NotErrorIs(t, err, ErrNodeActivityUnsupported)
-			assert.Equal(t, backup.NodeActivity{}, got)
+			assert.False(t, got.Free(), "a node we could not reach must not read as a free node")
 		})
 	}
 }
@@ -241,6 +299,42 @@ func TestProbeHTTPClientIgnoresProxiesAndAlwaysBounds(t *testing.T) {
 			require.IsType(t, &http.Transport{}, transport)
 			assert.Nil(t, transport.(*http.Transport).Proxy)
 			assert.Positive(t, client.Timeout, "no configured budget may leave a probe unbounded")
+		})
+	}
+}
+
+// Response headers are the one part of an answer the peer sizes and the probe
+// does not read through a limiter. The stdlib default is 10 MiB, and under the
+// fan-out that is 10 MiB per node, on a route whose real headers are three.
+func TestClusterBackupActivityBoundsResponseHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		padding int
+		wantErr string
+	}{
+		{name: "the headers this route really sends"},
+		{name: "headers padded past the cap", padding: 512, wantErr: "node activity request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for i := range tt.padding {
+					w.Header().Set(fmt.Sprintf("X-Pad-%d", i), strings.Repeat("p", 1<<10))
+				}
+				w.Write([]byte(idleAnswer))
+			}))
+			defer server.Close()
+
+			got, err := newTestBackupActivity(t, server).NodeActivity(context.Background(), "node1")
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.True(t, got.Free())
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+			require.NotErrorIs(t, err, ErrNodeActivityUnsupported)
+			assert.False(t, got.Free(), "a peer that oversizes its headers must not read as a free node")
 		})
 	}
 }
@@ -290,7 +384,7 @@ func TestClusterBackupActivityRefusesRedirects(t *testing.T) {
 			got, err := client.NodeActivity(context.Background(), "node1")
 
 			assert.Zero(t, len(seen), "a request never made cannot hand over the credential")
-			assert.Equal(t, backup.NodeActivity{}, got)
+			assert.False(t, got.Free(), "an answer from a host we did not address must not read as a free node")
 			assert.NotErrorIs(t, err, ErrNodeActivityUnsupported)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, "does not follow")
@@ -331,9 +425,11 @@ func (t *recordingTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
 }
 
-// An http.RoundTripper may not edit the request it is given: the stdlib reuses
-// that request across a redirect, and the credential it added would travel with
-// it to whatever host the redirect named.
+// An http.RoundTripper may not edit the request it is given; that is the
+// contract, and the only thing this pins. It is not what keeps the credential
+// from a redirect target: a RoundTripper runs once per hop, so it re-adds the
+// header the stdlib stripped. Only CheckRedirect covers that, which the test
+// above pins by watching who was contacted.
 func TestBasicAuthTransportDoesNotEditTheCallersRequest(t *testing.T) {
 	inner := &recordingTransport{}
 	transport := basicAuthTransport{next: inner, auth: cluster.BasicAuth{Username: "u", Password: "p"}}
@@ -351,8 +447,9 @@ func TestBasicAuthTransportDoesNotEditTheCallersRequest(t *testing.T) {
 	assert.Equal(t, "p", password)
 }
 
-// The route sits behind the cluster's basic auth, so the probe has to present
-// the cluster's own credentials to read a peer at all.
+// Where the cluster configures basic auth, the route sits behind it like every
+// sibling route, so the probe has to present the cluster's own credentials to
+// read a peer at all.
 func TestClusterBackupActivitySendsBasicAuth(t *testing.T) {
 	auth := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "cluster-user", Password: "s3cret"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +467,7 @@ func TestClusterBackupActivitySendsBasicAuth(t *testing.T) {
 	got, err := client.NodeActivity(context.Background(), "node1")
 
 	require.NoError(t, err)
-	assert.Equal(t, backup.NodeActivity{}, got)
+	assert.Equal(t, backup.NodeActivity{Answered: true}, got)
 }
 
 func newTestBackupActivity(t *testing.T, server *httptest.Server) *ClusterBackupActivity {

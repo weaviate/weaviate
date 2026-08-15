@@ -21,9 +21,10 @@ const (
 )
 
 // What a build predating a probe route answers on that route: net/http's own
-// 404. Relaxing either fails open, since a proxy's 404 then reads as a node's.
+// 404, down to the newline it appends. Relaxing either fails open, since a
+// proxy's 404 then reads as a node's.
 const (
-	NodeNotFoundBody        = "404 page not found"
+	NodeNotFoundBody        = "404 page not found\n"
 	NodeNotFoundHeader      = "X-Content-Type-Options"
 	NodeNotFoundHeaderValue = "nosniff"
 )

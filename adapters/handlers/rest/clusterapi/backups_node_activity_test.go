@@ -37,6 +37,8 @@ type stubProber struct {
 	calls    int
 }
 
+func (p *stubProber) Node() string { return "node1" }
+
 func (p *stubProber) Activity() backup.NodeActivity {
 	p.calls++
 	return p.activity
@@ -63,23 +65,32 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 	}{
 		{
 			name:     "idle names neither a kind nor an id",
+			activity: backup.NodeActivity{Answered: true},
 			method:   http.MethodGet,
 			wantCode: http.StatusOK,
-			wantBody: `{"probe":"weaviate/backup-node-activity","busy":false}`,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`,
+		},
+		{
+			// Nothing produces this today. It is here because if something ever
+			// does, it must leave as busy rather than clear the node it came from.
+			name:     "an activity nothing decided",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true}`,
 		},
 		{
 			name:     "busy with a backup",
-			activity: backup.NodeActivity{Busy: true, Kind: "backup", ID: "b1"},
+			activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"},
 			method:   http.MethodGet,
 			wantCode: http.StatusOK,
-			wantBody: `{"probe":"weaviate/backup-node-activity","busy":true,"kind":"backup","id":"b1"}`,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"backup","id":"b1"}`,
 		},
 		{
 			name:     "busy with a restore",
-			activity: backup.NodeActivity{Busy: true, Kind: "restore", ID: "r1"},
+			activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r1"},
 			method:   http.MethodGet,
 			wantCode: http.StatusOK,
-			wantBody: `{"probe":"weaviate/backup-node-activity","busy":true,"kind":"restore","id":"r1"}`,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true,"kind":"restore","id":"r1"}`,
 		},
 		{name: "POST", method: http.MethodPost, wantCode: http.StatusMethodNotAllowed},
 		{name: "DELETE", method: http.MethodDelete, wantCode: http.StatusMethodNotAllowed},
@@ -120,7 +131,7 @@ func TestBackupNodeActivityRouteAuth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prober := &stubProber{activity: backup.NodeActivity{Busy: true, Kind: "backup", ID: "b1"}}
+			prober := &stubProber{activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"}}
 			server := serveNodeActivity(t, prober, auth)
 
 			res := do(t, server, http.MethodGet, tt.user, tt.pass)
@@ -156,7 +167,7 @@ func TestBackupNodeActivityRouteLogs(t *testing.T) {
 		{
 			name: "a wired probe logs its verdict every time",
 			newHandler: func(logger logrus.FieldLogger) http.Handler {
-				prober := &stubProber{activity: backup.NodeActivity{Busy: true, Kind: "backup", ID: "b1"}}
+				prober := &stubProber{activity: backup.NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"}}
 				return clusterapi.NewBackups(nil, prober, clusterapi.NewNoopAuthHandler(), logger).NodeActivity()
 			},
 			wantLevel: logrus.DebugLevel,
@@ -212,8 +223,8 @@ func TestBackupNodeActivityEndToEnd(t *testing.T) {
 		name string
 		want backup.NodeActivity
 	}{
-		{name: "idle", want: backup.NodeActivity{}},
-		{name: "busy", want: backup.NodeActivity{Busy: true, Kind: "restore", ID: "r-7"}},
+		{name: "idle", want: backup.NodeActivity{Answered: true}},
+		{name: "busy", want: backup.NodeActivity{Answered: true, Busy: true, Kind: "restore", ID: "r-7"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

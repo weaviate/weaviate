@@ -83,7 +83,7 @@ func TestClusterMuxServesTheProbeRoute(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, res.StatusCode,
 		"404 means the table does not mount the path, 503 means it mounts it without the app state's probe")
-	assert.JSONEq(t, `{"probe":"weaviate/backup-node-activity","busy":false}`, string(body))
+	assert.JSONEq(t, `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`, string(body))
 }
 
 // The same table read by the client that ships with it, so a route that is
@@ -96,5 +96,5 @@ func TestClusterMuxAnswersTheRealClient(t *testing.T) {
 	activity, err := client.NodeActivity(context.Background(), "node1")
 
 	require.NoError(t, err)
-	assert.Equal(t, backup.NodeActivity{}, activity)
+	assert.Equal(t, backup.NodeActivity{Answered: true}, activity)
 }

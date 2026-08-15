@@ -20,7 +20,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/clusterprobe"
@@ -57,6 +56,10 @@ func probeHTTPClient(authConfig cluster.AuthConfig, probeTimeout time.Duration) 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   probeTimeout,
 		ExpectContinueTimeout: time.Second,
+		// Headers are the one part of an answer the peer sizes and getJSON does not
+		// read through a limiter. The stdlib default is 10 MiB, per peer, on a route
+		// whose real headers are three.
+		MaxResponseHeaderBytes: maxProbeResponseBytes,
 	}
 	if authConfig.BasicAuth.Enabled() {
 		transport = basicAuthTransport{next: transport, auth: authConfig.BasicAuth}
@@ -76,8 +79,10 @@ type basicAuthTransport struct {
 }
 
 func (t basicAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	// Mutating the caller's request would carry the credential onto a redirect
-	// the stdlib strips it from.
+	// An http.RoundTripper may not modify the request it is handed. It is
+	// CheckRedirect, and not this clone, that keeps the credential away from a
+	// host we did not address: a RoundTripper runs once per hop, so it would
+	// re-add the header to the follow-up the stdlib had stripped it from.
 	clone := r.Clone(r.Context())
 	clone.SetBasicAuth(t.auth.Username, t.auth.Password)
 	return t.next.RoundTrip(clone)
@@ -137,9 +142,13 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	return nil
 }
 
+// isNodeNotFound accepts net/http's 404 byte for byte and nothing else. A body
+// that has been reformatted, or a second sentinel value beside the node's, is
+// evidence of a middlebox in the path, and then the 404 cannot mean the node
+// lacks the route. Refusing costs a caller the "too old to ask" shortcut; a
+// relaxation here spends the whole gate.
 func isNodeNotFound(res *http.Response, body []byte) bool {
-	// The exact body is what discriminates; nosniff is only a cheap extra
-	// necessary condition, since proxies set it as a blanket header too.
-	return res.Header.Get(clusterprobe.NodeNotFoundHeader) == clusterprobe.NodeNotFoundHeaderValue &&
-		strings.TrimSpace(string(body)) == clusterprobe.NodeNotFoundBody
+	sentinel := res.Header.Values(clusterprobe.NodeNotFoundHeader)
+	return len(sentinel) == 1 && sentinel[0] == clusterprobe.NodeNotFoundHeaderValue &&
+		string(body) == clusterprobe.NodeNotFoundBody
 }
