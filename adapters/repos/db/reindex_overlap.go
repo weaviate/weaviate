@@ -220,13 +220,11 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// The one route in this check that clears a capture, and it rests on the
-// worker claiming its unit before it can write: [ReindexProvider.processOneUnit]
-// reports progress 0.0 through RAFT before the shard lookup and gives up if
-// that fails, [distributedtask.ThrottledRecorder] never drops a 0.0, and the
-// FSM flips the unit out of PENDING on it. Nothing writes PENDING back, so a
-// unit still PENDING under a cancelled task is one no worker wrote for.
-// hasLocalWorker covers only the gap before that claim lands.
+// The only route here that clears a capture: PENDING is a one-way status,
+// so a unit still PENDING here had no worker write progress for it. See
+// [ReindexProvider.processOneUnit] (claims before the shard lookup) and
+// [distributedtask.ThrottledRecorder] (a 0.0 claim is never throttled).
+// hasLocalWorker covers only the window before that claim lands.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,

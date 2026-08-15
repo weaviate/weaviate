@@ -477,8 +477,7 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 			},
 		},
 		{
-			// A CANCELLED backup id can be re-posted, so a refusal a
-			// coordinator reads as an operator abort loses the torn capture.
+			// Regression: a cancel-quoting detail must not read as an operator abort.
 			name: "a detail that quotes a cancelled context",
 			verdict: ReindexOverlapVerdict{
 				Undetermined: true,
@@ -784,10 +783,9 @@ func (r *recordingRecorder) RecordDistributedTaskUnitFailure(
 	return nil
 }
 
-// TestReindexWorkerClaimsBeforeItWrites pins the mechanism the all-PENDING
-// waiver rests on: the unit leaves PENDING on a claim the worker makes before
-// it can touch a shard, so a unit still PENDING is a unit nothing wrote for.
-// The index here is nil, so any step past the claim would reach it.
+// TestReindexWorkerClaimsBeforeItWrites pins the invariant: a unit leaves
+// PENDING only once the worker's claim (0.0 progress via RAFT) lands, before
+// it ever touches a shard. index is nil so any later step panics.
 func TestReindexWorkerClaimsBeforeItWrites(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	p := &ReindexProvider{logger: logger, localNode: "node-1"}

@@ -353,13 +353,9 @@ func TestGateRefusalIsRedactedOnTheStatusAPI(t *testing.T) {
 	}
 }
 
-// TestUnanswerableOverlapCheckSurvivesTheRPC pins what an operator is told
-// when a node's overlap check is configured so that it could never clear a
-// capture. Measured end to end, because the two halves each looked right on
-// their own while the pair told the operator to wait for a migration that
-// does not exist. Reachable whenever one node's settings differ from the
-// coordinator's, which is every rolling config change and every rolling
-// upgrade.
+// TestUnanswerableOverlapCheckSurvivesTheRPC pins the RPC round trip: each half
+// looked right alone while the pair told the operator to wait for a migration
+// that does not exist.
 func TestUnanswerableOverlapCheckSurvivesTheRPC(t *testing.T) {
 	refusal := backup.ReindexOverlapCheckError{
 		Msg: backup.ErrReindexOverlapCheckUnanswerable.Error() +

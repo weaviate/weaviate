@@ -49,9 +49,9 @@ func (e ReindexBlockedError) Error() string { return e.Msg }
 func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
 
 // ReindexOverlapCheckError carries the refusing node's own text to the
-// coordinator, which forwards it instead of rebuilding one: the text names no
-// node, shard or collection, and it is the only place the two environment
-// variables an operator has to change appear.
+// coordinator, which forwards it instead of rebuilding one: rebuilding would
+// drop the two environment variables an operator has to change. The text
+// names no node, shard or collection, so nothing needs redacting first.
 type ReindexOverlapCheckError struct {
 	Msg string
 }
@@ -60,11 +60,10 @@ func (e ReindexOverlapCheckError) Error() string { return e.Msg }
 
 func (e ReindexOverlapCheckError) Unwrap() error { return ErrReindexOverlapCheckUnanswerable }
 
-// CancelSafeText rewords the one phrase a coordinator reads as an operator
-// abort. The coordinator relabels a participant's FAILED to CANCELLED when
-// context.Canceled's text appears anywhere in the published reason, and a
-// CANCELLED backup id can be re-posted, so a reason that merely quotes a
-// cancel would let a torn capture be silently overwritten by a clean one.
+// CancelSafeText rewords the phrase a coordinator reads as an operator abort:
+// it relabels a FAILED participant CANCELLED on a text match with
+// context.Canceled, and a CANCELLED id can be re-posted, so a quoted cancel
+// would let a torn capture be silently overwritten by a clean one.
 func CancelSafeText(text string) string {
 	return strings.ReplaceAll(text, context.Canceled.Error(), "a canceled context")
 }
