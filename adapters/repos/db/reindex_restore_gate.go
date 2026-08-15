@@ -23,23 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
-type decodedReindexTask struct {
-	task *distributedtask.Task
-	DecodedReindexTask
-}
-
-func decodeReindexTasksByID(tasks []*distributedtask.Task) []decodedReindexTask {
-	out := make([]decodedReindexTask, 0, len(tasks))
-	for _, task := range tasks {
-		out = append(out, decodedReindexTask{
-			task:               task,
-			DecodedReindexTask: DecodeReindexTaskPayload(task.Payload),
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].task.ID < out[j].task.ID })
-	return out
-}
-
 type ReindexActivity struct {
 	Collection string
 	TaskID     string
@@ -53,20 +36,29 @@ type AnyReindexActivityLookup func(collections []string) (ReindexActivity, bool)
 type AnyReindexActivityLookupBuilder func(ctx context.Context) AnyReindexActivityLookup
 
 func NewAnyReindexActivityLookup(tasks []*distributedtask.Task) AnyReindexActivityLookup {
-	var clusterWide []ReindexActivity
-	byCollection := make(map[string]ReindexActivity, len(tasks))
-	ordered := make([]ReindexActivity, 0, len(tasks))
-	for _, decoded := range decodeReindexTasksByID(tasks) {
-		if !IsLiveReindexTaskStatus(decoded.task.Status) {
-			continue
+	// Terminal tasks are filtered before anything reads their payload: a
+	// finished migration blocks nothing, and its payload holds one entry per
+	// tenant.
+	live := make([]*distributedtask.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if IsLiveReindexTaskStatus(task.Status) {
+			live = append(live, task)
 		}
-		activity := ReindexActivity{Collection: decoded.Collection, TaskID: decoded.task.ID}
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].ID < live[j].ID })
+
+	var clusterWide []ReindexActivity
+	byCollection := make(map[string]ReindexActivity, len(live))
+	ordered := make([]ReindexActivity, 0, len(live))
+	for _, task := range live {
+		collection, named := ExtractReindexTaskCollection(task.Payload)
+		activity := ReindexActivity{Collection: collection, TaskID: task.ID}
 		ordered = append(ordered, activity)
-		if decoded.Scope == ReindexPayloadScopeCluster {
+		if !named {
 			clusterWide = append(clusterWide, activity)
 			continue
 		}
-		key := strings.ToLower(decoded.Collection)
+		key := strings.ToLower(collection)
 		if _, seen := byCollection[key]; !seen {
 			byCollection[key] = activity
 		}

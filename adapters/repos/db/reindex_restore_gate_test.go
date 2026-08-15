@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -108,6 +110,43 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			wantNamed:   "movies",
 			wantTaskID:  "t1",
 		},
+		{
+			// A field a newer node retyped: the task stays attributable
+			// because the collection is read on its own.
+			name:        "shard map retyped by a newer node",
+			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"collection":"Movies","unitToShard":"shardA"}`)},
+			ask:         []string{"Movies"},
+			wantBlocked: true,
+			wantNamed:   "Movies",
+			wantTaskID:  "t1",
+		},
+		{
+			// Decodes without error and leaves an empty collection, which
+			// is the same loss as not decoding at all.
+			name:        "collection field renamed by a newer node",
+			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"class":"Movies","unitToShard":{"u1":"s1"}}`)},
+			ask:         []string{"Shows"},
+			wantBlocked: true,
+			wantTaskID:  "t1",
+		},
+		{
+			name:        "not json at all",
+			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `not json`)},
+			ask:         []string{"Shows"},
+			wantBlocked: true,
+			wantTaskID:  "t1",
+		},
+		{
+			// The collection name is right there in the bytes. A scan
+			// would recover it and scope the refusal to one collection,
+			// leaving every other collection open to a restore that a
+			// truncated payload gives no grounds to admit.
+			name:        "truncated mid-payload with the name still visible",
+			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"collection":"Movies","unitToShard":{"u1":"sha`)},
+			ask:         []string{"Shows"},
+			wantBlocked: true,
+			wantTaskID:  "t1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,6 +176,56 @@ func TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere(t *testing.T) {
 		require.Equal(t, "task-a", activity.TaskID,
 			"the lowest task id must win whatever order the list arrived in")
 	}
+}
+
+// tenantScaleTaskPayload is the DTM payload a task on a multi-tenant
+// collection carries: every tenant appears once in each of the three
+// tenant-sized fields, which is what takes a real payload into the
+// megabytes.
+func tenantScaleTaskPayload(tb testing.TB, collection string, tenants int) []byte {
+	tb.Helper()
+	p := ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Collection:    collection,
+		Properties:    []string{"a", "b", "c", "d"},
+		Tenants:       make([]string, 0, tenants),
+		UnitToNode:    make(map[string]string, tenants),
+		UnitToShard:   make(map[string]string, tenants),
+	}
+	for i := 0; i < tenants; i++ {
+		tenant := fmt.Sprintf("%08x-3f4b-7c1e-9d2a-6f8b1c3d5e70", i)
+		p.Tenants = append(p.Tenants, tenant)
+		p.UnitToNode[tenant] = "node-1"
+		p.UnitToShard[tenant] = tenant
+	}
+	doc, err := json.Marshal(p)
+	require.NoError(tb, err)
+	return doc
+}
+
+// terminalTenantScaleTasks is the DTM snapshot a cluster carries after a
+// run of migrations finished: nothing live, every payload still listed.
+func terminalTenantScaleTasks(tb testing.TB, tasks, tenants int) []*distributedtask.Task {
+	tb.Helper()
+	doc := string(tenantScaleTaskPayload(tb, "Docs", tenants))
+	out := make([]*distributedtask.Task, 0, tasks)
+	for i := 0; i < tasks; i++ {
+		out = append(out, reindexTask(fmt.Sprintf("task-%02d", i), distributedtask.TaskStatusFinished, doc))
+	}
+	return out
+}
+
+// TestNewAnyReindexActivityLookupSkipsTerminalPayloads pins that the
+// snapshot every restore probe builds does not scale with the tenant
+// count of migrations that already finished. The ratio is the assertion,
+// not an absolute: what must hold is that the tenants cost nothing.
+func TestNewAnyReindexActivityLookupSkipsTerminalPayloads(t *testing.T) {
+	withTenants := terminalTenantScaleTasks(t, 20, 10_000)
+	withoutTenants := terminalTenantScaleTasks(t, 20, 0)
+	got := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(withTenants) })
+	baseline := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(withoutTenants) })
+	require.Less(t, got, baseline*2,
+		"a terminal task's payload must never be decoded")
 }
 
 func TestRefuseIfAnyReindexInFlight(t *testing.T) {

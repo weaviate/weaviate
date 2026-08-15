@@ -29,48 +29,6 @@ func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	return p.Collection, p.Collection != ""
 }
 
-type ReindexPayloadScope int
-
-const (
-	ReindexPayloadScopeShards ReindexPayloadScope = iota
-	ReindexPayloadScopeCollection
-	ReindexPayloadScopeCluster
-)
-
-type DecodedReindexTask struct {
-	Scope      ReindexPayloadScope
-	Collection string
-	Shards     []string
-}
-
-func DecodeReindexTaskPayload(payload []byte) DecodedReindexTask {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		if collection, ok := ExtractReindexTaskCollection(payload); ok {
-			return DecodedReindexTask{
-				Scope:      ReindexPayloadScopeCollection,
-				Collection: collection,
-			}
-		}
-		return DecodedReindexTask{Scope: ReindexPayloadScopeCluster}
-	}
-	if p.Collection == "" {
-		return DecodedReindexTask{Scope: ReindexPayloadScopeCluster}
-	}
-	shards := uniqueShardsFromPayload(&p)
-	if len(shards) == 0 {
-		return DecodedReindexTask{
-			Scope:      ReindexPayloadScopeCollection,
-			Collection: p.Collection,
-		}
-	}
-	return DecodedReindexTask{
-		Scope:      ReindexPayloadScopeShards,
-		Collection: p.Collection,
-		Shards:     shards,
-	}
-}
-
 // ReindexMigrationType identifies which migration strategy a reindex task uses.
 type ReindexMigrationType string
 
