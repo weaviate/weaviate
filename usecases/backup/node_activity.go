@@ -90,11 +90,12 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 	return &NodeActivityProbe{participant: participant}
 }
 
-// AttachScheduler adds the coordinator slots. It must run before the Scheduler
-// can hold one, i.e. before the Scheduler is reachable by any request: a
-// Scheduler that exists but is not attached makes this node report itself idle
-// while it coordinates a backup.
-func (p *NodeActivityProbe) AttachScheduler(scheduler *Scheduler) {
+// attachScheduler adds the coordinator slots. It is unexported so that
+// [NewScheduler] stays the only way to reach it: a Scheduler that exists but is
+// not attached makes this node report itself idle while it coordinates a
+// backup, and that is the one answer a caller gating on the probe cannot
+// survive.
+func (p *NodeActivityProbe) attachScheduler(scheduler *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.scheduler = scheduler
