@@ -16,9 +16,10 @@ import "encoding/json"
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
 
-// The collection field alone, so a task a newer node wrote with a field
-// this build cannot type stays attributable. A JSON decode and never a scan
-// of the raw bytes: a truncated payload must scope nothing.
+// The collection field alone, so a task a newer node wrote with a field this
+// build cannot type stays attributable. A JSON decode and never a scan of the
+// raw bytes: a truncated payload must scope nothing. This also widens what the
+// DELETE_CLASS cascade removes, since that reads tasks through here on apply.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p struct {
 		Collection string `json:"collection"`
