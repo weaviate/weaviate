@@ -231,43 +231,52 @@ func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
 
 // TestPublishedReasonNeverReadsAsACancel pins that a published reason never
 // quotes a cancel. The refusals below are the shapes the check actually emits;
-// what this pins is that a spliced-in metadata fault cannot put that text back.
+// what this pins is that a metadata write that failed on a cancelled request
+// cannot put that text back, on either arm of the publish.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
+	observed := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrReindexOverlappedBackup, class)
+	unanswerable := fmt.Errorf("%w: the cluster task manager could not be listed at commit time",
+		backup.ErrReindexOverlapUndetermined)
+	cancelledWrite := fmt.Errorf("s3: %w", context.Canceled)
 
-	refusals := []struct {
-		name    string
-		refusal error
+	tests := []struct {
+		name       string
+		refusal    error
+		metaErr    error
+		wantStatus backup.Status
 	}{
+		{name: "an overlap the check observed", refusal: observed, wantStatus: backup.Failed},
 		{
-			name: "an overlap the check observed",
-			refusal: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-				backup.ErrReindexOverlappedBackup, class),
+			name:    "an overlap the check observed, and the metadata write was cancelled too",
+			refusal: observed, metaErr: cancelledWrite, wantStatus: backup.Failed,
+		},
+		{name: "an overlap the check could not answer", refusal: unanswerable, wantStatus: backup.Failed},
+		{
+			name:    "an overlap the check could not answer, and the metadata write was cancelled too",
+			refusal: unanswerable, metaErr: cancelledWrite, wantStatus: backup.Failed,
 		},
 		{
-			name: "an overlap the check could not answer",
-			refusal: fmt.Errorf("%w: the cluster task manager could not be listed at commit time",
-				backup.ErrReindexOverlapUndetermined),
+			// The other arm: nothing refused this capture, and the metadata
+			// write is the whole fault. It still ends as a failure, so the
+			// reason it publishes is read by the same classifier.
+			name:    "a clean capture whose only fault is a cancelled metadata write",
+			metaErr: cancelledWrite, wantStatus: backup.Transferred,
 		},
 	}
 
-	for _, r := range refusals {
-		for _, metaErr := range []error{nil, fmt.Errorf("s3: %w", context.Canceled)} {
-			name := r.name
-			if metaErr != nil {
-				name += ", and the metadata write was cancelled too"
-			}
-			t.Run(name, func(t *testing.T) {
-				u, sourcer, slot, desc := uploadFixture(t, class, nil, metaErr)
-				sourcer.setOverlapRefusal(r.refusal)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, sourcer, slot, desc := uploadFixture(t, class, nil, tt.metaErr)
+			sourcer.setOverlapRefusal(tt.refusal)
 
-				require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
+			require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
 
-				require.Equal(t, backup.Failed, desc.Status)
-				require.NotEmpty(t, slot.failures)
-				assert.NotContains(t, slot.failures[0], context.Canceled.Error())
-			})
-		}
+			require.Equal(t, tt.wantStatus, desc.Status)
+			require.NotEmpty(t, slot.failures)
+			assert.NotContains(t, slot.failures[0], context.Canceled.Error())
+		})
 	}
 }
 
