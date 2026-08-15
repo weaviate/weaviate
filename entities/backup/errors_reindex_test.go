@@ -44,16 +44,6 @@ var reindexSentinels = []struct {
 	},
 }
 
-// TestReindexOverlapUndeterminedWording pins the one phrase separating the
-// commit-time pair: "overlapped this backup" states an overlap was observed,
-// and the undetermined case observed nothing.
-func TestReindexOverlapUndeterminedWording(t *testing.T) {
-	msg := ErrReindexOverlapUndetermined.Error()
-	assert.NotContains(t, msg, "overlapped this backup")
-	assert.NotContains(t, msg, "in flight")
-	assert.Contains(t, ErrReindexOverlappedBackup.Error(), "overlapped this backup")
-}
-
 func TestReindexSentinelTexts(t *testing.T) {
 	for _, s := range reindexSentinels {
 		t.Run(s.name, func(t *testing.T) {

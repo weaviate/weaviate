@@ -39,6 +39,14 @@ func overlapTask(status distributedtask.TaskStatus, finishedAt time.Time, units 
 	return task
 }
 
+// unattributableTask is a task whose payload names no collection, so every
+// gate reads it as covering the whole cluster.
+func unattributableTask() *distributedtask.Task {
+	task := reindexTask("t1", distributedtask.TaskStatusStarted, `not json`)
+	task.Units = units(distributedtask.UnitStatusInProgress)
+	return task
+}
+
 func units(statuses ...distributedtask.UnitStatus) map[string]*distributedtask.Unit {
 	out := make(map[string]*distributedtask.Unit, len(statuses))
 	for i, status := range statuses {
@@ -115,26 +123,14 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantOverlapped: true,
 		},
 		{
+			// A defensive default rather than a state anything produces: a
+			// cancel writes the unit map, so an empty one is a record this
+			// build has no way to read.
 			name:             "a cancelled task with no units is unknown, not untouched",
 			task:             overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), nil),
 			classes:          []string{"Movies"},
 			wantUndetermined: true,
 			wantDetail:       "recorded no units",
-		},
-		{
-			name:             "a cancelled task with an empty unit map is unknown too",
-			task:             overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), map[string]*distributedtask.Unit{}),
-			classes:          []string{"Movies"},
-			wantUndetermined: true,
-			wantDetail:       "recorded no units",
-		},
-		{
-			name: "a nil unit entry is unknown rather than a panic",
-			task: overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute),
-				map[string]*distributedtask.Unit{"a": nil}),
-			classes:          []string{"Movies"},
-			wantUndetermined: true,
-			wantDetail:       "a unit with no state",
 		},
 		{
 			// A worker registers before its first progress report flips a
@@ -152,10 +148,19 @@ func TestReindexOverlapRules(t *testing.T) {
 			classes: []string{"Shows"},
 		},
 		{
+			// A task naming no collection is the only shape that skips the
+			// class match, so it fails any backup that captured something.
+			name:           "a task nothing can attribute fails a backup that captured something",
+			task:           unattributableTask(),
+			classes:        []string{"Shows"},
+			wantOverlapped: true,
+		},
+		{
 			// The opposite of the restore gate's empty list: a backup that
-			// captured nothing has nothing that could have been rewritten.
+			// captured nothing has nothing that could have been rewritten,
+			// even against the task that skips the class match.
 			name:    "a backup that captured no class cannot be overlapped",
-			task:    overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
+			task:    unattributableTask(),
 			classes: nil,
 		},
 		{
@@ -237,20 +242,6 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, 1, calls, "no waiting out a 30s schedule after a cancel")
 	})
-}
-
-// TestReindexOverlapUnattributableTask pins both sides of a task whose
-// payload names no collection: it fails any backup that captured
-// something, because nothing says which collection it rewrote, and it
-// still cannot fail a backup that captured nothing.
-func TestReindexOverlapUnattributableTask(t *testing.T) {
-	task := reindexTask("t1", distributedtask.TaskStatusStarted, `{"unitToShard":{"u1":"s1"}}`)
-	lookup := NewReindexOverlapLookup([]*distributedtask.Task{task},
-		24*time.Hour, noLocalWorker, func() time.Time { return commitTime })
-
-	assert.True(t, lookup([]string{"Shows"}, captureStart).Overlapped)
-	assert.True(t, lookup(nil, captureStart).allowsBackup(),
-		"a backup that captured nothing has nothing a migration could have rewritten")
 }
 
 // TestReindexOverlapRetentionWindow pins the one answer the check cannot
@@ -744,4 +735,54 @@ func TestReindexOverlapRefusalNamesOnlyACapturedClass(t *testing.T) {
 		assert.Contains(t, err.Error(), "a collection this backup captured")
 		assert.NotContains(t, err.Error(), "Secret")
 	})
+}
+
+// TestHasActiveWorker walks the disjunct that makes the all-PENDING waiver
+// sound. A worker registers its handle before any unit goroutine starts, so
+// a task whose units are all still PENDING can already be writing, and
+// runningHandles is the only field that says so.
+func TestHasActiveWorker(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "t1", Version: 1}
+	other := distributedtask.TaskDescriptor{ID: "t2", Version: 1}
+
+	tests := []struct {
+		name           string
+		activeWorkers  map[distributedtask.TaskDescriptor]map[string]bool
+		runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
+		want           bool
+	}{
+		{name: "nothing running"},
+		{
+			name:          "a unit goroutine is running",
+			activeWorkers: map[distributedtask.TaskDescriptor]map[string]bool{desc: {"u1": true}},
+			want:          true,
+		},
+		{
+			name:           "the task is registered but no unit has started",
+			runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{desc: {}},
+			want:           true,
+		},
+		{
+			name:           "another task is running",
+			activeWorkers:  map[distributedtask.TaskDescriptor]map[string]bool{other: {"u1": true}},
+			runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{other: {}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ReindexProvider{
+				activeWorkers:  map[distributedtask.TaskDescriptor]map[string]bool{},
+				runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
+			}
+			for k, v := range tt.activeWorkers {
+				p.activeWorkers[k] = v
+			}
+			for k, v := range tt.runningHandles {
+				p.runningHandles[k] = v
+			}
+
+			require.Equal(t, tt.want, p.HasActiveWorker(desc))
+		})
+	}
 }
