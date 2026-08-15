@@ -85,7 +85,37 @@ func NewReindexOverlapLookup(
 		if len(classes) == 0 {
 			return ReindexOverlapVerdict{}
 		}
-		if age := now().Sub(since); completedTaskTTL > 0 && age >= completedTaskTTL {
+		captured := make(map[string]struct{}, len(classes))
+		for _, class := range classes {
+			captured[strings.ToLower(class)] = struct{}{}
+		}
+
+		var strongest ReindexOverlapVerdict
+		for _, task := range decoded {
+			if task.Scope != ReindexPayloadScopeCluster {
+				if _, ok := captured[strings.ToLower(task.Collection)]; !ok {
+					continue
+				}
+			}
+			verdict := decideReindexOverlap(task.task, since, hasLocalWorker)
+			if verdict.allowsBackup() {
+				continue
+			}
+			verdict.Collection = task.Collection
+			verdict.TaskID = task.task.ID
+			// Ties keep the earlier task, and decodeReindexTasksByID orders
+			// by task id, so every node names the same one.
+			if overlapVerdictRank(verdict) > overlapVerdictRank(strongest) {
+				strongest = verdict
+			}
+		}
+		if !strongest.allowsBackup() {
+			return strongest
+		}
+
+		// Last, so a task that answered outranks the guess this makes when
+		// none did.
+		if age := now().Sub(since); age >= completedTaskTTL {
 			return ReindexOverlapVerdict{
 				Undetermined: true,
 				Detail: fmt.Sprintf(
@@ -94,25 +124,20 @@ func NewReindexOverlapLookup(
 					age.Round(time.Second), completedTaskTTL),
 			}
 		}
-
-		captured := make(map[string]struct{}, len(classes))
-		for _, class := range classes {
-			captured[strings.ToLower(class)] = struct{}{}
-		}
-
-		for _, task := range decoded {
-			if task.Scope != ReindexPayloadScopeCluster {
-				if _, ok := captured[strings.ToLower(task.Collection)]; !ok {
-					continue
-				}
-			}
-			if verdict := decideReindexOverlap(task.task, since, hasLocalWorker); !verdict.allowsBackup() {
-				verdict.Collection = task.Collection
-				verdict.TaskID = task.task.ID
-				return verdict
-			}
-		}
 		return ReindexOverlapVerdict{}
+	}
+}
+
+// A weaker answer must not hide a stronger one: a scan that stopped at the
+// first refusal could report "unknown" while a later task proved an overlap.
+func overlapVerdictRank(v ReindexOverlapVerdict) int {
+	switch {
+	case v.Overlapped:
+		return 2
+	case v.Undetermined:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -166,6 +191,23 @@ func decideCancelledReindexOverlap(
 		return ReindexOverlapVerdict{Overlapped: true}
 	}
 	return ReindexOverlapVerdict{}
+}
+
+// refuseIfOverlapCheckCannotAnswer refuses at admission what the commit-time
+// check would refuse after the whole upload. A zero TTL collects a finished
+// migration on the next scheduler tick, so no capture can ever be cleared
+// against one, and the backup id and the uploaded bytes are already spent by
+// the time the check says so.
+func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
+	if db.config.RuntimeReindexDisabled || db.config.CompletedTaskTTL > 0 {
+		return nil
+	}
+	return blockedRefusal(
+		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped " +
+			"from the cluster task list before a backup can be judged against it and every backup " +
+			"would fail at the end of its upload; raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS " +
+			"above the time a backup takes, or set RUNTIME_REINDEX_ENABLED=false to turn the " +
+			"migration feature off")
 }
 
 func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {

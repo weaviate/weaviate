@@ -250,24 +250,130 @@ func TestReindexOverlapUnattributableTask(t *testing.T) {
 }
 
 // TestReindexOverlapRetentionWindow pins the one answer the check cannot
-// give. A backup that outlived the window in which finished tasks stay
-// listed cannot be cleared, because the task that would have failed it
-// may already have been dropped.
+// give, and where in the order it gives it. A backup that outlived the
+// window in which finished tasks stay listed cannot be cleared, because
+// the task that would have failed it may already have been dropped. A
+// task that is still listed answers first, whatever the window says.
 func TestReindexOverlapRetentionWindow(t *testing.T) {
-	const ttl = time.Hour
-	lookup := func(age time.Duration) ReindexOverlapVerdict {
-		return NewReindexOverlapLookup(nil, ttl, noLocalWorker,
-			func() time.Time { return captureStart.Add(age) })([]string{"Movies"}, captureStart)
+	liveMatching := overlapTask(distributedtask.TaskStatusStarted, time.Time{},
+		units(distributedtask.UnitStatusInProgress))
+	cancelledNoUnits := overlapTask(distributedtask.TaskStatusCancelled,
+		captureStart.Add(time.Minute), nil)
+
+	tests := []struct {
+		name             string
+		tasks            []*distributedtask.Task
+		ttl              time.Duration
+		age              time.Duration
+		wantOverlapped   bool
+		wantUndetermined bool
+		wantDetail       string
+		notDetail        string
+	}{
+		{
+			name: "inside the window an empty list clears the capture",
+			ttl:  time.Hour, age: time.Hour - time.Minute,
+		},
+		{
+			name: "at the window it can no longer be cleared",
+			ttl:  time.Hour, age: time.Hour,
+			wantUndetermined: true, wantDetail: "longer than the",
+		},
+		{
+			name: "past the window either",
+			ttl:  time.Hour, age: time.Hour + time.Minute,
+			wantUndetermined: true, wantDetail: "longer than the",
+		},
+		{
+			// The value under which the evidence is guaranteed gone: every
+			// terminal task is collectable on the next scheduler tick.
+			name: "a zero window retains nothing, so nothing can be cleared",
+			ttl:  0, age: time.Minute,
+			wantUndetermined: true, wantDetail: "longer than the",
+		},
+		{
+			name: "a negative window is a zero window",
+			ttl:  -time.Hour, age: time.Minute,
+			wantUndetermined: true, wantDetail: "longer than the",
+		},
+		{
+			name:  "a listed task answers even past the window",
+			tasks: []*distributedtask.Task{liveMatching},
+			ttl:   time.Hour, age: time.Hour + time.Minute,
+			wantOverlapped: true, notDetail: "longer than the",
+		},
+		{
+			name:  "a listed task's own unanswerable reason beats the window's",
+			tasks: []*distributedtask.Task{cancelledNoUnits},
+			ttl:   time.Hour, age: time.Hour + time.Minute,
+			wantUndetermined: true, wantDetail: "recorded no units", notDetail: "longer than the",
+		},
 	}
 
-	assert.True(t, lookup(ttl).Undetermined, "at the window it can no longer be cleared")
-	assert.True(t, lookup(ttl+time.Minute).Undetermined)
-	assert.False(t, lookup(ttl-time.Minute).Undetermined)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			verdict := NewReindexOverlapLookup(tt.tasks, tt.ttl, noLocalWorker,
+				func() time.Time { return captureStart.Add(tt.age) })([]string{"Movies"}, captureStart)
 
-	verdict := lookup(ttl)
-	assert.Contains(t, verdict.Detail, "longer than the")
+			assert.Equal(t, tt.wantOverlapped, verdict.Overlapped)
+			assert.Equal(t, tt.wantUndetermined, verdict.Undetermined)
+			if tt.wantDetail != "" {
+				assert.Contains(t, verdict.Detail, tt.wantDetail)
+			}
+			if tt.notDetail != "" {
+				assert.NotContains(t, verdict.Detail, tt.notDetail)
+			}
+		})
+	}
+}
 
-	assert.False(t, verdict.Overlapped, "an unanswerable check observed no overlap")
+// TestReindexOverlapRanksTheStrongestAnswer pins that the scan does not
+// stop at the first task that refuses. An earlier task nobody can judge
+// must not hide a later one that proves the capture was rewritten.
+func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
+	unanswerable := reindexTask("a", distributedtask.TaskStatusCancelled, payloadFor("Movies"))
+	unanswerable.FinishedAt = captureStart.Add(time.Minute)
+	live := reindexTask("b", distributedtask.TaskStatusStarted, payloadFor("Movies"))
+	live.Units = units(distributedtask.UnitStatusInProgress)
+
+	verdict := NewReindexOverlapLookup([]*distributedtask.Task{unanswerable, live},
+		24*time.Hour, noLocalWorker, func() time.Time { return commitTime })([]string{"Movies"}, captureStart)
+
+	require.True(t, verdict.Overlapped)
+	require.False(t, verdict.Undetermined)
+	require.Equal(t, "b", verdict.TaskID)
+}
+
+// TestBackupableRefusesWhenTheOverlapCheckCannotAnswer pins the admission
+// half of the same rule. Refusing here costs an operator one 422; refusing
+// at commit time costs them the whole upload and the backup id with it.
+func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
+	tests := []struct {
+		name        string
+		disabled    bool
+		ttl         time.Duration
+		wantRefused bool
+	}{
+		{name: "the feature is on and nothing is retained", ttl: 0, wantRefused: true},
+		{name: "the feature is on and the window is wide", ttl: 120 * time.Hour},
+		{name: "the feature is off, so no check needs the evidence", disabled: true, ttl: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled, CompletedTaskTTL: tt.ttl}}
+
+			err := db.Backupable(context.Background(), nil)
+
+			if !tt.wantRefused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+			assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
+			assert.Contains(t, err.Error(), "RUNTIME_REINDEX_ENABLED")
+		})
+	}
 }
 
 // TestReindexOverlapNamesTheSameTask pins that two nodes committing the

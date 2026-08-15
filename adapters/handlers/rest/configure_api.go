@@ -489,6 +489,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
 		RuntimeReindexDisabled:              !appState.ServerConfig.Config.RuntimeReindexEnabled,
+		CompletedTaskTTL:                    appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -1226,8 +1227,12 @@ func initReindexAndDistributedTasks(
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
-			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+		warn := appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
+		if appState.ServerConfig.Config.RuntimeReindexEnabled {
+			warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately, leaving the commit-time backup overlap check nothing to read; every backup is refused at admission until DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is raised or RUNTIME_REINDEX_ENABLED is turned off")
+		} else {
+			warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+		}
 	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
