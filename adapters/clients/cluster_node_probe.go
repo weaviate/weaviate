@@ -90,6 +90,19 @@ func (t basicAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.next.RoundTrip(clone)
 }
 
+// boundedErr caps what a peer-sized failure puts on this node's log line while
+// leaving the cause readable to errors.Is: net/http quotes a malformed trailer
+// line whole into the body-read error, and a status line whole into the
+// transport error, and a caller still has to tell a cancel from a dead node.
+type boundedErr struct {
+	prefix string
+	cause  error
+}
+
+func (e boundedErr) Error() string { return e.prefix + ": " + clusterprobe.Loggable(e.cause.Error()) }
+
+func (e boundedErr) Unwrap() error { return e.cause }
+
 // getJSON returns unanswerable only for a 404 the node itself wrote.
 func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	unanswerable error, what string, out any,
@@ -107,13 +120,13 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 
 	res, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s request: %s", what, clusterprobe.Loggable(err.Error()))
+		return boundedErr{prefix: what + " request", cause: err}
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxProbeResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("read %s answer: %w", what, err)
+		return boundedErr{prefix: "read " + what + " answer", cause: err}
 	}
 	if len(body) > maxProbeResponseBytes {
 		return fmt.Errorf("%s: answer exceeds %d bytes", what, maxProbeResponseBytes)
