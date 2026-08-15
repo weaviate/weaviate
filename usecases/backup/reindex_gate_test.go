@@ -179,6 +179,22 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			wantContains:    []string{"could not be determined"},
 			wantNotContains: []string{"in progress on"},
 		},
+		{
+			// Forwarded, not rebuilt: the cause is two settings on the refusing
+			// node, and the classes the caller asked for are not part of it.
+			name:    "a configuration refusal no rebuild could state",
+			classes: []string{"Movies", "Shows"},
+			backupErr: backup.ReindexOverlapCheckError{
+				Msg: backup.ErrReindexOverlapCheckUnanswerable.Error() +
+					": DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0; raise it above the time a " +
+					"backup takes, or set RUNTIME_REINDEX_ENABLED=false",
+			},
+			wantKind: CanCommitErrOverlapCheckUnanswerable,
+			wantContains: []string{
+				"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "RUNTIME_REINDEX_ENABLED",
+			},
+			wantNotContains: []string{"in flight", "retry after it finishes", "Movies", "Shows"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
