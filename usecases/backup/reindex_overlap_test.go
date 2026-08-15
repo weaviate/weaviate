@@ -128,7 +128,7 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 
 		require.ErrorIs(t, err, backup.ErrReindexOverlappedBackup)
 		assert.False(t, slot.saw(backup.Transferred),
-			"a backup a migration spanned must never be offered for commit")
+			"a backup a migration overlapped must never be offered for commit")
 		assert.False(t, slot.saw(backup.Success))
 		assert.Equal(t, backup.Failed, desc.Status)
 	})

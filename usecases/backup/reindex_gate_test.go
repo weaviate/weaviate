@@ -220,9 +220,8 @@ func TestIsReindexRefusal(t *testing.T) {
 	}
 }
 
-// TestIsReindexBackupFailure pins the wider question: any of the four routes
-// counts, because all four mean the guard is why a capture will not be
-// published.
+// TestIsReindexBackupFailure pins the wider question: all four errors count,
+// because all four mean a reindex check is why a capture will not be published.
 func TestIsReindexBackupFailure(t *testing.T) {
 	tests := []struct {
 		name string
