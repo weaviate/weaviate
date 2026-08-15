@@ -119,6 +119,16 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 	}
 }
 
+// The table snapshots the probe, and startup assigns it a dozen lines earlier.
+// A reordering must stop this node here rather than leave every peer answered
+// 503 for the life of the process.
+func TestClusterMuxRefusesToBuildBeforeTheProbeIsAssigned(t *testing.T) {
+	appState := probeAppState(t)
+	appState.BackupActivity = nil
+
+	assert.Panics(t, func() { newClusterMux(appState, NewNoopAuthHandler()) })
+}
+
 // The same table read by the client that ships with it, so a route that is
 // mounted but unreadable fails here too, as does a client whose credentials are
 // not the ones the table demands.
