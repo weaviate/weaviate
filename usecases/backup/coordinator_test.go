@@ -1134,3 +1134,89 @@ func TestCommitAllManyFailures(t *testing.T) {
 		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
 	}
 }
+
+// TestOneNodeRefusingFailsTheWholeBackup pins that the commit-time overlap
+// check is a cluster-wide guarantee. The check runs per node and sees only
+// that node's shards, so a migration confined to one node is invisible
+// everywhere else; if a create tolerated that node's refusal, the coordinator
+// would publish a descriptor whose other nodes all say Success while one
+// node's data is torn.
+//
+// It also pins the dependency the refusal text has on the coordinator: the
+// reclassifier turns a participant's Failed into Cancelled whenever
+// context.Canceled's text appears in the reason, and a cancelled backup id
+// can be re-posted, so a refusal that quoted a cancel would let the next
+// backup silently overwrite the torn one.
+func TestOneNodeRefusingFailsTheWholeBackup(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "overlap-cluster-wide"
+	)
+
+	tests := []struct {
+		name        string
+		reason      string
+		wantStatus  backup.Status
+		wantInError string
+	}{
+		{
+			name:        "an overlap the check observed",
+			reason:      backup.ErrReindexOverlappedBackup.Error() + `: collection "Movies" was migrated`,
+			wantStatus:  backup.Failed,
+			wantInError: backup.ErrReindexOverlappedBackup.Error(),
+		},
+		{
+			name:        "an overlap the check could not answer",
+			reason:      backup.ErrReindexOverlapUndetermined.Error() + ": the cluster task manager could not be listed",
+			wantStatus:  backup.Failed,
+			wantInError: backup.ErrReindexOverlapUndetermined.Error(),
+		},
+		{
+			// Not a shape the check emits, and the reason the refusals are
+			// scrubbed of this text before they are published.
+			name:        "a reason that quotes a cancelled request",
+			reason:      "upload aborted: " + context.Canceled.Error(),
+			wantStatus:  backup.Cancelled,
+			wantInError: context.Canceled.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			any := mock.Anything
+			fc := newFakeCoordinator(newFakeNodeResolver([]string{"N1", "N2"}))
+			c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver,
+				&fakeBackupBackendProvider{err: errors.New("no descriptor to size")})
+			c.timeoutNextRound = time.Millisecond * 20
+			c.descriptor = &backup.DistributedBackupDescriptor{
+				ID:          backupID,
+				NodeMapping: map[string]string{},
+				Nodes: map[string]*backup.NodeDescriptor{
+					"N1": {Classes: []string{"Movies"}},
+					"N2": {Classes: []string{"Movies"}},
+				},
+			}
+
+			fc.client.On("Commit", any, any, any).Return(nil)
+			fc.client.On("Status", any, "N1", any).Return(
+				&StatusResponse{Status: backup.Success}, nil)
+			fc.client.On("Status", any, "N2", any).Return(
+				&StatusResponse{Status: backup.Failed, Err: tt.reason}, nil)
+			fc.client.On("Abort", any, any, any).Return(nil).Maybe()
+
+			c.commit(ctx, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName},
+				map[string]string{"N1": "N1", "N2": "N2"}, false)
+
+			require.Equal(t, tt.wantStatus, c.descriptor.Status)
+			assert.Contains(t, c.descriptor.Error, tt.wantInError)
+			assert.NotEqual(t, backup.Success, c.descriptor.Nodes["N2"].Status)
+			assert.Equal(t, backup.Success, c.descriptor.Nodes["N1"].Status,
+				"the node that captured cleanly still records that it did")
+			assert.Equal(t, c.descriptor.Status, c.lastOp.get().Status,
+				"a poll must not read the backup as anything the descriptor does not")
+		})
+	}
+}
