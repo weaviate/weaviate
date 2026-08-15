@@ -116,6 +116,10 @@ func probeBackupActivity(ctx context.Context, node string,
 		return backupActivityScan{}
 	case err != nil:
 		return backupActivityScan{verdict: backupActivityUnreachable, node: node, fault: err}
+	// Same rule as the local rung: absence of Busy is not an answer, and a zero
+	// value would otherwise clear a peer that is capturing.
+	case !activity.Answered:
+		return backupActivityScan{verdict: backupActivityUnreachable, node: node, fault: errProbeLeftNoAnswer}
 	case activity.Busy:
 		return backupActivityScan{
 			verdict: backupActivityBusy, kind: activity.Kind, id: activity.ID, node: node,

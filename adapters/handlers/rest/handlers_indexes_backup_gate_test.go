@@ -51,7 +51,11 @@ func probeFromMap(answers map[string]backup.NodeActivity, faults map[string]erro
 		if err, ok := faults[node]; ok {
 			return backup.NodeActivity{}, err
 		}
-		return answers[node], nil
+		if answer, ok := answers[node]; ok {
+			return answer, nil
+		}
+		// Idle has exactly one shape, and the zero value is not it.
+		return backup.NodeActivity{Answered: true}, nil
 	}
 }
 
@@ -126,6 +130,15 @@ func TestScanBackupActivity(t *testing.T) {
 			wantVerdict: backupActivityBusy,
 			wantKind:    backup.NodeActivityKindBackup,
 			wantNode:    "n2",
+		},
+		{
+			// The local rung already refuses this shape; a peer answering it
+			// must not be the one place where absence of Busy reads as idle.
+			name:        "a peer that answered nothing",
+			nodes:       []string{"n1"},
+			answers:     map[string]backup.NodeActivity{"n1": {}},
+			wantVerdict: backupActivityUnreachable,
+			wantNode:    "n1",
 		},
 		{
 			name:        "a wrapped unsupported answer still passes",
@@ -345,7 +358,7 @@ func TestBackupActivityRefusalNamesThePrincipal(t *testing.T) {
 type staticProber struct{}
 
 func (staticProber) NodeActivity(context.Context, string) (backup.NodeActivity, error) {
-	return backup.NodeActivity{}, nil
+	return backup.NodeActivity{Answered: true}, nil
 }
 
 // The local slots decide before any peer is asked, and on a single node they
