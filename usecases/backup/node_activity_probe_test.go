@@ -175,11 +175,11 @@ func TestNodeActivityProbe(t *testing.T) {
 	}
 }
 
-// The registration lives inside NewScheduler so that no build order can produce
-// a Scheduler the probe does not see. Such a node answers "not busy" for a whole
-// backup it is itself coordinating, which is the one answer a caller gating on
-// the probe cannot survive. Every row here coordinates something, since an idle
-// Scheduler reads the same attached or not.
+// The registration lives inside NewScheduler, and a Scheduler will not be built
+// without a probe, so no build order produces one the probe cannot see. Such a
+// node answers "not busy" for a whole backup it is itself coordinating, which is
+// the one answer a caller gating on the probe cannot survive. Every row here
+// coordinates something, since an idle Scheduler reads the same attached or not.
 func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -208,6 +208,14 @@ func TestNewSchedulerRegistersWithTheProbe(t *testing.T) {
 			assert.Equal(t, tt.want, probe.Activity())
 		})
 	}
+}
+
+// Accepting a nil probe would leave the hazard above open on exactly the node
+// that hit it, so the build stops here rather than answering wrongly later.
+func TestNewSchedulerRefusesToBuildWithoutAProbe(t *testing.T) {
+	assert.Panics(t, func() {
+		NewScheduler(nil, nil, nil, nil, nil, nil, nil, &fakeSchemaManger{}, nil, nil, logrus.New())
+	})
 }
 
 // A probe can arrive before the Scheduler is built, which happens well after
