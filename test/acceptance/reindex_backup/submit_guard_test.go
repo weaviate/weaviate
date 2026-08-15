@@ -254,10 +254,15 @@ func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 		localBackupStatus(t, backend, backupID), 5*time.Minute)
 	blocked := assertReindexBlocked(t, run, backupID)
 
-	// Whichever rung answered, no task may be left running against the capture.
+	// The refusal carries a task id only when a rollback could not stop what it
+	// committed, so the two branches are the two things that can be true of the
+	// migration, and each has to be judged on its own terms.
 	taskID := refusalTaskID(t, blocked.body)
 	if taskID == "" {
-		t.Logf("the pre-commit rung refused before any RAFT write: %s", blocked.body)
+		// Either the pre-commit rung refused before any RAFT write, or the
+		// post-commit one refused and its rollback landed. Both leave nothing.
+		t.Logf("the refusal left no migration behind: %s", blocked.body)
+		requireNoLiveMigration(t, restURI, className)
 	} else {
 		t.Logf("a submission reached the post-commit rung and could not be stopped: task %s", taskID)
 		require.Contains(t, taskID, className,
@@ -266,13 +271,16 @@ func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 			"a task the refusal names as unstoppable must actually still be running")
 	}
 
-	require.NotEmpty(t, blocked.body)
-	requireNoLiveMigration(t, restURI, className)
-
-	// And the capture the submission gave way to must still publish as good.
+	// The capture the submission gave way to must publish as good, unless a
+	// worker had already claimed a unit of the rolled-back task: TestSubmitRollbackResidue
+	// in adapters/repos/db pins that the commit-time check still fails the
+	// capture in that case, so it is the one non-SUCCESS this test accepts.
 	captured := awaitBackupTerminal(t, localBackupSnapshot(t, backend, backupID), 10*time.Minute)
-	require.Equalf(t, string(entitiesbackup.Success), captured.status,
-		"the capture the submission gave way to must not fail (reason=%q)", captured.errMessage)
+	if captured.status != string(entitiesbackup.Success) {
+		require.Containsf(t, captured.errMessage, entitiesbackup.ErrReindexOverlappedBackup.Error(),
+			"the capture the submission gave way to ended as %s for a reason that is not the "+
+				"commit-time overlap check: %q", captured.status, captured.errMessage)
+	}
 }
 
 // Read off the field, not the prose, which is the point of the field.
