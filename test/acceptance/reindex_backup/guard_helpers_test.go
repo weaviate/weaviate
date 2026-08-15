@@ -130,8 +130,9 @@ func liveReindexStatus(status string) bool {
 	}
 }
 
-// slowBackupConfig widens the in-flight window of a backup so a test can land
-// a submission inside it.
+// slowBackupConfig throttles the upload so a test has time to submit a
+// migration before the backup commits. It does not slow the snapshot, so it
+// does not decide which of the two guards sees the migration first.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
