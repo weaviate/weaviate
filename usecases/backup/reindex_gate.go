@@ -31,6 +31,7 @@ var reindexGateSentinels = []error{
 	backup.ErrBackupBlockedByInFlightReindex,
 	backup.ErrReindexActivityUndetermined,
 	backup.ErrBackupReindexActivityUndetermined,
+	backup.ErrReindexOverlapCheckUnanswerable,
 }
 
 // Any refusal in the chain; allReindexRefusals is the stricter form.
@@ -126,6 +127,16 @@ func backupUndeterminedByParticipant() error {
 func restoreUndeterminedByParticipant() error {
 	return fmt.Errorf("%w; retry once the cluster is reachable",
 		backup.ErrReindexActivityUndetermined)
+}
+
+// The refusing node's text is forwarded whole: it is a configuration answer,
+// so rebuilding it from the requested classes would name collections that
+// have nothing to do with the cause and drop the settings to change.
+func overlapCheckUnanswerableByParticipant(text string) error {
+	if text == "" {
+		return backup.ErrReindexOverlapCheckUnanswerable
+	}
+	return backup.ReindexOverlapCheckError{Msg: backup.CancelSafeText(text)}
 }
 
 func quoteClassList(classes []string) string {

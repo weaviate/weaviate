@@ -189,6 +189,18 @@ func decideReindexOverlap(
 	since time.Time,
 	hasLocalWorker ReindexWorkerLookup,
 ) ReindexOverlapVerdict {
+	// Before the liveness question, which answers "live" for a status it
+	// cannot name and so would publish a migration that ended before this
+	// capture began as an observed overlap, under a remedy that never comes.
+	if !task.Status.IsRecognized() {
+		return ReindexOverlapVerdict{
+			Undetermined: true,
+			Detail: "a migration is in a status this node cannot name, so nothing here says " +
+				"whether it overlapped this backup",
+			Remedy: "finish the rolling upgrade so every node knows that status, or wait for " +
+				"the cluster task list to drop that record",
+		}
+	}
 	if IsLiveReindexTaskStatus(task.Status) {
 		return ReindexOverlapVerdict{Overlapped: true}
 	}
@@ -208,9 +220,13 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// Only a cancel that landed before any unit left PENDING and before a worker
-// registered on this node wrote nothing. That is what an operator cancelling
-// their own submission produces; anything else fails the capture.
+// The one route in this check that clears a capture, and it rests on the
+// worker claiming its unit before it can write: [ReindexProvider.processOneUnit]
+// reports progress 0.0 through RAFT before the shard lookup and gives up if
+// that fails, [distributedtask.ThrottledRecorder] never drops a 0.0, and the
+// FSM flips the unit out of PENDING on it. Nothing writes PENDING back, so a
+// unit still PENDING under a cancelled task is one no worker wrote for.
+// hasLocalWorker covers only the gap before that claim lands.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -256,12 +272,16 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if !wired {
 		return nil
 	}
-	return blockedRefusal(
-		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped " +
-			"from the cluster task list before a backup can be judged against it and every backup " +
-			"would fail at the end of its upload; raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS " +
-			"above the time a backup takes, or set RUNTIME_REINDEX_ENABLED=false to turn the " +
-			"migration feature off")
+	// Its own sentinel and its own text: no migration is in flight here, and
+	// the in-flight refusal would be rebuilt by the coordinator into a wait
+	// for a migration that does not exist, without either variable name.
+	return entitiesbackup.ReindexOverlapCheckError{Msg: fmt.Sprintf("%s: %s",
+		entitiesbackup.ErrReindexOverlapCheckUnanswerable,
+		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped "+
+			"from the cluster task list before a backup can be judged against it and every backup "+
+			"would fail at the end of its upload; raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS "+
+			"above the time a backup takes, or set RUNTIME_REINDEX_ENABLED=false to turn the "+
+			"migration feature off")}
 }
 
 // SetReindexOverlapLookup installs the builder the commit-time check reads
@@ -338,28 +358,36 @@ const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against t
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) error {
 	sentinel, finding, remedy := entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail, verdict.Remedy
 	if !verdict.Undetermined {
-		subject, matched := overlapSubject(classes, verdict.Collection)
+		matched := matchCapturedClass(classes, verdict.Collection)
 		sentinel = entitiesbackup.ErrReindexOverlappedBackup
-		finding = subject + " was migrated while this backup was being captured"
 		remedy = "wait for that migration to finish"
-		if matched != "" {
+		if matched == "" {
+			// Nothing observed puts the migration on a collection this backup
+			// captured, only that the two cannot be separated. Same hedge the
+			// restore gate makes on the same evidence.
+			finding = "a runtime-reindex that cannot be attributed to a collection ran while this " +
+				"backup was being captured, so this capture cannot be cleared"
+		} else {
+			finding = fmt.Sprintf("collection %q was migrated while this backup was being captured", matched)
 			// The remedy renders the collection into URL paths.
 			remedy += ". " + reindex.MigrationRemedy(matched)
 		}
 	}
+	// The detail and remedy are spliced into the text the coordinator classifies
+	// by substring, and a future one could quote a cancelled context.
 	return fmt.Errorf("%w: %s. This backup id is spent, so a retry needs a new one: %s. "+
 		"The partial upload under this id is not removed automatically and has to be deleted out of band",
-		sentinel, finding, remedy)
+		sentinel, entitiesbackup.CancelSafeText(finding), entitiesbackup.CancelSafeText(remedy))
 }
 
-// overlapSubject echoes the caller's own spelling of the captured class the
-// verdict points at. Printing the task's spelling instead would let a name
-// this backup never captured reach the API.
-func overlapSubject(classes []string, blocking string) (subject, matched string) {
+// matchCapturedClass echoes the caller's own spelling of the captured class
+// the verdict points at, and "" when it points at none. Printing the task's
+// spelling instead would let a name this backup never captured reach the API.
+func matchCapturedClass(classes []string, blocking string) string {
 	for _, class := range classes {
 		if strings.EqualFold(class, blocking) {
-			return fmt.Sprintf("collection %q", class), class
+			return class
 		}
 	}
-	return "a collection this backup captured", ""
+	return ""
 }

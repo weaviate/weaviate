@@ -33,13 +33,18 @@ import (
 // using empty-string semantics when nothing went wrong.
 //
 // Classification reads the error chain, never the words: Backupable() wraps the
-// [backup.ErrBackupBlockedByInFlightReindex] sentinel inside an errors.Join.
+// [backup.ErrBackupBlockedByInFlightReindex] sentinel inside an errors.Join. The
+// reindex kinds stay apart because "a migration is running" and "this node cannot
+// check" send the operator to different places.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
 	if !allReindexRefusals(err) {
 		return CanCommitErrCannotCommit
+	}
+	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
+		return CanCommitErrOverlapCheckUnanswerable
 	}
 	// Backupable joins one refusal per class and an outage can answer some differently.
 	// An observed migration outranks: it is the half with something to wait for.
