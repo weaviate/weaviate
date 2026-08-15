@@ -227,11 +227,14 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			logger.SetLevel(logrus.DebugLevel)
 			h := &indexesHandlers{appState: &state.State{Logger: logger}}
-			h.logRollbackOutcome("Movies", rolledBackTaskID, outcome, nil)
+			h.logRollbackOutcome(&models.Principal{Username: "alice"}, "Movies",
+				rolledBackTaskID, outcome, nil)
 
 			require.Len(t, hook.AllEntries(), 1, "exactly one operator-facing line per rollback")
 			assert.Equal(t, tt.wantLevel, hook.AllEntries()[0].Level)
 			assert.Equal(t, tt.wantEvent, hook.AllEntries()[0].Data["audit_event"])
+			assert.Equal(t, "alice", hook.AllEntries()[0].Data["principal"],
+				"a cluster-wide operation that had to be undone has to say whose it was")
 		})
 	}
 }

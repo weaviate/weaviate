@@ -210,12 +210,12 @@ func (h *indexesHandlers) backupActivityRefusal(principal *models.Principal,
 	case backupActivityClear:
 		return nil
 	case backupActivityBusy:
-		h.logBackupActivityRefusal(collection, "busy", scan)
+		h.logBackupActivityRefusal(principal, collection, "busy", scan)
 		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, submitRefusalVerdict(scan.kind))
 		return jsonResponder(http.StatusConflict,
 			errorResponse(principal, backupBusyRefusal(scan.kind)))
 	case backupActivityUnreachable:
-		h.logBackupActivityRefusal(collection, "unreachable", scan)
+		h.logBackupActivityRefusal(principal, collection, "unreachable", scan)
 		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
@@ -224,7 +224,9 @@ func (h *indexesHandlers) backupActivityRefusal(principal *models.Principal,
 	return nil
 }
 
-func (h *indexesHandlers) logBackupActivityRefusal(collection, verdict string, scan backupActivityScan) {
+func (h *indexesHandlers) logBackupActivityRefusal(principal *models.Principal,
+	collection, verdict string, scan backupActivityScan,
+) {
 	if h.appState.Logger == nil {
 		return
 	}
@@ -233,6 +235,7 @@ func (h *indexesHandlers) logBackupActivityRefusal(collection, verdict string, s
 		"gate":         "submit",
 		"verdict":      verdict,
 		"collection":   collection,
+		"principal":    principalUsername(principal),
 		"node":         scan.node,
 		"kind":         scan.kind,
 		"operation_id": scan.id,

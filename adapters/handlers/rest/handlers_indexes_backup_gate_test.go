@@ -21,11 +21,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/reindex"
@@ -354,6 +356,19 @@ func TestPeersToProbe(t *testing.T) {
 			assert.Equal(t, tt.wantPeers, peers)
 		})
 	}
+}
+
+// A refusal is the line an auditor most wants attributed, and the success line
+// in the same flow already carries the caller.
+func TestBackupActivityRefusalNamesThePrincipal(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+	h.logBackupActivityRefusal(&models.Principal{Username: "alice"}, "Books", "busy",
+		backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup})
+
+	require.Len(t, hook.AllEntries(), 1)
+	assert.Equal(t, "alice", hook.AllEntries()[0].Data["principal"])
 }
 
 // The refusal must be distinguishable from a peer that simply did not answer.

@@ -137,7 +137,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	// Nobody answering is what a disconnected client produces on its own, and
 	// rolling back on it would destroy a migration that committed cleanly.
 	if scan.verdict == backupActivityUnreachable {
-		h.logBackupActivityRefusal(collection, "unreachable", scan)
+		h.logBackupActivityRefusal(principal, collection, "unreachable", scan)
 		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
 		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
@@ -145,7 +145,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 				"cancel it if a backup turns out to have been in flight", strippedID)))
 	}
 
-	h.logBackupActivityRefusal(collection, "busy", scan)
+	h.logBackupActivityRefusal(principal, collection, "busy", scan)
 	h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, submitRefusalVerdict(scan.kind))
 
 	// Detached from the request: the answer below is a 409 whether or not the
@@ -155,7 +155,7 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	defer cancel()
 
 	outcome, fault := rollbackReindexSubmit(rollbackCtx, svc, taskID)
-	h.logRollbackOutcome(collection, taskID, outcome, fault)
+	h.logRollbackOutcome(principal, collection, taskID, outcome, fault)
 	h.appState.ReindexGateMetrics.RolledBack(outcome.label())
 
 	if outcome.landed() {
@@ -253,7 +253,9 @@ func findReindexTaskByID(tasks []*distributedtask.Task, taskID string) *distribu
 	return nil
 }
 
-func (h *indexesHandlers) logRollbackOutcome(collection, taskID string, outcome rollbackOutcome, fault error) {
+func (h *indexesHandlers) logRollbackOutcome(principal *models.Principal, collection, taskID string,
+	outcome rollbackOutcome, fault error,
+) {
 	if h.appState.Logger == nil {
 		return
 	}
@@ -261,6 +263,7 @@ func (h *indexesHandlers) logRollbackOutcome(collection, taskID string, outcome 
 	entry := h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": event,
 		"collection":  collection,
+		"principal":   principalUsername(principal),
 		"taskID":      taskID,
 	})
 	if fault != nil {
