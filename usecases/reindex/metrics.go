@@ -101,8 +101,8 @@ func (m *GateMetrics) Refused(gate, verdict string) {
 	m.refusals.WithLabelValues(gate, verdict).Inc()
 }
 
-// The two outcomes that leave a migration running while a capture is in flight
-// are what an operator pages on, and a log line is not something to page on.
+// An outcome that leaves a migration running while a capture is in flight is
+// what an operator pages on, and a log line is not something to page on.
 func (m *GateMetrics) RolledBack(outcome string) {
 	if m == nil {
 		return

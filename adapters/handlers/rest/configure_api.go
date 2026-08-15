@@ -1115,8 +1115,6 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context,
 	metricsRegisterer prometheus.Registerer,
 ) {
-	// One counter for every gate, and a gauge per hold kind so an operator can
-	// see a gate while it is closed rather than only after it reopens.
 	provider := appState.ReindexProvider
 	gateMetrics := reindexuc.NewGateMetrics(metricsRegisterer, map[string]func() int{
 		db.ReindexHoldSubmit.String():  func() int { return provider.OpenHolds(db.ReindexHoldSubmit) },

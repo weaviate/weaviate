@@ -44,7 +44,6 @@ func (b *reindexGateWarnBudget) allow(now time.Time) bool {
 	return true
 }
 
-// SetReindexGateMetrics installs the counters every reindex gate reports to.
 func (db *DB) SetReindexGateMetrics(metrics *reindex.GateMetrics) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

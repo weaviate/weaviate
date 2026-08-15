@@ -40,8 +40,7 @@ func TestGateMetricsRefusedWithoutARegistry(t *testing.T) {
 	assert.NotPanics(t, func() { metrics.Refused(GateSubmit, VerdictBackupBusy) })
 }
 
-// Read on scrape, not on registration, or a hold raised after startup is
-// invisible for exactly as long as it is open.
+// Read on scrape, not on registration, or a hold is invisible while it is open.
 func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	open := 0
@@ -52,8 +51,7 @@ func TestGateMetricsOpenHoldsReadOnScrape(t *testing.T) {
 	assert.Equal(t, 3.0, gaugeValue(t, registry))
 }
 
-// The cardinality guard: every series is one pair from two closed vocabularies,
-// so the worst case is their product and does not grow with the data.
+// The cardinality guard: the worst case is the product of two closed sets.
 func TestGateMetricsLabelSetsAreBounded(t *testing.T) {
 	gates := []string{GateSubmit, GateBackup, GateRestore, GateOverlap}
 	verdicts := []string{
@@ -89,10 +87,8 @@ func gaugeValue(t *testing.T, registry *prometheus.Registry) float64 {
 	return 0
 }
 
-// TestGateMetricsExposeEverySeriesFromTheStart is the alerting contract. A
-// CounterVec with no children emits nothing at all, and "no data" is a
-// different alerting state from zero — an operator watching a refusal rate
-// would see neither until the first refusal ever happened.
+// The alerting contract: "no data" is a different state from zero, so every
+// series has to exist before the first refusal.
 func TestGateMetricsExposeEverySeriesFromTheStart(t *testing.T) {
 	registry := prometheus.NewPedanticRegistry()
 	NewGateMetrics(registry, map[string]func() int{"submit": func() int { return 0 }},

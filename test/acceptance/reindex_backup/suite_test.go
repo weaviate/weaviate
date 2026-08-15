@@ -311,12 +311,7 @@ func importBodies(t *testing.T, className string, count int) {
 }
 
 // submitChangeTokenization submits a change-tokenization upsert for <prop>'s
-// searchable index and returns the task id.
-//
-// It rides out the submit gate's own refusal, because a node releases its
-// backup slot just after it publishes SUCCESS: a submission that follows a
-// backup can be refused for a moment through no fault of the caller. Every
-// other non-202 is terminal, so a real conflict is still an immediate failure.
+// searchable index and returns the task id, riding out the gate's own refusal.
 func submitChangeTokenization(t *testing.T, restURI, collection, property, target string) string {
 	t.Helper()
 	return awaitReindexAccepted(t, restURI, collection, property, target, 60*time.Second)

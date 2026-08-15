@@ -168,9 +168,6 @@ func (h *indexesHandlers) scanClusterBackupActivity(ctx context.Context) backupA
 // without it has not converged or was reaped under a partition — neither of
 // which is "no peer holds a backup". Only a list naming this node and nobody
 // else is a node genuinely running alone.
-//
-// This node is dropped from the fan-out: its slots were just read directly, and
-// asking over HTTP answers from those same four one round trip later.
 func peersToProbe(all []string, local string) (peers []string, established bool) {
 	if local == "" || !slices.Contains(all, local) {
 		return nil, false

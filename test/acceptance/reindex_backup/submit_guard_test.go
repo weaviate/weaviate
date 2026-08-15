@@ -40,8 +40,7 @@ type guardedBackup struct {
 	blocked   reindexProbe
 }
 
-// proveReindexBlockedDuringBackup is the setup both single-node backup tests
-// continue from: a node with a corpus, a slow capture running on it, and a
+// The setup both single-node backup tests continue from: a slow capture, and a
 // submission refused while that capture was live.
 func proveReindexBlockedDuringBackup(
 	ctx context.Context, t *testing.T, className, backupID string,
@@ -83,10 +82,9 @@ func proveReindexBlockedDuringBackup(
 	}
 }
 
-// TestReindexRefusedWhileBackupRuns is journey 1's own proof on a single node:
-// a submission is refused while this node captures, and the same submission is
-// admitted once the capture releases the slot. The second half is what makes
-// the first mean anything — a gate that refused forever would pass on its own.
+// A submission is refused while this node captures, and admitted once the
+// capture releases the slot. The second half is what makes the first mean
+// anything — a gate that refused forever would pass on its own.
 func TestReindexRefusedWhileBackupRuns(t *testing.T) {
 	guarded := proveReindexBlockedDuringBackup(context.Background(), t,
 		"ReindexGuard_BackupRunning", "reindex-guard-backup-running")
@@ -96,8 +94,7 @@ func TestReindexRefusedWhileBackupRuns(t *testing.T) {
 	helper.ExpectBackupEventuallyCreated(t, guarded.backupID, guarded.backend, nil,
 		helper.WithDeadline(5*time.Minute))
 
-	// Polled rather than submitted once: the slot releases just after SUCCESS is
-	// published, so the first submission after it can still be refused.
+	// Polled rather than submitted once: see heldBackupSlotRefusal.
 	successAt := time.Now()
 	taskID := awaitReindexAccepted(t, guarded.restURI, guarded.className, guarded.propName,
 		"whitespace", 30*time.Second)
@@ -160,11 +157,10 @@ func TestReindexBlockClearsAfterNodeCrash(t *testing.T) {
 		rearmedBackupID, blocked.backupStatus, blocked.body)
 }
 
-// TestReindexRefusedWhileRestoreRuns is the restore half of the same contract.
-// It migrates a DIFFERENT collection than the one being restored: a restoring
-// collection is not in the schema yet and would 404 before any gate ran, so the
-// only thing coupling the two is the node. That is the point — this gate is
-// node-scoped, not collection-scoped.
+// The restore half of the same contract, on a DIFFERENT collection than the one
+// restored: a restoring collection is not in the schema yet and would 404 before
+// any gate ran, so the only coupling left is the node. That is the point — this
+// gate is node-scoped, not collection-scoped.
 func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 	ctx := context.Background()
 
@@ -216,8 +212,8 @@ func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 	_, exists := reindexhelpers.FetchClass(restURI, restoredClass, true)
 	require.Truef(t, exists, "the restore must bring %s back", restoredClass)
 
-	// The refusal is transient: the same submission has to be admitted once the
-	// restore releases the node's slot.
+	// The negative arm: the same submission has to be admitted once the restore
+	// releases the node's slot.
 	successAt := time.Now()
 	taskID := awaitReindexAccepted(t, restURI, migratingClass, propName, "whitespace", 60*time.Second)
 	t.Logf("reindex accepted %s after restore %s finished: task %s",
@@ -228,10 +224,8 @@ func TestReindexRefusedWhileRestoreRuns(t *testing.T) {
 		"searchable", reindexhelpers.WithTimeout(180*time.Second))
 }
 
-// TestReindexSubmitRollsItselfBackOnASingleNode drives the post-commit rung on
-// the only topology where it is deterministic, and the one where the fan-out
-// has no peers so the local re-read is the whole gate. Either rung may win the
-// race, so this asserts what has to hold whichever did, and logs which it saw.
+// Drives the post-commit rung on the only topology where it is deterministic.
+// Either rung may win the race, so this asserts what has to hold whichever did.
 func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 	ctx := context.Background()
 
@@ -261,8 +255,6 @@ func TestReindexSubmitRollsItselfBackOnASingleNode(t *testing.T) {
 	blocked := assertReindexBlocked(t, run, backupID)
 
 	// Whichever rung answered, no task may be left running against the capture.
-	// A rollback that landed names none; one that could not names the task it
-	// left behind, and that task must be the caller's own.
 	taskID := refusalTaskID(t, blocked.body)
 	if taskID == "" {
 		t.Logf("the pre-commit rung refused before any RAFT write: %s", blocked.body)

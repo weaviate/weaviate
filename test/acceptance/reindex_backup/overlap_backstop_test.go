@@ -28,18 +28,10 @@ import (
 // one that never saw it.
 const minCaptureWindowProbes = 3
 
-// TestReindexRefusedForTheWholeCaptureWindow is journey 3's proof, asked the
-// way the submit gate makes it answerable. A migration and a capture of the
-// same collection can no longer both be running because the operator asked for
-// it: the gate refuses the submission. The only way to reach that state is to
-// win the race the gate exists to close, so what this asserts is mutual
-// exclusion, not "every submission is refused" — a submission and a capture can
-// tie, and a tie is a legitimate outcome.
-//
-// Whichever way each probe lands, one of two things has to hold at the end:
-// the migration never started while the capture was open, or the capture was
-// not published as good. Anything else means a backup of a half-migrated shard
-// was stored and reported as usable.
+// A migration and a capture of the same collection can no longer both run. The
+// only way to reach that state is to win the race the gate exists to close, so
+// what this asserts is mutual exclusion, not "every submission is refused": a
+// submission and a capture can tie, and a tie is a legitimate outcome.
 func TestReindexRefusedForTheWholeCaptureWindow(t *testing.T) {
 	ctx := context.Background()
 
@@ -78,8 +70,7 @@ func TestReindexRefusedForTheWholeCaptureWindow(t *testing.T) {
 	captured := awaitBackupTerminal(t, snapshotOf, 10*time.Minute)
 
 	if admitted == "" {
-		// Mutual exclusion held outright. Every probe was the gate's own 409,
-		// and a capture nothing ran through must publish as good.
+		// Mutual exclusion held outright: every probe was the gate's own 409.
 		require.Equalf(t, string(entitiesbackup.Success), captured.status,
 			"no migration was ever admitted, so nothing can have spanned this capture (reason=%q)",
 			captured.errMessage)
@@ -112,15 +103,10 @@ func TestReindexRefusedForTheWholeCaptureWindow(t *testing.T) {
 		"the recorded reason must name the collection; got: %s", captured.errMessage)
 }
 
-// TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection is the negative arm.
-// Without it the test above passes on a gate that refuses everything and a
-// backstop that fails everything.
-//
-// The migration is started BEFORE the capture, which is the only ordering that
-// still reaches this state: the submit gate is node-scoped, so once a capture
-// is open no submission is admitted anywhere on the node. The per-shard gate is
-// collection-scoped, so the capture of an untouched collection is admitted with
-// the migration already live, and the commit-time check must then clear it.
+// The negative arm: without it the test above passes on a gate that refuses
+// everything and a backstop that fails everything. The migration starts BEFORE
+// the capture, the only ordering that still reaches this state — the submit
+// gate is node-scoped, so once a capture is open nothing is admitted anywhere.
 func TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection(t *testing.T) {
 	ctx := context.Background()
 
@@ -166,8 +152,6 @@ func TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection(t *testing.T) {
 		captured.errMessage)
 }
 
-// probeWholeCaptureWindow submits for as long as the capture is open and
-// returns the first task id that was admitted, if any, plus every probe taken.
 func probeWholeCaptureWindow(
 	t *testing.T, restURI, collection, property string,
 	statusOf func() (string, bool), deadline time.Duration,

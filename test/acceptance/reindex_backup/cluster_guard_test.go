@@ -35,10 +35,9 @@ type guardTopology struct {
 	placements   []string
 }
 
-// TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp is the cluster-wide half of
-// journey 1. A node holding no stake at all in a running capture must still
-// refuse a submission, which it can only know by asking its peers — a
-// node-local check would admit here.
+// A node holding no stake at all in a running capture must still refuse a
+// submission, which it can only know by asking its peers — a node-local check
+// would admit here.
 func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	ctx := context.Background()
 
@@ -65,9 +64,7 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("topology: leader %q owns capture class %q, probe %q owns reindex class %q; sampled: %v",
 		leader, topo.backupClass, topo.probe.name, topo.reindexClass, topo.placements)
 
-	// Confirmed against the nodes API, not just the placement bookkeeping: if
-	// the probe node held a shard of the captured class, a node-local check
-	// would answer 409 too and the fan-out would be unproven.
+	// Confirmed against the nodes API, not just the placement bookkeeping.
 	require.NotEqual(t, leader, topo.probe.name,
 		"the probe node must not be the node running the capture, or the 409 proves nothing cluster-wide")
 	backupOwners, ok := shardOwners(nodes[0].uri, topo.backupClass)
@@ -93,8 +90,7 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 	t.Logf("probe node %q refused while only leader %q held backup %s: %s",
 		topo.probe.name, leader, backupID, blocked.body)
 
-	// The route needs update on one collection only, so node names and other
-	// collections' names are state this caller has no grant to learn.
+	// The caller holds a grant on one collection only.
 	message := guardMessage(blocked.body)
 	for _, node := range nodes {
 		assert.NotContainsf(t, message, node.name, "the 409 body leaked node %q", node.name)
@@ -118,15 +114,10 @@ func TestMultiNodeReindexRefusedWhileRemoteNodeBacksUp(t *testing.T) {
 		topo.probe.name, backupID, taskID)
 }
 
-// TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode closes the gap
-// the single-node suite cannot: there, the node that refuses a capture and the
-// node that publishes the refusal are the same process, so nothing proves the
-// coordinator rebuilds a participant's answer rather than forwarding it.
-//
-// Here the migrating shard lives on a node that is not the coordinator, so the
-// refusal the caller reads was necessarily assembled from a remote
-// participant's. It must name the collection the caller asked about, and no
-// node and no shard, both of which the caller has no other way to learn.
+// Closes the gap the single-node suite cannot: there the node that refuses a
+// capture and the node that publishes the refusal are one process, so nothing
+// proves the coordinator rebuilds a participant's answer rather than forwarding
+// it, node and shard names included.
 func TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode(t *testing.T) {
 	ctx := context.Background()
 
@@ -178,17 +169,9 @@ func TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode(t *testing.T) {
 		"the migration must still be live on both sides of the capture request (before=%q after=%q); "+
 			"grow guardDataset until it outlives the call", statusBefore, statusAfter)
 
-	// Refused, without pinning which code. The backup branch answers 500 where
-	// its restore twin answers 422, and states the sentinel twice where the
-	// restore twin states it once, because usecases/backup/scheduler.go has the
-	// isReindexRefusal arm on the restore path and no twin on the backup path.
-	// That is a defect in a path this branch neither owns nor changes, filed as
-	// https://github.com/weaviate/0-weaviate-issues/issues/582.
-	//
-	// When it is fixed, this becomes:
-	//   require.Equal(t, http.StatusUnprocessableEntity, httpStatus)
-	//   require.Equal(t, 1, strings.Count(message, "backup blocked: runtime-reindex in flight"))
-	// and the GreaterOrEqual below is deleted.
+	// Refused, without pinning which code: the backup branch answers 500 where
+	// its restore twin answers 422, a defect this branch neither owns nor fixes:
+	// https://github.com/weaviate/0-weaviate-issues/issues/582
 	require.GreaterOrEqualf(t, httpStatus, http.StatusBadRequest,
 		"a capture a participant refuses must not be admitted: %s", body)
 
@@ -200,8 +183,6 @@ func TestMultiNodeBackupRefusalFromARemoteParticipantNamesNoNode(t *testing.T) {
 
 	// Read off the live cluster, not written as literals: a redaction assertion
 	// against a string production never emits passes whatever production does.
-	// awaitClusterMembers already proved these node names are the ones the
-	// server itself uses.
 	shardName := reindexhelpers.GetFirstShardName(t, shardOwner.uri, migratingClass)
 	require.NotEmptyf(t, shardName, "could not read a real shard name for %q to redact against",
 		migratingClass)

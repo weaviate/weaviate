@@ -187,7 +187,6 @@ func reindexCancelRemedy(collection, propertyName string, migrationType db.Reind
 	return reindex.CancelRoute(collection, propertyName, canonicalIndexType(indexTypes[0]))
 }
 
-// Bounded, because the caller is already waiting on the answer this decides.
 func rollbackReindexSubmit(ctx context.Context, svc reindexTaskCanceller, taskID string,
 ) (rollbackOutcome, error) {
 	outcome, fault := rollbackFailed, error(nil)

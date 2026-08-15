@@ -143,8 +143,7 @@ func TestScanBackupActivity(t *testing.T) {
 	}
 }
 
-// The zero value of a result slot is "clear", so an unseeded fan-out would
-// admit the submission the dead prober was asked to guard.
+// A prober that dies must leave an answer that refuses, not one that admits.
 func TestScanBackupActivityWithADeadProber(t *testing.T) {
 	scan := scanBackupActivity(context.Background(), []string{"n1"},
 		func(context.Context, string) (backup.NodeActivity, error) { panic("prober died") },
@@ -155,8 +154,7 @@ func TestScanBackupActivityWithADeadProber(t *testing.T) {
 	assert.ErrorIs(t, scan.fault, errProbeLeftNoAnswer)
 }
 
-// A local slot read after the hold would refuse the capture running on this
-// node; a fan-out before it leaves a window on a peer that already answered.
+// Pins the rung order: the local slots, then the hold, then the fan-out.
 func TestOpenSubmitBackupGateOrder(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -278,9 +276,8 @@ func TestBackupActivityRefusal(t *testing.T) {
 	}
 }
 
-// refusalCount reads the named series and proves the refusal touched only it:
-// every counter series exists at zero from construction, so "the right one went
-// up" is only half the claim.
+// Also asserts every other series stayed at zero: they all exist from
+// construction, so "the right one went up" is only half the claim.
 func refusalCount(t *testing.T, registry *prometheus.Registry, verdict string) float64 {
 	t.Helper()
 	families, err := registry.Gather()
@@ -310,10 +307,8 @@ func refusalCount(t *testing.T, registry *prometheus.Registry, verdict string) f
 	return found
 }
 
-// TestPeersToProbe pins the difference between "nobody else holds a backup"
-// and "this node cannot establish who is in the cluster". Memberlist names this
-// node once it is up, so its absence is the second answer, and reading it as
-// the first admits a submission on a cluster whose state was never known.
+// Pins "nobody else holds a backup" apart from "this node cannot establish who
+// is in the cluster".
 func TestPeersToProbe(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -361,8 +356,7 @@ func TestPeersToProbe(t *testing.T) {
 	}
 }
 
-// A cluster view that cannot be established has to refuse, and the reason has
-// to be distinguishable from a peer that simply did not answer.
+// The refusal must be distinguishable from a peer that simply did not answer.
 func TestScanClusterBackupActivityWithoutAClusterView(t *testing.T) {
 	h := &indexesHandlers{appState: &state.State{
 		Logger:                quietLogger(),
@@ -384,10 +378,8 @@ func (staticProber) NodeActivity(context.Context, string) (backup.NodeActivity, 
 	return backup.NodeActivity{}, nil
 }
 
-// TestRescanBackupActivityReadsTheLocalRung pins the post-commit rung order. A
-// capture clears the reindex gate before it takes its slot, so a node that read
-// idle pre-commit can be capturing by the time the RAFT write lands — and on a
-// single node the local slots are the only rung the fan-out has.
+// The post-commit rescan has to re-read the local slots, which on a single node
+// are the only rung there is.
 func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -430,8 +422,7 @@ type fixedActivity struct{ activity backup.NodeActivity }
 func (f fixedActivity) Activity() backup.NodeActivity     { return f.activity }
 func (fixedActivity) AttachScheduler(_ *backup.Scheduler) {}
 
-// A nil probe must read as "not wired" rather than panic, which is what a typed
-// nil stored in this interface would otherwise do.
+// A nil probe must read as "not wired" rather than panic.
 func TestSetBackupActivityKeepsANilProbeNil(t *testing.T) {
 	appState := &state.State{}
 	appState.SetBackupActivity(nil)

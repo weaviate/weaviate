@@ -138,11 +138,9 @@ func liveReindexStatus(status string) bool {
 }
 
 // Widens the in-flight window so a test has time to submit a migration before
-// the backup commits: CPUPercentage 1 serializes the zip and BestCompression
-// raises the per-byte CPU cost. A window, not a barrier: descriptor generation
-// is unthrottled hardlinking and finishes long before the throttled upload
-// does, so throttling only the upload is what makes the per-shard gate lose
-// the race to the commit-time check.
+// the backup commits. A window, not a barrier: descriptor generation is
+// unthrottled hardlinking, so only the throttled upload makes the per-shard
+// gate lose the race to the commit-time check.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
@@ -431,9 +429,8 @@ func taskIDOf(t *testing.T, body string) string {
 	return parsed.TaskID
 }
 
-// reindexTaskStartedAt reads a task's DTM start time. It is stamped by the same
-// node that stamps the capture window, so the two order against each other with
-// no clock skew to reason about.
+// The start time is stamped by the same node that stamps the capture window, so
+// the two order against each other with no clock skew to reason about.
 func reindexTaskStartedAt(t *testing.T, restURI, taskID string) time.Time {
 	t.Helper()
 	ticker := time.NewTicker(250 * time.Millisecond)

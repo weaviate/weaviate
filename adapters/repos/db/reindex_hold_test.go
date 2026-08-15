@@ -134,9 +134,8 @@ func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
 }
 
-// TestMarkSubmitInProgress pins that a submission closes the same gate the
-// backup and restore gates read, and that a sweep in progress outranks it: the
-// operator has to wait the sweep out, but only a moment for a submission.
+// A submission closes the same gate the backup and restore gates read, and a
+// sweep in progress outranks it.
 func TestMarkSubmitInProgress(t *testing.T) {
 	p := &ReindexProvider{db: &DB{}}
 
@@ -166,9 +165,7 @@ func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
 }
 
-// The log reason carries the number of a hold this build cannot name, which
-// makes it diagnosable; the metric label must not, or one such hold per release
-// mints a series per release.
+// A hold this build cannot name must still map onto a bounded metric label.
 func TestReindexHoldVerdictIsBounded(t *testing.T) {
 	bounded := map[string]struct{}{
 		reindex.VerdictHoldSubmit:  {},

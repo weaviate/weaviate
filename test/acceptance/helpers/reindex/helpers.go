@@ -542,11 +542,10 @@ func WithEnv(
 	body()
 }
 
-// WithReindexEnv applies the env every runtime-reindex suite needs, whatever
-// topology the caller is building: the feature flag on (the server default is
-// off, so a suite that skips this silently tests nothing), the legacy
-// searchable path off so a tokenization change has real work to do, and a 1s
-// scheduler tick so task transitions land inside test timeouts.
+// WithReindexEnv applies the env every runtime-reindex suite needs: the feature
+// flag on (the server default is off, so a suite that skips this silently tests
+// nothing), the legacy searchable path off so a tokenization change has real
+// work to do, and a 1s scheduler tick so transitions land inside test timeouts.
 func WithReindexEnv(c *docker.Compose) *docker.Compose {
 	return c.
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").

@@ -70,9 +70,7 @@ func rolledBackTask(t *testing.T, status distributedtask.TaskStatus) *distribute
 		db.ReindexTaskPayload{MigrationType: db.ReindexTypeChangeTokenization, Collection: "Movies"}, nil)
 }
 
-// Every way a rollback can end. What matters is whether it landed: a task
-// still running has to be named, or the caller's retry is refused for one they
-// were never told about.
+// Every way a rollback can end, and whether each one landed.
 func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 	transient := errors.New("raft leader election in progress")
 
@@ -213,8 +211,7 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 			elapsed := time.Since(started)
 
 			assert.Equal(t, tt.wantOutcome, outcome)
-			// Spaced far enough apart to reach a different leader, and few
-			// enough to answer the caller who is still waiting.
+			// The backoff between attempts really elapsed.
 			assert.GreaterOrEqual(t, elapsed, time.Duration(tt.wantLists-1)*submitRollbackBackoff)
 			if outcome == rollbackFailed {
 				assert.ErrorIs(t, fault, transient, "the log line has to name what failed")
@@ -239,8 +236,7 @@ func TestRollbackReindexSubmitOutcomes(t *testing.T) {
 	}
 }
 
-// A rollback outlives its request: the caller may already be gone, and a task
-// left running would refuse their retry.
+// A rollback outlives its request: the caller may already be gone.
 func TestRollbackReindexSubmitSurvivesTheRequest(t *testing.T) {
 	canceller := &scriptedCanceller{tasks: []*distributedtask.Task{
 		rolledBackTask(t, distributedtask.TaskStatusStarted),
@@ -309,8 +305,6 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantNotContains: []string{"node-3", "backup-42"},
 			wantTaskID:      rolledBackTaskID,
 
-			// The two outcomes that leave a migration running while a capture
-			// is in flight are exactly what an operator pages on.
 			wantRefusalVerdict:  reindex.VerdictBackupBusy,
 			wantRollbackOutcome: "refused",
 		},
@@ -368,9 +362,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			assert.Equal(t, 1, released,
 				"the property lock and the collection gate are released before the rollback runs")
 
-			// A post-commit refusal is the one an operator alerts on, and it
-			// reached the counter through a different path than the pre-commit
-			// one, so it needs its own assertion.
+			// The post-commit path reaches the counter through code the
+			// pre-commit one never runs.
 			assert.Equalf(t, 1.0, refusalCount(t, registry, tt.wantRefusalVerdict),
 				"the post-commit refusal must reach the same counter the pre-commit one does")
 			if tt.wantRollbackOutcome != "" {
@@ -451,7 +444,6 @@ func TestReindexCancelRemedy(t *testing.T) {
 	}
 }
 
-// rollbackCount reads one outcome series off the rollback counter.
 func rollbackCount(t *testing.T, registry *prometheus.Registry, outcome string) float64 {
 	t.Helper()
 	families, err := registry.Gather()
@@ -472,8 +464,7 @@ func rollbackCount(t *testing.T, registry *prometheus.Registry, outcome string) 
 	return 0
 }
 
-// TestRollbackOutcomeLabelsAreBounded pins that every outcome has a label and
-// that an unrecognized one collapses rather than minting a series.
+// An unrecognized outcome must collapse onto a known label, not mint a series.
 func TestRollbackOutcomeLabelsAreBounded(t *testing.T) {
 	labels := RollbackOutcomeLabels()
 	require.Len(t, labels, 6, "one label per outcome, and no more")

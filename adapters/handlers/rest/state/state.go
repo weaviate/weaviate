@@ -114,11 +114,10 @@ type State struct {
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
 	ReindexProvider *db.ReindexProvider
 
-	// ClusterBackupActivity asks one peer whether it holds a backup or restore
-	// slot; the reindex submit gate fans it out over every node.
+	// ClusterBackupActivity is fanned out over every peer by the submit gate.
 	ClusterBackupActivity NodeActivityProber
 
-	// ReindexGateMetrics is shared with the DB, so all four gates count as one.
+	// ReindexGateMetrics is shared with the DB, so every gate counts as one.
 	ReindexGateMetrics *reindex.GateMetrics
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
