@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -75,7 +76,8 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 	// DELETE can't drop the bucket mid-snapshot — see submitLock godoc.
 	propLock := h.submitLock(collection, params.PropertyName)
 	propLock.Lock()
-	defer propLock.Unlock()
+	unlockProperty := sync.OnceFunc(propLock.Unlock)
+	defer unlockProperty()
 
 	class, prop, resp := h.readClassProperty(principal, collection, params.PropertyName)
 	if resp != nil {
@@ -119,7 +121,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return noopOrJoinResponder(principal, plan)
 	}
 
-	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks)
+	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks, unlockProperty)
 }
 
 // noopOrJoinResponder renders a noop plan. A joined task means the config is
@@ -159,7 +161,8 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 
 	propLock := h.submitLock(collection, params.PropertyName)
 	propLock.Lock()
-	defer propLock.Unlock()
+	unlockProperty := sync.OnceFunc(propLock.Unlock)
+	defer unlockProperty()
 
 	class, prop, resp := h.readClassProperty(principal, collection, params.PropertyName)
 	if resp != nil {
@@ -176,7 +179,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
 
-	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks)
+	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks, unlockProperty)
 }
 
 // listReindexTasks fetches the RAFT reindex task list under the submit lock.
@@ -647,7 +650,7 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 // validates tenant scope, checks conflicts/cap, and submits the distributed
 // task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
 // snapshot (reindexTasks) so check-and-submit sees one consistent view.
-func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
+func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task, unlockProperty func()) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -723,6 +726,14 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		); err != nil {
 			return h.mapSubmitTaskError(principal, collection, taskID, err)
 		}
+	}
+
+	// A capture that started while the RAFT write was in flight was admitted by
+	// its own gate before this hold closed, so the submission has to give way.
+	if scan := h.scanClusterBackupActivity(ctx); scan.verdict != backupActivityClear {
+		return h.rollbackSubmit(ctx, principal, h.appState.ClusterService, collection, taskID,
+			reindexCancelRemedy(collection, propertyName, migrationType), scan,
+			func() { unlockProperty(); releaseSubmitHold() })
 	}
 
 	// Operational audit line for a privileged cluster-wide operation.
