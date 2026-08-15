@@ -112,17 +112,24 @@ func requireNoPlacement(t *testing.T, msg, shardName string) {
 // So a test can prove the migration was live on both sides of its window.
 func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	t.Helper()
+	return reindexTaskRecord(t, restURI, taskID).Status
+}
+
+// The record itself, for a test that has to order a migration against a capture
+// window on the same two fields the commit-time check reads.
+func reindexTaskRecord(t *testing.T, restURI, taskID string) models.DistributedTask {
+	t.Helper()
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
 	require.True(t, ok, "tasks endpoint must answer")
 	for _, namespaced := range tasks {
 		for _, task := range namespaced {
 			if task.ID == taskID {
-				return task.Status
+				return task
 			}
 		}
 	}
 	t.Fatalf("task %s not found in /v1/tasks", taskID)
-	return ""
+	return models.DistributedTask{}
 }
 
 // liveReindexStatus mirrors the server's own liveness predicate: a status

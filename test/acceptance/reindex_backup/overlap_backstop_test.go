@@ -142,11 +142,15 @@ func TestBackupSucceedsWhenAMigrationRunsOnAnotherCollection(t *testing.T) {
 	snapshotOf := localBackupSnapshot(t, backend, backupID)
 	captured := awaitBackupTerminal(t, snapshotOf, 10*time.Minute)
 
-	// Judge the window after the verdict: a migration that drained before the
-	// capture opened would make the SUCCESS below prove nothing.
-	require.Truef(t, liveReindexStatus(reindexTaskStatus(t, restURI, taskID)),
-		"the migration on %s must still be live once the capture closed, or the capture never "+
-			"overlapped it; grow guardDataset until it outlives the capture", migratingClass)
+	// Judged on the two fields the commit-time check reads, not on which of the
+	// two finished first: a migration that drained before the capture opened
+	// would make the SUCCESS below prove nothing.
+	migration := reindexTaskRecord(t, restURI, taskID)
+	require.Truef(t, liveReindexStatus(migration.Status) ||
+		!time.Time(migration.FinishedAt).Before(captured.startedAt),
+		"the migration on %s finished at %s, before the capture of %s opened at %s, so it never "+
+			"overlapped the window this capture is judged against", migratingClass,
+		time.Time(migration.FinishedAt), capturedClass, captured.startedAt)
 	require.Equalf(t, string(entitiesbackup.Success), captured.status,
 		"a migration on a collection this capture never touched must not fail it (reason=%q)",
 		captured.errMessage)
