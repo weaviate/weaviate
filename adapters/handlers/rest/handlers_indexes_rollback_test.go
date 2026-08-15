@@ -48,7 +48,7 @@ type scriptedCanceller struct {
 
 func (c *scriptedCanceller) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	// The real store answers a dead context with its error, which is what makes
-	// a rollback that inherited the request's cancellation visible.
+	// a rollback that inherited the request's cancellation observable.
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -321,8 +321,8 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantRollbackOutcome: "not_attempted",
 		},
 		{
-			// The rollback has to outlive the request: a task left running
-			// would 409 this caller's own retry for a task it never heard of.
+			// The rollback has to outlive the request: a task left running would
+			// 409 this caller's own retry for a task it never heard of.
 			name:                "a caller that hung up before the refusal was written",
 			scan:                backupActivityScan{verdict: backupActivityBusy, kind: "backup", id: "backup-42"},
 			taskStatus:          distributedtask.TaskStatusStarted,
@@ -331,7 +331,6 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			wantContains:        []string{"reindex blocked: a backup is running in the cluster"},
 			wantNotContains:     []string{rolledBackTaskID},
 			wantCancels:         1,
-
 			wantRefusalVerdict:  reindex.VerdictBackupBusy,
 			wantRollbackOutcome: "cancelled",
 		},

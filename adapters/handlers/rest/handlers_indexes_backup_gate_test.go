@@ -45,12 +45,6 @@ func busy(kind, id string) backup.NodeActivity {
 	return backup.NodeActivity{Answered: true, Busy: true, Kind: kind, ID: id}
 }
 
-// The one reading that clears a rung, spelled out so a zero value in a fixture
-// cannot pass for it.
-func idle() backup.NodeActivity {
-	return backup.NodeActivity{Answered: true}
-}
-
 func probeFromMap(answers map[string]backup.NodeActivity, faults map[string]error,
 ) func(context.Context, string) (backup.NodeActivity, error) {
 	return func(_ context.Context, node string) (backup.NodeActivity, error) {
@@ -187,25 +181,22 @@ func TestOpenSubmitBackupGateOrder(t *testing.T) {
 		},
 		{
 			name:      "this node is idle, so the gate closes and then the peers are asked",
-			local:     idle(),
+			local:     backup.NodeActivity{Answered: true},
 			cluster:   backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
 			wantSteps: []string{"local", "hold", "cluster"},
 			wantScan:  backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore, node: "n2"},
 		},
 		{
 			name:      "the whole cluster is clear",
-			local:     idle(),
+			local:     backup.NodeActivity{Answered: true},
 			wantSteps: []string{"local", "hold", "cluster"},
 			wantScan:  backupActivityScan{},
 		},
 		{
-			// Nothing said this node is free, so no hold may be raised on the
-			// strength of it and no peer needs asking.
+			// Nothing said this node is free, so no hold may be raised on it.
 			name:      "this node's own slots left no answer",
 			wantSteps: []string{"local"},
-			wantScan: backupActivityScan{
-				verdict: backupActivityUnreachable, fault: errProbeLeftNoAnswer,
-			},
+			wantScan:  backupActivityScan{verdict: backupActivityUnreachable, fault: errProbeLeftNoAnswer},
 		},
 	}
 
@@ -388,21 +379,16 @@ func TestScanClusterBackupActivityWithoutTheWiringToAsk(t *testing.T) {
 		wantFault error
 	}{
 		{
-			name:      "no prober",
-			appState:  &state.State{Logger: quietLogger(), Cluster: &cluster.State{}},
-			wantFault: errClusterProbeUnwired,
+			name: "no prober", wantFault: errClusterProbeUnwired,
+			appState: &state.State{Logger: quietLogger(), Cluster: &cluster.State{}},
 		},
 		{
-			name:      "no cluster handle to read a member list from",
-			appState:  &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}},
-			wantFault: errClusterProbeUnwired,
+			name: "no cluster handle to read a member list from", wantFault: errClusterProbeUnwired,
+			appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}},
 		},
 		{
-			name: "a member list that does not name this node",
-			appState: &state.State{
-				Logger: quietLogger(), ClusterBackupActivity: staticProber{}, Cluster: &cluster.State{},
-			},
-			wantFault: errClusterViewUnavailable,
+			name: "a member list that does not name this node", wantFault: errClusterViewUnavailable,
+			appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}, Cluster: &cluster.State{}},
 		},
 	}
 
@@ -464,7 +450,7 @@ func TestRescanBackupActivityReadsTheLocalRung(t *testing.T) {
 			// that produces is what proves the rescan went past the local rung
 			// rather than answering from it.
 			name:        "still idle, so the peers are asked too",
-			local:       idle(),
+			local:       backup.NodeActivity{Answered: true},
 			wantVerdict: backupActivityUnreachable,
 			wantFault:   errClusterProbeUnwired,
 		},
@@ -529,8 +515,7 @@ func TestInstallReindexGateLookupsWiresTheMetrics(t *testing.T) {
 		series[family.GetName()] = len(family.GetMetric())
 	}
 	// Gathered, so the gauges really read the provider at scrape time.
-	assert.Equal(t, 2, series["weaviate_reindex_open_holds"],
-		"one gauge per hold kind, both scraping the live provider")
+	assert.Equal(t, 2, series["weaviate_reindex_open_holds"], "one gauge per hold kind")
 	assert.Equal(t, len(RollbackOutcomeLabels()), series["weaviate_reindex_submit_rollbacks_total"],
 		"every rollback outcome exists at zero before the first rollback")
 }

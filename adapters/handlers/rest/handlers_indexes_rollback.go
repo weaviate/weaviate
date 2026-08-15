@@ -45,9 +45,7 @@ const (
 	rollbackTaskTerminal
 	rollbackRefused
 	rollbackFailed
-	// The submission committed and no rollback was even tried, because nothing
-	// answered the probe and a silent peer is what a disconnected client
-	// produces on its own.
+	// Committed, and no rollback tried, because nothing answered the probe.
 	rollbackNotAttempted
 )
 
@@ -134,12 +132,10 @@ func (o rollbackOutcome) summary() string {
 	return ""
 }
 
-// releaseHold runs before the rollback does, so every backup of this collection
-// stops waiting on a rollback nobody is listening for. The caller's property
-// lock deliberately stays held until the handler returns: a converging PUT that
-// took it in this window would join the very task being cancelled and answer
-// 202 naming it. The cost is a DELETE on that property waiting up to
-// submitRollbackTimeout longer.
+// releaseHold runs before the rollback does, so backups of this collection stop
+// waiting on a rollback nobody is listening for. The caller's property lock
+// stays held to the end of the handler: a converging PUT that took it here
+// would join the very task being cancelled and answer 202 naming it.
 func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.Principal,
 	svc reindexTaskCanceller, collection, taskID, cancelRemedy string,
 	scan backupActivityScan, releaseHold func(),
@@ -152,10 +148,9 @@ func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.
 	if scan.verdict == backupActivityUnreachable {
 		h.logBackupActivityRefusal(principal, collection, "unreachable", scan)
 		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
-		// Its own series and its own audit event: this is the one exit that
-		// leaves a migration running with a capture possibly in flight, and it
-		// must be distinguishable from the harmless pre-commit refusal, which
-		// logs and counts the same admission verdict.
+		// The one exit leaving a migration running with a capture possibly in
+		// flight, so it gets a series of its own: the admission counter above
+		// reads the same here as on the harmless pre-commit refusal.
 		h.logRollbackOutcome(principal, collection, taskID, rollbackNotAttempted, scan.fault)
 		h.appState.ReindexGateMetrics.RolledBack(rollbackNotAttempted.label())
 		return jsonResponder(http.StatusServiceUnavailable, refusalNamingTask(principal, strippedID, fmt.Sprintf(
