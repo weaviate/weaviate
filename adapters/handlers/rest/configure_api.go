@@ -1156,6 +1156,7 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 				return db.ReindexOverlapVerdict{
 					Undetermined: true,
 					Detail:       "the cluster task manager could not be listed at commit time",
+					Remedy:       "restore RAFT reachability from this node",
 				}
 			}
 		}
