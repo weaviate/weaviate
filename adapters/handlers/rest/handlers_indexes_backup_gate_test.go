@@ -379,13 +379,31 @@ func TestPeersToProbe(t *testing.T) {
 
 // Whether a peer is capturing does not depend on this node's own wiring, so a
 // gate that cannot ask must answer the same as one whose peers did not answer.
+// The two faults still have to be told apart: missing wiring is a bug here, an
+// unusable member list is a cluster to wait for.
 func TestScanClusterBackupActivityWithoutTheWiringToAsk(t *testing.T) {
 	tests := []struct {
-		name     string
-		appState *state.State
+		name      string
+		appState  *state.State
+		wantFault error
 	}{
-		{name: "no prober", appState: &state.State{Logger: quietLogger(), Cluster: &cluster.State{}}},
-		{name: "no cluster view", appState: &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}}},
+		{
+			name:      "no prober",
+			appState:  &state.State{Logger: quietLogger(), Cluster: &cluster.State{}},
+			wantFault: errClusterProbeUnwired,
+		},
+		{
+			name:      "no cluster handle to read a member list from",
+			appState:  &state.State{Logger: quietLogger(), ClusterBackupActivity: staticProber{}},
+			wantFault: errClusterProbeUnwired,
+		},
+		{
+			name: "a member list that does not name this node",
+			appState: &state.State{
+				Logger: quietLogger(), ClusterBackupActivity: staticProber{}, Cluster: &cluster.State{},
+			},
+			wantFault: errClusterViewUnavailable,
+		},
 	}
 
 	for _, tt := range tests {
@@ -393,7 +411,7 @@ func TestScanClusterBackupActivityWithoutTheWiringToAsk(t *testing.T) {
 			scan := (&indexesHandlers{appState: tt.appState}).scanClusterBackupActivity(context.Background())
 
 			assert.Equal(t, backupActivityUnreachable, scan.verdict)
-			assert.ErrorIs(t, scan.fault, errClusterProbeUnwired)
+			assert.ErrorIs(t, scan.fault, tt.wantFault)
 		})
 	}
 }
@@ -409,20 +427,6 @@ func TestBackupActivityRefusalNamesThePrincipal(t *testing.T) {
 
 	require.Len(t, hook.AllEntries(), 1)
 	assert.Equal(t, "alice", hook.AllEntries()[0].Data["principal"])
-}
-
-// The refusal must be distinguishable from a peer that simply did not answer.
-func TestScanClusterBackupActivityWithoutAClusterView(t *testing.T) {
-	h := &indexesHandlers{appState: &state.State{
-		Logger:                quietLogger(),
-		ClusterBackupActivity: staticProber{},
-		Cluster:               &cluster.State{},
-	}}
-
-	scan := h.scanClusterBackupActivity(context.Background())
-
-	assert.Equal(t, backupActivityUnreachable, scan.verdict)
-	assert.ErrorIs(t, scan.fault, errClusterViewUnavailable)
 }
 
 // staticProber answers idle for every peer, so a test that reaches the fan-out
