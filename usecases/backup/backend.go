@@ -279,11 +279,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				// Nothing to restore from without the descriptor, so this ends
 				// as a failure. Publishing SUCCESS here would have the
 				// coordinator count the node done and report a backup that
-				// cannot be restored as good. The write fault reaches the same
-				// substring classifier as the reason on the arm below, so it
-				// gets the same scrub.
+				// cannot be restored as good. The text is left as it arrived:
+				// the scrub keeps a torn capture's id spent, and a capture
+				// that passed the check is safe to re-post.
 				desc.Status = backup.Transferred
-				u.slot.setFailed(backup.CancelSafeText(err.Error()))
+				u.slot.setFailed(err.Error())
 			} else {
 				u.slot.set(backup.Success)
 			}

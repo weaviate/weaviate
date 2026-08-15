@@ -229,10 +229,10 @@ func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
 	assert.Contains(t, slot.failures[0], "meta write rejected")
 }
 
-// TestPublishedReasonNeverReadsAsACancel pins that a published reason never
-// quotes a cancel. The refusals below are the shapes the check actually emits;
-// what this pins is that a metadata write that failed on a cancelled request
-// cannot put that text back, on either arm of the publish.
+// TestPublishedReasonNeverReadsAsACancel pins where the cancel phrase is
+// scrubbed and where it is not: out of a refusal this branch composes, so a
+// metadata write that failed on a cancelled request cannot put it back, and
+// left alone on a clean capture, which has no torn state to protect.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
 	observed := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
@@ -240,21 +240,22 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	cancelledWrite := fmt.Errorf("s3: %w", context.Canceled)
 
 	tests := []struct {
-		name       string
-		refusal    error
-		metaErr    error
-		wantStatus backup.Status
+		name            string
+		refusal         error
+		metaErr         error
+		wantStatus      backup.Status
+		keepsCancelText bool
 	}{
 		{
 			name:    "an overlap the check observed, and the metadata write was cancelled too",
 			refusal: observed, metaErr: cancelledWrite, wantStatus: backup.Failed,
 		},
 		{
-			// The other arm: nothing refused this capture, and the metadata
-			// write is the whole fault. It still ends as a failure, so the
-			// reason it publishes is read by the same classifier.
-			name:    "a clean capture whose only fault is a cancelled metadata write",
-			metaErr: cancelledWrite, wantStatus: backup.Transferred,
+			// The capture passed the check, so there is nothing torn under
+			// this id and re-posting it is safe. Scrubbing here would only
+			// cost the operator the CANCELLED the write fault earns.
+			name:    "a clean capture keeps its write fault verbatim",
+			metaErr: cancelledWrite, wantStatus: backup.Transferred, keepsCancelText: true,
 		},
 	}
 
@@ -267,7 +268,9 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 
 			require.Equal(t, tt.wantStatus, desc.Status)
 			require.NotEmpty(t, slot.failures)
-			assert.NotContains(t, slot.failures[0], context.Canceled.Error())
+			assert.Equal(t, tt.keepsCancelText,
+				strings.Contains(slot.failures[0], context.Canceled.Error()),
+				"scrubbed exactly where this branch splices text into the reason")
 		})
 	}
 }

@@ -1586,9 +1586,10 @@ now taken before the metadata write rather than rebuilt after it:
   after it. Before, both were wrapped in one `upload ...` message led by
   the write fault.
 - A metadata write error whose own text quotes a cancelled context no
-  longer reads to the coordinator as an operator abort. Such a backup now
-  ends `FAILED` with its id spent, where before it ended `CANCELLED` and
-  the same id could be posted again.
+  longer reads to the coordinator as an operator abort when the capture
+  itself also failed. Such a backup now ends `FAILED` with its id spent,
+  where before it ended `CANCELLED` and the same id could be posted again.
+  A clean capture whose descriptor write fails behaves as it does on base.
 
 Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
 every node runs the durable-stamp version. During a mixed-version
