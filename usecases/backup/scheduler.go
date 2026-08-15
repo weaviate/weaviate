@@ -106,12 +106,12 @@ func NewScheduler(
 			logger, nodeResolver, backends,
 		),
 	}
-	// Registering here, and refusing to build without a probe, is what makes every
-	// Scheduler a probe can see. A node whose probe cannot see its Scheduler
-	// answers "not busy" for a whole backup it is itself coordinating, which is
-	// the one answer a caller gating on the probe cannot survive. A missing probe
-	// is a build error, so it stops this node at startup rather than surfacing as
-	// a wrong answer later.
+	// A node whose probe cannot see its Scheduler answers "not busy" for a whole
+	// backup it is itself coordinating, which is the one answer a caller gating on
+	// the probe cannot survive. Demanding a probe here ties this Scheduler to the
+	// probe passed in, and stops the node at startup when there is none. That this
+	// is the same probe the cluster mux snapshots is app-state build order, which
+	// nothing here can enforce.
 	if activity == nil {
 		panic("backup: NewScheduler needs a node-activity probe")
 	}
