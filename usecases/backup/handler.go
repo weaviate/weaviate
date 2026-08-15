@@ -46,6 +46,16 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	return CanCommitErrCannotCommit
 }
 
+// classifyRestoreGateErr keeps the restore gate's two answers apart across
+// the RPC boundary: a migration it observed, and a check it could not
+// complete.
+func classifyRestoreGateErr(err error) CanCommitErrorKind {
+	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
+		return CanCommitErrRestoreReindexUndetermined
+	}
+	return CanCommitErrRestoreBlockedByReindex
+}
+
 // Version of backup structure
 const (
 	// "2.1" support restore on 2 phases
@@ -315,7 +325,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		// Before the descriptor is read: validate() fetches from the backend.
 		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
-			ret.ErrKind = CanCommitErrRestoreBlockedByReindex
+			ret.ErrKind = classifyRestoreGateErr(err)
 			return ret
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)

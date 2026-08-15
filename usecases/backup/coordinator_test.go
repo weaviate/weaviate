@@ -938,12 +938,13 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
-		refusalResp     *CanCommitResponse
-		expectInFlight  bool
-		expectRestore   bool
-		expectCanCommit bool
-		expectContain   string
+		name               string
+		refusalResp        *CanCommitResponse
+		expectInFlight     bool
+		expectRestore      bool
+		expectUndetermined bool
+		expectCanCommit    bool
+		expectContain      string
 		// wantNodeNamed is false for a reindex refusal: a migration is a
 		// cluster fact, and the node that reported it is placement the
 		// caller has no other way to learn.
@@ -970,6 +971,17 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			},
 			expectRestore: true,
 			expectContain: backup.ErrReindexInFlight.Error(),
+		},
+		{
+			name: "ErrKind=restore_reindex_undetermined stays out of the live-migration answer",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     backup.ErrReindexActivityUndetermined.Error() + ": the cluster task list could not be read",
+				ErrKind: CanCommitErrRestoreReindexUndetermined,
+			},
+			expectUndetermined: true,
+			expectContain:      "could not be determined",
 		},
 		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
@@ -1040,6 +1052,18 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 					"restore refusal must not match the backup sentinel, got: %v", err)
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"restore refusal must not also match errCannotCommit, got: %v", err)
+			}
+			if tc.expectUndetermined {
+				assert.True(t, errors.Is(err, backup.ErrReindexActivityUndetermined),
+					"expected errors.Is(err, backup.ErrReindexActivityUndetermined), got: %v", err)
+				assert.False(t, errors.Is(err, backup.ErrReindexInFlight),
+					"a check that could not answer must not match the live-migration sentinel, got: %v", err)
+				assert.False(t, errors.Is(err, errCannotCommit),
+					"undetermined must not also match errCannotCommit, got: %v", err)
+				// The same two assertions the storage layer makes one hop
+				// down, so a contradiction between them cannot compile.
+				assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
+				assert.NotContains(t, err.Error(), "retry after the migration finishes")
 			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),

@@ -36,6 +36,13 @@ func reindexRefusal(collection string) error {
 		backup.ErrReindexInFlight, collection)
 }
 
+// reindexUndetermined is the other answer the gate can give: it could not
+// reach the cluster task list, so it observed nothing.
+func reindexUndetermined() error {
+	return fmt.Errorf("%w: the cluster task list could not be read",
+		backup.ErrReindexActivityUndetermined)
+}
+
 // TestQuoteClassList pins the cap. A restore can cover every collection
 // in the cluster, and the refusal is the same one whichever is blocked.
 func TestQuoteClassList(t *testing.T) {
@@ -251,6 +258,72 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.NotContains(t, resp.Err, nodeName)
 		assert.NotContains(t, resp.Err, `shard "`)
 	})
+	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
+		// The kind is the only thing that survives the hop, so a gate that
+		// observed nothing has to carry a kind of its own or the
+		// coordinator rebuilds it as a migration it never saw.
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(reindexUndetermined())
+		m := createManager(sourcer, nil, newFakeBackend(), nil)
+		resp := m.OnCanCommit(ctx, req)
+		assert.Equal(t, CanCommitErrRestoreReindexUndetermined, resp.ErrKind)
+		assert.Zero(t, resp.Timeout)
+	})
+}
+
+// TestRestoreUndeterminedReaches422 pins the whole hop end to end: a
+// participant that could not check answers a kind of its own, and what
+// Scheduler.Restore publishes says so. Without this the first three hops
+// can be correct and nothing observable changes, because the scheduler
+// used to rebuild every reindex refusal as a live migration.
+func TestRestoreUndeterminedReaches422(t *testing.T) {
+	const (
+		backendName = "s3"
+		id          = "1234"
+		cls         = "Movies"
+		node1       = "node1"
+		node2       = "node2"
+	)
+	ctx := context.Background()
+	meta := backup.DistributedBackupDescriptor{
+		ID: id, StartedAt: time.Now().UTC(), Version: Version,
+		ServerVersion: "1.23", Status: backup.Success, Leader: node1,
+		Nodes: map[string]*backup.NodeDescriptor{
+			node1: {Classes: []string{cls}},
+			node2: {Classes: []string{cls}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID: id, Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{Name: cls}},
+	}
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
+	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, id+"/"+node1, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+	fs.backend.On("GetObject", ctx, id+"/"+node2, BackupFile).Return(marshalMeta(nodeMeta), nil).Maybe()
+	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Maybe()
+	fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(&CanCommitResponse{
+		Method:  OpRestore,
+		ID:      id,
+		Err:     reindexUndetermined().Error(),
+		ErrKind: CanCommitErrRestoreReindexUndetermined,
+	}, nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+		Backend: backendName, ID: id,
+	}, false)
+	require.Error(t, err)
+	require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+		"a refusal the caller can retry is 422, not 500")
+	// ErrUnprocessable carries no Unwrap, so the published body is what a
+	// caller reads, and it is what these assert on.
+	assert.Contains(t, err.Error(), backup.ErrReindexActivityUndetermined.Error())
+	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
+	assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
+	assert.NotContains(t, err.Error(), "retry after the migration finishes")
+	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
 }
 
 // TestPublishAsCancelled pins that a gate refusal ends the backup FAILED even

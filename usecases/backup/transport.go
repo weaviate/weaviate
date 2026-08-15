@@ -97,6 +97,11 @@ const (
 	// restore gate and sends no kind at all, which the default arm handles.
 	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
 
+	// The participant could not reach the cluster task list, so it refused
+	// without observing anything. Same rolling-upgrade cost as the kind
+	// above, on a rarer trigger.
+	CanCommitErrRestoreReindexUndetermined CanCommitErrorKind = "restore_reindex_undetermined"
+
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the
 	// classified kinds above.

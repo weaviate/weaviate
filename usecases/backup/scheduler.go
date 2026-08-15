@@ -297,7 +297,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		status = string(backup.Failed)
 		data.Error = err.Error()
 		if isReindexRefusal(err) {
-			return nil, backup.NewErrUnprocessable(restoreRefusedByParticipant(rReq.Classes))
+			// Already rebuilt node-agnostically by the coordinator, and
+			// rebuilding it again here would restate a refusal that could
+			// not check as one that observed a migration.
+			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
 	}

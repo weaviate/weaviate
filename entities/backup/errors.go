@@ -21,6 +21,11 @@ var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-rein
 
 var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
 
+// The gate could not answer. A separate sentinel from ErrReindexInFlight
+// because "I could not check" and "a migration is running" send the
+// operator to different places.
+var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runtime-reindex is in flight could not be determined")
+
 type ReindexBlockedError struct {
 	Msg string
 }

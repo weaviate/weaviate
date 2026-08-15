@@ -24,7 +24,8 @@ const maxNamedClasses = 5
 
 func isReindexRefusal(err error) bool {
 	return errors.Is(err, backup.ErrReindexInFlight) ||
-		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex)
+		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
+		errors.Is(err, backup.ErrReindexActivityUndetermined)
 }
 
 // Never an operator abort, even when the cause wraps a RAFT-client cancel.
@@ -43,6 +44,13 @@ func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"restore blocked: %w: a runtime-reindex is in flight on %s; retry after the migration finishes",
 		backup.ErrReindexInFlight, quoteClassList(classes))
+}
+
+// Nothing was observed, so the rebuilt message names no collection and
+// promises no migration will end.
+func restoreUndeterminedByParticipant() error {
+	return fmt.Errorf("%w; retry once the cluster is reachable",
+		backup.ErrReindexActivityUndetermined)
 }
 
 func quoteClassList(classes []string) string {

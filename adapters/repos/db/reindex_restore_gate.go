@@ -144,8 +144,8 @@ func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) erro
 }
 
 func restoreUnreadableRefusal() error {
-	return fmt.Errorf("restore blocked: the cluster task list could not be read, so whether a " +
-		"runtime-reindex is in flight cannot be determined; retry once the cluster is reachable")
+	return fmt.Errorf("%w: the cluster task list could not be read; retry once the cluster is reachable",
+		entitiesbackup.ErrReindexActivityUndetermined)
 }
 
 func restoreHoldRefusal(collections []string, hold ReindexHold) error {
