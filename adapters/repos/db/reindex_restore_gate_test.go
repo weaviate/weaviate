@@ -321,21 +321,27 @@ func TestReindexGateWarnBudget(t *testing.T) {
 func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	shardGateWarnBudget = reindexGateWarnBudget{}
 	restoreGateWarnBudget = reindexGateWarnBudget{}
+	overlapCheckWarnBudget = reindexGateWarnBudget{}
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 	live, _ := db.AnyLiveReindexForShard("Movies", "shard-1")
 	require.False(t, live)
 	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
+	require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
 	gates := make(map[string]int)
 	for _, entry := range hook.AllEntries() {
 		require.Equal(t, logrus.WarnLevel, entry.Level, "an unwired gate is an operator-facing report")
 		gates[entry.Data["gate"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"backup": 1, "restore": 1}, gates)
+	assert.Equal(t, map[string]int{"backup": 1, "commit-time overlap": 1, "restore": 1}, gates)
 	actions := map[string]int{}
 	for _, entry := range hook.AllEntries() {
 		actions[entry.Data["action"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"backup_reindex_gate": 1, "restore_reindex_gate": 1}, actions,
+	assert.Equal(t, map[string]int{
+		"backup_reindex_gate":    1,
+		"backup_reindex_overlap": 1,
+		"restore_reindex_gate":   1,
+	}, actions,
 		"a wiring failure must file under its own gate's action, not the other's")
 }

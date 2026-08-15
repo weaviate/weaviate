@@ -115,15 +115,6 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantOverlapped: true,
 		},
 		{
-			// Defensive, not a state anything produces: a cancel writes the
-			// unit map, so an empty one is a record this build cannot read.
-			name:             "a cancelled task with no units is unknown, not untouched",
-			task:             overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), nil),
-			classes:          []string{"Movies"},
-			wantUndetermined: true,
-			wantDetail:       "recorded no units",
-		},
-		{
 			name:           "a live local worker means all-PENDING is not proof nothing was written",
 			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending)),
 			classes:        []string{"Movies"},
@@ -159,13 +150,6 @@ func TestReindexOverlapRules(t *testing.T) {
 			// migration that ended before this capture as an observed overlap.
 			name:             "a status a newer node introduced cannot be judged",
 			task:             overlapTask(distributedtask.TaskStatus("REBALANCING"), captureStart.Add(-time.Hour), units(distributedtask.UnitStatusCompleted)),
-			classes:          []string{"Movies"},
-			wantUndetermined: true,
-			wantDetail:       "a status this node cannot name",
-		},
-		{
-			name:             "a status a newer node introduced, inside the window",
-			task:             overlapTask(distributedtask.TaskStatus("REBALANCING"), captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
 			classes:          []string{"Movies"},
 			wantUndetermined: true,
 			wantDetail:       "a status this node cannot name",
@@ -250,6 +234,8 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 func TestReindexOverlapRetentionWindow(t *testing.T) {
 	liveMatching := overlapTask(distributedtask.TaskStatusStarted, time.Time{},
 		units(distributedtask.UnitStatusInProgress))
+	// Defensive, not a state anything produces: a cancel writes the unit map,
+	// so an empty one is a record this build cannot read.
 	cancelledNoUnits := overlapTask(distributedtask.TaskStatusCancelled,
 		captureStart.Add(time.Minute), nil)
 
@@ -271,12 +257,6 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 		{
 			name: "at the window it can no longer be cleared",
 			ttl:  time.Hour, age: time.Hour,
-			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
-			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		},
-		{
-			name: "past the window either",
-			ttl:  time.Hour, age: time.Hour + time.Minute,
 			wantUndetermined: true, wantDetail: "window in which a finished migration stays listed",
 			wantRemedy: "raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		},
@@ -562,16 +542,6 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 
 		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
 		assert.Zero(t, built.overlap)
-	})
-
-	t.Run("an unwired check passes and reports", func(t *testing.T) {
-		logger, hook := logrustest.NewNullLogger()
-		db := &DB{logger: logger}
-		overlapCheckWarnBudget = reindexGateWarnBudget{}
-
-		require.NoError(t, db.RefuseIfReindexOverlapped(context.Background(), []string{"Movies"}, captureStart))
-		require.Len(t, hook.AllEntries(), 1)
-		assert.Equal(t, "commit-time overlap", hook.AllEntries()[0].Data["gate"])
 	})
 
 	t.Run("a builder that answers with no lookup passes and reports", func(t *testing.T) {

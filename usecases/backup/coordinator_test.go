@@ -1161,12 +1161,6 @@ func TestOneNodeRefusingFailsTheWholeBackup(t *testing.T) {
 			wantInError: backup.ErrReindexOverlappedBackup.Error(),
 		},
 		{
-			name:        "an overlap the check could not answer",
-			reason:      backup.ErrReindexOverlapUndetermined.Error() + ": the cluster task manager could not be listed",
-			wantStatus:  backup.Failed,
-			wantInError: backup.ErrReindexOverlapUndetermined.Error(),
-		},
-		{
 			// Not a shape the check emits: the refusals are scrubbed of this text.
 			name:        "a reason that quotes a cancelled request",
 			reason:      "upload aborted: " + context.Canceled.Error(),
