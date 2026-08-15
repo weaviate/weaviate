@@ -43,6 +43,35 @@ type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
 
+// OverlapListRetryDelays waits between list attempts: the check runs after
+// the whole upload, and nothing can delete what a failed check discards.
+var OverlapListRetryDelays = []time.Duration{
+	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
+}
+
+// ListReindexTasksForOverlap retries list on the delays schedule.
+func ListReindexTasksForOverlap(
+	ctx context.Context,
+	list func(context.Context) (map[string][]*distributedtask.Task, error),
+	delays []time.Duration,
+) ([]*distributedtask.Task, error) {
+	var err error
+	for attempt := 0; ; attempt++ {
+		var byNamespace map[string][]*distributedtask.Task
+		if byNamespace, err = list(ctx); err == nil {
+			return byNamespace[ReindexNamespace], nil
+		}
+		if attempt >= len(delays) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(delays[attempt]):
+		}
+	}
+}
+
 // A migration can start and finish inside the capture window, so liveness
 // answers nothing here; this asks whether one overlapped the capture.
 func NewReindexOverlapLookup(
@@ -111,9 +140,8 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task, hasLocalWorker)
 }
 
-// A cancel before any unit left PENDING wrote nothing, which is what a
-// submission losing a race to a backup produces. Everything else refuses: an
-// empty unit list is unknown, and a worker registers before a unit moves.
+// Only a cancel that landed before any unit left PENDING wrote nothing, the
+// state a submission that lost a race to a backup ends in. Anything else fails.
 func decideCancelledReindexOverlap(
 	task *distributedtask.Task,
 	hasLocalWorker ReindexWorkerLookup,
@@ -163,9 +191,20 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 			"Check the SetReindexOverlapLookup wiring in configure_api.go.")
 		return nil
 	}
-	verdict := builder(ctx)(classes, since)
+	lookup := builder(ctx)
+	if lookup == nil {
+		db.warnUnwiredGate(&overlapCheckWarnBudget, "backup_reindex_overlap", "commit-time overlap",
+			"Check the SetReindexOverlapLookup wiring in configure_api.go.")
+		return nil
+	}
+	verdict := lookup(classes, since)
 	if verdict.allowsBackup() {
 		return nil
+	}
+	// An operator's cancel arrives on this ctx and kills the list the check
+	// runs on. That is the operator stopping the backup, so it stays CANCELLED.
+	if verdict.Undetermined && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	db.warnOverlapRefusal(classes, verdict)
 	return reindexOverlapRefusal(verdict)

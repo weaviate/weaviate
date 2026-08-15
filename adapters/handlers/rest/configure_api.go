@@ -1143,10 +1143,14 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 
 	completedTaskTTL := appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL
 	repo.SetReindexOverlapLookup(func(ctx context.Context) db.ReindexOverlapLookup {
-		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+		tasks, err := db.ListReindexTasksForOverlap(ctx,
+			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays)
 		if err != nil {
 			appState.Logger.WithField("action", "backup_reindex_overlap").
-				Warnf("commit-time overlap check: cannot list DTM tasks; the check cannot answer: %v", err)
+				Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
+			// Detail must never carry err: the coordinator classifies a cancel
+			// by looking for "context canceled" in this text, so a list error
+			// whose cause was one would publish a torn capture as CANCELLED.
 			return func([]string, time.Time) db.ReindexOverlapVerdict {
 				return db.ReindexOverlapVerdict{
 					Undetermined: true,
@@ -1154,7 +1158,7 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 				}
 			}
 		}
-		return db.NewReindexOverlapLookup(tasksByNamespace[db.ReindexNamespace],
+		return db.NewReindexOverlapLookup(tasks,
 			completedTaskTTL, appState.ReindexProvider.HasActiveWorker, time.Now)
 	})
 }
