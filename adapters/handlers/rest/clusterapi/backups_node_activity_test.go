@@ -57,11 +57,12 @@ func serveNodeActivity(t *testing.T, prober *stubProber, auth cluster.AuthConfig
 
 func TestBackupNodeActivityRoute(t *testing.T) {
 	tests := []struct {
-		name     string
-		activity backup.NodeActivity
-		method   string
-		wantCode int
-		wantBody string
+		name             string
+		activity         backup.NodeActivity
+		method           string
+		wantCode         int
+		wantBody         string
+		wantBodyContains string
 	}{
 		{
 			name:     "idle names neither a kind nor an id",
@@ -71,12 +72,12 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`,
 		},
 		{
-			// Nothing produces this today. It is here because if something ever
-			// does, it must leave as busy rather than clear the node it came from.
-			name:     "an activity nothing decided",
-			method:   http.MethodGet,
-			wantCode: http.StatusOK,
-			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":true}`,
+			// Nothing produces this today. If something ever does, it must leave as
+			// 503: a 404 clears the node, and a 200 renders "cannot tell" as an answer.
+			name:             "an activity nothing decided",
+			method:           http.MethodGet,
+			wantCode:         http.StatusServiceUnavailable,
+			wantBodyContains: "could not decide",
 		},
 		{
 			name:     "busy with a backup",
@@ -101,6 +102,9 @@ func TestBackupNodeActivityRoute(t *testing.T) {
 			assert.Equal(t, tt.wantCode, res.StatusCode)
 			if tt.wantBody != "" {
 				assert.JSONEq(t, tt.wantBody, string(body))
+			}
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, string(body), tt.wantBodyContains)
 			}
 		})
 	}
@@ -145,9 +149,7 @@ func TestBackupNodeActivityRouteLogs(t *testing.T) {
 	const probes = 5
 
 	tests := []struct {
-		name string
-		// The unwired case hands NewBackups an untyped nil: a nil *stubProber
-		// would still satisfy the prober interface.
+		name       string
 		newHandler func(logrus.FieldLogger) http.Handler
 		wantLevel  logrus.Level
 		wantLines  int
@@ -164,14 +166,6 @@ func TestBackupNodeActivityRouteLogs(t *testing.T) {
 			wantFields: map[string]any{
 				"busy": true, "kind": "backup", "id": `"b1"`,
 			},
-		},
-		{
-			name: "an unwired probe is warned about once",
-			newHandler: func(logger logrus.FieldLogger) http.Handler {
-				return clusterapi.NewBackups(nil, nil, clusterapi.NewNoopAuthHandler(), logger).NodeActivity()
-			},
-			wantLevel: logrus.WarnLevel,
-			wantLines: 1,
 		},
 	}
 	for _, tt := range tests {

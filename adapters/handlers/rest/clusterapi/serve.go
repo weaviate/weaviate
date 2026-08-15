@@ -194,8 +194,8 @@ func (s *Server) Close(ctx context.Context) error {
 
 // requireNodeActivityProbe pins app-state build order: the probe must exist
 // before the mux is built. A nil *NodeActivityProbe passed straight through
-// would wrap as a non-nil interface, so backups.go's own nil check would miss
-// it and every request would nil-pointer panic instead of failing once here.
+// would wrap as a non-nil interface, so no request-time check could catch it;
+// failing here stops the node once instead of panicking on every request.
 func requireNodeActivityProbe(p *backup.NodeActivityProbe) nodeActivityProber {
 	if p == nil {
 		panic("clusterapi: cluster mux built before the backup node-activity probe was assigned")
