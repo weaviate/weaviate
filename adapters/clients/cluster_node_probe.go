@@ -43,7 +43,9 @@ type nodeProbe struct {
 
 // probeHTTPClient must not be unified with the shared cluster client: that one
 // honors HTTP_PROXY/HTTPS_PROXY and follows redirects, either of which lets a
-// host we never asked answer for a peer, and its 404 clears that peer.
+// host we never asked answer for a peer. Should that host be a Go net/http
+// server that lacks this route, its 404 is byte for byte the peer's own and
+// clears that peer.
 func probeHTTPClient(authConfig cluster.AuthConfig, probeTimeout time.Duration) *http.Client {
 	if probeTimeout <= 0 {
 		probeTimeout = defaultProbeTimeout

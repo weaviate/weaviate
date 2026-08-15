@@ -115,9 +115,11 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 	return &NodeActivityProbe{participant: participant}
 }
 
-// attachScheduler adds the coordinator slots. It is unexported so that
-// [NewScheduler] stays the only way to reach it, which is what keeps every
-// Scheduler visible to a probe.
+// attachScheduler adds the coordinator slots. A Scheduler that exists but is not
+// attached makes this node report itself idle while it coordinates a backup,
+// which is the one answer a caller gating on the probe cannot survive. What
+// rules that out is [NewScheduler]: it demands a probe and attaches here. Being
+// unexported only stops another package attaching one out of band.
 func (p *NodeActivityProbe) attachScheduler(scheduler *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
