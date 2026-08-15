@@ -378,7 +378,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 			assert.Equal(t, tt.wantTaskID, body.TaskID)
 			assert.Equal(t, tt.wantCancels, canceller.cancelCalls)
 			assert.Equal(t, 1, released,
-				"the property lock and the collection gate are released before the rollback runs")
+				"the collection's submit hold is released before the rollback runs")
 
 			// The post-commit path reaches the counter through code the
 			// pre-commit one never runs.
@@ -391,7 +391,7 @@ func TestRollbackSubmitResponses(t *testing.T) {
 	}
 }
 
-// The locks have to be gone before the rollback starts, not after.
+// The hold has to be gone before the rollback starts, not after.
 func TestRollbackSubmitReleasesLocksBeforeCancelling(t *testing.T) {
 	var steps []string
 	recording := &recordingCanceller{

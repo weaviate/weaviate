@@ -134,14 +134,17 @@ func (o rollbackOutcome) summary() string {
 	return ""
 }
 
-// releaseLocks runs before the rollback does, so an unrelated DELETE on this
-// property and every backup of this collection stop waiting on a rollback
-// nobody is listening for.
+// releaseHold runs before the rollback does, so every backup of this collection
+// stops waiting on a rollback nobody is listening for. The caller's property
+// lock deliberately stays held until the handler returns: a converging PUT that
+// took it in this window would join the very task being cancelled and answer
+// 202 naming it. The cost is a DELETE on that property waiting up to
+// submitRollbackTimeout longer.
 func (h *indexesHandlers) rollbackSubmit(ctx context.Context, principal *models.Principal,
 	svc reindexTaskCanceller, collection, taskID, cancelRemedy string,
-	scan backupActivityScan, releaseLocks func(),
+	scan backupActivityScan, releaseHold func(),
 ) middleware.Responder {
-	releaseLocks()
+	releaseHold()
 
 	strippedID := namespacing.StripOwnNamespace(principal, taskID)
 	// Nobody answering is what a disconnected client produces on its own, and
