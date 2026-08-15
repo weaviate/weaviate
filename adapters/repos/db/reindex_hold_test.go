@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
@@ -162,4 +164,52 @@ func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 	require.Equal(t, ReindexHoldCleanup, db.ReindexHoldFor("Movies"))
 	release()
 	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
+}
+
+// TestReindexHoldVerdictIsBounded is the cardinality guard on the db side. The
+// log reason carries the number of a hold this build cannot name, which is
+// what makes it diagnosable; the metric label must not, or one unrecognized
+// hold per release mints a series per release.
+func TestReindexHoldVerdictIsBounded(t *testing.T) {
+	bounded := map[string]struct{}{
+		reindex.VerdictHoldSubmit:  {},
+		reindex.VerdictHoldCleanup: {},
+		reindex.VerdictHoldUnknown: {},
+	}
+
+	holds := []ReindexHold{
+		ReindexHoldNone, ReindexHoldSubmit, ReindexHoldCleanup,
+		ReindexHold(99), ReindexHold(100), ReindexHold(-1),
+	}
+	for _, hold := range holds {
+		verdict := reindexHoldVerdict(hold)
+		assert.Contains(t, bounded, verdict, "hold %d produced the unbounded label %q", hold, verdict)
+	}
+
+	assert.Equal(t, reindex.VerdictHoldSubmit, reindexHoldVerdict(ReindexHoldSubmit))
+	assert.Equal(t, reindex.VerdictHoldCleanup, reindexHoldVerdict(ReindexHoldCleanup))
+}
+
+// The gauge counts collections, not holds: two overlapping sweeps on one
+// collection close one gate, and a count of holds would report two.
+func TestOpenHolds(t *testing.T) {
+	p := &ReindexProvider{db: &DB{}}
+	require.Zero(t, p.OpenHolds(ReindexHoldSubmit))
+
+	releaseFirst := p.MarkSubmitInProgress("Movies")
+	releaseSecond := p.MarkSubmitInProgress("Movies")
+	releaseOther := p.MarkSubmitInProgress("Shows")
+	releaseCleanup := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+
+	assert.Equal(t, 2, p.OpenHolds(ReindexHoldSubmit))
+	assert.Equal(t, 1, p.OpenHolds(ReindexHoldCleanup))
+
+	releaseFirst()
+	assert.Equal(t, 2, p.OpenHolds(ReindexHoldSubmit), "one of two overlapping holds is still open")
+
+	releaseSecond()
+	releaseOther()
+	releaseCleanup()
+	assert.Zero(t, p.OpenHolds(ReindexHoldSubmit))
+	assert.Zero(t, p.OpenHolds(ReindexHoldCleanup))
 }

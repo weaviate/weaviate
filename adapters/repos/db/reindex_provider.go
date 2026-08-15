@@ -2019,6 +2019,11 @@ func (p *ReindexProvider) MarkSubmitInProgress(collection string) (release func(
 	return p.db.reindexHolds.acquire(collection, ReindexHoldSubmit)
 }
 
+// OpenHolds reports how many collections currently carry a hold of this kind,
+// so an operator can see a gate while it is closed and not only afterwards.
+func (p *ReindexProvider) OpenHolds(kind ReindexHold) int {
+	return p.db.reindexHolds.open(kind)
+}
 
 // reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
 // in the REST handlers so both cancel paths converge on identical

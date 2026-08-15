@@ -26,6 +26,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 // A peer that accepts the connection and then stops answering must not park a
@@ -189,10 +190,12 @@ func (h *indexesHandlers) backupActivityRefusal(principal *models.Principal,
 		return nil
 	case backupActivityBusy:
 		h.logBackupActivityRefusal(collection, "busy", scan)
+		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, submitRefusalVerdict(scan.kind))
 		return jsonResponder(http.StatusConflict,
 			errorResponse(principal, backupBusyRefusal(scan.kind)))
 	case backupActivityUnreachable:
 		h.logBackupActivityRefusal(collection, "unreachable", scan)
+		h.appState.ReindexGateMetrics.Refused(reindex.GateSubmit, reindex.VerdictUnreachable)
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cannot confirm the cluster is free of backups: a node did not answer the "+
 				"backup-activity probe; retry once every node is reachable"))
@@ -227,6 +230,15 @@ func (h *indexesHandlers) logBackupActivityRefusal(collection, verdict string, s
 func backupBusyRefusal(kind string) string {
 	return fmt.Sprintf("reindex blocked: a %s is running in the cluster; retry after it finishes",
 		publishableActivityKind(kind))
+}
+
+// The label follows the published kind, so a kind this build cannot name counts
+// where its own refusal says it counts.
+func submitRefusalVerdict(kind string) string {
+	if publishableActivityKind(kind) == backup.NodeActivityKindRestore {
+		return reindex.VerdictRestoreBusy
+	}
+	return reindex.VerdictBackupBusy
 }
 
 // A kind this build cannot name still refuses, but as a backup: the string came

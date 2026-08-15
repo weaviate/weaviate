@@ -115,6 +115,21 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 	return strongest
 }
 
+// open counts the collections carrying a hold of this kind, not the holds on
+// them: two overlapping sweeps on one collection close one gate, not two.
+func (r *ReindexHoldRegistry) open(kind ReindexHold) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	collections := 0
+	for _, byKind := range r.holds {
+		if byKind[kind] > 0 {
+			collections++
+		}
+	}
+	return collections
+}
+
 // The registry is a field on this same DB, so there is nothing to install
 // and no window in which the gates read it before it exists.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {

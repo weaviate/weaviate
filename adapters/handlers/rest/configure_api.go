@@ -173,6 +173,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	reindexuc "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -1022,7 +1023,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
-	installReindexGateLookups(appState, repo, serverShutdownCtx)
+	installReindexGateLookups(appState, repo, serverShutdownCtx, metricsRegisterer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1113,7 +1114,19 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 // Runs after the internal cluster listener is already serving canCommit,
 // so a peer's request landing before this line is admitted ungated; only
 // the public API waits for it.
-func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context) {
+func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context,
+	metricsRegisterer prometheus.Registerer,
+) {
+	// One counter for every gate, and a gauge per hold kind so an operator can
+	// see a gate while it is closed rather than only after it reopens.
+	provider := appState.ReindexProvider
+	gateMetrics := reindexuc.NewGateMetrics(metricsRegisterer, map[string]func() int{
+		db.ReindexHoldSubmit.String():  func() int { return provider.OpenHolds(db.ReindexHoldSubmit) },
+		db.ReindexHoldCleanup.String(): func() int { return provider.OpenHolds(db.ReindexHoldCleanup) },
+	})
+	repo.SetReindexGateMetrics(gateMetrics)
+	appState.ReindexGateMetrics = gateMetrics
+
 	// A list failure refuses every backup: admitting one races a migration.
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
 		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)

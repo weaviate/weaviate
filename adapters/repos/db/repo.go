@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -135,6 +136,7 @@ type DB struct {
 	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
 	anyReindexActivityLookupBuilder   AnyReindexActivityLookupBuilder
 	reindexOverlapLookupBuilder       ReindexOverlapLookupBuilder
+	reindexGateMetrics                *reindex.GateMetrics
 
 	// Carries its own lock. Here, not on [ReindexProvider], because most of
 	// what raises it are DB methods the provider never sees.

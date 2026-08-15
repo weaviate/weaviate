@@ -44,6 +44,19 @@ func (b *reindexGateWarnBudget) allow(now time.Time) bool {
 	return true
 }
 
+// SetReindexGateMetrics installs the counters every reindex gate reports to.
+func (db *DB) SetReindexGateMetrics(metrics *reindex.GateMetrics) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.reindexGateMetrics = metrics
+}
+
+func (db *DB) gateMetrics() *reindex.GateMetrics {
+	db.reindexAuditMu.RLock()
+	defer db.reindexAuditMu.RUnlock()
+	return db.reindexGateMetrics
+}
+
 func (db *DB) warnUnwiredGate(budget *reindexGateWarnBudget, action, gate, detail string) {
 	if !budget.allow(time.Now()) {
 		return
@@ -113,7 +126,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	_, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
+	_, verdict, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
+	if refusal != nil {
+		i.db.gateMetrics().Refused(reindex.GateBackup, verdict)
+	}
 	return refusal
 }
 
@@ -132,11 +148,12 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 	var (
 		refusal error
 		reason  string
+		verdict string
 		blocked int
 		sample  []string
 	)
 	for _, shardName := range shards {
-		shardReason, shardRefusal := i.db.reindexBackupRefusal(collection, shardName, hold)
+		shardReason, shardVerdict, shardRefusal := i.db.reindexBackupRefusal(collection, shardName, hold)
 		if shardRefusal == nil {
 			continue
 		}
@@ -145,30 +162,41 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 			sample = append(sample, shardName)
 		}
 		if refusal == nil || shardReason == reindexReasonLiveTask {
-			refusal, reason = shardRefusal, shardReason
+			refusal, reason, verdict = shardRefusal, shardReason, shardVerdict
 		}
 	}
 	if refusal == nil {
 		return nil
 	}
 	i.db.warnReindexRefusal(collection, reason, sample, blocked)
+	i.db.gateMetrics().Refused(reindex.GateBackup, verdict)
 	return refusal
 }
 
-func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHold) (string, error) {
-	var (
-		reason  string
-		refusal error
-	)
+// The log reason and the metric verdict are not the same string: an
+// unrecognized hold carries its number into the log so it can be diagnosed,
+// and a number in a metric label mints a series per value.
+func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHold) (reason, verdict string, refusal error) {
 	if db.AnyLiveReindexForShard(collection, shardName) {
-		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
+		reason, verdict, refusal = reindexReasonLiveTask, reindex.VerdictLiveTask, reindexLiveTaskRefusal(collection)
 	} else if hold != ReindexHoldNone {
-		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
+		reason, verdict, refusal = hold.String(), reindexHoldVerdict(hold), reindexHoldRefusal(collection, hold)
 	}
 	if refusal == nil {
-		return "", nil
+		return "", "", nil
 	}
-	return reason, refusal
+	return reason, verdict, refusal
+}
+
+func reindexHoldVerdict(hold ReindexHold) string {
+	switch hold {
+	case ReindexHoldSubmit:
+		return reindex.VerdictHoldSubmit
+	case ReindexHoldCleanup:
+		return reindex.VerdictHoldCleanup
+	case ReindexHoldNone:
+	}
+	return reindex.VerdictHoldUnknown
 }
 
 func (db *DB) warnReindexRefusal(collection, reason string, blockedShards []string, blockedCount int) {

@@ -43,6 +43,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -116,6 +117,10 @@ type State struct {
 	// ClusterBackupActivity asks one peer at a time whether it holds a backup
 	// or restore slot; the reindex submit gate fans it out over every node.
 	ClusterBackupActivity NodeActivityProber
+
+	// ReindexGateMetrics is shared with the DB so every reindex gate reports
+	// its refusals to one counter.
+	ReindexGateMetrics *reindex.GateMetrics
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit

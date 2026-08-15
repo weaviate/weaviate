@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 func quietLogger() *logrus.Logger {
@@ -191,12 +193,11 @@ func TestRefuseOnLocalBackupActivity(t *testing.T) {
 // already answered.
 func TestOpenSubmitBackupGateOrder(t *testing.T) {
 	tests := []struct {
-		name       string
-		local      backup.NodeActivity
-		cluster    backupActivityScan
-		wantSteps  []string
-		wantScan   backupActivityScan
-		wantHeldAt int
+		name      string
+		local     backup.NodeActivity
+		cluster   backupActivityScan
+		wantSteps []string
+		wantScan  backupActivityScan
 	}{
 		{
 			name:      "this node is busy, so no gate is closed and no peer is asked",
@@ -294,6 +295,77 @@ func TestBackupActivityRefusal(t *testing.T) {
 			assert.Equal(t, tt.wantBody, body.Error[0].Message)
 		})
 	}
+}
+
+// TestBackupActivityRefusalCounts pins that a refusal is counted where an
+// operator looks for it, and that the verdict label stays inside a closed set
+// even for a kind that arrived off the wire.
+func TestBackupActivityRefusalCounts(t *testing.T) {
+	bounded := map[string]struct{}{
+		reindex.VerdictBackupBusy:  {},
+		reindex.VerdictRestoreBusy: {},
+	}
+
+	tests := []struct {
+		name        string
+		scan        backupActivityScan
+		wantVerdict string
+	}{
+		{
+			name:        "a backup",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindBackup},
+			wantVerdict: reindex.VerdictBackupBusy,
+		},
+		{
+			name:        "a restore",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: backup.NodeActivityKindRestore},
+			wantVerdict: reindex.VerdictRestoreBusy,
+		},
+		{
+			name:        "a kind this build cannot name",
+			scan:        backupActivityScan{verdict: backupActivityBusy, kind: "Movies/shard-7"},
+			wantVerdict: reindex.VerdictBackupBusy,
+		},
+		{
+			name:        "a node that did not answer",
+			scan:        backupActivityScan{verdict: backupActivityUnreachable, node: "node-3"},
+			wantVerdict: reindex.VerdictUnreachable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := prometheus.NewPedanticRegistry()
+			h := &indexesHandlers{appState: &state.State{
+				Logger:             quietLogger(),
+				ReindexGateMetrics: reindex.NewGateMetrics(registry, nil),
+			}}
+
+			require.NotNil(t, h.backupActivityRefusal(nil, "Movies", tt.scan))
+
+			assert.Equal(t, 1.0, refusalCount(t, registry, tt.wantVerdict))
+			if tt.scan.verdict == backupActivityBusy {
+				assert.Contains(t, bounded, submitRefusalVerdict(tt.scan.kind))
+			}
+		})
+	}
+}
+
+// refusalCount reads the one series the submit gate should have written, and
+// fails when it wrote a label pair nothing declared.
+func refusalCount(t *testing.T, registry *prometheus.Registry, verdict string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	require.Len(t, families, 1)
+	require.Len(t, families[0].GetMetric(), 1, "one refusal writes one series")
+
+	labels := map[string]string{}
+	for _, pair := range families[0].GetMetric()[0].GetLabel() {
+		labels[pair.GetName()] = pair.GetValue()
+	}
+	assert.Equal(t, map[string]string{"gate": reindex.GateSubmit, "verdict": verdict}, labels)
+	return families[0].GetMetric()[0].GetCounter().GetValue()
 }
 
 func TestOtherNodes(t *testing.T) {

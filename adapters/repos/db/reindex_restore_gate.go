@@ -113,9 +113,11 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	switch {
 	case blocked && !activity.Unreadable:
 		db.warnRestoreRefusal(collections, reindexReasonLiveTask, activity.TaskID)
+		db.gateMetrics().Refused(reindex.GateRestore, reindex.VerdictLiveTask)
 		return restoreLiveTaskRefusal(collections, activity)
 	case hold != ReindexHoldNone:
 		db.warnRestoreRefusal(collections, hold.String(), "")
+		db.gateMetrics().Refused(reindex.GateRestore, reindexHoldVerdict(hold))
 		return restoreHoldRefusal(collections, hold)
 	case blocked:
 		// An unreadable list observed nothing, so it ranks below a hold.

@@ -304,15 +304,19 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 		return ctx.Err()
 	}
 	db.warnOverlapRefusal(classes, verdict)
+	db.gateMetrics().Refused(reindex.GateOverlap, overlapVerdictLabel(verdict))
 	return reindexOverlapRefusal(verdict, classes)
 }
 
-func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict) {
-	reason := reindexReasonOverlapObserved
+func overlapVerdictLabel(verdict ReindexOverlapVerdict) string {
 	if verdict.Outcome == ReindexOverlapUndetermined {
-		reason = reindexReasonOverlapUndetermined
+		return reindex.VerdictOverlapUnsure
 	}
-	db.warnRefusal("backup_reindex_overlap", reason,
+	return reindex.VerdictOverlap
+}
+
+func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict) {
+	db.warnRefusal("backup_reindex_overlap", overlapVerdictLabel(verdict),
 		"commit-time overlap check: failing this backup",
 		logrus.Fields{
 			"task_id":              verdict.TaskID,

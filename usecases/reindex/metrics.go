@@ -1,0 +1,76 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package reindex
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+// Both label vocabularies are closed sets. A label carrying runtime data — a
+// collection, a node, a shard, a task id — mints one series per value, and a
+// multi-tenant collection has one shard per tenant.
+const (
+	GateSubmit  = "submit"
+	GateBackup  = "backup"
+	GateRestore = "restore"
+	GateOverlap = "overlap"
+)
+
+const (
+	VerdictBackupBusy    = "backup_busy"
+	VerdictRestoreBusy   = "restore_busy"
+	VerdictUnreachable   = "unreachable"
+	VerdictLiveTask      = "live_task"
+	VerdictHoldSubmit    = "hold_submit"
+	VerdictHoldCleanup   = "hold_cleanup"
+	VerdictHoldUnknown   = "hold_unrecognized"
+	VerdictOverlap       = "overlap_observed"
+	VerdictOverlapUnsure = "overlap_undetermined"
+)
+
+type GateMetrics struct {
+	refusals *prometheus.CounterVec
+}
+
+// NewGateMetrics registers the refusal counter, plus one gauge per hold kind
+// read from openHolds at scrape time. The gauges are what makes a hold visible
+// while it is open; the counter only ever reports windows that already closed.
+//
+// The caller names the hold kinds, so one cannot be added to the gate without
+// deciding whether it gets a series.
+func NewGateMetrics(reg prometheus.Registerer, openHolds map[string]func() int) *GateMetrics {
+	factory := promauto.With(reg)
+	for hold, count := range openHolds {
+		factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Name:        "weaviate_reindex_open_holds",
+			Help:        "Reindex holds currently closing the backup and restore gates over some collection, by kind.",
+			ConstLabels: prometheus.Labels{"hold": hold},
+		}, func() float64 { return float64(count()) })
+	}
+
+	return &GateMetrics{refusals: factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "weaviate_reindex_gate_refusals_total",
+		Help: "Operations refused by a runtime-reindex gate, by the gate that refused and what it found.",
+	}, []string{"gate", "verdict"})}
+}
+
+// Refused counts one refusal whatever it covers: a gate that closed over sixty
+// shards refused one operation, not sixty.
+//
+// A nil receiver is a no-op, which is what a fixture that wired no metrics has.
+func (m *GateMetrics) Refused(gate, verdict string) {
+	if m == nil {
+		return
+	}
+	m.refusals.WithLabelValues(gate, verdict).Inc()
+}
