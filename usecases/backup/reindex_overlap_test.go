@@ -142,9 +142,111 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	})
 }
 
-// TestCommitTimeOverlapRefusalIsNotAnOperatorAbort pins the "Never an
-// operator abort" rule in uploader.all: a refusal ends the backup FAILED
-// even when its own cause wraps a cancellation.
+// TestWithMetaFault pins the reason a status poll is served when the
+// metadata write fails alongside the capture: the capture's own reason
+// first, the write fault named after it, and nothing in either half that
+// the coordinator would read as an operator abort.
+func TestWithMetaFault(t *testing.T) {
+	const reason = `backup blocked: collection "Article" was migrated`
+
+	tests := []struct {
+		name    string
+		metaErr error
+		want    string
+	}{
+		{name: "the write landed", want: reason},
+		{
+			name:    "the write failed",
+			metaErr: errors.New("disk full"),
+			want:    reason + "; uploading the backup metadata also failed: disk full",
+		},
+		{
+			name:    "the write failed on a cancelled request",
+			metaErr: fmt.Errorf("s3: %w", context.Canceled),
+			want:    reason + "; uploading the backup metadata also failed: s3: a canceled context",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := withMetaFault(reason, tt.metaErr)
+
+			assert.Equal(t, tt.want, got)
+			assert.NotContains(t, got, context.Canceled.Error())
+		})
+	}
+}
+
+// TestOrdinaryCaptureFailureWithAFailedMetaWrite pins the one place the
+// migration kill switch is not a byte-identical no-op. The shape has
+// nothing to do with migrations — an ordinary capture failure whose
+// metadata write also failed — and the reason a poll is served leads with
+// the capture's own text instead of wrapping it in the write fault, which
+// is what keeps a per-shard refusal's shard name off the status API.
+func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
+	const class = "Article"
+	u, _, slot, desc := uploadFixture(t, class,
+		errors.New("no space left on device"), errors.New("meta write rejected"))
+
+	require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
+
+	require.Len(t, slot.failures, 1)
+	assert.True(t, strings.HasPrefix(slot.failures[0],
+		"no space left on device; uploading the backup metadata also failed: "),
+		"the capture's reason has to lead; got: %s", slot.failures[0])
+	assert.Contains(t, slot.failures[0], "meta write rejected")
+}
+
+// TestPublishedReasonNeverReadsAsACancel pins the dependency the reason
+// composition has on the coordinator: a participant that publishes FAILED
+// with context.Canceled's text in the reason is relabelled CANCELLED, and a
+// cancelled backup id can be re-posted, so a torn capture would be quietly
+// overwritten by a clean one under the same id.
+func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
+	const class = "Article"
+
+	refusals := []struct {
+		name    string
+		refusal error
+	}{
+		{
+			name: "an overlap the check observed",
+			refusal: fmt.Errorf("%w: collection %q was migrated: %w",
+				backup.ErrReindexOverlappedBackup, class, context.Canceled),
+		},
+		{
+			name: "an overlap the check could not answer",
+			refusal: fmt.Errorf("%w: the cluster task manager could not be listed: %w",
+				backup.ErrReindexOverlapUndetermined, context.Canceled),
+		},
+	}
+
+	for _, r := range refusals {
+		for _, metaErr := range []error{nil, fmt.Errorf("s3: %w", context.Canceled)} {
+			name := r.name
+			if metaErr != nil {
+				name += ", and the metadata write was cancelled too"
+			}
+			t.Run(name, func(t *testing.T) {
+				u, sourcer, slot, desc := uploadFixture(t, class, nil, metaErr)
+				sourcer.setOverlapRefusal(r.refusal)
+
+				require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
+
+				require.Equal(t, backup.Failed, desc.Status)
+				require.NotEmpty(t, slot.failures)
+				assert.NotContains(t, slot.failures[0], context.Canceled.Error())
+	
+			})
+		}
+	}
+}
+
+// TestCommitTimeOverlapRefusalIsNotAnOperatorAbort is a contract test on
+// publishAsCancelled, not a regression test on a live path: the check never
+// emits an undetermined refusal that wraps a cancellation, because a
+// cancelled context is answered as a cancel before a verdict is built. It
+// pins the rule for whatever does emit that shape next.
 func TestCommitTimeOverlapRefusalIsNotAnOperatorAbort(t *testing.T) {
 	const class = "Article"
 	u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)

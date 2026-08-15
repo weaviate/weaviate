@@ -43,7 +43,6 @@ func TestGatesAreNoOpsWithTheFeatureOff(t *testing.T) {
 	require.NoError(t, err, "with the feature off a backup must behave as it did before the gates existed")
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil,
 		helper.WithDeadline(2*time.Minute))
-
 	helper.DeleteClass(t, className)
 	require.NoError(t, restoreClasses(t, backend, backupID, className),
 		"with the feature off a restore must not be gated either")
