@@ -255,6 +255,14 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if db.config.RuntimeReindexDisabled || db.config.CompletedTaskTTL > 0 {
 		return nil
 	}
+	// Exactly the condition under which the commit-time check runs at all: an
+	// uninstalled one admits, so admitting here keeps the two the same answer.
+	db.reindexAuditMu.RLock()
+	wired := db.reindexOverlapLookupBuilder != nil
+	db.reindexAuditMu.RUnlock()
+	if !wired {
+		return nil
+	}
 	return blockedRefusal(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped " +
 			"from the cluster task list before a backup can be judged against it and every backup " +
