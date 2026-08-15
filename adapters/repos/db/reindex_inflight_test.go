@@ -343,10 +343,8 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 	for _, shard := range shards {
 		require.Error(t, perShardIdx.refuseIfReindexInFlight(shard))
 	}
-	assert.Empty(t, warnOrAbove(perShardHook),
-		"the per-shard path must not reach the operator; it reports at Debug so the "+
-			"shard is still recoverable, and the aggregating gate carries the refusal")
-	assert.Len(t, perShardHook.AllEntries(), shardCount, "one Debug line per refused shard")
+	assert.Empty(t, perShardHook.AllEntries(),
+		"the per-shard path must stay silent; the aggregating gate carries the refusal")
 	db, hook, _ := gatedDB(t, gateFixtures{live: live})
 	refusal := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
 	require.Error(t, refusal)

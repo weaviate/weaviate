@@ -163,16 +163,6 @@ func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHol
 	if refusal == nil {
 		return "", nil
 	}
-	// One line per shard, at the level base used; the fan-out is bounded by
-	// shard count, so by tenant count. The aggregated signal is the WARN the
-	// admission gate emits once per refusal.
-	if db.logger != nil {
-		db.logger.WithField("action", "backup_reindex_gate").
-			WithField("collection", collection).
-			WithField("shard", shardName).
-			WithField("reason", reason).
-			Debug("backup-reindex gate: refusing this shard")
-	}
 	return reason, refusal
 }
 
