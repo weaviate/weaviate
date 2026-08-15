@@ -243,13 +243,6 @@ func decideCancelledReindexOverlap(
 		}
 	}
 	for _, unit := range task.Units {
-		if unit == nil {
-			return ReindexOverlapVerdict{
-				Undetermined: true,
-				Detail:       "a cancelled migration recorded a unit with no state",
-				Remedy:       ReindexOverlapIncompleteRecordRemedy,
-			}
-		}
 		if unit.Status != distributedtask.UnitStatusPending {
 			return ReindexOverlapVerdict{Overlapped: true}
 		}
@@ -353,8 +346,7 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 // migration record too incomplete to judge a capture against: nothing, until
 // the cluster task list drops it. Naming the wait beats naming no step.
 const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against that record, so backups " +
-	"stay refused until the cluster task list drops it, DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS " +
-	"after the migration finished"
+	"stay refused until the cluster task list drops it on a garbage-collection pass"
 
 // Two errors, never both: an undetermined answer must not match the observed
 // one. Both are worded alike, because an operator reading either needs the
