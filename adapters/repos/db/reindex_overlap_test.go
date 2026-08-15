@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -152,6 +153,22 @@ func TestReindexOverlapRules(t *testing.T) {
 			task:           overlapTask(distributedtask.TaskStatusStarted, time.Time{}, units(distributedtask.UnitStatusInProgress)),
 			classes:        []string{"MOVIES"},
 			wantOverlapped: true,
+		},
+		{
+			// The liveness predicate reads it as live, which would publish a
+			// migration that ended before this capture as an observed overlap.
+			name:             "a status a newer node introduced cannot be judged",
+			task:             overlapTask(distributedtask.TaskStatus("REBALANCING"), captureStart.Add(-time.Hour), units(distributedtask.UnitStatusCompleted)),
+			classes:          []string{"Movies"},
+			wantUndetermined: true,
+			wantDetail:       "a status this node cannot name",
+		},
+		{
+			name:             "a status a newer node introduced, inside the window",
+			task:             overlapTask(distributedtask.TaskStatus("REBALANCING"), captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
+			classes:          []string{"Movies"},
+			wantUndetermined: true,
+			wantDetail:       "a status this node cannot name",
 		},
 	}
 
@@ -360,7 +377,9 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+			require.ErrorIs(t, err, entitiesbackup.ErrReindexOverlapCheckUnanswerable)
+			require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+				"nothing is in flight; that sentinel makes the coordinator promise a migration will end")
 			assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
 			assert.Contains(t, err.Error(), "RUNTIME_REINDEX_ENABLED")
 		})
@@ -416,13 +435,27 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 			notContains:  []string{`"Movies"`},
 		},
 		{
+			// The check never attributed this to a captured collection, so the
+			// text may not claim it did.
 			name:         "an overlap on a collection this backup never captured",
 			verdict:      ReindexOverlapVerdict{Overlapped: true, Collection: "Secret"},
 			classes:      []string{"Movies"},
 			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
-			wantFinding:  "a collection this backup captured was migrated",
+			wantFinding:  "cannot be attributed to a collection",
 			wantRemedy:   "wait for that migration to finish",
-			notContains:  []string{"Secret", "/v1/schema"},
+			notContains: []string{
+				"Secret", "/v1/schema",
+				"a collection this backup captured was migrated",
+			},
+		},
+		{
+			name:         "an overlap on a task that named no collection at all",
+			verdict:      ReindexOverlapVerdict{Overlapped: true},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlappedBackup,
+			wantFinding:  "cannot be attributed to a collection",
+			wantRemedy:   "wait for that migration to finish",
+			notContains:  []string{"Movies", "/v1/schema"},
 		},
 		{
 			name: "a backup that outlived the retention window",
@@ -442,6 +475,21 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 				// Nothing is in flight here; the task may already be gone.
 				"in flight",
 			},
+		},
+		{
+			// A CANCELLED backup id can be re-posted, so a refusal a
+			// coordinator reads as an operator abort loses the torn capture.
+			name: "a detail that quotes a cancelled context",
+			verdict: ReindexOverlapVerdict{
+				Undetermined: true,
+				Detail:       "the cluster task manager could not be listed: " + context.Canceled.Error(),
+				Remedy:       "restore RAFT reachability from this node",
+			},
+			classes:      []string{"Movies"},
+			wantSentinel: entitiesbackup.ErrReindexOverlapUndetermined,
+			wantFinding:  "the cluster task manager could not be listed",
+			wantRemedy:   "restore RAFT reachability",
+			notContains:  []string{context.Canceled.Error()},
 		},
 		{
 			name: "a migration record too incomplete to judge",
@@ -704,9 +752,59 @@ func TestReindexOverlapRefusalNamesOnlyACapturedClass(t *testing.T) {
 		err := reindexOverlapRefusal(
 			ReindexOverlapVerdict{Overlapped: true, Collection: "Secret"}, []string{"Movies"})
 
-		assert.Contains(t, err.Error(), "a collection this backup captured")
+		assert.Contains(t, err.Error(), "cannot be attributed to a collection")
 		assert.NotContains(t, err.Error(), "Secret")
 	})
+}
+
+// recordingRecorder answers every call and remembers the order they came in.
+type recordingRecorder struct {
+	calls       []string
+	progressErr error
+}
+
+func (r *recordingRecorder) UpdateDistributedTaskUnitProgress(
+	_ context.Context, _, _ string, _ uint64, _, unitID string, progress float32,
+) error {
+	r.calls = append(r.calls, fmt.Sprintf("progress %s %v", unitID, progress))
+	return r.progressErr
+}
+
+func (r *recordingRecorder) RecordDistributedTaskUnitCompletion(
+	_ context.Context, _, _ string, _ uint64, _, unitID string,
+) error {
+	r.calls = append(r.calls, "completed "+unitID)
+	return nil
+}
+
+func (r *recordingRecorder) RecordDistributedTaskUnitFailure(
+	_ context.Context, _, _ string, _ uint64, _, unitID, _ string,
+) error {
+	r.calls = append(r.calls, "failed "+unitID)
+	return nil
+}
+
+// TestReindexWorkerClaimsBeforeItWrites pins the mechanism the all-PENDING
+// waiver rests on: the unit leaves PENDING on a claim the worker makes before
+// it can touch a shard, so a unit still PENDING is a unit nothing wrote for.
+// The index here is nil, so any step past the claim would reach it.
+func TestReindexWorkerClaimsBeforeItWrites(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node-1"}
+	task := reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor("Movies"))
+	payload := &ReindexTaskPayload{
+		Collection:  "Movies",
+		UnitToNode:  map[string]string{"u1": "node-1"},
+		UnitToShard: map[string]string{"u1": "s1"},
+	}
+	recorder := &recordingRecorder{progressErr: errors.New("no raft leader")}
+
+	require.NotPanics(t, func() {
+		p.processOneUnit(context.Background(), task, payload, nil, "u1", recorder, &selectedPropsFailures{})
+	}, "the worker reached the shard before claiming the unit")
+
+	assert.Equal(t, []string{"progress u1 0"}, recorder.calls,
+		"the claim is the first thing the worker does, and a claim it could not land stops it")
 }
 
 // TestHasActiveWorker walks the disjunct behind the all-PENDING waiver.

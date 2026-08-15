@@ -658,8 +658,9 @@ in the node's state, the node:
   `DB.AnyLiveReindexForShard`), and fails any backup that finished its
   capture while the task was listed, per collection
   (`db.NewReindexOverlapLookup` feeding `DB.RefuseIfReindexOverlapped`).
-  An unrecognized status reads as live to both, so the overlap check
-  refuses without ever consulting the retention window;
+  An unrecognized status reads as live to the shard gate; the overlap
+  check refuses it as undetermined instead, because it cannot tell a
+  migration still running from one that ended before the capture began;
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1516,7 +1517,7 @@ Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
 v1.38 Preview.
 
-Four known holes, each needing state or a layer this change does not touch:
+Five known holes, each needing state or a layer this change does not touch:
 
 - **Clock skew.** The capture start is the capturing node's clock; a
   task's `FinishedAt` is the node that ran it, and the GC that drops the
@@ -1542,6 +1543,13 @@ Four known holes, each needing state or a layer this change does not touch:
   is the leader, with no leadership-verification round, so the check can
   get a confidently wrong "no such task" with no error to distinguish it.
   Closing it is a linearizable-read change at the RAFT layer.
+- **A cleanup that opens and closes inside the capture window.** The
+  post-cancel cleanup that removes a migration's temporary index files is
+  node-local: the hold it takes is visible only while it is held, and the
+  task it belongs to is already terminal, so a cleanup that starts and
+  finishes between the capture's start and its commit leaves nothing for
+  the overlap check to read. Closing it means recording each node's
+  cleanup runs somewhere the check can see them.
 
 One route that looks like a hole and is not: `AddTask` overwrites a
 record when a task id is resubmitted, but reindex task ids are
@@ -1570,6 +1578,19 @@ are uploaded and before the backup id is consumed. The refusal names both
 env vars. To take backups again, either raise
 `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` above the time a backup
 takes, or set `RUNTIME_REINDEX_ENABLED=false`. Restores are unaffected.
+
+Turning the feature off skips the check, but two things about *failed*
+backups change for everyone, because the reason a status poll serves is
+now taken before the metadata write rather than rebuilt after it:
+
+- When a capture fails and writing its metadata fails too, the served
+  reason leads with why the capture failed and names the metadata fault
+  after it. Before, both were wrapped in one `upload ...` message led by
+  the write fault.
+- A metadata write error whose own text quotes a cancelled context no
+  longer reads to the coordinator as an operator abort. Such a backup now
+  ends `FAILED` with its id spent, where before it ended `CANCELLED` and
+  the same id could be posted again.
 
 Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
 every node runs the durable-stamp version. During a mixed-version

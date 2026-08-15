@@ -12,8 +12,10 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"io"
+	"strings"
 )
 
 // Match with errors.Is, never by substring. The texts name no shard and no node.
@@ -32,6 +34,12 @@ var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex o
 
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
+// The overlap check is installed but configured so that it could never clear
+// a capture, so the backup is refused at admission instead of after its whole
+// upload. Nothing is in flight, which is why this is not
+// ErrBackupBlockedByInFlightReindex.
+var ErrReindexOverlapCheckUnanswerable = errors.New("backup blocked: the runtime-reindex overlap check cannot answer")
+
 type ReindexBlockedError struct {
 	Msg string
 }
@@ -39,6 +47,27 @@ type ReindexBlockedError struct {
 func (e ReindexBlockedError) Error() string { return e.Msg }
 
 func (e ReindexBlockedError) Unwrap() error { return ErrBackupBlockedByInFlightReindex }
+
+// ReindexOverlapCheckError carries the refusing node's own text to the
+// coordinator, which forwards it instead of rebuilding one: the text names no
+// node, shard or collection, and it is the only place the two environment
+// variables an operator has to change appear.
+type ReindexOverlapCheckError struct {
+	Msg string
+}
+
+func (e ReindexOverlapCheckError) Error() string { return e.Msg }
+
+func (e ReindexOverlapCheckError) Unwrap() error { return ErrReindexOverlapCheckUnanswerable }
+
+// CancelSafeText rewords the one phrase a coordinator reads as an operator
+// abort. The coordinator relabels a participant's FAILED to CANCELLED when
+// context.Canceled's text appears anywhere in the published reason, and a
+// CANCELLED backup id can be re-posted, so a reason that merely quotes a
+// cancel would let a torn capture be silently overwritten by a clean one.
+func CancelSafeText(text string) string {
+	return strings.ReplaceAll(text, context.Canceled.Error(), "a canceled context")
+}
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.
 // CloseWithError closes the reader and signals the given error to the writer,

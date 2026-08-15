@@ -1144,9 +1144,8 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 		if err != nil {
 			appState.Logger.WithField("action", "backup_reindex_overlap").
 				Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
-			// Detail must never carry err: the coordinator classifies a cancel
-			// by looking for "context canceled" in this text, so a list error
-			// whose cause was one would publish a torn capture as CANCELLED.
+			// Detail carries no err text: a list error names RAFT internals an
+			// operator cannot act on, and the remedy below is the whole answer.
 			return func([]string, time.Time) db.ReindexOverlapVerdict {
 				return db.ReindexOverlapVerdict{
 					Undetermined: true,

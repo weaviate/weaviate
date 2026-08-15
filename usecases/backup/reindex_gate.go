@@ -29,7 +29,8 @@ const maxNamedClasses = 5
 func isReindexRefusal(err error) bool {
 	return errors.Is(err, backup.ErrReindexInFlight) ||
 		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
-		errors.Is(err, backup.ErrReindexActivityUndetermined)
+		errors.Is(err, backup.ErrReindexActivityUndetermined) ||
+		errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable)
 }
 
 // refusalRank orders the refusals two nodes can report at once. A node that
@@ -94,6 +95,16 @@ func blockedSubject(classes []string) string {
 func restoreUndeterminedByParticipant() error {
 	return fmt.Errorf("%w; retry once the cluster is reachable",
 		backup.ErrReindexActivityUndetermined)
+}
+
+// The refusing node's text is forwarded whole: it is a configuration answer,
+// so rebuilding it from the requested classes would name collections that
+// have nothing to do with the cause and drop the settings to change.
+func overlapCheckUnanswerableByParticipant(text string) error {
+	if text == "" {
+		return backup.ErrReindexOverlapCheckUnanswerable
+	}
+	return backup.ReindexOverlapCheckError{Msg: backup.CancelSafeText(text)}
 }
 
 func quoteClassList(classes []string) string {

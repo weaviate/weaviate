@@ -34,10 +34,15 @@ import (
 //
 // Classification reads the error chain, never the words: the storage layer's
 // Backupable() wraps the shared [backup.ErrBackupBlockedByInFlightReindex]
-// sentinel inside errors.Join when several classes refuse.
+// sentinel inside errors.Join when several classes refuse. The reindex kinds
+// stay apart because "a migration is running" and "this node cannot check"
+// send the operator to different places.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
+		return CanCommitErrOverlapCheckUnanswerable
 	}
 	if onlyReindexRefusals(err) {
 		return CanCommitErrInFlightReindex
