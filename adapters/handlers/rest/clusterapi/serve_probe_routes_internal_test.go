@@ -76,16 +76,29 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		path       string
 		user, pass string
 		wantCode   int
 		wantBody   string
 	}{
 		{
 			name:     "no credentials",
+			path:     clusterprobe.BackupNodeActivityPath,
 			wantCode: http.StatusUnauthorized,
 		},
 		{
 			name:     "the cluster's own credentials",
+			path:     clusterprobe.BackupNodeActivityPath,
+			user:     probeAuth.BasicAuth.Username,
+			pass:     probeAuth.BasicAuth.Password,
+			wantCode: http.StatusOK,
+			wantBody: `{"probe":"weaviate/backup-node-activity","node":"node1","busy":false}`,
+		},
+		{
+			// A middlebox that normalizes paths reaches this build with the slash
+			// the shipped client never sends.
+			name:     "a trailing slash the exact match misses",
+			path:     clusterprobe.BackupNodeActivityPath + "/",
 			user:     probeAuth.BasicAuth.Username,
 			pass:     probeAuth.BasicAuth.Password,
 			wantCode: http.StatusOK,
@@ -94,7 +107,7 @@ func TestClusterMuxServesTheProbeRouteBehindAuth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodGet, server.URL+clusterprobe.BackupNodeActivityPath, nil)
+			req, err := http.NewRequest(http.MethodGet, server.URL+tt.path, nil)
 			require.NoError(t, err)
 			if tt.user != "" {
 				req.SetBasicAuth(tt.user, tt.pass)
