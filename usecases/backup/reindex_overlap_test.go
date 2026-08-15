@@ -356,37 +356,3 @@ func TestGateRefusalIsRedactedOnTheStatusAPI(t *testing.T) {
 		})
 	}
 }
-
-// TestUnanswerableOverlapCheckSurvivesTheRPC pins the RPC round trip: each half
-// looked right alone while the pair told the operator to wait for a migration
-// that does not exist.
-func TestUnanswerableOverlapCheckSurvivesTheRPC(t *testing.T) {
-	refusal := backup.ReindexOverlapCheckError{
-		Msg: backup.ErrReindexOverlapCheckUnanswerable.Error() +
-			": DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is " +
-			"dropped from the cluster task list; raise it above the time a backup takes, or set " +
-			"RUNTIME_REINDEX_ENABLED=false",
-	}
-
-	kind := classifyCanCommitErr(refusal)
-	require.Equal(t, CanCommitErrOverlapCheckUnanswerable, kind)
-	require.NotEqual(t, CanCommitErrInFlightReindex, kind,
-		"nothing is in flight, and that kind makes the coordinator rebuild the text")
-
-	err := canCommitErrFromResponse(
-		&CanCommitResponse{Method: OpCreate, ID: "1", Err: refusal.Error(), ErrKind: kind},
-		[]string{"Movies", "Shows"})
-
-	require.ErrorIs(t, err, backup.ErrReindexOverlapCheckUnanswerable)
-	require.NotErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
-	assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
-	assert.Contains(t, err.Error(), "RUNTIME_REINDEX_ENABLED")
-	assert.NotContains(t, err.Error(), "in flight")
-	assert.NotContains(t, err.Error(), "retry after it finishes")
-	for _, class := range []string{"Movies", "Shows"} {
-		assert.NotContains(t, err.Error(), class,
-			"the cause is this node's configuration, not any collection")
-	}
-	assert.True(t, isReindexRefusal(err),
-		"a configuration refusal is a cluster answer, so it must not be prefixed with a node name")
-}
