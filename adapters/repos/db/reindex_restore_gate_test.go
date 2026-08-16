@@ -236,6 +236,14 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Len(t, hook.AllEntries(), 1)
 		assert.Equal(t, ReindexHoldCleanup.String(), hook.AllEntries()[0].Data["reason"])
 	})
+	t.Run("a hold outranks an unreadable list, because the hold was observed", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
+		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
+			return func([]string) (ReindexActivity, bool) { return ReindexActivity{Unreadable: true}, true }
+		})
+		require.ErrorContains(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}),
+			"still removing its temporary index files")
+	})
 	t.Run("a live task outranks a hold, so the remedy an operator can act on wins", func(t *testing.T) {
 		db, _, _ := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
@@ -315,7 +323,8 @@ func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	restoreGateWarnBudget = reindexGateWarnBudget{}
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
-	require.False(t, db.AnyLiveReindexForShard("Movies", "shard-1"))
+	live, _ := db.AnyLiveReindexForShard("Movies", "shard-1")
+	require.False(t, live)
 	require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
 	gates := make(map[string]int)
 	for _, entry := range hook.AllEntries() {

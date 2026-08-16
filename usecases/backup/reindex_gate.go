@@ -30,6 +30,7 @@ var reindexGateSentinels = []error{
 	backup.ErrReindexInFlight,
 	backup.ErrBackupBlockedByInFlightReindex,
 	backup.ErrReindexActivityUndetermined,
+	backup.ErrBackupReindexActivityUndetermined,
 }
 
 // Any refusal in the chain; allReindexRefusals is the stricter form.
@@ -70,7 +71,8 @@ func allReindexRefusals(err error) bool {
 // Ranks concurrent refusals so the reported one is deterministic: an observed
 // migration tells the operator what to wait for, an undetermined one does not.
 func refusalRank(err error) int {
-	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
+	if errors.Is(err, backup.ErrReindexActivityUndetermined) ||
+		errors.Is(err, backup.ErrBackupReindexActivityUndetermined) {
 		return 0
 	}
 	return 1
@@ -100,6 +102,11 @@ func blockedSubject(classes []string) string {
 		return quoteClassList(classes)
 	}
 	return "at least one of " + quoteClassList(classes)
+}
+
+func backupUndeterminedByParticipant() error {
+	return fmt.Errorf("%w; retry once the cluster is reachable",
+		backup.ErrBackupReindexActivityUndetermined)
 }
 
 func restoreUndeterminedByParticipant() error {

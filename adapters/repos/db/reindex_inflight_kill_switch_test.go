@@ -41,10 +41,11 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
 			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 				lookups.Add(1)
-				return func(string, string) bool { return true }
+				return func(string, string) (bool, bool) { return true, false }
 			})
 
-			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			live, _ := db.AnyLiveReindexForShard("MyClass", "shard1")
+			require.Equal(t, tt.wantBlock, live)
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})

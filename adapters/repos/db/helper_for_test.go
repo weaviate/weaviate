@@ -246,7 +246,7 @@ func getRandomSeed() *rand.Rand {
 // with their own lookup.
 func installNoLiveReindexLookup(db *DB) {
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return false }
+		return func(string, string) (bool, bool) { return false, false }
 	})
 }
 

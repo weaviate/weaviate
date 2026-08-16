@@ -32,8 +32,8 @@ import (
 // reports a fixed set of (collection, shard) pairs as live.
 func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
 	return func() ShardReindexActivityLookup {
-		return func(collection, shardName string) bool {
-			return live[[2]string{collection, shardName}]
+		return func(collection, shardName string) (bool, bool) {
+			return live[[2]string{collection, shardName}], false
 		}
 	}
 }
@@ -45,7 +45,7 @@ type gateFixtures struct {
 	tasks []*distributedtask.Task
 }
 
-type gateCounters struct{ activity int }
+type gateCounters struct{ activity, shard int }
 
 func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters) {
 	t.Helper()
@@ -54,7 +54,10 @@ func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters
 	db := &DB{logger: logger, localNodeName: "node-7"}
 	var built gateCounters
 	if f.live != nil {
-		db.SetShardReindexActivityLookup(makeActivityBuilder(f.live))
+		db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			built.shard++
+			return makeActivityBuilder(f.live)()
+		})
 	}
 	for collection, hold := range f.holds {
 		db.reindexHolds.acquire(collection, hold)
@@ -114,7 +117,8 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			case tt.builder != nil:
 				db.SetShardReindexActivityLookup(tt.builder)
 			}
-			require.Equal(t, tt.want, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			live, _ := db.AnyLiveReindexForShard("MyClass", "shard1")
+			require.Equal(t, tt.want, live)
 		})
 	}
 }
@@ -340,13 +344,64 @@ func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	}
 }
 
+func TestBackupGateRanksAnUnreadableTaskList(t *testing.T) {
+	const (
+		undetermined = "could not be read"
+		observed     = "has an active runtime-reindex task"
+		heldRemoving = "still removing its temporary index files"
+	)
+	gates := map[string]func(*Index) error{
+		"one shard":   func(i *Index) error { return i.refuseIfReindexInFlight("s1") },
+		"every shard": func(i *Index) error { return i.refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}) },
+	}
+	tests := []struct {
+		name       string
+		live, hold bool
+		want       string
+	}{
+		{name: "nothing observed and the list unreadable", want: undetermined},
+		{name: "a hold outranks an unreadable list", hold: true, want: heldRemoving},
+		{name: "a live task outranks both", live: true, hold: true, want: observed},
+	}
+	for gateName, gate := range gates {
+		for _, tt := range tests {
+			t.Run(gateName+"/"+tt.name, func(t *testing.T) {
+				db, _, _ := gatedDB(t, gateFixtures{})
+				db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+					return func(string, string) (bool, bool) { return tt.live, true }
+				})
+				if tt.hold {
+					db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+				}
+				err := gate(gatedIndex(db, "Movies"))
+				require.ErrorContains(t, err, tt.want)
+				if tt.want != undetermined {
+					return
+				}
+				require.ErrorIs(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined)
+				assert.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+					"a list this node could not read is not a migration it observed")
+				assert.NotContains(t, err.Error(), "/cancel",
+					"there is no task here to cancel: the node saw none")
+			})
+		}
+	}
+}
+
+func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
+	db, _, built := gatedDB(t, gateFixtures{live: map[[2]string]bool{}})
+	require.NoError(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"s1", "s2", "s3"}))
+	require.Equal(t, 1, built.shard,
+		"one task-list read per gate call: building per shard reads it N times and lets one call see the cluster two ways")
+}
+
 func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) {
 	held := func() *Index {
 		db, _, _ := gatedDB(t, gateFixtures{})
 		db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-			return func(string, string) bool {
+			return func(string, string) (bool, bool) {
 				db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
-				return false
+				return false, false
 			}
 		})
 		return gatedIndex(db, "Movies")

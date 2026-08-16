@@ -38,10 +38,16 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
-	if allReindexRefusals(err) {
+	if !allReindexRefusals(err) {
+		return CanCommitErrCannotCommit
+	}
+	// Backupable joins one refusal per class and a transient outage can answer some of
+	// them differently. An observed migration outranks: it is the only one of the two
+	// with something for the operator to wait for.
+	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return CanCommitErrInFlightReindex
 	}
-	return CanCommitErrCannotCommit
+	return CanCommitErrCreateReindexUndetermined
 }
 
 // classifyRestoreGateErr keeps the gate's two answers apart across the RPC boundary: a migration it observed, and a check it could not complete.

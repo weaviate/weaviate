@@ -23,7 +23,10 @@ import (
 // the DTM snapshot targets (collection, shardName). Used by the backup
 // gate; consults RAFT-replicated DTM rather than local filesystem
 // markers, so the answer is cluster-wide-consistent.
-type ShardReindexActivityLookup func(collection, shardName string) bool
+//
+// unreadable says the snapshot could not be taken at all, which is a different
+// answer from "nothing is in flight" and must not be published as a named task.
+type ShardReindexActivityLookup func(collection, shardName string) (live, unreadable bool)
 
 // ShardReindexActivityLookupBuilder returns a fresh snapshot.
 type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
@@ -53,8 +56,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			live[shardKey{payload.Collection, shardName}] = true
 		}
 	}
-	return func(collection, shardName string) bool {
-		return live[shardKey{collection, shardName}]
+	return func(collection, shardName string) (bool, bool) {
+		return live[shardKey{collection, shardName}], false
 	}
 }
 

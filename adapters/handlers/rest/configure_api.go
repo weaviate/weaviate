@@ -1114,7 +1114,9 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 				appState.Logger.WithField("action", "backup_reindex_gate").
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 			}
-			return func(string, string) bool { return true }
+			// Fail closed, but as "could not check": claiming a task the node never
+			// saw sends the operator to cancel a migration that may not exist.
+			return func(string, string) (bool, bool) { return false, true }
 		}
 		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 	})

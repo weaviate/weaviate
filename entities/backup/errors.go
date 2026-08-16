@@ -24,6 +24,9 @@ var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
 // The gate could not answer. Separate from ErrReindexInFlight because "I could not check" and "a migration is running" send the operator elsewhere.
 var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runtime-reindex is in flight could not be determined")
 
+// The backup side of the same answer; the restore sentinel's text opens with "restore blocked:" and cannot be reused.
+var ErrBackupReindexActivityUndetermined = errors.New("backup blocked: whether a runtime-reindex is in flight could not be determined")
+
 type ReindexBlockedError struct {
 	Msg string
 }

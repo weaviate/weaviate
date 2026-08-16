@@ -56,7 +56,8 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 		inFlight func(task *distributedtask.Task) bool
 	}{
 		{"backup gate", func(task *distributedtask.Task) bool {
-			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
+			live, _ := NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
+			return live
 		}},
 		{"restore gate", func(task *distributedtask.Task) bool {
 			_, blocked := NewAnyReindexActivityLookup([]*distributedtask.Task{task})([]string{"C"})
@@ -192,8 +193,8 @@ func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
 		{"migrating collection, other shard", "C", "shard-2", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want,
-				NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)(tc.collection, tc.shard))
+			live, _ := NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)(tc.collection, tc.shard)
+			require.Equal(t, tc.want, live)
 		})
 	}
 }

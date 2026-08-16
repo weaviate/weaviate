@@ -80,10 +80,12 @@ const (
 	reindexReasonTaskListUnreadable = "task_list_unreadable"
 )
 
-// AnyLiveReindexForShard admits while unwired: refusing breaks every fixture that skips the install path.
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+// shardReindexActivitySnapshot lists DTM once. nil means there is nothing to ask:
+// the flag is off, or the lookup is not wired yet. Admitting while unwired is
+// deliberate; refusing breaks every fixture that skips the install path.
+func (db *DB) shardReindexActivitySnapshot() ShardReindexActivityLookup {
 	if db.config.RuntimeReindexDisabled {
-		return false
+		return nil
 	}
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
@@ -91,11 +93,15 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	if activityBuilder == nil {
 		db.warnUnwiredGate(&shardGateWarnBudget, "backup_reindex_gate", "backup",
 			"Check the SetShardReindexActivityLookup wiring in configure_api.go.")
-		return false
+		return nil
 	}
-	lookup := activityBuilder()
+	return activityBuilder()
+}
+
+func (db *DB) AnyLiveReindexForShard(collection, shardName string) (live, unreadable bool) {
+	lookup := db.shardReindexActivitySnapshot()
 	if lookup == nil {
-		return false
+		return false, false
 	}
 	return lookup(collection, shardName)
 }
@@ -105,7 +111,8 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	if i.db.AnyLiveReindexForShard(collection, shardName) {
+	live, unreadable := i.db.AnyLiveReindexForShard(collection, shardName)
+	if live {
 		return reindexLiveTaskRefusal(collection)
 	}
 	// Sampled after the lookup, never as an argument to it: a hold raised during the
@@ -113,6 +120,10 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	// correctly admits, because the teardown is done.
 	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone {
 		return reindexHoldRefusal(collection, hold)
+	}
+	if unreadable {
+		// An unreadable list observed nothing, so it ranks below a hold.
+		return reindexUndeterminedRefusal(collection)
 	}
 	return nil
 }
@@ -123,14 +134,24 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		return reindexStartupWindowRefusal(collection)
 	}
 
+	// One snapshot for the whole call: the builder lists DTM on every invocation, so
+	// building per shard both lists N times and lets one gate call read the cluster
+	// two ways. Whether the list was readable is therefore a whole-call answer.
+	lookup := i.db.shardReindexActivitySnapshot()
 	var (
-		refusal error
-		reason  string
-		blocked int
-		sample  []string
+		refusal    error
+		reason     string
+		blocked    int
+		sample     []string
+		unreadable bool
 	)
 	for _, shardName := range shards {
-		if !i.db.AnyLiveReindexForShard(collection, shardName) {
+		if lookup == nil {
+			break
+		}
+		live, listUnreadable := lookup(collection, shardName)
+		unreadable = unreadable || listUnreadable
+		if !live {
 			continue
 		}
 		blocked++
@@ -148,6 +169,11 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		if refusal == nil {
 			reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
 		}
+	}
+	if refusal == nil && unreadable {
+		// An unreadable list observed nothing, so it ranks below a hold.
+		blocked, sample = len(shards), cappedSample(shards)
+		reason, refusal = reindexReasonTaskListUnreadable, reindexUndeterminedRefusal(collection)
 	}
 	if refusal == nil {
 		return nil
@@ -179,6 +205,13 @@ func reindexLiveTaskRefusal(collection string) error {
 		"collection %q has an active runtime-reindex task in DTM; retry after the migration finishes, "+
 			"that is, retry once that task reaches a terminal state. %s",
 		collection, reindex.MigrationRemedy(collection)))
+}
+
+// No cancel remedy: the node saw no task, so there is nothing here to cancel.
+func reindexUndeterminedRefusal(collection string) error {
+	return fmt.Errorf("%w: collection %q could not be checked because the cluster task "+
+		"list could not be read; retry once the cluster is reachable",
+		entitiesbackup.ErrBackupReindexActivityUndetermined, collection)
 }
 
 func reindexHoldRefusal(collection string, hold ReindexHold) error {

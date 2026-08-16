@@ -117,6 +117,8 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 		return fmt.Errorf("%w: collection %q has an active runtime-reindex task in DTM",
 			backup.ErrBackupBlockedByInFlightReindex, class)
 	}
+	unchecked := fmt.Errorf("%w: the cluster task list could not be read",
+		backup.ErrBackupReindexActivityUndetermined)
 	tests := []struct {
 		name            string
 		classes         []string
@@ -153,6 +155,30 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 				`collection "Movies" has an active runtime-reindex task`,
 			},
 			wantNotContains: []string{`in progress on "Ghost"`},
+		},
+		{
+			name:            "the node could not read the task list",
+			classes:         []string{"Movies"},
+			backupErr:       unchecked,
+			wantKind:        CanCommitErrCreateReindexUndetermined,
+			wantContains:    []string{"could not be determined", "retry once the cluster is reachable"},
+			wantNotContains: []string{"in progress on", "/cancel"},
+		},
+		{
+			name:      "one class refused, another one it could not check",
+			classes:   []string{"Movies", "Shows"},
+			backupErr: errors.Join(refusal("Movies"), unchecked),
+			wantKind:  CanCommitErrInFlightReindex,
+			// An observed migration outranks: it is the half with something to wait for.
+			wantContains: []string{`at least one of "Movies", "Shows"`},
+		},
+		{
+			name:            "neither class could be checked",
+			classes:         []string{"Movies", "Shows"},
+			backupErr:       errors.Join(unchecked, unchecked),
+			wantKind:        CanCommitErrCreateReindexUndetermined,
+			wantContains:    []string{"could not be determined"},
+			wantNotContains: []string{"in progress on"},
 		},
 	}
 	for _, tt := range tests {
@@ -194,6 +220,7 @@ func TestIsReindexRefusal(t *testing.T) {
 			err:  errors.Join(errors.New("other"), reindexRefusal("Movies")),
 			want: true,
 		},
+		{name: "backup undetermined sentinel", err: backupUndeterminedByParticipant(), want: true},
 		{name: "the generic canCommit failure", err: errCannotCommit},
 	}
 	for _, tt := range tests {
@@ -201,6 +228,10 @@ func TestIsReindexRefusal(t *testing.T) {
 			require.Equal(t, tt.want, isReindexRefusal(tt.err))
 		})
 	}
+	t.Run("an observed migration outranks a node that could not check", func(t *testing.T) {
+		assert.Less(t, refusalRank(backupUndeterminedByParticipant()),
+			refusalRank(backupRefusedByParticipant([]string{"Movies"})))
+	})
 }
 
 // errors.Join drops nil members, so an empty join needs its own shape.

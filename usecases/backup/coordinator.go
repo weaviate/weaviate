@@ -525,6 +525,8 @@ func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 		return restoreRefusedByParticipant(classes)
 	case CanCommitErrRestoreReindexUndetermined:
 		return restoreUndeterminedByParticipant()
+	case CanCommitErrCreateReindexUndetermined:
+		return backupUndeterminedByParticipant()
 	default:
 		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 	}

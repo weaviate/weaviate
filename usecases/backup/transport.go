@@ -99,6 +99,10 @@ const (
 	// The participant could not reach the cluster task list, so it refused without observing anything.
 	CanCommitErrRestoreReindexUndetermined CanCommitErrorKind = "restore_reindex_undetermined"
 
+	// The same answer on the create path. Kept apart from the restore kind so the
+	// coordinator rebuilds a refusal whose wording matches the operation it refused.
+	CanCommitErrCreateReindexUndetermined CanCommitErrorKind = "create_reindex_undetermined"
+
 	// CanCommitErrCannotCommit is the generic fallback used when the
 	// participant rejected canCommit for any reason other than the
 	// classified kinds above.
