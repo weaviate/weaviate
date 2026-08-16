@@ -75,6 +75,15 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			want:    backup.NodeActivity{Answered: true},
 		},
 		{
+			// Keep: the struct-level table hands Activity the name to compare against,
+			// so only a round trip proves the client compares against the name it asked.
+			name: "200 naming another node",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node2","busy":false}`))
+			},
+			wantErr: "written by node",
+		},
+		{
 			name: "200 that never mentions busy",
 			respond: func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"probe":"weaviate/backup-node-activity","node":"node1"}`))
