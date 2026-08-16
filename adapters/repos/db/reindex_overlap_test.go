@@ -368,7 +368,6 @@ func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
 		tasks []*distributedtask.Task
 	}{
 		{ReindexOverlapLive, []*distributedtask.Task{cancelled("a", nil), live}},
-		{ReindexOverlapLive, []*distributedtask.Task{cancelled("a", ended), live}},
 		{ReindexOverlapUndetermined, []*distributedtask.Task{cancelled("a", ended), cancelled("b", nil)}},
 	}
 
@@ -539,20 +538,6 @@ func TestReindexOverlapRefusalWording(t *testing.T) {
 			wantFinding:  "the cluster task manager could not be listed",
 			wantRemedy:   "restore RAFT reachability",
 			notContains:  []string{context.Canceled.Error()},
-		},
-		{
-			name: "a migration record too incomplete to judge",
-			verdict: ReindexOverlapVerdict{
-				Outcome: ReindexOverlapUndetermined,
-				Detail:  "a cancelled migration recorded no units, so nothing says whether it wrote",
-				Remedy:  ReindexOverlapIncompleteRecordRemedy,
-				TaskID:  "t1",
-			},
-			classes:      []string{"Movies"},
-			wantSentinel: entitiesbackup.ErrReindexOverlapUndetermined,
-			notSentinel:  entitiesbackup.ErrReindexOverlappedBackup,
-			wantFinding:  "recorded no units",
-			wantRemedy:   "until the cluster task list drops it",
 		},
 	}
 

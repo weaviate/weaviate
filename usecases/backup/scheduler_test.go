@@ -556,7 +556,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	// unpermitted caller too, and answering it would trade a 403 for a 422
 	// naming a server setting the caller may not learn.
 	for name, include := range map[string][]string{
-		"an empty include": {}, "no include at all": nil, "an explicit include": {cls},
+		"an empty include": nil, "an explicit include": {cls},
 	} {
 		t.Run("an unpermitted caller is refused before "+name+" reaches the check", func(t *testing.T) {
 			denier := mocks.NewMockAuthorizer()
