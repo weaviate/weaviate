@@ -184,6 +184,14 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
 }
 
+// Unreadable is not absent: guessing wrong here refuses a backup, guessing
+// wrong the other way admits one while a sweep is deleting files.
+func TestShardCarriesMigrationTrackerWhenUnreadable(t *testing.T) {
+	lsm := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(lsm, ".migrations"), nil, 0o644))
+	require.True(t, shardCarriesMigrationTracker(lsm))
+}
+
 // A collection with no tracker anywhere has no cleanup to shield, so the audit
 // must leave the backup gate open across its whole walk. The sampler runs
 // alongside the walk because a collection with nothing to clean writes no log
@@ -203,6 +211,8 @@ func TestAuditOrphanReindexTrackers_CleanCollectionIsNeverHeld(t *testing.T) {
 	}
 	require.NoError(t, os.MkdirAll(
 		filepath.Join(indexPath, "tenant-0007", "lsm", ".migrations", "not_a_generation"), 0o755))
+	// A plain file spelled like a generation is not a tracker; only a dir is.
+	require.NoError(t, os.WriteFile(filepath.Join(indexPath, "tenant-0007", "lsm", ".migrations", "retokenize_title_1"), nil, 0o644))
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},

@@ -268,6 +268,11 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			"still removing its temporary index files",
 			"a cluster query that answers nothing must not skip the hold")
 	})
+	t.Run("an unwired gate still reads the hold", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
+		require.ErrorContains(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}),
+			"still removing its temporary index files", "the branch that never asks the cluster must not skip the hold")
+	})
 	t.Run("a hold raised while the cluster is being asked still refuses", func(t *testing.T) {
 		db, _, _ := gatedDB(t, gateFixtures{})
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
