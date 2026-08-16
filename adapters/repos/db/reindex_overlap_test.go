@@ -383,17 +383,23 @@ func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
 
 func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 	tests := []struct {
-		name        string
-		disabled    bool
-		unwired     bool
-		ttl         time.Duration
-		wantRefused bool
+		name         string
+		disabled     bool
+		unwired      bool
+		ttl          time.Duration
+		classes      []string
+		wantRefused  bool
+		wantClassErr bool
 	}{
 		{name: "the feature is on and nothing is retained", ttl: 0, wantRefused: true},
 		{name: "the feature is on and the window is wide", ttl: 120 * time.Hour},
 		{name: "the feature is off, so no check needs the evidence", disabled: true, ttl: 0},
 		{
 			name: "the check is not installed", unwired: true, ttl: 0,
+		},
+		{
+			name: "a class that does not exist outranks the retention complaint",
+			ttl:  0, classes: []string{"DoesNotExist"}, wantClassErr: true,
 		},
 	}
 
@@ -406,8 +412,14 @@ func TestBackupableRefusesWhenTheOverlapCheckCannotAnswer(t *testing.T) {
 				})
 			}
 
-			err := db.Backupable(context.Background(), nil)
+			err := db.Backupable(context.Background(), tt.classes)
 
+			if tt.wantClassErr {
+				require.EqualError(t, err, "class DoesNotExist doesn't exist",
+					"a failure the operator can act on is not replaced by a config complaint")
+				require.NotErrorIs(t, err, entitiesbackup.ErrReindexOverlapCheckUnanswerable)
+				return
+			}
 			if !tt.wantRefused {
 				require.NoError(t, err)
 				return
