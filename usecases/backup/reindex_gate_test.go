@@ -366,17 +366,16 @@ func TestParticipantRestoreGate(t *testing.T) {
 		require.Equal(t, [][]string{{"MyClass"}}, sourcer.gateCalls())
 		backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 	})
-	t.Run("a node narrowed to no collection is not gated", func(t *testing.T) {
+	t.Run("a node narrowed to no collection is gated on all of them", func(t *testing.T) {
+		// An empty list is not "nothing to stage": validate() skips
+		// meta.Include for it, so this node restores its whole descriptor.
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
-		backend := newFakeBackend()
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/1")
-		backend.On("GetObject", ctx, mock.Anything, BackupFile).Return(nil, backup.ErrNotFound{})
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(sourcer, nil, newFakeBackend(), nil)
 		resp := m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3"})
-		assert.Empty(t, sourcer.gateCalls(), "a node restoring nothing has nothing to gate")
-		assert.NotEqual(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
-		assert.NotContains(t, resp.Err, backup.ErrReindexInFlight.Error())
+		assert.Equal(t, [][]string{nil}, sourcer.gateCalls())
+		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+		assert.Contains(t, resp.Err, backup.ErrReindexInFlight.Error())
 	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
 		// The kind is the only thing that survives the hop, so a gate that

@@ -342,18 +342,16 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
-		// A node the authorization filter narrowed to nothing restores no
-		// collection; it stays in the fan-out for the blobs only its own
-		// descriptor holds. Its empty list would ask the gate about every
-		// collection instead.
+		// An empty class list is not "nothing to stage": validate() skips
+		// meta.Include for it, so this node goes on to restore every
+		// collection in its own descriptor. The gate reads the same empty
+		// list as every collection, which is what is about to be staged.
 		//
 		// Before the descriptor is read: validate() fetches from the backend.
-		if len(req.Classes) > 0 {
-			if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
-				ret.Err = err.Error()
-				ret.ErrKind = classifyRestoreGateErr(err)
-				return ret
-			}
+		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
+			ret.Err = err.Error()
+			ret.ErrKind = classifyRestoreGateErr(err)
+			return ret
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {

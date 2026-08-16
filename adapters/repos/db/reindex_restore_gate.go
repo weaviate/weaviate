@@ -30,10 +30,9 @@ type ReindexActivity struct {
 	Unreadable bool
 }
 
-// An empty list means every collection. The only caller that hands one is
-// the cluster-wide probe, for a restore whose class list is not known yet; a
-// participant asks about the classes it was given and skips the gate when it
-// was given none.
+// An empty list means every collection, which is what both callers need: the
+// cluster-wide probe asks before the class list is known, and a participant
+// handed none restores its whole descriptor.
 type AnyReindexActivityLookup func(collections []string) (ReindexActivity, bool)
 
 type AnyReindexActivityLookupBuilder func(ctx context.Context) AnyReindexActivityLookup
