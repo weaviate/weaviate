@@ -26,10 +26,9 @@ const (
 	maxNodeActivityIDLen = 128
 )
 
-// NodeActivity is what one node said about itself. The zero value is "nobody
-// told us anything", which is why Free, and never the absence of Busy, is what
-// clears a node: a caller that drops the error still cannot read a refusal as
-// an idle node.
+// NodeActivity is what one node said about itself. The zero value is "nobody told
+// us anything", which is why Free, and never the absence of Busy, clears a node:
+// a caller that drops the error still cannot read a refusal as an idle node.
 type NodeActivity struct {
 	Answered bool
 	Busy     bool
@@ -44,9 +43,8 @@ func (a NodeActivity) Free() bool {
 
 type NodeActivityResponse struct {
 	Probe string `json:"probe"`
-	// Node names the writer. Without it an answer from a host that a reassigned
-	// member address routed us to is indistinguishable from the node we asked
-	// about, and clears that node while it backs up.
+	// Node names the writer. Without it, an answer from whatever host a reassigned
+	// member address routed us to clears the node we asked about while it backs up.
 	Node string `json:"node"`
 	// A pointer, so an answer that never mentions it is refused, not read as false.
 	Busy *bool  `json:"busy"`
@@ -111,10 +109,8 @@ type NodeActivityProbe struct {
 	scheduler *Scheduler
 }
 
-// NewNodeActivityProbe refuses a nil participant for the same reason
-// [NewScheduler] refuses a nil probe: every answer reads the participant slots,
-// so a wiring mistake would otherwise surface as a panic inside the handler
-// answering a peer instead of stopping this node at startup.
+// NewNodeActivityProbe refuses a nil participant: every answer reads the
+// participant slots, so a wiring mistake must stop this node at startup.
 func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 	if participant == nil {
 		panic("backup: NewNodeActivityProbe needs a participant")
@@ -123,10 +119,8 @@ func NewNodeActivityProbe(participant *Handler) *NodeActivityProbe {
 }
 
 // attachScheduler adds the coordinator slots. A Scheduler that exists but is not
-// attached makes this node report itself idle while it coordinates a backup,
-// which is the one answer a caller gating on the probe cannot survive. What
-// rules that out is [NewScheduler]: it demands a probe and attaches here. Being
-// unexported only stops another package attaching one out of band.
+// attached makes this node report itself idle while it coordinates a backup;
+// [NewScheduler] rules that out by demanding a probe and attaching here.
 func (p *NodeActivityProbe) attachScheduler(scheduler *Scheduler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -138,14 +132,12 @@ type activitySlot struct {
 	kind string
 }
 
-// Node names the node this probe answers for.
 func (p *NodeActivityProbe) Node() string {
 	return p.participant.node
 }
 
-// Activity reads each slot under its own lock and is stale by the time it
-// returns, so it is a backstop against a backup already running and never a
-// reservation against one about to start.
+// Activity is stale by the time it returns: a backstop against a backup already
+// running, never a reservation against one about to start.
 func (p *NodeActivityProbe) Activity() NodeActivity {
 	p.mu.RLock()
 	scheduler := p.scheduler
@@ -162,9 +154,9 @@ func (p *NodeActivityProbe) Activity() NodeActivity {
 		activitySlot{&p.participant.restorer.lastOp, NodeActivityKindRestore})
 
 	for _, slot := range slots {
-		// renew writes the id and reset clears it, so a non-empty id is exactly
-		// "held". The status is no substitute: set and setFailed also write it to a
-		// slot that was already released, and this node would then never idle again.
+		// renew writes the id and reset clears it, so a non-empty id is exactly "held".
+		// The status is no substitute: a late set or setFailed writes one to a slot
+		// already released, and this node would never idle again.
 		if id := slot.stat.get().ID; id != "" {
 			return NodeActivity{Answered: true, Busy: true, Kind: slot.kind, ID: id}
 		}

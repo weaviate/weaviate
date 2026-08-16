@@ -28,12 +28,11 @@ import (
 
 const maxProbeResponseBytes = 64 << 10
 
-// http.Client reads a zero Timeout as unbounded, so a configured non-positive
-// budget must never reach it.
+// http.Client reads a zero Timeout as unbounded, so a non-positive budget must
+// never reach it.
 const defaultProbeTimeout = 30 * time.Second
 
-// ErrProbeUnauthorized never means a node is free: a node whose credentials we
-// fail is a node we cannot read.
+// ErrProbeUnauthorized never means free: a node we cannot read is not one we cleared.
 var ErrProbeUnauthorized = errors.New("the peer refused the cluster credentials")
 
 type nodeProbe struct {
@@ -42,10 +41,8 @@ type nodeProbe struct {
 }
 
 // probeHTTPClient must not be unified with the shared cluster client: that one
-// honors HTTP_PROXY/HTTPS_PROXY and follows redirects, either of which lets a
-// host we never asked answer for a peer. Should that host be a Go net/http
-// server that lacks this route, its 404 is byte for byte the peer's own and
-// clears that peer.
+// honors HTTP_PROXY/HTTPS_PROXY and follows redirects, either of which lets a host
+// we never asked answer for a peer, and a Go server's 404 there clears that peer.
 func probeHTTPClient(authConfig cluster.AuthConfig, probeTimeout time.Duration) *http.Client {
 	if probeTimeout <= 0 {
 		probeTimeout = defaultProbeTimeout
@@ -58,9 +55,8 @@ func probeHTTPClient(authConfig cluster.AuthConfig, probeTimeout time.Duration) 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   probeTimeout,
 		ExpectContinueTimeout: time.Second,
-		// Headers are the one part of an answer the peer sizes and getJSON does not
-		// read through a limiter. The stdlib default is 10 MiB, per peer, on a route
-		// whose real headers are three.
+		// Headers are the one part of an answer the peer sizes that getJSON does not
+		// read through a limiter. The stdlib default is 10 MiB, per peer.
 		MaxResponseHeaderBytes: maxProbeResponseBytes,
 	}
 	if authConfig.BasicAuth.Enabled() {
@@ -81,19 +77,17 @@ type basicAuthTransport struct {
 }
 
 func (t basicAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	// An http.RoundTripper may not modify the request it is handed. It is
-	// CheckRedirect, and not this clone, that keeps the credential away from a
-	// host we did not address: a RoundTripper runs once per hop, so it would
-	// re-add the header to the follow-up the stdlib had stripped it from.
+	// An http.RoundTripper may not modify the request it is handed. What keeps the
+	// credential from a host we did not address is CheckRedirect, not this clone: a
+	// RoundTripper runs once per hop and would re-add the header stdlib stripped.
 	clone := r.Clone(r.Context())
 	clone.SetBasicAuth(t.auth.Username, t.auth.Password)
 	return t.next.RoundTrip(clone)
 }
 
 // boundedErr caps what a peer-sized failure puts on this node's log line while
-// leaving the cause readable to errors.Is: net/http quotes a malformed trailer
-// line whole into the body-read error, and a status line whole into the
-// transport error, and a caller still has to tell a cancel from a dead node.
+// leaving the cause readable to errors.Is: net/http quotes a malformed status or
+// trailer line whole into its error, and a caller must still tell cancel from dead.
 type boundedErr struct {
 	prefix string
 	cause  error
@@ -157,11 +151,10 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	return nil
 }
 
-// isNodeNotFound compares the body byte for byte and demands exactly one
-// sentinel header; the Content-Type is not read. A body that has been
-// reformatted or wrapped, or a second sentinel value beside the node's, means a
-// middlebox answered, and its 404 cannot mean the node lacks the route.
-// Relaxing either comparison spends the whole gate.
+// isNodeNotFound compares the body byte for byte and demands exactly one sentinel
+// header; the Content-Type is not read. A body that has been reformatted or
+// wrapped, or a second sentinel value beside the node's, means a middlebox
+// answered. Relaxing either comparison spends the whole gate.
 func isNodeNotFound(res *http.Response, body []byte) bool {
 	sentinel := res.Header.Values(clusterprobe.NodeNotFoundHeader)
 	return len(sentinel) == 1 && sentinel[0] == clusterprobe.NodeNotFoundHeaderValue &&

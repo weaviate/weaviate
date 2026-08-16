@@ -46,9 +46,8 @@ type Server struct {
 // Ensure Server implements interfaces.ClusterServer
 var _ types.ClusterServer = (*Server)(nil)
 
-// newClusterMux builds the route table the internal server serves. It is split
-// out of NewServer so a test can drive the real handlers on the real paths
-// without the gRPC and RAFT wiring.
+// newClusterMux builds the route table the internal server serves, split out of
+// NewServer so a test can drive the real handlers without the gRPC and RAFT wiring.
 func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
@@ -81,9 +80,8 @@ func newClusterMux(appState *state.State, auth auth) *http.ServeMux {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 	mux.Handle(clusterprobe.BackupNodeActivityPath, backups.NodeActivity())
-	// A path variant the exact match misses falls to the catch-all, whose 404 is
-	// byte for byte the one that means "too old to have this route", and that
-	// clears a node this one is backing up.
+	// A variant the exact match misses falls to the catch-all, whose 404 means
+	// "too old to have this route" and clears a node that is backing up.
 	mux.Handle(clusterprobe.BackupNodeActivityPath+"/", backups.NodeActivity())
 
 	mux.Handle("/exports/prepare", exportsHandler.Prepare())
@@ -196,10 +194,8 @@ func (s *Server) Close(ctx context.Context) error {
 	return eg.Wait()
 }
 
-// requireNodeActivityProbe pins app-state build order: the probe must exist
-// before the mux is built. A nil *NodeActivityProbe passed straight through
-// would wrap as a non-nil interface, so no request-time check could catch it;
-// failing here stops the node once instead of panicking on every request.
+// requireNodeActivityProbe pins app-state build order. A nil *NodeActivityProbe
+// wraps as a non-nil interface, so no request-time check could catch it.
 func requireNodeActivityProbe(p *backup.NodeActivityProbe) nodeActivityProber {
 	if p == nil {
 		panic("clusterapi: cluster mux built before the backup node-activity probe was assigned")

@@ -38,16 +38,14 @@ type nodeActivityProber interface {
 
 type backups struct {
 	manager backupManager
-	// Never nil in production: requireNodeActivityProbe stops the node at mux
-	// build, so only a direct caller can pass nil, and only this route panics on it.
+	// Never nil in production: requireNodeActivityProbe stops the node at mux build.
 	activity nodeActivityProber
 	auth     auth
 	logger   logrus.FieldLogger
 }
 
-// NewBackups refuses a nil logger. The node-activity route logs on every answer,
-// so a nil one turns a peer's question into a panic on a node that served every
-// other backup route fine before that route existed.
+// NewBackups refuses a nil logger: the node-activity route logs on every answer,
+// so a nil one turns a peer's question into a panic.
 func NewBackups(manager backupManager, activity nodeActivityProber, auth auth,
 	logger logrus.FieldLogger,
 ) *backups {
@@ -77,9 +75,8 @@ func (b *backups) nodeActivityHandler() http.HandlerFunc {
 		log := b.logger.WithField("action", "backup_node_activity_probe")
 
 		activity := b.activity.Activity()
-		// 503, not 404: a 404 reads as "too old to ask" and lets this node pass. And
-		// not 200: serialized, an undecided answer is busy with no kind, which the
-		// shipped client refuses as "cannot tell", so one rendering instead of three.
+		// 503, not 404, which reads as "too old to ask" and lets this node pass, and
+		// not 200, whose undecided rendering the shipped client refuses anyway.
 		if !activity.Answered {
 			http.Error(w, "this node could not decide whether a backup is running",
 				http.StatusServiceUnavailable)
