@@ -66,8 +66,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // precheck to obtain a fresh DTM snapshot.
 //
 // Calls before installation default to "no live reindex", warned at most once an hour
-// per gate. The public API is not serving then, but the internal cluster listener is,
-// so a peer's canCommit inside the startup window is admitted.
+// per gate. Installed ahead of the internal cluster listener, so no peer's canCommit
+// can land first; the default is left for fixtures that skip that wiring entirely.
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

@@ -804,6 +804,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.ExportParallelism,
 	)
 
+	// Ahead of the listener below: a peer's canCommit reaching a gate before its lookup is installed admits.
+	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx)
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
@@ -1015,7 +1017,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
-	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
