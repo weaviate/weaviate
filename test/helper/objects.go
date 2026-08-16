@@ -432,7 +432,8 @@ func DeleteClass(t *testing.T, class string) {
 func DeleteClassWithTimeout(t *testing.T, class string, timeout time.Duration) {
 	t.Helper()
 	res, err := Client(t).Schema.SchemaObjectsDelete(schema.NewSchemaObjectsDeleteParamsWithTimeout(timeout).WithClassName(class), nil)
-	AssertRequestOk(t, res, err, nil)
+	require.NoError(t, err)
+	require.NotNil(t, res)
 }
 
 func DeleteClassWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) {
