@@ -199,7 +199,7 @@ func decideReindexOverlap(
 	if !lastExit.Before(since) {
 		return ReindexOverlapVerdict{Outcome: ReindexOverlapEnded}
 	}
-	if task.FinishedAt.IsZero() {
+	if !task.FinishedAt.After(time.UnixMilli(0)) {
 		return ReindexOverlapVerdict{
 			Outcome: ReindexOverlapUndetermined,
 			Detail:  "a migration reached a terminal status without recording when it finished",

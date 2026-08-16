@@ -120,6 +120,14 @@ func TestReindexOverlapRules(t *testing.T) {
 			wantDetail: "without recording when it finished",
 		},
 		{
+			// An unset timestamp crosses the wire as the epoch, not as a zero time.
+			name:       "a finish time that decoded as the epoch cannot be judged",
+			task:       overlapTask(distributedtask.TaskStatusCancelled, time.UnixMilli(0), units(distributedtask.UnitStatusCompleted)),
+			classes:    []string{"Movies"},
+			want:       ReindexOverlapUndetermined,
+			wantDetail: "without recording when it finished",
+		},
+		{
 			name:    "a cancelled task that never left PENDING wrote nothing",
 			task:    overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending, distributedtask.UnitStatusPending)),
 			classes: []string{"Movies"},
