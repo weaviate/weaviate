@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -35,13 +36,18 @@ func TestReindexGatesFailClosedOnADTMOutage(t *testing.T) {
 	outage := func(context.Context) (map[string][]*distributedtask.Task, error) {
 		return nil, errors.New("raft: leader unreachable")
 	}
-	installReindexGateLookups(outage, logger, repo, ctx)
+	installReindexGateLookups(outage, logger, repo, ctx, time.Hour,
+		func() db.ReindexWorkerLookup {
+			return func(distributedtask.TaskDescriptor) (bool, time.Time) { return false, time.Time{} }
+		})
 
 	live, unreadable := repo.AnyLiveReindexForShard("Movies", "shard1")
 	assert.False(t, live, "a list this node could not read names no task")
 	assert.True(t, unreadable, "and is not an answer a backup may proceed on")
 	require.ErrorIs(t, repo.RefuseIfAnyReindexInFlight(ctx, []string{"Movies"}),
 		backup.ErrReindexActivityUndetermined, "a restore is refused the same way")
+	require.ErrorIs(t, repo.RefuseIfReindexOverlapped(ctx, []string{"Movies"}, time.Now()),
+		backup.ErrReindexOverlapUndetermined, "and a capture is not cleared against a list it could not read")
 }
 
 // rawTask builds a task with an arbitrary raw payload (undecodable or empty).

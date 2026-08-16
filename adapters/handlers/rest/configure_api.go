@@ -806,7 +806,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 
 	// Ahead of the listener below: a peer's canCommit reaching a gate before its lookup is installed admits.
-	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx)
+	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx,
+		appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		func() db.ReindexWorkerLookup { return appState.ReindexProvider.LocalWorkerActivity })
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
@@ -1108,8 +1110,11 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 // The distributed task list both reindex gates snapshot from, narrowed to what they ask of it.
 type reindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
 
+// localWorkerActivity is fetched per call, not passed in: the reindex provider
+// it reads is built long after this wiring runs, so an eager value would be nil.
 func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldLogger,
-	repo *db.DB, serverShutdownCtx context.Context,
+	repo *db.DB, serverShutdownCtx context.Context, completedTaskTTL time.Duration,
+	localWorkerActivity func() db.ReindexWorkerLookup,
 ) {
 	// A list failure refuses every backup: admitting one races a migration.
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
@@ -1142,15 +1147,14 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 		return db.NewAnyReindexActivityLookup(tasksByNamespace[db.ReindexNamespace])
 	})
 
-	completedTaskTTL := appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL
 	repo.SetReindexOverlapLookup(func(ctx context.Context) db.ReindexOverlapLookup {
 		tasks, err := db.ListReindexTasksForOverlap(ctx,
-			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays,
+			listTasks, db.OverlapListRetryDelays,
 			db.OverlapListAttemptTimeout)
 		if err != nil {
 			// On a cancelled ctx the verdict publishes as a cancel, so this would lie.
 			if ctx.Err() == nil {
-				appState.Logger.WithField("action", "backup_reindex_overlap").
+				logger.WithField("action", "backup_reindex_overlap").
 					Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
 			}
 			// No err text: a list error names RAFT internals an operator cannot act on.
@@ -1163,7 +1167,7 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 			}
 		}
 		return db.NewReindexOverlapLookup(tasks,
-			completedTaskTTL, appState.ReindexProvider.LocalWorkerActivity, time.Now)
+			completedTaskTTL, localWorkerActivity(), time.Now)
 	})
 }
 

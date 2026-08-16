@@ -673,8 +673,9 @@ func TestRefuseIfReindexOverlapped(t *testing.T) {
 	})
 }
 
-// Payload shapes where the admission gate and the commit-time check disagree:
-// each one is a backup admitted and then failed after the whole upload.
+// Payload shapes both gates have to answer the same way. A shape only the
+// commit-time check refuses is a backup admitted and then failed after the
+// whole upload has already been written.
 func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 	tests := []struct {
 		name                 string
@@ -689,16 +690,19 @@ func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 			wantCommitRefuses:    true,
 		},
 		{
-			// Admission skips a task it cannot decode; the check reads it as naming
-			// no collection. Deliberate: this row flips when admission decodes it.
-			name:              "a task whose shard set did not decode",
-			payload:           `{"collection":"Movies","unitToShard":"shard-1"}`,
-			wantCommitRefuses: true,
+			// Admission types the payload through the decoder the restore gate uses,
+			// so a shard set it cannot read blocks the whole collection.
+			name:                 "a task whose shard set did not decode",
+			payload:              `{"collection":"Movies","unitToShard":"shard-1"}`,
+			wantAdmissionRefuses: true,
+			wantCommitRefuses:    true,
 		},
 		{
-			name:              "a task that cannot be attributed at all",
-			payload:           `not json`,
-			wantCommitRefuses: true,
+			// Nothing names the collection, so admission blocks every shard.
+			name:                 "a task that cannot be attributed at all",
+			payload:              `not json`,
+			wantAdmissionRefuses: true,
+			wantCommitRefuses:    true,
 		},
 		{
 			name:    "a task on another collection",
@@ -711,8 +715,9 @@ func TestAdmissionAndCommitCheckDisagree(t *testing.T) {
 			task := reindexTask("t1", distributedtask.TaskStatusStarted, tt.payload)
 			logger, _ := logrustest.NewNullLogger()
 
-			admissionRefuses := NewShardReindexActivityLookup(
+			admissionRefuses, unreadable := NewShardReindexActivityLookup(
 				[]*distributedtask.Task{task}, logger)("Movies", "shard-1")
+			require.False(t, unreadable, "a list this node did read is never unreadable")
 			commitRefuses := NewReindexOverlapLookup([]*distributedtask.Task{task},
 				24*time.Hour, noLocalWorker,
 				func() time.Time { return commitTime })([]string{"Movies"}, captureStart).Outcome != ReindexOverlapNone

@@ -61,7 +61,8 @@ const (
 // circuit the whole loop. The unanswerable overlap-check refusal is the fallback:
 // a per-class failure outranks it and defers it to the next attempt, the reverse
 // of refusalRank's cross-node order. It never joins one: admission drops a whole
-// error that matches it, and canCommit would tag the mix with its kind.
+// error that matches it, and a mix with anything that is not a refusal loses the
+// kind and publishes as a plain cannot-commit.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	var errs []error
