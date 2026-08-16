@@ -56,8 +56,8 @@ func MigrationRemedy(collection string) string {
 		`%s reports when it is done, by moving the index off status="pending" and status="indexing". `+
 			`To stop it instead, that same call names the property and the index type (one of %s) `+
 			`still migrating, and %s cancels that one. A cancel is accepted only while the task is `+
-			`STARTED: it answers 409 in a coordination phase, and for a status this node cannot `+
-			`classify, which has to terminate on the nodes that do recognize it`,
+			`STARTED: it answers 409 in a coordination phase, and again for a status this node `+
+			`cannot classify, whose task has to terminate on the nodes that do recognize it.`,
 		IndexesRoute(collection),
 		indexTypeSegments,
 		CancelRoute(collection, cancelPropertySegment, cancelIndexTypeSegment),

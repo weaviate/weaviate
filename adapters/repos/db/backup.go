@@ -55,10 +55,9 @@ const (
 // single error rather than short-circuiting on the first one. Joining
 // ensures that when several classes are blocked at once, the operator sees
 // the full list in a single canCommit round instead of fixing one,
-// retrying, fixing the next, retrying, and so on. The joined error still
-// satisfies errors.Is for any wrapped sentinel (e.g.
-// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
-// underlying error graph.
+// retrying, fixing the next, retrying, and so on. onlyReindexRefusals reads
+// the join as a reindex refusal only when every element refuses; a refusal
+// joined to anything else is published as a plain cannot-commit.
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
