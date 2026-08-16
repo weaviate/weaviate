@@ -59,17 +59,14 @@ type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 // ReindexWorkerLookup answers for the local node only; lastExit is when its last worker stopped.
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) (running bool, lastExit time.Time)
 
-// OverlapListRetryDelays is the retry schedule for the commit-time task list call.
 var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
 
-// OverlapListAttemptTimeout bounds one attempt, and must: the RPC waits for ready and
-// the caller has no deadline. 10s matches RAFT_CONSISTENCY_WAIT_TIMEOUT; tighter is unsafe.
+// OverlapListAttemptTimeout bounds one attempt: the RPC waits for ready under no caller deadline.
 const OverlapListAttemptTimeout = 10 * time.Second
 
-// ListReindexTasksForOverlap retries list on the delays schedule, each attempt
-// bounded by attemptTimeout; a cancelled context still returns the list error.
+// ListReindexTasksForOverlap retries on the delays schedule; a cancel still returns the list error.
 func ListReindexTasksForOverlap(
 	ctx context.Context,
 	list func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -195,7 +192,8 @@ func decideReindexOverlap(
 				"before retrying under a new backup id",
 		}
 	}
-	// A worker that stopped inside the window wrote inside it, whatever FinishedAt says.
+	// A worker that stopped inside the window may have written inside it; this node's own stamp
+	// is fresher than the cluster's unit snapshot, so it outranks the all-PENDING waiver below.
 	if !lastExit.Before(since) {
 		return ReindexOverlapVerdict{Outcome: ReindexOverlapEnded}
 	}
@@ -255,14 +253,12 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 			"above the time a backup takes")}
 }
 
-// SetReindexOverlapLookup installs the builder the check reads; uninstalled admits.
 func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexOverlapLookupBuilder = builder
 }
 
-// RefuseIfReindexOverlapped fails a capture a migration overlapped; asked once per commit.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		return nil
@@ -284,7 +280,8 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 	if verdict.allowsBackup() {
 		return nil
 	}
-	// A cancel stays a cancel unless an overlap was observed: a cancelled id can be re-posted.
+	// A cancel stays a cancel unless an overlap was observed: a cancelled id can be re-posted;
+	// publishAsCancelled forces FAILED when the cancel lands only after this returned a verdict.
 	if verdict.Outcome == ReindexOverlapUndetermined && errors.Is(ctx.Err(), context.Canceled) {
 		return ctx.Err()
 	}

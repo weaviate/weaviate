@@ -627,7 +627,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			if err != nil {
 				if isReindexRefusal(err) {
 					// Unprefixed: a migration is a cluster fact, not a property of the
-					// node. Equal ranks keep the first answer, so two nodes reporting
+					// node, except the configuration refusal, which is one node's TTL
+					// setting. Equal ranks keep the first answer, so two nodes reporting
 					// the same kind refuse in the same words.
 					mutex.Lock()
 					if refusal == nil || refusalRank(err) > refusalRank(refusal) {

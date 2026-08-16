@@ -1624,7 +1624,8 @@ every node runs the durable-stamp version. During a mixed-version
   corruption).
 
 Set `0` (immediate GC of completed tasks) only once every node runs the
-durable-stamp version.
+durable-stamp version — and only with `RUNTIME_REINDEX_ENABLED` off: with
+it on, `0` refuses every backup at admission (above).
 
 One narrower residual remains even at the default TTL. Between node
 startup and the first `RunSearchableBlockmaxRepair` pass, a pre-stamp

@@ -322,8 +322,8 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// LocalWorkerActivity reports whether this node is in the task's unit phase now, and
-// when its last worker stopped. StartTask registers before any unit goroutine starts.
+// StartTask registers before any unit goroutine starts, so a task with no worker
+// yet still reads as running.
 func (p *ReindexProvider) LocalWorkerActivity(desc distributedtask.TaskDescriptor) (bool, time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

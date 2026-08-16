@@ -948,7 +948,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
-		// A reindex refusal names no node.
+		// A reindex refusal names no node. The configuration refusal is one node's setting.
 		wantNodeNamed bool
 	}{
 		{

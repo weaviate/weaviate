@@ -86,6 +86,7 @@ func refusalRank(err error) int {
 // A commit-time overlap verdict keeps this node's answer FAILED even under an
 // operator abort: a capture may be torn, and CANCELLED would make the id re-postable
 // over it. Per node only, and every other refusal still loses to the abort.
+// A cancel that lands before the verdict is a cancel: see RefuseIfReindexOverlapped.
 func publishAsCancelled(err, ctxErr error) bool {
 	if errors.Is(err, backup.ErrReindexOverlappedBackup) ||
 		errors.Is(err, backup.ErrReindexOverlapUndetermined) {

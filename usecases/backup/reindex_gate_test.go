@@ -574,6 +574,9 @@ func TestBackupRefusalBesideAPeerFailureIsNot422(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection refused")
 }
 
+// A cancellation from the gate's RAFT client is not somebody stopping the
+// backup; CANCELLED would hide a refused capture behind a deliberate status.
+// A cancelled operation context is, except under the two commit-time sentinels.
 func TestPublishAsCancelled(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -590,7 +593,7 @@ func TestPublishAsCancelled(t *testing.T) {
 			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlappedBackup, context.Canceled),
 		},
 		{
-			name: "an unanswerable overlap check whose cause was cancelled",
+			name: "an undetermined overlap whose cause was cancelled",
 			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlapUndetermined, context.Canceled),
 		},
 		{
@@ -600,7 +603,7 @@ func TestPublishAsCancelled(t *testing.T) {
 			ctxErr: context.Canceled,
 		},
 		{
-			name:   "an unanswerable overlap check on a cancelled operation",
+			name:   "an undetermined overlap on a cancelled operation",
 			err:    fmt.Errorf("%w: x", backup.ErrReindexOverlapUndetermined),
 			ctxErr: context.Canceled,
 		},

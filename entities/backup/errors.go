@@ -29,10 +29,8 @@ var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runt
 // The backup side of the same answer; the restore sentinel's text opens with "restore blocked:" and cannot be reused.
 var ErrBackupReindexActivityUndetermined = errors.New("backup blocked: whether a runtime-reindex is in flight could not be determined")
 
-// The observed half of the commit-time pair.
 var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex overlapped this backup")
 
-// The other half: this capture cannot be cleared, and an overlap may hide behind it.
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
 // The overlap check is installed but could never clear a capture, so the backup is

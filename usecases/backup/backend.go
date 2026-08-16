@@ -390,8 +390,7 @@ Loop:
 	return nil
 }
 
-// nonEmptyErrMsg is err's text, or a stand-in when it has none. Callers serving
-// it to an API reduce a reindex refusal first; the rest reaches it as written.
+// nonEmptyErrMsg is err's text, or a stand-in when it has none.
 func nonEmptyErrMsg(err error) string {
 	if msg := err.Error(); msg != "" {
 		return msg

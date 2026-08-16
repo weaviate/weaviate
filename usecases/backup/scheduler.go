@@ -197,7 +197,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		if allReindexRefusals(err) {
-			// Retryable, as on the restore path.
+			// Retryable, as on the restore path; the configuration refusal clears
+			// once the named setting is raised.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
