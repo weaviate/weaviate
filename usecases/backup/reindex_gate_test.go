@@ -728,6 +728,57 @@ func TestCanCommitKeepsAnUnresolvableHost(t *testing.T) {
 		"a host that could not be resolved must travel with the refusal, not be swallowed by it")
 }
 
+// The fan-out's own producer answers the operation context too. A cancellation is not a
+// peer's failure and must not make the refusal permanent; a deadline is one and must not
+// go missing behind it.
+func TestCanCommitRanksTheProducersContextError(t *testing.T) {
+	const id, cls = "1234", "Movies"
+	any := mock.Anything
+	for _, tt := range []struct {
+		name      string
+		cancel    bool
+		timeout   time.Duration
+		retryable bool
+	}{
+		{name: "cancelled mid-fan-out", cancel: true, timeout: time.Minute, retryable: true},
+		{name: "the shared canCommit deadline expires", timeout: 40 * time.Millisecond},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var asked atomic.Int32
+			resolver := newFakeNodeResolver([]string{"N1", "N2", "N3"})
+			// The producer's next loop top answers; the slow peers below make that answer
+			// the first error the group keeps.
+			resolver.resolve = func(node string) (string, bool) {
+				if asked.Add(1) == 2 {
+					if tt.cancel {
+						cancel()
+					} else {
+						time.Sleep(80 * time.Millisecond)
+					}
+				}
+				return node, true
+			}
+			fc := newFakeCoordinator(resolver)
+			fc.client.On("CanCommit", any, any, any).
+				Run(func(mock.Arguments) { time.Sleep(300 * time.Millisecond) }).
+				Return(&CanCommitResponse{Method: OpCreate, ID: id, ErrKind: CanCommitErrInFlightReindex}, nil)
+			fc.client.On("Abort", any, any, any).Return(nil).Maybe()
+
+			c := fc.coordinator()
+			c.timeoutCanCommit = tt.timeout
+			c.descriptor = &backup.DistributedBackupDescriptor{ID: id, Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{cls}}, "N2": {Classes: []string{cls}}, "N3": {Classes: []string{cls}},
+			}}
+			_, err := c.canCommit(ctx, &Request{Method: OpCreate, ID: id, Classes: []string{cls}})
+
+			require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+			assert.Equal(t, tt.retryable, allReindexRefusals(err), "%v", err)
+		})
+	}
+}
+
 func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	const (
 		backendName = "s3"

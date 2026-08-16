@@ -556,9 +556,12 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	recordPeerFailure := func(err error) error {
 		mutex.Lock()
 		defer mutex.Unlock()
-		// A sibling cut short by the refusal's own group cancellation reports the refusal,
-		// not a failure of its own. A deadline is kept: the shared timeout is a real signal.
-		if refusal != nil && errors.Is(err, context.Canceled) {
+		// A cancellation is never a peer's own failure: it is either the refusal cancelling
+		// the group or the caller hanging up, and a refusal joined with one answers permanent
+		// for something a retry fixes. A run with no refusal still reports it, because that
+		// path returns the group's own first error. A deadline is kept: the shared canCommit
+		// timeout is a real signal.
+		if errors.Is(err, context.Canceled) {
 			return err
 		}
 		if peerFailure == nil {
@@ -572,7 +575,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		for nodeName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return recordPeerFailure(ctx.Err())
 			default:
 			}
 
@@ -647,10 +650,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		if first != nil {
 			// Exactly two: the ranked refusal, plus one peer failure so an unresolvable
 			// host is not waited out as if it were the migration. Joining every error
-			// instead would sink the ranking.
-			if !isReindexRefusal(err) {
-				alongside = err
-			}
+			// instead would sink the ranking, and the group's own first error adds
+			// nothing: every failure reaching it was offered to the recorder first.
 			return nil, errors.Join(first, alongside)
 		}
 		return nil, err
