@@ -111,6 +111,12 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 
 // The registry is a field on this same DB, so there is nothing to install
 // and no window in which the gates read it before it exists.
+//
+// Flag off, this reports none even while a sweep started under an earlier flag
+// on still holds the collection. Deliberate: the flag is the kill switch, and
+// with it off no API is left to end the migration whose hold would be refusing
+// backups. Silencing the writers instead is the worse half, since a flag turned
+// on mid-sweep leaves a delete running under no hold. See 0-weaviate-issues#611.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexHoldNone
