@@ -42,9 +42,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		var payload ReindexTaskPayload
-		// Skipping admits the shard. The restore gate decodes the collection
-		// field alone, so it still refuses: that one collection where the
-		// field survives this payload, every collection where it does not.
+		// Skipping admits the shard; the restore gate decodes the collection field alone and still refuses.
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			logger.WithField("action", "backup_reindex_gate").
 				WithField("task_id", task.ID).
@@ -64,13 +62,9 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
 // precheck to obtain a fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex", reported at most
-// once an hour per gate. The public API is not serving then, but the internal
-// cluster listener is, so a peer's canCommit inside the startup window is
-// admitted. The WARN is the operator-facing signal if startup ordering ever
-// breaks the wiring; the prior conservative-refuse default broke every
-// module-test fixture that bypassed the bootstrap path. See
-// [DB.AnyLiveReindexForShard].
+// Calls before installation default to "no live reindex", warned at most once an hour
+// per gate. The public API is not serving then, but the internal cluster listener is,
+// so a peer's canCommit inside the startup window is admitted.
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

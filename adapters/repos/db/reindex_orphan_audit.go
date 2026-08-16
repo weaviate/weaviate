@@ -310,12 +310,9 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 					collection = idx.Config.ClassName.String()
 				}
 			}
-			// Taken on the first shard that carries trackers and kept for the
-			// rest of this index's walk: neither cleaner goes through
-			// [DB.NewStalePartialReindexSweep], the scanning between shards reads
-			// the same dirs, and the backup gate samples the hold once for a
-			// collection's whole shard list. A collection with no tracker
-			// anywhere has nothing being cleaned, so it is never held.
+			// Taken on the first shard carrying trackers and kept for the rest of this
+			// index's walk: this cleaner bypasses [DB.NewStalePartialReindexSweep], and
+			// the gaps between shards read the same dirs. No tracker means no hold.
 			var releaseHold func()
 			defer func() {
 				if releaseHold != nil {
@@ -443,12 +440,10 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
 
-// A tracker generation, not the directory that holds them: nothing removes
-// .migrations itself, and the compressed-vectors migrator creates it on shards
-// that never ran a runtime reindex, so a finished migration and a never-started
-// one look the same from the outside. Unreadable counts as carrying one, since
-// guessing wrong there refuses a backup while guessing wrong the other way
-// admits one during a sweep.
+// Looks for a tracker generation, not for .migrations itself: nothing removes that
+// directory, and the compressed-vectors migrator creates it on shards that never ran
+// a runtime reindex. An unreadable .migrations deliberately counts as carrying one,
+// because guessing wrong there only refuses a backup, while the other way admits one mid-sweep.
 func shardCarriesMigrationTracker(lsmPath string) bool {
 	entries, err := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
 	if err != nil {

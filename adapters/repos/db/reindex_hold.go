@@ -35,17 +35,14 @@ func (h ReindexHold) String() string {
 	}
 }
 
-// Refcounted, because overlapping teardowns on one collection would let the
-// first to finish reopen the gate under the second. Collection-wide, because
-// the sweep it guards walks every local shard. It covers a sweep from the
-// moment it is taken and no earlier: a terminal task whose drain times out is
-// never swept, and so never held.
+// ReindexHoldRegistry tracks in-progress cleanup sweeps, collection-wide because a sweep walks every local shard.
+// Refcounted, so overlapping teardowns cannot let the first to finish reopen the gate under the second.
 type ReindexHoldRegistry struct {
 	mu    sync.RWMutex
 	holds map[string]map[ReindexHold]int
 }
 
-// Idempotent: releasing twice must not drop another hold.
+// Returns an idempotent release: calling it twice must not drop another hold.
 func (r *ReindexHoldRegistry) acquire(collection string, kind ReindexHold) func() {
 	key := strings.ToLower(collection)
 	r.mu.Lock()
@@ -75,15 +72,14 @@ func (r *ReindexHoldRegistry) release(key string, kind ReindexHold) {
 	}
 }
 
-// Deferred, so a panicking sweep cannot hold the collection until restart.
+// Hold runs fn with the collection held; the release is deferred so a panicking sweep cannot leak it.
 func (r *ReindexHoldRegistry) Hold(collection string, kind ReindexHold, fn func()) {
 	release := r.acquire(collection, kind)
 	defer release()
 	fn()
 }
 
-// No collection means every one of them. The highest value wins so map order
-// cannot decide the answer.
+// HoldFor returns the strongest hold on the named collections, or on all of them when none are named.
 func (r *ReindexHoldRegistry) HoldFor(collections ...string) ReindexHold {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -109,13 +105,9 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 	return strongest
 }
 
-// The registry is a field on this same DB, so there is nothing to install
-// and no window in which the gates read it before it exists.
-//
-// Flag off, this reports none even while a sweep started under an earlier flag
-// on still holds the collection. Deliberate and won't-fix: RUNTIME_REINDEX_ENABLED
-// is a preview-only flag that is removed at GA, so the asymmetry it creates does
-// not outlive it. Do not propose closing it.
+// ReindexHoldFor reports the strongest cleanup hold on the given collections.
+// Flag off it reports none even while a sweep started under an earlier flag on
+// still holds one. Won't-fix: RUNTIME_REINDEX_ENABLED is preview-only, removed at GA.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexHoldNone

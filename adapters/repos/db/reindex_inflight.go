@@ -59,16 +59,12 @@ func (db *DB) warnUnwiredGate(budget *reindexGateWarnBudget, action, gate, detai
 
 const reindexRefusalSampleLimit = 10
 
-// Copied, not sliced: the sample outlives the call as a log field, and
-// authorization.Backups uppercases class lists in place.
+// Copied, not sliced: it outlives the call as a log field, and authorization.Backups uppercases class lists in place.
 func cappedSample(items []string) []string {
 	return append([]string(nil), items[:min(len(items), reindexRefusalSampleLimit)]...)
 }
 
-// Unbudgeted on purpose, unlike warnUnwiredGate above: an unwired gate is one
-// standing condition, while every refusal is a distinct event the operator is
-// owed. One line per gate call, so per collection per node, never per shard
-// or tenant.
+// Unbudgeted, unlike warnUnwiredGate: every refusal is an event the operator is owed. One line per gate call, never per shard or tenant.
 func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) {
 	if db.logger == nil {
 		return
@@ -84,7 +80,7 @@ const (
 	reindexReasonTaskListUnreadable = "task_list_unreadable"
 )
 
-// Unwired admits: refusing breaks every fixture that skips the install path.
+// AnyLiveReindexForShard admits while unwired: refusing breaks every fixture that skips the install path.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	if db.config.RuntimeReindexDisabled {
 		return false
@@ -112,8 +108,9 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db.AnyLiveReindexForShard(collection, shardName) {
 		return reindexLiveTaskRefusal(collection)
 	}
-	// After, never as an argument to the call that asks: a hold raised during
-	// the round-trip is invisible to a value read before it.
+	// Sampled after the lookup, never as an argument to it: a hold raised during the
+	// round-trip is invisible to an earlier read. One released before this line
+	// correctly admits, because the teardown is done.
 	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone {
 		return reindexHoldRefusal(collection, hold)
 	}
@@ -142,12 +139,10 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		}
 		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 	}
-	// One read for the whole loop, and after it. A hold is a property of the
-	// collection, so reading it per shard costs one read per tenant and lets
-	// the loop answer one way for the shards it saw before a hold was taken
-	// and another for the rest. After the loop, because the round-trip inside
-	// it is the window a teardown raises the hold in. A hold blocks every
-	// shard, and never outranks a live task, the arm an operator can act on.
+	// One read for the whole loop, after it: the hold covers the collection, and the
+	// loop's round-trips are the window a teardown raises it in, so per-shard reads
+	// would answer differently either side of that window. A hold released before
+	// this line correctly admits, and never outranks a live task.
 	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone && len(shards) > 0 {
 		blocked, sample = len(shards), cappedSample(shards)
 		if refusal == nil {

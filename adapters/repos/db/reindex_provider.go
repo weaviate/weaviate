@@ -1717,18 +1717,14 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	p.db.reindexHolds.Hold(payload.Collection, ReindexHoldCleanup, func() {
 		cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 		defer cancel()
-		// One sweep for the whole loop: every tuple asks the same unloaded shards.
-		// A loaded shard is read again per tuple, since each deletion changes what
-		// the next one would list.
+		// One sweep for the whole loop: every tuple asks the same unloaded shards. A loaded shard is re-read per tuple, as each deletion changes the listing.
 		sweep := p.db.NewStalePartialReindexSweep()
 		worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 			func(propName, indexType string) error {
 				return sweep(cleanupCtx, payload.Collection, propName, indexType)
 			},
 			func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
-				// Off the shared taxonomy, like the handlers' logStaleSweepFailures:
-				// this line and the summary below report the same failure, so a level
-				// of its own would rank one event twice.
+				// Off the shared taxonomy: this line and the summary below report the same failure, so a level of its own would rank one event twice.
 				msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
 				logger.WithField("property", propName).WithField("index_type", indexType).
 					Logf(level, "%s: %v", msg, failure)

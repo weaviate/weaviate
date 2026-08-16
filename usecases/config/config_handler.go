@@ -249,11 +249,7 @@ type Config struct {
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
 	// off by default. With it off, new reindex submissions are refused and
 	// the backup path performs no reindex check.
-	//
-	// Temporary: the flag exists only while the feature is in preview and is
-	// removed at GA. Nothing should be designed around it, and behavior that
-	// differs between on and off is not a defect worth fixing, because neither
-	// the flag nor the difference survives GA.
+	// Preview-only and removed at GA: nothing should be designed around it, and a difference between on and off is not a defect worth fixing.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ

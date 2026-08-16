@@ -116,9 +116,7 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps and the reindex-gate lookup
-	// builders below, so all of them are safely visible from any
-	// post-restore goroutine.
+	// reindexAuditMu guards the audit deps and the reindex-gate lookup builders below, so all are safely visible from any post-restore goroutine.
 	//
 	// reindexAuditDeferredRequests counts the number of times
 	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
@@ -135,8 +133,7 @@ type DB struct {
 	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
 	anyReindexActivityLookupBuilder   AnyReindexActivityLookupBuilder
 
-	// Carries its own lock. Here, not on [ReindexProvider], because most of
-	// what raises it are DB methods the provider never sees.
+	// Carries its own lock. On DB, not [ReindexProvider], because most of what raises it are DB methods the provider never sees.
 	reindexHolds ReindexHoldRegistry
 
 	bitmapBufPool      roaringset.BitmapBufPool
@@ -440,8 +437,7 @@ type Config struct {
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
-	// RuntimeReindexDisabled mirrors an off RUNTIME_REINDEX_ENABLED, a
-	// preview-only flag that is removed at GA.
+	// RuntimeReindexDisabled mirrors an off RUNTIME_REINDEX_ENABLED, preview-only and removed at GA.
 	// Stated negatively so the zero value keeps today's behavior for the
 	// many test fixtures that build a Config literal; the one production
 	// caller sets it explicitly.

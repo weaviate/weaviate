@@ -30,17 +30,13 @@ type ReindexActivity struct {
 	Unreadable bool
 }
 
-// An empty list means every collection, which is what both callers need: the
-// cluster-wide probe asks before the class list is known, and a participant
-// handed none restores its whole descriptor.
+// AnyReindexActivityLookup answers for the named collections, or for every one of them when the list is empty.
 type AnyReindexActivityLookup func(collections []string) (ReindexActivity, bool)
 
 type AnyReindexActivityLookupBuilder func(ctx context.Context) AnyReindexActivityLookup
 
 func NewAnyReindexActivityLookup(tasks []*distributedtask.Task) AnyReindexActivityLookup {
-	// Terminal tasks are filtered before anything reads their payload: a
-	// finished migration blocks nothing, and its payload holds one entry per
-	// tenant.
+	// Filter terminal tasks before reading any payload: they block nothing, and a payload holds one entry per tenant.
 	live := make([]*distributedtask.Task, 0, len(tasks))
 	for _, task := range tasks {
 		if IsLiveReindexTaskStatus(task.Status) {
@@ -105,10 +101,9 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	} else if lookup := builder(ctx); lookup != nil {
 		activity, blocked = lookup(collections)
 	}
-	// Sampled after the cluster was asked, and on every path out of asking:
-	// a hold raised during the round-trip is invisible to a value read before
-	// it, and a teardown that has left no live task behind is held and nothing
-	// else. Which arm wins is the switch below, not this line.
+	// Sample the hold after the cluster is asked, on every path out of asking: a
+	// hold raised during the round-trip is invisible to an earlier read. A hold
+	// released before this line correctly admits, because the teardown is done.
 	hold := db.ReindexHoldFor(collections...)
 	switch {
 	case blocked && !activity.Unreadable:
@@ -142,9 +137,7 @@ func restoreRefusal(detail string) error {
 func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) error {
 	subject, matched := restoreSubject(collections, activity.Collection)
 	if matched == "" {
-		// The subject is not the collection the task is on: either nothing
-		// attributes the task to one, or attributing it would name a
-		// collection the caller did not ask about.
+		// The task is on a collection the caller did not ask about, or on none we can attribute.
 		return restoreRefusal(fmt.Sprintf(
 			"a runtime-reindex is in flight, and this refusal does not name the collection "+
 				"it is on, so %s cannot be restored; retry after the migration finishes. %s",
@@ -165,9 +158,7 @@ func restoreHoldRefusal(collections []string, hold ReindexHold) error {
 	return restoreRefusal(reindexHoldDetail(subject, hold))
 }
 
-// Naming a collection the caller did not ask about discloses the cluster, and
-// so does spelling one back differently, so matched is the caller's own word
-// for it and everything downstream of the subject is built from that.
+// matched is the caller's own spelling: naming a collection it did not ask about discloses the cluster, and so does spelling one back differently.
 func restoreSubject(collections []string, blocking string) (subject, matched string) {
 	if blocking != "" {
 		for _, collection := range collections {

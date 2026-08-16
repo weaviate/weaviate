@@ -473,9 +473,7 @@ func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targe
 
 // ExtractDropVectorIndexTaskCollection is the collection extractor registered
 // with the DTM Manager so the DeleteClass cascade can drop this namespace's task
-// records. Where ExtractReindexTaskCollection decodes the collection field
-// alone, this validates the whole payload, so a record missing its targets or
-// its opId is not attributed at all. ok is false on either.
+// records. Unlike ExtractReindexTaskCollection this validates the whole payload, so a record missing its targets or its opId is not attributed at all.
 func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
