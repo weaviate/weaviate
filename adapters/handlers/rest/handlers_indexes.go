@@ -608,10 +608,6 @@ func (f staleSweepFailure) Error() string {
 	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
 }
 
-// sweepStaleReindexState runs sweep once per index type and splits the
-// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
-// failure (nothing left to short-circuit on) but also not a completed
-// cleanup, so it comes back as its own count rather than folded into either.
 // sweepCancelledReindexState wipes the sidecar and migration dirs of every index type
 // the cancelled migration touched. One hold across the loop: touching two of them would
 // otherwise open the backup and restore gates mid-teardown.
@@ -627,6 +623,10 @@ func (h *indexesHandlers) sweepCancelledReindexState(ctx context.Context,
 	return failures, dropped
 }
 
+// sweepStaleReindexState runs sweep once per index type and splits the
+// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
+// failure (nothing left to short-circuit on) but also not a completed
+// cleanup, so it comes back as its own count rather than folded into either.
 func sweepStaleReindexState(
 	indexTypes []string, sweep func(indexType string) error,
 ) (failures []staleSweepFailure, dropped int) {
