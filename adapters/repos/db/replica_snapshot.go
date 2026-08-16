@@ -51,6 +51,10 @@ func deferReindexRefusal(shardName string, err error) error {
 		!errors.Is(err, entitiesbackup.ErrBackupReindexActivityUndetermined) {
 		return err
 	}
+	// The refusal travels as text: only the busy sentinel should be reachable by
+	// errors.Is here, so a reindex-gate check upstream cannot mistake a deferred
+	// movement for a refused backup.
+	//nolint:errorlint // %v is deliberate; see above.
 	return fmt.Errorf("%w: shard %q: replica movement deferred while runtime-reindex work is in flight: %v",
 		enterrors.ErrShardBusyStructuralOp, shardName, err)
 }
