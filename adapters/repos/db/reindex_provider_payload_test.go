@@ -49,8 +49,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 	})
 
 	t.Run("unparseable payload is rejected", func(t *testing.T) {
-		// The name is intact in the raw bytes, so a scan-based fallback
-		// would recover it where the decoder must not.
 		got, ok := ExtractReindexTaskCollection([]byte(`{"collection":"Movies","unitToShard":{"u1":"sha`))
 		assert.False(t, ok)
 		assert.Equal(t, "", got)
@@ -66,8 +64,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 	})
 
 	t.Run("payload a newer node retyped still yields its collection", func(t *testing.T) {
-		// Decoding the whole struct fails here; the probe reads the
-		// collection field alone.
 		got, ok := ExtractReindexTaskCollection([]byte(
 			`{"collection":"Foo","unitToShard":"shardA"}`))
 		assert.True(t, ok)

@@ -54,8 +54,7 @@ func TestReindexHoldRegistry_RefcountAndScope(t *testing.T) {
 			"an unscoped read must report a hold on any collection")
 	})
 	t.Run("keys are case-folded", func(t *testing.T) {
-		// A hold is raised from a task payload and read with the schema's
-		// spelling of the class name; nothing guarantees the two match.
+		// A hold is raised from a task payload but read with the schema's spelling of the class name.
 		r := &ReindexHoldRegistry{}
 		release := r.acquire("movies", ReindexHoldCleanup)
 		defer release()
@@ -98,8 +97,6 @@ func TestReindexHoldRegistry_HoldReleasesOnEveryReturnPath(t *testing.T) {
 	})
 }
 
-// TestReindexHoldRegistry_Concurrent asserts the end state; -race covers
-// the rest.
 func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 	r := &ReindexHoldRegistry{}
 	const (
@@ -123,16 +120,12 @@ func TestReindexHoldRegistry_Concurrent(t *testing.T) {
 	require.Empty(t, r.holds)
 }
 
-// An unrecognized kind has to be nameable too, or the one entry reporting
-// a fail-closed refusal says nothing about what closed it.
 func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "none", ReindexHoldNone.String())
 	assert.Equal(t, "cleanup", ReindexHoldCleanup.String())
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
 }
 
-// The gates read the registry live, so a hold raised after a gate call
-// started still refuses the next one.
 func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 	db := &DB{}
 	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))

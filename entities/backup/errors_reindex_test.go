@@ -21,10 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// reindexSentinels is every sentinel a reindex refusal can carry. Callers
-// across the RPC boundary match these with errors.Is, so a reworded text is
-// a compatible change and a renamed or merged sentinel is not — the literals
-// are here to make the second kind red.
 var reindexSentinels = []struct {
 	name string
 	err  error
@@ -42,19 +38,12 @@ func TestReindexSentinelTexts(t *testing.T) {
 	for _, s := range reindexSentinels {
 		t.Run(s.name, func(t *testing.T) {
 			require.EqualError(t, s.err, s.text)
-			// A sentinel is a constant, never a template. A format verb
-			// here would mean some call site interpolates a shard id or a
-			// node name into a value clients match on.
 			assert.NotContains(t, s.text, "%", "a sentinel must not be a format template")
-			// The gates quote every identifier they name. A quote in the
-			// sentinel itself means an identifier was baked into it.
 			assert.NotContains(t, s.text, `"`, "a sentinel must not carry a quoted identifier")
 		})
 	}
 }
 
-// TestReindexSentinelsAreDistinguishable pins that no two sentinels cross:
-// a caller mapping a refusal to an HTTP status branches on exactly one.
 func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 	for _, s := range reindexSentinels {
 		t.Run(s.name, func(t *testing.T) {
@@ -69,8 +58,6 @@ func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 	}
 }
 
-// TestReindexBlockedErrorChains pins that the publishable text survives
-// every shape a refusal takes on its way out.
 func TestReindexBlockedErrorChains(t *testing.T) {
 	const msg = `backup blocked: runtime-reindex in flight: collection "Movies" is migrating`
 	blocked := ReindexBlockedError{Msg: msg}

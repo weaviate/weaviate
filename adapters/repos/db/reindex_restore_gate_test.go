@@ -61,8 +61,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			ask:   []string{"Shows"},
 		},
 		{
-			// The backup-side overlap check reads an empty list the
-			// opposite way.
 			name:        "no class named means every collection",
 			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor("Movies"))},
 			wantBlocked: true,
@@ -74,8 +72,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			tasks: []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusFinished, payloadFor("Movies"))},
 		},
 		{
-			// The payload names no collection, so nothing says which
-			// collection the task holds and every restore is refused.
 			name:        "unattributable task blocks a collection it never named",
 			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusStarted, `{"unitToShard":{"u1":"s1"}}`)},
 			ask:         []string{"Shows"},
@@ -102,9 +98,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 	}
 }
 
-// Two nodes answering one request have to name the same task, or the same
-// restore is refused with two different bodies depending on which node the
-// client reached.
 func TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere(t *testing.T) {
 	ascending := []*distributedtask.Task{
 		reindexTask("task-a", distributedtask.TaskStatusStarted, payloadFor("Movies")),
@@ -119,7 +112,6 @@ func TestNewAnyReindexActivityLookup_NamesTheSameTaskEverywhere(t *testing.T) {
 	}
 }
 
-// The tenant-sized fields are what take a real payload into the megabytes.
 func tenantScaleTaskPayload(tb testing.TB, collection string, tenants int) []byte {
 	tb.Helper()
 	p := ReindexTaskPayload{
@@ -151,8 +143,7 @@ func terminalTenantScaleTasks(tb testing.TB, tasks, tenants int) []*distributedt
 	return out
 }
 
-// One set of tasks measured twice, so status is the only variable. A baseline
-// built from a cheaper payload moves together with the measurement instead.
+// One set of tasks measured twice, so status is the only variable.
 func TestNewAnyReindexActivityLookupSkipsTerminalPayloads(t *testing.T) {
 	tasks := terminalTenantScaleTasks(t, 20, 10_000)
 	skipped := testing.AllocsPerRun(3, func() { NewAnyReindexActivityLookup(tasks) })
@@ -177,7 +168,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		assert.Contains(t, err.Error(), `collection "Movies"`)
 		assert.Equal(t, 1, built.activity, "the gate asks once per call")
 
-		// The task id and the node reach the operator, not the caller.
 		assert.NotContains(t, err.Error(), "t1")
 		assert.NotContains(t, err.Error(), "node-7")
 		require.Len(t, hook.AllEntries(), 1)
@@ -204,7 +194,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 			"with several collections in play the refusal must not pick one to name")
 		assert.NotContains(t, err.Error(), "Movies",
 			"the collection the subject withheld must not come back in the remedy's URLs")
-		// Regression: the task is attributable, only the collection is withheld.
 		assert.NotContains(t, err.Error(), "cannot be attributed")
 		assert.Contains(t, err.Error(), "GET /v1/tasks",
 			"a refusal that names no collection still owes a route to check")
@@ -218,8 +207,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `collection "Shows"`,
 			"it is the only collection the refusal can be about from where the caller stands")
-		// Being the subject is not the same as being the one migrating.
-		// Nothing observed says a task is on Shows.
 		assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 	})
 	t.Run("an unreadable task list is not reported as a migration", func(t *testing.T) {
@@ -233,7 +220,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "could not be read")
-		// Nothing was observed, so nothing may be named or promised.
 		assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 		assert.NotContains(t, err.Error(), "retry after the migration finishes")
 		warned := warnOrAbove(hook)
@@ -277,8 +263,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		db, _, _ := gatedDB(t, gateFixtures{})
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			return func([]string) (ReindexActivity, bool) {
-				// The teardown raising this runs while the round-trip is out,
-				// and leaves no live task behind for the other arm to catch.
 				db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
 				return ReindexActivity{}, false
 			}
@@ -294,9 +278,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	})
 }
 
-// A refusal owes the operator the whole request's size but only a sample of
-// its class list. And authorization.Backups uppercases its input in place, so
-// a log field sharing the caller's array would be rewritten under it.
+// authorization.Backups uppercases the caller's slice in place, so the log field must not alias it.
 func TestRefuseIfAnyReindexInFlight_LogIsBoundedAndDoesNotAliasTheRequest(t *testing.T) {
 	classes := make([]string, 0, 20)
 	for i := range 20 {
@@ -317,8 +299,6 @@ func TestRefuseIfAnyReindexInFlight_LogIsBoundedAndDoesNotAliasTheRequest(t *tes
 	assert.Equal(t, "Class00", logged[0], "the log field must not follow the caller's slice")
 }
 
-// A line per request buries the log of a node whose wiring never fired; a
-// line per process is gone before anyone reads it.
 func TestReindexGateWarnBudget(t *testing.T) {
 	var budget reindexGateWarnBudget
 	start := time.Now()
@@ -330,8 +310,6 @@ func TestReindexGateWarnBudget(t *testing.T) {
 		"the window restarts from the report that was allowed")
 }
 
-// The gates are wired separately, so a shared budget would hide whichever
-// half is actually broken.
 func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	shardGateWarnBudget = reindexGateWarnBudget{}
 	restoreGateWarnBudget = reindexGateWarnBudget{}

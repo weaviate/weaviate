@@ -205,9 +205,6 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 	}
 }
 
-// A refusal the reindex gate did not raise carries no kind of its own, so
-// OnCanCommit has to fall back to CanCommitErrCannotCommit. The reindex kinds
-// are pinned in reindex_gate_test.go, which asserts the rebuilt body too.
 func TestCanCommitResponse_UnrelatedRefusalKeepsLegacyKind(t *testing.T) {
 	ctx := context.Background()
 	backendName := "s3"

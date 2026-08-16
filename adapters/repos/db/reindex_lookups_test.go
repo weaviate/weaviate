@@ -40,7 +40,6 @@ func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-// Pins: every lookup treats an unrecognized status as in-flight.
 func TestReindexLookups_LivenessRule(t *testing.T) {
 	payload := ReindexTaskPayload{
 		MigrationType: ReindexTypeEnableFilterable,

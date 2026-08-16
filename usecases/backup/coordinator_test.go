@@ -943,8 +943,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		expectInFlight  bool
 		expectCanCommit bool
 		expectContain   string
-		// wantNodeNamed is false for a reindex refusal: a migration is a
-		// cluster fact, not a property of the node that reported it.
+		// A reindex refusal names no node.
 		wantNodeNamed bool
 	}{
 		{
@@ -1076,8 +1075,6 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
-	// Rebuilt from the request: an older participant's node and shard must
-	// not ride out on the coordinator's error.
 	assert.NotContains(t, err.Error(), "Node-2")
 	assert.NotContains(t, err.Error(), `shard "`)
 	assert.Contains(t, err.Error(), `"Class-A"`)

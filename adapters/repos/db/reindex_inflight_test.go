@@ -38,9 +38,7 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// A nil live or tasks field leaves that lookup uninstalled. Holds are raised
-// on the DB's own registry, which production folds case on the way in and on
-// the way out of.
+// A nil live or tasks field leaves that lookup uninstalled.
 type gateFixtures struct {
 	live  map[[2]string]bool
 	holds map[string]ReindexHold
@@ -84,8 +82,6 @@ func gatedIndex(db *DB, className string) *Index {
 	return &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(className)}}
 }
 
-// The swapped-tuple rows are live with the arguments the other way round,
-// so a call site that passed (shardName, collection) reds them.
 func TestAnyLiveReindexForShard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -104,9 +100,6 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			},
 		},
 		{
-			// Unwired admits: refusing broke every fixture that builds a bare DB.
-			// The window is real but short: the cluster listener serves before
-			// the install lands.
 			name:    "builder never installed",
 			builder: nil,
 		},
@@ -159,9 +152,6 @@ func TestReindexHoldForCollection(t *testing.T) {
 	}
 }
 
-// The cleanup hold is raised on FAILED as well as on CANCELLED, so the
-// refusal is read off a real terminal run. The e2e drives the cancel; this
-// drives the failure.
 func holdRefusalAfterTerminal(t *testing.T, status distributedtask.TaskStatus) error {
 	logger, _ := logrustest.NewNullLogger()
 	p := &ReindexProvider{logger: logger, serverCtx: context.Background(), db: &DB{}}
@@ -179,8 +169,6 @@ type onEachLogLine func()
 func (onEachLogLine) Levels() []logrus.Level     { return logrus.AllLevels }
 func (h onEachLogLine) Fire(*logrus.Entry) error { h(); return nil }
 
-// The cancel handler and the submit-time pre-cleanup run this sweep with no hold
-// of their own and no live task left for the other gate. It logs from inside it.
 func TestStalePartialReindexSweepRaisesTheHold(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	db := &DB{indices: map[string]*Index{indexID("Movies"): {Config: IndexConfig{ClassName: "Movies"}, logger: logger}}}
@@ -191,8 +179,6 @@ func TestStalePartialReindexSweepRaisesTheHold(t *testing.T) {
 	require.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor("Movies"), "and must not leave it held")
 }
 
-// The arms are not interchangeable, so each one's wording is pinned
-// against the reading that inverts it.
 func TestReindexRefusalTexts(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -217,9 +203,6 @@ func TestReindexRefusalTexts(t *testing.T) {
 				"runtime-reindex cleanup is still removing its temporary index files",
 				"retry once the cleanup finishes",
 			},
-			// The task is already terminal, so a cancel has nothing left
-			// to stop. Offering one sends an operator at a call that
-			// answers NO_OP and leaves them believing they acted.
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 		{
@@ -238,8 +221,6 @@ func TestReindexRefusalTexts(t *testing.T) {
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
 		{
-			// The gate DB.Backupable calls. Admit here and a backup captures
-			// a collection a migration may be halfway through rewriting.
 			name:        "no back-reference, from the gate a backup goes through",
 			refusal:     gatedIndex(nil, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}),
 			mustContain: []string{"startup window", "retry once the node has finished bootstrapping"},
@@ -298,8 +279,6 @@ func TestReindexRefusalsRedactPlacement(t *testing.T) {
 	}
 }
 
-// The other half of the redaction: what the body drops, the log must keep,
-// or an operator cannot find the shard the migration is on.
 func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", "shard-1"}: true}})
 	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
@@ -311,8 +290,6 @@ func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 	assert.Equal(t, reindexReasonLiveTask, warned[0].Data["reason"])
 }
 
-// Counting by level rather than by message is deliberate: a per-shard line
-// at any level makes the log grow with the collection.
 func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 	const shardCount = 60
 	live := map[[2]string]bool{}
@@ -346,8 +323,6 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 		"the singular field would name one of 60 shards as if it were the one")
 }
 
-// A live task can be ended by the operator; a hold cannot, so the arm that
-// offers a remedy has to win regardless of the order the shards come in.
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	db, _, _ := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{{"Movies", "shard-b"}: true},
@@ -365,9 +340,6 @@ func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	}
 }
 
-// A teardown raising the hold while the round-trip is out leaves no live task
-// behind, so a gate sampling it first admits a backup against a live deletion.
-// Both backup gates, mirroring the restore gate's own probe.
 func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) {
 	held := func() *Index {
 		db, _, _ := gatedDB(t, gateFixtures{})
@@ -392,8 +364,6 @@ func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	require.Empty(t, hook.AllEntries(), "an admitted backup must log nothing")
 }
 
-// A hold refuses on its own, in the window between a task going terminal
-// in DTM and this node finishing its teardown.
 func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
 	const shardCount = 50
 	shards := make([]string, 0, shardCount)

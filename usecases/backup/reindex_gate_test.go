@@ -31,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-// reindexRefusal is what the gate hands back, shaped like the storage
-// layer's: the sentinel plus a collection, no node and no shard.
 func reindexRefusal(collection string) error {
 	return fmt.Errorf("restore blocked: %w: collection %q has an active runtime-reindex task",
 		backup.ErrReindexInFlight, collection)
@@ -43,16 +41,12 @@ func reindexUndetermined() error {
 		backup.ErrReindexActivityUndetermined)
 }
 
-// An id nothing was ever stored under: every read the scheduler tries on
-// the way to resolving it answers not-found.
 func expectUnknownID(ctx context.Context, fs *fakeScheduler, id string) {
 	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + id)
 	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 	fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 }
 
-// The mirror of expectUnknownID: a backup that resolves, to one node holding
-// the one collection.
 func expectKnownID(ctx context.Context, fs *fakeScheduler, id, cls string) {
 	meta := backup.DistributedBackupDescriptor{
 		ID: id, StartedAt: time.Now().UTC(), Version: Version,
@@ -63,8 +57,6 @@ func expectKnownID(ctx context.Context, fs *fakeScheduler, id, cls string) {
 	fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
 }
 
-// The reads a restore makes on its way through the fan-out: the coordinator's
-// descriptor, then the one each node holds.
 func restoreScheduler(ctx context.Context, id string, meta backup.DistributedBackupDescriptor,
 	nodeMeta backup.BackupDescriptor, nodes ...string,
 ) *fakeScheduler {
@@ -78,8 +70,6 @@ func restoreScheduler(ctx context.Context, id string, meta backup.DistributedBac
 	return fs
 }
 
-// TestQuoteClassList pins the cap. A restore can cover every collection
-// in the cluster, and the refusal is the same one whichever is blocked.
 func TestQuoteClassList(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -109,8 +99,6 @@ func TestQuoteClassList(t *testing.T) {
 	}
 }
 
-// An older participant words its refusal in terms of its own shards and
-// node name, neither of which the caller asked about or can act on.
 func TestRestoreRefusedByParticipant(t *testing.T) {
 	err := restoreRefusedByParticipant([]string{"Movies", "Shows"})
 	require.ErrorIs(t, err, backup.ErrReindexInFlight)
@@ -119,13 +107,9 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	assert.Contains(t, err.Error(), "retry after it finishes")
 	assert.Contains(t, err.Error(), "GET /v1/tasks", "a rebuilt refusal still owes a route to check")
 
-	// The sentinel is stated once even though a participant's own message
-	// already opens with it.
 	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
 }
 
-// TestCanCommitRefusalKeepsUnrelatedFailures covers a refusal joined with an
-// unrelated failure, e.g. a missing class, which must not take the kind.
 func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 	ctx := context.Background()
 	refusal := func(class string) error {
@@ -145,7 +129,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			classes:   []string{"Movies"},
 			backupErr: refusal("Movies"),
 			wantKind:  CanCommitErrInFlightReindex,
-			// Rebuilt: the participant's own words name its shards.
+			// The rebuilt body names the collection, not the participant's shards.
 			wantContains:    []string{`on "Movies"`},
 			wantNotContains: []string{"in DTM", "at least one of"},
 		},
@@ -154,7 +138,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			classes:   []string{"Movies", "Shows"},
 			backupErr: errors.Join(refusal("Movies"), refusal("Shows")),
 			wantKind:  CanCommitErrInFlightReindex,
-			// Which of the two is migrating did not survive the hop.
+			// Which of the two migrates does not survive the hop.
 			wantContains:    []string{`at least one of "Movies", "Shows"`},
 			wantNotContains: []string{"in DTM"},
 		},
@@ -194,8 +178,6 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 	}
 }
 
-// One call site sees both chains: canCommit carries a backup refusal and a
-// restore refusal through the same fan-out.
 func TestIsReindexRefusal(t *testing.T) {
 	tests := []struct {
 		name string
@@ -220,8 +202,6 @@ func TestIsReindexRefusal(t *testing.T) {
 	}
 }
 
-// TestRestoreGateOrdering pins the gate's contract on both arms of
-// Scheduler.Restore: what it is asked about, and what it is asked before.
 func TestRestoreGateOrdering(t *testing.T) {
 	const (
 		cls         = "MyClass"
@@ -230,8 +210,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 	)
 	ctx := context.Background()
 	t.Run("a mistyped id is refused before it is reported missing", func(t *testing.T) {
-		// Deliberate: a caller who cannot restore right now should be
-		// told that, not sent to fix an id that was never the problem.
 		fs := newFakeScheduler(nil)
 		fs.selector.setReindexGate(reindexRefusal(cls))
 		expectUnknownID(ctx, fs, id)
@@ -265,9 +243,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 			"a restore naming nothing covers everything, so the gate is asked about everything")
 	})
 	t.Run("a literal include is never checked for cluster-wide permission", func(t *testing.T) {
-		// The caller was already authorized on exactly these names one
-		// step up. Asking again, silently, would let a caller without
-		// cluster-wide permission fall through to the 404.
 		auth := authorization.NewMockAuthorizer(t)
 		auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil).Maybe()
@@ -282,8 +257,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 		auth.AssertNotCalled(t, "AuthorizeSilent",
 			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
-	// One wildcard anywhere in the list settles it, including behind a
-	// literal that follows it.
 	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
 		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
 			fs := newFakeScheduler(nil)
@@ -308,8 +281,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 		assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
 		require.Equal(t, [][]string{{cls}}, fs.selector.gateCalls(),
 			"asked once, about the resolved class names")
-		// Refused before the backup's own schema is read: the gate's
-		// answer does not depend on it.
 		fs.backend.AssertNotCalled(t, "GetObject", ctx, id, BackupFile)
 	})
 	t.Run("a wildcard include on a known id is gated on what it resolved to", func(t *testing.T) {
@@ -325,9 +296,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 	})
 }
 
-// TestRestoreGateAuthorizationPrecedesDisclosure pins that a caller without
-// cluster-wide backup permission cannot learn from a mistyped id that a
-// migration is running somewhere it cannot see.
 func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -367,8 +335,7 @@ func TestParticipantRestoreGate(t *testing.T) {
 		backend.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
 	})
 	t.Run("a node narrowed to no collection is gated on all of them", func(t *testing.T) {
-		// An empty list is not "nothing to stage": validate() skips
-		// meta.Include for it, so this node restores its whole descriptor.
+		// An empty list is not "nothing to stage": the node restores its whole descriptor.
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
 		m := createManager(sourcer, nil, newFakeBackend(), nil)
@@ -378,9 +345,6 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.Contains(t, resp.Err, backup.ErrReindexInFlight.Error())
 	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
-		// The kind is the only thing that survives the hop, so a gate that
-		// observed nothing has to carry a kind of its own or the
-		// coordinator rebuilds it as a migration it never saw.
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexUndetermined())
 		m := createManager(sourcer, nil, newFakeBackend(), nil)
@@ -390,9 +354,6 @@ func TestParticipantRestoreGate(t *testing.T) {
 	})
 }
 
-// TestRestoreUndeterminedReaches422 pins the whole hop end to end: a
-// participant that could not check answers a kind of its own, and what
-// Scheduler.Restore publishes says so.
 func TestRestoreUndeterminedReaches422(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -429,8 +390,6 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorAs(t, err, &backup.ErrUnprocessable{},
 		"a refusal the caller can retry is 422, not 500")
-	// ErrUnprocessable carries no Unwrap, so the published body is what a
-	// caller reads, and it is what these assert on.
 	assert.Contains(t, err.Error(), backup.ErrReindexActivityUndetermined.Error())
 	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
 	assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
@@ -438,8 +397,6 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
 }
 
-// The backup path publishes a participant's refusal as 422, like the restore
-// path. Only a fan-out reaches it: alone, a coordinator refuses itself first.
 func TestBackupRefusalReaches422(t *testing.T) {
 	const id, cls, node = "1234", "Movies", "node1"
 	ctx, any := context.Background(), mock.Anything
@@ -461,9 +418,6 @@ func TestBackupRefusalReaches422(t *testing.T) {
 	assert.Contains(t, err.Error(), "GET /v1/tasks", "and the only answer the operator gets owes a route")
 }
 
-// A cancellation from the gate's RAFT client is not somebody stopping the
-// backup; CANCELLED would hide a refused capture behind a deliberate status.
-// A cancelled operation context, though, is somebody stopping it.
 func TestPublishAsCancelled(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -522,10 +476,7 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 		}
 	}
 
-	// restore sequences the fan-out: neither participant returns until both
-	// are in flight, and then the one not named first waits for the context
-	// to be cancelled, which an error group does only after it has already
-	// recorded the other answer.
+	// The node not answering first unblocks only once the error group recorded the other answer.
 	restore := func(t *testing.T, first string, answers map[string]answer) error {
 		t.Helper()
 		var inFlight sync.WaitGroup
@@ -612,9 +563,6 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 	})
 }
 
-// TestRestoreKeepsNodesNarrowedToNothing pins that a node the authorization
-// filter narrowed to nothing is still asked to commit: its dynamic-user and
-// RBAC blobs come from its own descriptor, so dropping the node drops those.
 func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	const (
 		backendName = "s3"
@@ -646,10 +594,7 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	}
 	fs := restoreScheduler(ctx, id, meta, nodeMeta, node1, node2)
 	fs.auth = auth
-	// Every node accepts, so the fan-out runs whole and what each one was
-	// asked stays observable. Failing the write that follows it ends the
-	// restore on this goroutine, before the commit phase starts one of its
-	// own that would still be calling the client during the assertions.
+	// PutObject must fail: it ends the restore before the commit phase races the assertions.
 	fs.client.On("CanCommit", any, any, any).
 		Return(&CanCommitResponse{Method: OpRestore, ID: id, Timeout: time.Minute}, nil)
 	fs.backend.On("PutObject", any, any, GlobalRestoreFile, any).

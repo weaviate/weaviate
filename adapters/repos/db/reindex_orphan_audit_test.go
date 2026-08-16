@@ -160,9 +160,6 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	// The audit deletes without going through [DB.NewStalePartialReindexSweep],
-	// and only for tasks DTM stopped listing, so its own hold is the only thing
-	// standing between the delete and a concurrent capture. It logs from inside.
 	held := ReindexHoldNone
 	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor(className)) }))
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logger)
@@ -184,26 +181,19 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
 }
 
-// Unreadable is not absent: guessing wrong here refuses a backup, guessing
-// wrong the other way admits one while a sweep is deleting files.
 func TestShardCarriesMigrationTrackerWhenUnreadable(t *testing.T) {
 	lsm := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(lsm, ".migrations"), nil, 0o644))
 	require.True(t, shardCarriesMigrationTracker(lsm))
 }
 
-// A collection with no tracker anywhere has no cleanup to shield, so the audit
-// must leave the backup gate open across its whole walk. The sampler runs
-// alongside the walk because a collection with nothing to clean writes no log
-// line to hang an assertion on.
+// The sampler runs alongside the walk: a collection with nothing to clean writes no log line to hang an assertion on.
 func TestAuditOrphanReindexTrackers_CleanCollectionIsNeverHeld(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditCleanCollection"
 	_, idx := testShard(t, ctx, className)
 
-	// A tenant-sized shard list, so the walk outlasts many sampler rounds. Each
-	// keeps the .migrations dir a finished migration leaves behind, and one also
-	// keeps a name that is not a tracker generation.
+	// A tenant-sized shard list, so the walk outlasts many sampler rounds.
 	indexPath := filepath.Join(idx.Config.RootPath, indexID(idx.Config.ClassName))
 	for i := range 1000 {
 		require.NoError(t, os.MkdirAll(
@@ -554,8 +544,6 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
-	// This sweep deletes nothing, but it walks and stats the same tracker dirs
-	// the destructive one does, so the gate has to be shut for it too.
 	logger := logrus.New()
 	held := ReindexHoldNone
 	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor(className)) }))

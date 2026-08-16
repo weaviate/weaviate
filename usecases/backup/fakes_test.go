@@ -52,8 +52,6 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 	return []modulecapabilities.BackupBackend{bsp.backend}
 }
 
-// The zero value admits, so tests that do not exercise a gate need set
-// nothing.
 type reindexGateStub struct {
 	mu       sync.Mutex
 	refusal  error
@@ -73,7 +71,6 @@ func (g *reindexGateStub) setReindexGate(err error) {
 	g.refusal = err
 }
 
-// gateCalls returns what the gate was asked about, in call order.
 func (g *reindexGateStub) gateCalls() [][]string {
 	g.mu.Lock()
 	defer g.mu.Unlock()

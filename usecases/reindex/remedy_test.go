@@ -19,8 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// A swapped argument list still contains the collection and the property,
-// so only the whole rendered path shows which segment each landed in.
 func TestRenderedRoutes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -60,9 +58,6 @@ func TestMigrationRemedy(t *testing.T) {
 	assert.Contains(t, remedy, "accepted only while the task is STARTED")
 	assert.Contains(t, remedy, "409")
 
-	// Cancel is not accepted at every stage: the API's own predicate is
-	// status == STARTED. A refusal that said otherwise would send an
-	// operator at a call that refuses them.
 	assert.NotContains(t, remedy, "every stage")
 	assert.NotContains(t, remedy, "at any stage")
 	assert.NotContains(t, remedy, "{className}",
