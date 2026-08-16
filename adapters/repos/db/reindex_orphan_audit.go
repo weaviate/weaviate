@@ -310,6 +310,11 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 					collection = idx.Config.ClassName.String()
 				}
 			}
+			// Held across the whole walk: neither cleaner goes through
+			// [DB.NewStalePartialReindexSweep], the scanning between shards reads
+			// the same dirs, and the backup gate samples the hold once for a
+			// collection's whole shard list.
+			defer db.reindexHolds.acquire(collection, ReindexHoldCleanup)()
 			for _, shardEntry := range shardEntries {
 				if !shardEntry.IsDir() {
 					continue
@@ -352,13 +357,11 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				}
 				var cleaned int
 				var failed []string
-				// Neither cleaner goes through [DB.NewStalePartialReindexSweep], so its
-				// hold is taken here too; DTM stopped listing an orphan by definition.
-				clean := func() { cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger) }
 				if shard != nil {
-					clean = func() { cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger) }
+					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
+				} else {
+					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
 				}
-				db.reindexHolds.Hold(collection, ReindexHoldCleanup, clean)
 				outcome.OrphansClean += cleaned
 				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
 			}

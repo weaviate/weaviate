@@ -495,8 +495,15 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
-	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	// This sweep deletes nothing, but it walks and stats the same tracker dirs
+	// the destructive one does, so the gate has to be shut for it too.
+	logger := logrus.New()
+	held := ReindexHoldNone
+	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor(className)) }))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logger)
 	require.NoError(t, err)
+	assert.Equal(t, ReindexHoldCleanup, held,
+		"the whole index walk must run inside the hold, not only the delete")
 	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
 		"orphan must still be counted as found on the quarantine sweep")
 	assert.Equal(t, 1, outcome.OrphansFound)
