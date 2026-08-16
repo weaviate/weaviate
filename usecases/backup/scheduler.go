@@ -245,10 +245,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			// The gate answers before existence does. A caller that named literal classes
 			// is already authorized on those; anything wider needs cluster-wide
 			// permission, or the answer discloses a migration the caller cannot see.
+			// Audited, not silent: this is the one decision here that gates a disclosure.
 			var gateErr error
 			if literalIncludes(req.Include) {
 				gateErr = s.refuseRestoreDuringReindex(ctx, append([]string(nil), req.Include...))
-			} else if s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, authorization.Backups()...) == nil {
+			} else if s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups()...) == nil {
 				gateErr = s.refuseRestoreDuringReindex(ctx, nil)
 			}
 			if gateErr != nil {

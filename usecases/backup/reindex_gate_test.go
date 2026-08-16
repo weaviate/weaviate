@@ -301,7 +301,14 @@ func TestRestoreGateOrdering(t *testing.T) {
 		require.ErrorAs(t, err, &backup.ErrNotFound{})
 	})
 	t.Run("naming no class at all is asked cluster-wide", func(t *testing.T) {
+		auth := authorization.NewMockAuthorizer(t)
+		// Audited, not silent: this decision gates whether a migration is disclosed.
+		auth.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.CREATE, "backups/collections/*").
+			Return(nil).Once()
+		auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(nil).Maybe()
 		fs := newFakeScheduler(nil)
+		fs.auth = auth
 		expectUnknownID(ctx, fs, id)
 		_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 			Backend: backendName, ID: id,
@@ -309,6 +316,8 @@ func TestRestoreGateOrdering(t *testing.T) {
 		require.ErrorAs(t, err, &backup.ErrNotFound{})
 		require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
 			"a restore naming nothing covers everything, so the gate is asked about everything")
+		auth.AssertNotCalled(t, "AuthorizeSilent",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 	t.Run("a literal include is never checked for cluster-wide permission", func(t *testing.T) {
 		auth := authorization.NewMockAuthorizer(t)
