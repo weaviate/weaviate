@@ -13,12 +13,15 @@ package reindex_backup_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	clientbackups "github.com/weaviate/weaviate/client/backups"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -76,6 +79,7 @@ func TestOverlapBackstop(t *testing.T) {
 
 			_, err := helper.CreateBackup(t, slowBackupConfig(), tt.capturedClass, backend, tt.backupID)
 			require.NoError(t, err, "the capture must be admitted: nothing is migrating yet")
+			awaitCapturedClassUploaded(t, ctx, compose, tt.backupID)
 
 			taskID := submitChangeTokenization(t, restURI, migrating, "body", "lowercase")
 			reindexhelpers.AwaitReindexLive(t, restURI, taskID,
@@ -97,6 +101,49 @@ func TestOverlapBackstop(t *testing.T) {
 				"the commit-time check has to be what failed this backup; got: %s", reason)
 			require.Contains(t, reason, tt.capturedClass,
 				"the recorded reason must name the collection; got: %s", reason)
+		})
+	}
+}
+
+// TestBackupRefusedWhenOverlapCheckCannotAnswer pins the admission refusal a
+// zero retention window earns, for both include shapes: an explicit include is
+// authorized before the class list is validated and an empty one after, so
+// only canCommit sees both.
+func TestBackupRefusedWhenOverlapCheckCannotAnswer(t *testing.T) {
+	ctx := context.Background()
+	compose, err := reindexhelpers.SingleNodeCompose().
+		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "0").
+		WithBackendFilesystem().
+		Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+	helper.SetupClient(compose.GetWeaviate().URI())
+	t.Cleanup(helper.ResetClient)
+
+	const className = "Unanswerable_Class"
+	createBodyClass(t, className, "body")
+
+	for name, include := range map[string][]string{
+		"an explicit include": {className},
+		"an empty include":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			params := clientbackups.NewBackupsCreateParams().
+				WithBackend("filesystem").
+				WithBody(&models.BackupCreateRequest{
+					ID:      "unanswerable-" + strings.ReplaceAll(name, " ", "-"),
+					Include: include, Config: helper.DefaultBackupConfig(),
+				})
+			_, err := helper.Client(t).Backups.BackupsCreate(params, nil)
+
+			require.Error(t, err, "a window that retains nothing can never clear a capture")
+			var refused *clientbackups.BackupsCreateUnprocessableEntity
+			require.ErrorAs(t, err, &refused, "a refusal the operator can act on is 422; got %v", err)
+			msg := errorResponseMessage(refused.Payload)
+			require.Contains(t, msg, entitiesbackup.ErrReindexOverlapCheckUnanswerable.Error())
+			require.Contains(t, msg, "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+				"the only answer the operator gets owes them the setting to change")
+			requireNoPlacement(t, msg, "")
 		})
 	}
 }
