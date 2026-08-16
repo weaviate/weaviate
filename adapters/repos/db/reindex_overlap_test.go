@@ -850,12 +850,23 @@ func TestLocalWorkerActivity(t *testing.T) {
 			drive: func(p *ReindexProvider) { p.registerStartingTask(other, &reindexTaskHandle{}, nil) },
 		},
 		{
-			name: "the worker has stopped",
+			name: "the worker has stopped, and a stamp inside the TTL outlives a later one",
 			drive: func(p *ReindexProvider) {
+				p.db.config.CompletedTaskTTL = time.Hour
 				p.registerStartingTask(desc, &reindexTaskHandle{}, nil)
 				p.deleteRunningHandle(desc, true)
+				p.deleteRunningHandle(other, true)
 			},
 			wantExit: true,
+		},
+		{
+			name: "a stamp past the TTL is pruned by a later one",
+			drive: func(p *ReindexProvider) {
+				p.db.config.CompletedTaskTTL = time.Nanosecond
+				p.deleteRunningHandle(desc, true)
+				time.Sleep(time.Millisecond)
+				p.deleteRunningHandle(other, true)
+			},
 		},
 	}
 
