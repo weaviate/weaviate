@@ -49,7 +49,7 @@ type StalePartialReindexSweep func(ctx context.Context, collection, propName, in
 //
 // A missing local collection reports [ErrCleanupCollectionDropped], not a
 // clean sweep.
-// The cleanup hold is raised here, not at each caller: what this deletes is what a backup copies, and all three callers leave the other gate open.
+// Held here too, not only by the callers that wrap a whole multi-type teardown: what this deletes is what a backup copies.
 func (db *DB) NewStalePartialReindexSweep() StalePartialReindexSweep {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {

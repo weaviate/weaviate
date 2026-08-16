@@ -514,11 +514,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
-			// One cache for the whole loop; see the submit path for why.
-			sweep := h.appState.DB.NewStalePartialReindexSweep()
-			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
-				return sweep(ctx, collection, propertyName, it)
-			})
+			cleanupFailures, cleanupDropped := h.sweepCancelledReindexState(ctx,
+				h.appState.DB, collection, propertyName, indexTypesToClean)
 			// The log fields name every strategy this migration touches, not just
 			// the URL's index type; each failure line adds its own index_type.
 			logCancelCleanupOutcome(h.appState.Logger.WithFields(logrus.Fields{
@@ -615,6 +612,22 @@ func (f staleSweepFailure) Error() string {
 // results by [db.ClassifyCleanupSweep]. A dropped collection is not a
 // failure (nothing left to short-circuit on) but also not a completed
 // cleanup, so it comes back as its own count rather than folded into either.
+// sweepCancelledReindexState wipes the sidecar and migration dirs of every index
+// type the cancelled migration touched. One cache and one hold across the loop; see
+// the submit path for why the cache, and note that a migration touching two index
+// types would otherwise open the backup and restore gates mid-teardown.
+func (h *indexesHandlers) sweepCancelledReindexState(ctx context.Context,
+	cleaner stalePartialStateCleaner, collection, propertyName string, indexTypes []string,
+) (failures []staleSweepFailure, dropped int) {
+	cleaner.HoldReindexCleanup(collection, func() {
+		sweep := cleaner.NewStalePartialReindexSweep()
+		failures, dropped = sweepStaleReindexState(indexTypes, func(it string) error {
+			return sweep(ctx, collection, propertyName, it)
+		})
+	})
+	return failures, dropped
+}
+
 func sweepStaleReindexState(
 	indexTypes []string, sweep func(indexType string) error,
 ) (failures []staleSweepFailure, dropped int) {

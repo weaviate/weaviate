@@ -134,3 +134,16 @@ func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
 	release()
 	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
 }
+
+func TestHoldReindexCleanup(t *testing.T) {
+	db := &DB{}
+	var inner, nested ReindexHold
+	db.HoldReindexCleanup("Movies", func() {
+		inner = db.reindexHolds.HoldFor("Movies")
+		db.HoldReindexCleanup("Movies", func() {})
+		nested = db.reindexHolds.HoldFor("Movies")
+	})
+	assert.Equal(t, ReindexHoldCleanup, inner)
+	assert.Equal(t, ReindexHoldCleanup, nested, "an inner hold's release must not open the outer one")
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor("Movies"), "and the outer one is released")
+}

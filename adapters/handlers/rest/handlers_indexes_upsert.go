@@ -762,6 +762,7 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 // sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
 	NewStalePartialReindexSweep() db.StalePartialReindexSweep
+	HoldReindexCleanup(collection string, fn func())
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
@@ -786,7 +787,21 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
-	// One sweep across the loop: every index type asks the same unloaded shards.
+	// One sweep across the loop: every index type asks the same unloaded shards. One
+	// hold across it too, or a migration touching two types opens the backup and
+	// restore gates in between, mid-teardown.
+	var responder middleware.Responder
+	cleaner.HoldReindexCleanup(collection, func() {
+		responder = h.sweepEachIndexType(ctx, principal, cleaner, collection, propertyName,
+			migrationType, indexTypesForCleanup)
+	})
+	return responder
+}
+
+func (h *indexesHandlers) sweepEachIndexType(ctx context.Context, principal *models.Principal,
+	cleaner stalePartialStateCleaner, collection, propertyName string,
+	migrationType db.ReindexMigrationType, indexTypesForCleanup []string,
+) middleware.Responder {
 	sweep := cleaner.NewStalePartialReindexSweep()
 	for _, it := range indexTypesForCleanup {
 		err := sweep(ctx, collection, propertyName, it)
