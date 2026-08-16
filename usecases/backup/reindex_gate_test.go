@@ -503,6 +503,37 @@ func TestBackupRefusalReaches422(t *testing.T) {
 	assert.Contains(t, err.Error(), "GET /v1/tasks", "and the only answer the operator gets owes a route")
 }
 
+// The create route ranks the same way the restore route does: a peer that failed for its
+// own reason is permanent, so the pair is not something retrying the backup can fix.
+func TestBackupRefusalBesideAPeerFailureIsNot422(t *testing.T) {
+	const id, cls, node1, node2 = "1234", "Movies", "node1", "node2"
+	ctx, any := context.Background(), mock.Anything
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node1, node2}))
+	fs.selector.On("ListClasses", ctx).Return([]string{cls})
+	fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
+	fs.selector.On("Shards", ctx, cls).Return([]string{node1, node2}, nil)
+	expectUnknownID(ctx, fs, id)
+	fs.backend.On("Initialize", ctx, any).Return(nil)
+	// node2 answers only once the refusal is in, so the refusal is what the error group returns.
+	refused := make(chan struct{})
+	fs.client.On("CanCommit", any, node1, any).
+		Run(func(mock.Arguments) { close(refused) }).
+		Return(&CanCommitResponse{Method: OpCreate, ID: id, ErrKind: CanCommitErrInFlightReindex}, nil)
+	fs.client.On("CanCommit", any, node2, any).
+		Run(func(mock.Arguments) { <-refused }).
+		Return(nil, errors.New("connection refused"))
+	fs.client.On("Abort", any, any, any).Return(nil).Maybe()
+
+	_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &BackupRequest{
+		Backend: "s3", ID: id, Include: []string{cls},
+	})
+	require.Error(t, err)
+	require.NotErrorAs(t, err, &backup.ErrUnprocessable{},
+		"waiting out the migration cannot fix a peer that failed permanently")
+	assert.Contains(t, err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error())
+	assert.Contains(t, err.Error(), "connection refused")
+}
+
 func TestPublishAsCancelled(t *testing.T) {
 	tests := []struct {
 		name        string
