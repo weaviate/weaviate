@@ -418,17 +418,6 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
 		assert.Contains(t, resp.Err, backup.ErrReindexInFlight.Error())
 	})
-	t.Run("a node whose scope is exactly no collection is not gated", func(t *testing.T) {
-		sourcer := &fakeSourcer{}
-		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
-		backend := newFakeBackend()
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/1")
-		backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
-		m := createManager(sourcer, nil, backend, nil)
-		resp := m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3", ClassScopeExact: true})
-		assert.Empty(t, sourcer.gateCalls(), "there is no collection here for a migration to block")
-		assert.NotEqual(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
-	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexUndetermined())
@@ -823,19 +812,29 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	require.ErrorContains(t, err, "put initial metadata",
 		"the restore must have got past the fan-out")
 
-	asked := map[string][]string{}
+	asked := map[string]*Request{}
 	for _, call := range fs.client.Calls {
-		if call.Method != "CanCommit" {
-			continue
+		if call.Method == "CanCommit" {
+			req := call.Arguments.Get(2).(*Request)
+			asked[req.NodeName] = req
 		}
-		req := call.Arguments.Get(2).(*Request)
-		asked[req.NodeName] = req.Classes
-		require.True(t, req.ClassScopeExact,
-			"without this mark the emptied node reads its empty list as every collection and gates on all of them")
 	}
 	require.Contains(t, asked, node2,
 		"the node the authorization filter narrowed to nothing must still be asked "+
 			"to commit, or the blobs only it holds are never restored")
-	assert.Empty(t, asked[node2], "and asked with the empty class list it was left with")
-	assert.Equal(t, []string{allowedCls}, asked[node1])
+	assert.Empty(t, asked[node2].Classes, "and asked with the empty class list it was left with")
+	assert.Equal(t, []string{allowedCls}, asked[node1].Classes)
+
+	// validate() reads that empty list as the node's whole descriptor, so it restores
+	// every collection it holds and its request must reach the gate. Replayed through a
+	// real handler, so no future mark on the request can make the participant skip.
+	sourcer := &fakeSourcer{}
+	sourcer.setReindexGate(reindexRefusal(deniedCls))
+	backend := newFakeBackend()
+	backend.On("HomeDir", any, any, any).Return("bucket/" + id)
+	backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{})
+	resp := createManager(sourcer, nil, backend, nil).OnCanCommit(ctx, asked[node2])
+	require.Len(t, sourcer.gateCalls(), 1, "the emptied node must still reach the gate")
+	assert.Empty(t, sourcer.gateCalls()[0], "and be asked as every collection")
+	assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
 }
