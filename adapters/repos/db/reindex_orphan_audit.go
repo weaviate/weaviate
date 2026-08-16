@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
@@ -167,7 +168,7 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 // installed; the deferred-request counter is incremented so
 // [DB.SetReindexAuditDeps] replays the audit when deps land. A WARN
 // log is emitted on the skip path so the no-op is detectable. Closes B2.
-func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutcome, error) {
+func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context, classes ...string) (AuditOutcome, error) {
 	db.reindexAuditMu.Lock()
 	builder := db.reindexAuditLookupBuilder
 	logger := db.reindexAuditLogger
@@ -202,7 +203,7 @@ func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutco
 			SkipReason: "builder_error",
 		}, fmt.Errorf("reindex orphan audit: lookup builder failed: %w", buildErr)
 	}
-	return db.AuditOrphanReindexTrackers(ctx, lookup, logger)
+	return db.AuditOrphanReindexTrackers(ctx, lookup, logger, classes...)
 }
 
 // orphanReindexTracker carries the fields the cleanup loop logs and
@@ -241,7 +242,9 @@ func (o *orphanReindexTracker) String() string {
 // from "audit ran but K cleanups failed". The outcome is also logged
 // at Info level on every successful invocation (S4 fix: absence of
 // that log line in operator dashboards is now detectable).
-func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) (AuditOutcome, error) {
+// An empty classes list audits every collection on disk; naming classes limits the
+// walk to theirs, so restoring one collection cannot raise cleanup holds on the rest.
+func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger, classes ...string) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
 	}
@@ -284,12 +287,20 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 		return snapshot
 	}()
 
+	scoped := make(map[string]bool, len(classes))
+	for _, class := range classes {
+		scoped[indexID(schema.ClassName(class))] = true
+	}
+
 	outcome := AuditOutcome{Status: AuditStatusRan}
 	for _, indexEntry := range indexEntries {
 		if !indexEntry.IsDir() {
 			continue
 		}
 		indexDir := indexEntry.Name()
+		if len(scoped) > 0 && !scoped[indexDir] {
+			continue
+		}
 		indexPath := filepath.Join(rootPath, indexDir)
 		shardEntries, shardErr := os.ReadDir(indexPath)
 		if shardErr != nil {
@@ -310,10 +321,15 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 					collection = idx.Config.ClassName.String()
 				}
 			}
-			// Taken on the first shard carrying trackers and kept for the rest of this
-			// index's walk: this cleaner bypasses [DB.NewStalePartialReindexSweep], and
-			// the gaps between shards read the same dirs. No tracker means no hold.
+			// Raised before this sweep's first disk mutation under the collection and
+			// kept for the rest of this index's walk, so the gaps between later shards
+			// stay covered. The work decides: a sweep that mutates nothing never holds.
 			var releaseHold func()
+			holdCleanup := func() {
+				if releaseHold == nil {
+					releaseHold = db.reindexHolds.acquire(collection, ReindexHoldCleanup)
+				}
+			}
 			defer func() {
 				if releaseHold != nil {
 					releaseHold()
@@ -326,19 +342,21 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
 				outcome.ScannedCount++
-				if releaseHold == nil && shardCarriesMigrationTracker(lsmPath) {
-					releaseHold = db.reindexHolds.acquire(collection, ReindexHoldCleanup)
-				}
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
-					// No orphans this sweep: clear any stale quarantine
-					// sentinels — a tracker that flipped back to "known
-					// live" between sweeps must not retain its quarantine
-					// or a subsequent legitimately-orphan sweep would
-					// immediately destroy it.
-					clearStaleQuarantineSentinels(lsmPath, knownTask, auditLogger)
+					// A tracker that flipped back to known-live between sweeps must not
+					// keep its quarantine, or the next legitimately-orphan sweep destroys
+					// it at once. Read first, so a shard with nothing to clear is not held.
+					stale := staleQuarantineSentinels(lsmPath, knownTask)
+					if len(stale) == 0 {
+						continue
+					}
+					holdCleanup()
+					removeQuarantineSentinels(lsmPath, stale, auditLogger)
 					continue
 				}
+				// Sentinel writes are mutations too, so the hold precedes the partition.
+				holdCleanup()
 				outcome.OrphansFound += len(orphans)
 
 				// S2: gate destructive cleanup on a quarantine window.
@@ -439,23 +457,6 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // fresh DTM state from the leader → classification flips to "known
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
-
-// Looks for a tracker generation, not for .migrations itself: nothing removes that
-// directory, and the compressed-vectors migrator creates it on shards that never ran
-// a runtime reindex. An unreadable .migrations deliberately counts as carrying one,
-// because guessing wrong there only refuses a backup, while the other way admits one mid-sweep.
-func shardCarriesMigrationTracker(lsmPath string) bool {
-	entries, err := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
-	if err != nil {
-		return !os.IsNotExist(err)
-	}
-	for _, entry := range entries {
-		if _, _, ok := parseMigrationDirName(entry.Name()); ok && entry.IsDir() {
-			return true
-		}
-	}
-	return false
-}
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
 // tracker dir classified as an orphan (started.mig present,
@@ -583,7 +584,7 @@ func isLegacyTrackerWithoutPayload(trackerPath string) (bool, time.Time, error) 
 // sweep but NOT delete; a future audit running with fresh DTM state
 // will either confirm (truly an orphan) or clear the sentinel
 // (lookup flipped to "known live", handled by
-// clearStaleQuarantineSentinels).
+// staleQuarantineSentinels).
 //
 // Per-orphan disk writes are best-effort; a sentinel-write failure
 // passes the orphan through to cleanup (the legacy behavior) on the
@@ -653,52 +654,45 @@ func writeQuarantineSentinel(trackerPath string) error {
 	return f.Close()
 }
 
-// clearStaleQuarantineSentinels removes audit_quarantined.mig from
-// tracker dirs whose recovery record (now / freshly-evaluated) maps
-// to a known-live DTM task. Called per-shard when the orphan list is
-// empty: it covers the case where a previous audit sweep mis-
-// classified a live migration as orphan (e.g. follower with stale
-// RAFT) and wrote a quarantine sentinel — the subsequent sweep on a
-// caught-up follower sees the same tracker as "known live" and must
-// clear the sentinel so a future legitimate orphan classification
-// does not inherit the prior quarantine age.
+// staleQuarantineSentinels names the tracker dirs whose quarantine sentinel is no
+// longer load-bearing, because the task their recovery record points at is live in
+// DTM again. A previous sweep can have mis-classified a live migration as an orphan
+// (a follower with stale RAFT), and leaving that quarantine in place would turn the
+// next legitimate orphan classification into an immediate destructive cleanup.
 //
-// Errors are logged at Warn and never propagated: the worst case is
-// a stale sentinel that converts a future-detected orphan into an
-// immediate destructive cleanup — at which point the orphan was
-// real and the operator visibility is preserved.
-func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) {
+// Read-only, so the caller raises the cleanup hold only when there is something to
+// remove. A tracker still classified as an orphan keeps its sentinel.
+func staleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup) []string {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
-		return
+		return nil
 	}
+	var stale []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		dirName := entry.Name()
-		trackerPath := filepath.Join(migsDir, dirName)
-		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
-		if !fileExists(sentinelPath) {
+		trackerPath := filepath.Join(migsDir, entry.Name())
+		if !fileExists(filepath.Join(trackerPath, reindexAuditQuarantineFile)) {
 			continue
 		}
-		rec, recOK := loadAuditRecord(trackerPath)
-		if !recOK {
-			continue
+		if rec, recOK := loadAuditRecord(trackerPath); recOK && knownTask(rec.TaskID, rec.TaskVersion) {
+			stale = append(stale, entry.Name())
 		}
-		if !knownTask(rec.TaskID, rec.TaskVersion) {
-			// Tracker is still classified as orphan from the
-			// recovery-record perspective; the empty-orphans branch
-			// got here only because collectOrphanTrackers already
-			// filtered upstream (e.g. tracker has tidied.mig now).
-			// Either way the sentinel is now load-bearing for a
-			// future orphan sweep, so leave it alone.
-			continue
-		}
-		if rmErr := os.Remove(sentinelPath); rmErr != nil && !os.IsNotExist(rmErr) {
+	}
+	return stale
+}
+
+// Errors are logged and never propagated: the worst case is a stale sentinel that
+// turns a future-detected orphan into an immediate cleanup, and by then the orphan
+// was real.
+func removeQuarantineSentinels(lsmPath string, dirNames []string, logger logrus.FieldLogger) {
+	for _, dirName := range dirNames {
+		path := filepath.Join(lsmPath, ".migrations", dirName, reindexAuditQuarantineFile)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			logger.WithField("tracker", dirName).
-				Warnf("reindex orphan audit: failed to clear stale quarantine sentinel after task flipped back to known-live: %v", rmErr)
+				Warnf("reindex orphan audit: failed to clear stale quarantine sentinel after task flipped back to known-live: %v", err)
 		}
 	}
 }

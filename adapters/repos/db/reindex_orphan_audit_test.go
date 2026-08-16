@@ -181,12 +181,6 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
 }
 
-func TestShardCarriesMigrationTrackerWhenUnreadable(t *testing.T) {
-	lsm := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(lsm, ".migrations"), nil, 0o644))
-	require.True(t, shardCarriesMigrationTracker(lsm))
-}
-
 // The sampler runs alongside the walk: a collection with nothing to clean writes no log line to hang an assertion on.
 func TestAuditOrphanReindexTrackers_CleanCollectionIsNeverHeld(t *testing.T) {
 	ctx := testCtx()
@@ -857,4 +851,131 @@ func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, 
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+}
+
+// trackerSpec lays out one .migrations/<name> dir. An empty taskID writes no
+// payload.mig, and aged writes a quarantine sentinel old enough to act on.
+type trackerSpec struct {
+	name    string
+	files   []string
+	taskID  string
+	version uint64
+	aged    bool
+}
+
+func layoutTrackers(t *testing.T, lsmPath, collection string, specs ...trackerSpec) {
+	t.Helper()
+	for _, spec := range specs {
+		dir := filepath.Join(lsmPath, ".migrations", spec.name)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		for _, name := range spec.files {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+		}
+		if spec.taskID != "" {
+			writePayload(t, dir, spec.taskID, spec.version, "unit-"+spec.taskID, collection,
+				ReindexTypeChangeTokenization, []string{"title"})
+		}
+		if spec.aged {
+			writePreAgedQuarantineSentinel(t, dir)
+		}
+	}
+}
+
+// The population a hold-on-any-tracker predicate raised the hold for and the sweep
+// then never touched: every tracker here is one collectOrphanTrackers filters out.
+func TestAuditOrphanReindexTrackers_TrackersItCannotTouchAreNeverHeld(t *testing.T) {
+	ctx := testCtx()
+	const className = "AuditUntouchable"
+	shd, idx := testShard(t, ctx, className)
+	layoutTrackers(t, shd.(*Shard).pathLSM(), className,
+		trackerSpec{name: "searchable_retokenize_live_1", files: []string{"started.mig"}, taskID: "task-live", version: 3},
+		trackerSpec{name: "searchable_retokenize_done_1", files: []string{"started.mig", "tidied.mig"}, taskID: "task-done", version: 4},
+	)
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+
+	held := ReindexHoldNone
+	// Sampled from inside the lookup, which the sweep calls while walking the shard.
+	known := func(string, uint64) bool {
+		held = max(held, db.reindexHolds.HoldFor(className))
+		return true
+	}
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logrus.New())
+	require.NoError(t, err)
+	assert.Zero(t, outcome.OrphansFound, "neither tracker is one this sweep can act on")
+	assert.Equal(t, ReindexHoldNone, held, "a sweep that mutates nothing must not refuse backups")
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className))
+}
+
+// Clearing a sentinel is a disk mutation, so it happens under the hold, and the read
+// pass that decides whether there is one to clear changes nothing.
+func TestAuditOrphanReindexTrackers_ClearingASentinelIsHeld(t *testing.T) {
+	ctx := testCtx()
+	const className = "AuditSentinelClear"
+	_, idx := testShard(t, ctx, className)
+	// Two shard dirs in walk order: the hold the first one raises is still up when the
+	// second is read, which is where the sampler below can see it.
+	indexPath := filepath.Join(idx.Config.RootPath, indexID(idx.Config.ClassName))
+	first := filepath.Join(indexPath, "aaa-first", "lsm")
+	second := filepath.Join(indexPath, "zzz-second", "lsm")
+	for i, lsmPath := range []string{first, second} {
+		layoutTrackers(t, lsmPath, className, trackerSpec{
+			name: fmt.Sprintf("searchable_retokenize_flipped_%d", i+1), files: []string{"started.mig", "tidied.mig"},
+			taskID: fmt.Sprintf("task-flipped-%d", i), version: 7, aged: true,
+		})
+	}
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+
+	live := func(string, uint64) bool { return true }
+	require.Len(t, staleQuarantineSentinels(first, live), 1,
+		"a tracker whose task is live again no longer needs its quarantine")
+	require.Empty(t, staleQuarantineSentinels(first, func(string, uint64) bool { return false }),
+		"one still classified as an orphan keeps it")
+	require.FileExists(t, filepath.Join(first, ".migrations", "searchable_retokenize_flipped_1",
+		reindexAuditQuarantineFile), "the read pass changes nothing, so the hold can be raised after it")
+
+	held := ReindexHoldNone
+	sampling := func(string, uint64) bool {
+		held = max(held, db.reindexHolds.HoldFor(className))
+		return true
+	}
+	_, err := db.AuditOrphanReindexTrackers(ctx, sampling, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, ReindexHoldCleanup, held, "the removal is a mutation, so it runs inside the hold")
+	assert.Empty(t, staleQuarantineSentinels(first, live), "and the sentinel is gone")
+	assert.Empty(t, staleQuarantineSentinels(second, live))
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className), "and it is not left held")
+}
+
+// Restoring one collection walked every collection on disk, so it held, and refused
+// backups of, collections the restore never named.
+func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
+	ctx := testCtx()
+	const restored, other = "AuditScopeRestored", "AuditScopeOther"
+	_, restoredIdx := testShard(t, ctx, restored)
+	otherShard, otherIdx := testShard(t, ctx, other, func(i *Index) { i.Config.RootPath = restoredIdx.Config.RootPath })
+	otherLSM := otherShard.(*Shard).pathLSM()
+	layoutTrackers(t, otherLSM, other,
+		trackerSpec{name: "searchable_retokenize_orphan_1", files: []string{"started.mig"}, taskID: "task-orphan", version: 9, aged: true})
+	db := &DB{
+		indices: map[string]*Index{
+			indexID(restoredIdx.Config.ClassName): restoredIdx,
+			indexID(otherIdx.Config.ClassName):    otherIdx,
+		},
+		config: Config{RootPath: restoredIdx.Config.RootPath},
+	}
+
+	var asked []string
+	known := func(taskID string, _ uint64) bool { asked = append(asked, taskID); return false }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logrus.New(), restored)
+	require.NoError(t, err)
+	assert.Zero(t, outcome.OrphansFound, "the other collection's orphan is outside this sweep")
+	assert.Empty(t, asked, "and its trackers are never even classified")
+	assert.DirExists(t, filepath.Join(otherLSM, ".migrations", "searchable_retokenize_orphan_1"))
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(other))
 }

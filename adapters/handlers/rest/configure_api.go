@@ -701,7 +701,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 		// Background ctx: invoked from the RAFT FSM apply path,
 		// which does not propagate an audit-scoped ctx.
-		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background(), class)
 		if err != nil {
 			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
 				WithField("class", class).
