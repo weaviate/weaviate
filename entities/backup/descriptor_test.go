@@ -1119,3 +1119,19 @@ func TestFileListRemoveIndices(t *testing.T) {
 		assert.Equal(t, 3, f.Len())
 	})
 }
+
+// Both lists are built by ranging a map and both are published, so an unsorted
+// answer names a different collection, and a different remedy URL, on every retry.
+func TestDistributedBackupDescriptorListsAreSorted(t *testing.T) {
+	d := &DistributedBackupDescriptor{
+		Nodes: map[string]*NodeDescriptor{
+			"n1": {Classes: []string{"Movies", "Alpha"}},
+			"n2": {Classes: []string{"Zulu", "Alpha", "Beta"}},
+		},
+		Users: []string{"zoe", "amy", "zoe", "mia"},
+	}
+	for range 20 {
+		require.Equal(t, []string{"Alpha", "Beta", "Movies", "Zulu"}, d.Classes())
+		require.Equal(t, []string{"amy", "mia", "zoe"}, d.UserList())
+	}
+}

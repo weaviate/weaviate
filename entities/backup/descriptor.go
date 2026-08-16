@@ -14,6 +14,7 @@ package backup
 import (
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -83,7 +84,9 @@ func (d *DistributedBackupDescriptor) RemoveEmpty() *DistributedBackupDescriptor
 	return d
 }
 
-// Classes returns all classes contained in d
+// Classes returns all classes contained in d, sorted: it is ranged out of a map, and
+// callers publish it, so an unsorted answer refuses the same restore in different
+// words on every retry.
 func (d *DistributedBackupDescriptor) Classes() []string {
 	set := make(map[string]struct{}, 32)
 	for _, desc := range d.Nodes {
@@ -97,10 +100,12 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 		lst[i] = cls
 		i++
 	}
+	slices.Sort(lst)
 	return lst
 }
 
-// UserList returns the deduped dynamic-user IDs recorded in d (empty when none).
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none),
+// sorted for the same reason as Classes.
 func (d *DistributedBackupDescriptor) UserList() []string {
 	set := make(map[string]struct{}, len(d.Users))
 	for _, u := range d.Users {
@@ -110,6 +115,7 @@ func (d *DistributedBackupDescriptor) UserList() []string {
 	for u := range set {
 		lst = append(lst, u)
 	}
+	slices.Sort(lst)
 	return lst
 }
 
