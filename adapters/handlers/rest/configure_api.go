@@ -1135,8 +1135,6 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 		}
 		return db.NewAnyReindexActivityLookup(tasksByNamespace[db.ReindexNamespace])
 	})
-
-	repo.SetReindexHoldLookup(appState.ReindexProvider.ReindexHoldLookupBuilder())
 }
 
 // initReindexAndDistributedTasks builds the reindex provider, registers it in

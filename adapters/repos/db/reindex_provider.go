@@ -1974,14 +1974,6 @@ func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	return out
 }
 
-func (p *ReindexProvider) ReindexHoldLookupBuilder() ReindexHoldLookupBuilder {
-	return func() ReindexHoldLookup {
-		return func(collections []string) ReindexHold {
-			return p.db.reindexHolds.HoldFor(collections...)
-		}
-	}
-}
-
 // reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
 // in the REST handlers so both cancel paths converge on identical
 // stuck-task behavior.

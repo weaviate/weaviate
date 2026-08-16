@@ -38,28 +38,16 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
-// A real registry rather than a map of its own: production folds case on the
-// way in and on the way out, and every gate test reads its hold through here.
-func makeHoldBuilder(holds map[string]ReindexHold) ReindexHoldLookupBuilder {
-	r := &ReindexHoldRegistry{}
-	for collection, hold := range holds {
-		r.acquire(collection, hold)
-	}
-	return func() ReindexHoldLookup {
-		return func(collections []string) ReindexHold { return r.HoldFor(collections...) }
-	}
-}
-
-// A nil live or tasks field leaves that lookup uninstalled. The hold lookup
-// is always installed, holding nothing when the fixture names none: an
-// uninstalled one warns, and the tests that want that build their own DB.
+// A nil live or tasks field leaves that lookup uninstalled. Holds are raised
+// on the DB's own registry, which production folds case on the way in and on
+// the way out of.
 type gateFixtures struct {
 	live  map[[2]string]bool
 	holds map[string]ReindexHold
 	tasks []*distributedtask.Task
 }
 
-type gateCounters struct{ activity, hold int }
+type gateCounters struct{ activity int }
 
 func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters) {
 	t.Helper()
@@ -70,11 +58,9 @@ func gatedDB(t *testing.T, f gateFixtures) (*DB, *logrustest.Hook, *gateCounters
 	if f.live != nil {
 		db.SetShardReindexActivityLookup(makeActivityBuilder(f.live))
 	}
-	holdBuilder := makeHoldBuilder(f.holds)
-	db.SetReindexHoldLookup(func() ReindexHoldLookup {
-		built.hold++
-		return holdBuilder()
-	})
+	for collection, hold := range f.holds {
+		db.reindexHolds.acquire(collection, hold)
+	}
 	if f.tasks != nil {
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			built.activity++
@@ -142,46 +128,33 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 
 func TestReindexHoldForCollection(t *testing.T) {
 	tests := []struct {
-		name      string
-		disabled  bool
-		holds     map[string]ReindexHold
-		builder   ReindexHoldLookupBuilder
-		query     string
-		want      ReindexHold
-		wantBuilt int
+		name     string
+		disabled bool
+		holds    map[string]ReindexHold
+		query    string
+		want     ReindexHold
 	}{
 		{
-			name:      "cleanup hold",
-			holds:     map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
-			query:     "MyClass",
-			want:      ReindexHoldCleanup,
-			wantBuilt: 1,
+			name:  "cleanup hold",
+			holds: map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
+			query: "MyClass",
+			want:  ReindexHoldCleanup,
 		},
+		{name: "nothing held", query: "MyClass"},
 		{
 			name:     "feature off",
 			disabled: true,
 			holds:    map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
 			query:    "MyClass",
 		},
-		{name: "builder never installed", query: "MyClass", builder: nil},
-		{name: "builder hands back nothing", query: "MyClass", builder: func() ReindexHoldLookup { return nil }, wantBuilt: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			built := 0
-			counted := func(builder ReindexHoldLookupBuilder) ReindexHoldLookupBuilder {
-				return func() ReindexHoldLookup { built++; return builder() }
-			}
-			switch {
-			case tt.holds != nil:
-				db.SetReindexHoldLookup(counted(makeHoldBuilder(tt.holds)))
-			case tt.builder != nil:
-				db.SetReindexHoldLookup(counted(tt.builder))
+			for collection, hold := range tt.holds {
+				db.reindexHolds.acquire(collection, hold)
 			}
 			require.Equal(t, tt.want, db.ReindexHoldFor(tt.query))
-			require.Equal(t, tt.wantBuilt, built,
-				"the flag must be read before any lookup is built")
 		})
 	}
 }
@@ -408,7 +381,7 @@ func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
 	for i := range shardCount {
 		shards = append(shards, fmt.Sprintf("shard-%02d", i))
 	}
-	db, hook, built := gatedDB(t, gateFixtures{
+	db, hook, _ := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{},
 		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
 	})
@@ -416,7 +389,6 @@ func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
 	assert.Contains(t, err.Error(), "still removing its temporary index files")
-	assert.Equal(t, 1, built.hold, "one hold read for the whole collection")
 	warned := warnOrAbove(hook)
 	require.Len(t, warned, 1)
 	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])

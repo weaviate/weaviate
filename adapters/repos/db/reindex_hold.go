@@ -109,33 +109,11 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 	return strongest
 }
 
-type ReindexHoldLookup func(collections []string) ReindexHold
-
-type ReindexHoldLookupBuilder func() ReindexHoldLookup
-
-func (db *DB) SetReindexHoldLookup(builder ReindexHoldLookupBuilder) {
-	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
-	db.reindexHoldLookupBuilder = builder
-}
-
+// The registry is a field on this same DB, so there is nothing to install
+// and no window in which the gates read it before it exists.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexHoldNone
 	}
-	db.reindexAuditMu.RLock()
-	builder := db.reindexHoldLookupBuilder
-	db.reindexAuditMu.RUnlock()
-	if builder == nil {
-		// Both gates read this, and both admit on it, so an install that
-		// never ran costs a whole tier of either gate in silence.
-		db.warnUnwiredGate(&holdGateWarnBudget, "reindex_hold_lookup", "reindex-hold",
-			"Check the SetReindexHoldLookup wiring in configure_api.go.")
-		return ReindexHoldNone
-	}
-	lookup := builder()
-	if lookup == nil {
-		return ReindexHoldNone
-	}
-	return lookup(collections)
+	return db.reindexHolds.HoldFor(collections...)
 }

@@ -47,8 +47,8 @@ const (
 )
 
 // TestRestoreRefusedByCleanupHold pins the node-local arm of the restore
-// gate, which nothing else in CI reaches: deleting the SetReindexHoldLookup
-// wiring leaves every other test green.
+// gate, which nothing else in CI reaches: dropping the hold read from
+// RefuseIfAnyReindexInFlight leaves every other test green.
 //
 // The window is small and it opens early: the sweep starts within
 // milliseconds of the cancel and is usually done before the task reaches a

@@ -26,7 +26,6 @@ const reindexGateWarnInterval = time.Hour
 var (
 	shardGateWarnBudget   reindexGateWarnBudget
 	restoreGateWarnBudget reindexGateWarnBudget
-	holdGateWarnBudget    reindexGateWarnBudget
 )
 
 type reindexGateWarnBudget struct {

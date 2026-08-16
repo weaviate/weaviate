@@ -131,14 +131,13 @@ func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
 }
 
-func TestReindexHoldLookupBuilder(t *testing.T) {
-	p := &ReindexProvider{db: &DB{}}
-	lookup := p.ReindexHoldLookupBuilder()()
-	require.NotNil(t, lookup)
-	require.Equal(t, ReindexHoldNone, lookup([]string{"Movies"}))
-	release := p.db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
-	require.Equal(t, ReindexHoldCleanup, lookup([]string{"Movies"}),
-		"the lookup must observe a hold raised after it was built")
+// The gates read the registry live, so a hold raised after a gate call
+// started still refuses the next one.
+func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
+	db := &DB{}
+	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
+	release := db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+	require.Equal(t, ReindexHoldCleanup, db.ReindexHoldFor("Movies"))
 	release()
-	require.Equal(t, ReindexHoldNone, lookup([]string{"Movies"}))
+	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
 }

@@ -218,9 +218,6 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	t.Run("an unreadable task list is not reported as a migration", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
 		db := &DB{logger: logger, localNodeName: "node-7"}
-		// Holding nothing, but installed: an uninstalled hold lookup warns on
-		// its own, and the lines counted below are the restore gate's.
-		db.SetReindexHoldLookup(makeHoldBuilder(nil))
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
 			return func([]string) (ReindexActivity, bool) {
 				return ReindexActivity{Unreadable: true}, true
@@ -306,7 +303,6 @@ func TestReindexGateWarnBudget(t *testing.T) {
 func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 	shardGateWarnBudget = reindexGateWarnBudget{}
 	restoreGateWarnBudget = reindexGateWarnBudget{}
-	holdGateWarnBudget = reindexGateWarnBudget{}
 	logger, hook := logrustest.NewNullLogger()
 	db := &DB{logger: logger}
 	require.False(t, db.AnyLiveReindexForShard("Movies", "shard-1"))
@@ -316,15 +312,11 @@ func TestReindexGateWarnBudgetsAreSeparate(t *testing.T) {
 		require.Equal(t, logrus.WarnLevel, entry.Level, "an unwired gate is an operator-facing report")
 		gates[entry.Data["gate"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"backup": 1, "reindex-hold": 1, "restore": 1}, gates)
+	assert.Equal(t, map[string]int{"backup": 1, "restore": 1}, gates)
 	actions := map[string]int{}
 	for _, entry := range hook.AllEntries() {
 		actions[entry.Data["action"].(string)]++
 	}
-	assert.Equal(t, map[string]int{
-		"backup_reindex_gate":  1,
-		"reindex_hold_lookup":  1,
-		"restore_reindex_gate": 1,
-	}, actions,
+	assert.Equal(t, map[string]int{"backup_reindex_gate": 1, "restore_reindex_gate": 1}, actions,
 		"a wiring failure must file under its own gate's action, not the other's")
 }
