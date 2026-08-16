@@ -909,44 +909,43 @@ func TestAuditOrphanReindexTrackers_TrackersItCannotTouchAreNeverHeld(t *testing
 }
 
 // Clearing a sentinel is a mutation, so it is held; the read pass that finds one is not.
+// Nothing between the two speaks except a failed removal, so the second tracker's sentinel
+// is made unremovable: its WARN is the one moment a sampler can read the hold from inside
+// the removal pass, which is what tells "held before" apart from "held after".
 func TestAuditOrphanReindexTrackers_ClearingASentinelIsHeld(t *testing.T) {
 	ctx := testCtx()
 	const className = "AuditSentinelClear"
-	_, idx := testShard(t, ctx, className)
-	// Two shard dirs in walk order: the hold the first one raises is still up when the
-	// second is read, which is where the sampler below can see it.
-	indexPath := filepath.Join(idx.Config.RootPath, indexID(idx.Config.ClassName))
-	first := filepath.Join(indexPath, "aaa-first", "lsm")
-	second := filepath.Join(indexPath, "zzz-second", "lsm")
-	for i, lsmPath := range []string{first, second} {
+	shd, idx := testShard(t, ctx, className)
+	lsmPath := shd.(*Shard).pathLSM()
+	for i := range 2 {
 		layoutTrackers(t, lsmPath, className, trackerSpec{
 			name: fmt.Sprintf("searchable_retokenize_flipped_%d", i+1), files: []string{"started.mig", "tidied.mig"},
 			taskID: fmt.Sprintf("task-flipped-%d", i), version: 7, aged: true,
 		})
 	}
+	cleared := filepath.Join(lsmPath, ".migrations", "searchable_retokenize_flipped_1", reindexAuditQuarantineFile)
+	stuck := filepath.Join(lsmPath, ".migrations", "searchable_retokenize_flipped_2", reindexAuditQuarantineFile)
+	require.NoError(t, os.Remove(stuck))
+	require.NoError(t, os.MkdirAll(filepath.Join(stuck, "not-empty"), 0o755))
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
 
 	live := func(string, uint64) bool { return true }
-	require.Len(t, staleQuarantineSentinels(first, live), 1,
+	require.Len(t, staleQuarantineSentinels(lsmPath, live), 2,
 		"a tracker whose task is live again no longer needs its quarantine")
-	require.Empty(t, staleQuarantineSentinels(first, func(string, uint64) bool { return false }),
+	require.Empty(t, staleQuarantineSentinels(lsmPath, func(string, uint64) bool { return false }),
 		"one still classified as an orphan keeps it")
-	require.FileExists(t, filepath.Join(first, ".migrations", "searchable_retokenize_flipped_1",
-		reindexAuditQuarantineFile), "the read pass changes nothing, so the hold can be raised after it")
+	require.FileExists(t, cleared, "the read pass changes nothing, so the hold can be raised after it")
 
 	held := ReindexHoldNone
-	sampling := func(string, uint64) bool {
-		held = max(held, db.reindexHolds.HoldFor(className))
-		return true
-	}
-	_, err := db.AuditOrphanReindexTrackers(ctx, sampling, logrus.New())
+	logger := logrus.New()
+	logger.AddHook(onEachLogLine(func() { held = max(held, db.reindexHolds.HoldFor(className)) }))
+	_, err := db.AuditOrphanReindexTrackers(ctx, live, logger)
 	require.NoError(t, err)
-	assert.Equal(t, ReindexHoldCleanup, held, "the removal is a mutation, so it runs inside the hold")
-	assert.Empty(t, staleQuarantineSentinels(first, live), "and the sentinel is gone")
-	assert.Empty(t, staleQuarantineSentinels(second, live))
+	assert.Equal(t, ReindexHoldCleanup, held, "the removal is a mutation, so the hold precedes it")
+	assert.NoFileExists(t, cleared, "and the sentinel it could remove is gone")
 	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className), "and it is not left held")
 }
 
