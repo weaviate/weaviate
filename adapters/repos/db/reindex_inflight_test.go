@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -386,6 +387,34 @@ func TestBackupGateRanksAnUnreadableTaskList(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Replica movement defers on a gate refusal instead of spending its error budget:
+// fifty budgeted errors cancel the movement outright, and waiting is the reversible
+// direction.
+func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
+	ctx := context.Background()
+	index, shard := newSharedHaltTestShard(t)
+	held, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"TestClass": ReindexHoldCleanup}})
+	index.db = held
+
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-1")
+	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
+	assert.Contains(t, err.Error(), "still removing its temporary index files")
+
+	require.NotErrorIs(t, shard.HaltForTransfer(ctx, false, 0), enterrors.ErrShardBusyStructuralOp,
+		"only the movement entry restates the refusal; the shared halt keeps it as it is")
+
+	// An outage defers too: it is the same "not now", and waiting is still reversible.
+	index.db, _, _ = gatedDB(t, gateFixtures{})
+	index.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) (bool, bool) { return false, true }
+	})
+	_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-2")
+	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
+	// The inner refusal travels as text, not in the chain: the wrap is what old
+	// consumers match on, and only the busy sentinel needs to be reachable by errors.Is.
+	require.ErrorContains(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined.Error())
 }
 
 func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
