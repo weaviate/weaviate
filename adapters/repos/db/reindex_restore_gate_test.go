@@ -254,6 +254,26 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup { return nil })
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
 	})
+	t.Run("a lookup that hands nothing back still reads the hold", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
+		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup { return nil })
+		require.ErrorContains(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}),
+			"still removing its temporary index files",
+			"a cluster query that answers nothing must not skip the hold")
+	})
+	t.Run("a hold raised while the cluster is being asked still refuses", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{})
+		db.SetAnyReindexActivityLookup(func(context.Context) AnyReindexActivityLookup {
+			return func([]string) (ReindexActivity, bool) {
+				// The teardown raising this runs while the round-trip is out,
+				// and leaves no live task behind for the other arm to catch.
+				db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+				return ReindexActivity{}, false
+			}
+		})
+		require.ErrorContains(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}),
+			"still removing its temporary index files")
+	})
 	t.Run("the feature flag skips both halves", func(t *testing.T) {
 		db, _, built := gatedDB(t, gateFixtures{tasks: live, holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
 		db.config.RuntimeReindexDisabled = true

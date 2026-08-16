@@ -95,10 +95,6 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	if db.config.RuntimeReindexDisabled {
 		return nil
 	}
-	// Read before the cluster is asked, answered after it: a live task can be
-	// ended by the operator and a hold cannot, so the arm that offers a remedy
-	// wins when both apply.
-	hold := db.ReindexHoldFor(collections...)
 	var activity ReindexActivity
 	var blocked bool
 	db.reindexAuditMu.RLock()
@@ -110,6 +106,11 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	} else if lookup := builder(ctx); lookup != nil {
 		activity, blocked = lookup(collections)
 	}
+	// Sampled after the cluster was asked, and on every path out of asking:
+	// a hold raised during the round-trip is invisible to a value read before
+	// it, and a teardown that has left no live task behind is held and nothing
+	// else. Which arm wins is the switch below, not this line.
+	hold := db.ReindexHoldFor(collections...)
 	switch {
 	case blocked && !activity.Unreadable:
 		db.warnRestoreRefusal(collections, reindexReasonLiveTask, activity.TaskID)
