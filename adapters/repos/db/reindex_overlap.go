@@ -54,8 +54,8 @@ type ReindexOverlapVerdict struct {
 
 func (v ReindexOverlapVerdict) allowsBackup() bool { return v.Outcome == ReindexOverlapNone }
 
-// ReindexOverlapLookup reports whether a migration rewrote any of classes at
-// or after since. An empty classes list captured nothing, so nothing overlaps it.
+// ReindexOverlapLookup: an empty classes list captured nothing, so nothing
+// overlaps it.
 type ReindexOverlapLookup func(classes []string, since time.Time) ReindexOverlapVerdict
 
 // ReindexOverlapLookupBuilder snapshots the task list; nil means allow.
@@ -71,18 +71,33 @@ var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
 
-// ListReindexTasksForOverlap retries list on the delays schedule; an absent
-// namespace yields no tasks, which the caller reads as allow. Even a cancelled
-// context returns the list error, so its cause stays visible.
+// OverlapListAttemptTimeout bounds one attempt. The cluster RPC asks for
+// wait-for-ready and the uploader's context carries no deadline, so an
+// unreachable leader parks the call instead of failing it: unbounded, the
+// schedule above is never reached and the backup sits at TRANSFERRING with no
+// error. 10s matches RAFT_CONSISTENCY_WAIT_TIMEOUT; tighter risks cutting off
+// a healthy leader returning a long task list, which spends the backup id.
+const OverlapListAttemptTimeout = 10 * time.Second
+
+// ListReindexTasksForOverlap retries list on the delays schedule, each attempt
+// bounded by attemptTimeout; an absent namespace yields no tasks, which the
+// caller reads as allow. Even a cancelled context returns the list error, so
+// its cause stays visible.
 func ListReindexTasksForOverlap(
 	ctx context.Context,
 	list func(context.Context) (map[string][]*distributedtask.Task, error),
 	delays []time.Duration,
+	attemptTimeout time.Duration,
 ) ([]*distributedtask.Task, error) {
 	var err error
 	for attempt := 0; ; attempt++ {
 		var byNamespace map[string][]*distributedtask.Task
-		if byNamespace, err = list(ctx); err == nil {
+		// Bounded per attempt, never on ctx: bounding the caller's context
+		// would cut off the retry schedule along with the call.
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		byNamespace, err = list(attemptCtx)
+		cancel()
+		if err == nil {
 			return byNamespace[ReindexNamespace], nil
 		}
 		if attempt >= len(delays) {
@@ -146,7 +161,7 @@ func NewReindexOverlapLookup(
 			}
 			verdict.Collection = candidate.collection
 			verdict.TaskID = candidate.task.ID
-			// Ties keep the lowest task id, so every node names the same one.
+			// Ties keep the lowest task id.
 			if verdict.Outcome > strongest.Outcome {
 				strongest = verdict
 			}
@@ -258,7 +273,7 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	}
 	// Its own sentinel: nothing is in flight, and the in-flight one would be rebuilt
 	// into a wait for a migration that does not exist. RUNTIME_REINDEX_ENABLED=false
-	// is no way out either: it gates submits, not migrations already running.
+	// lifts this above; that flag is preview-only and goes away at GA.
 	return entitiesbackup.ReindexOverlapCheckError{Msg: fmt.Sprintf("%s: %s",
 		entitiesbackup.ErrReindexOverlapCheckUnanswerable,
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped "+
@@ -322,7 +337,6 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 		})
 }
 
-// ReindexOverlapIncompleteRecordRemedy: wait, the list will drop the record.
 const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against that record, so backups " +
 	"stay refused until the cluster task list drops it on a garbage-collection pass"
 

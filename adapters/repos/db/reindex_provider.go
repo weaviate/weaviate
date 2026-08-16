@@ -247,17 +247,23 @@ func (p *ReindexProvider) registerStartingTask(desc distributedtask.TaskDescript
 	p.payloads[desc] = payload
 }
 
-func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescriptor) {
+// ranLocalUnits false suppresses the exit stamp. A task starts on every node
+// while any unit is unclaimed, so this node may hold none; stamping there says
+// a worker wrote here when none did, burning a clean capture's id. Assignment,
+// not a claim, is the signal: a non-semantic migration claims no worker.
+func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescriptor, ranLocalUnits bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.runningHandles, desc)
-	p.recordWorkerExitWithLock(desc)
+	if ranLocalUnits {
+		p.recordWorkerExitWithLock(desc)
+	}
 }
 
-// recordWorkerExitWithLock stamps desc and drops stamps no capture can ask
-// about again: once the cluster task list has dropped a record, that task is
-// never a candidate. A provider built without the constructor keeps none.
-// Callers hold [mu].
+// recordWorkerExitWithLock stamps desc and prunes stamps older than the
+// completed-task TTL. A capture that could still need a pruned one has outrun
+// that TTL itself, which the retention branch in [NewReindexOverlapLookup]
+// already refuses. Without the constructor, none are kept. Callers hold [mu].
 func (p *ReindexProvider) recordWorkerExitWithLock(desc distributedtask.TaskDescriptor) {
 	if p.workerExits == nil {
 		return
@@ -387,7 +393,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	// Raft. No additional throttle is needed here.
 	enterrors.GoWrapper(func() {
 		defer func() {
-			p.deleteRunningHandle(task.TaskDescriptor)
+			p.deleteRunningHandle(task.TaskDescriptor, len(localUnits) > 0)
 			close(handle.doneCh)
 		}()
 

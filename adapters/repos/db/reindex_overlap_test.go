@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
 var (
@@ -103,6 +105,14 @@ func TestReindexOverlapRules(t *testing.T) {
 			want:           ReindexOverlapEnded,
 		},
 		{
+			// Inclusive for the same reason as the FinishedAt boundary below.
+			name:           "a worker that stopped exactly at the capture start overlapped",
+			task:           overlapTask(distributedtask.TaskStatusFailed, captureStart.Add(-time.Minute), units(distributedtask.UnitStatusFailed)),
+			classes:        []string{"Movies"},
+			workerExitedAt: captureStart,
+			want:           ReindexOverlapEnded,
+		},
+		{
 			// Inclusive: a task recorded as finishing at the same instant
 			// the capture began may have been mid-write when it started.
 			name:    "the boundary counts as an overlap",
@@ -133,6 +143,16 @@ func TestReindexOverlapRules(t *testing.T) {
 			task:    overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusCompleted)),
 			classes: []string{"Movies"},
 			want:    ReindexOverlapEnded,
+		},
+		{
+			// The stamp outranks the unit map: a worker that stopped inside the
+			// window wrote inside it, whatever the record says. Only a node that
+			// held none of the units reaches the waiver above.
+			name:           "a cancelled all-PENDING task whose local worker stopped mid-capture",
+			task:           overlapTask(distributedtask.TaskStatusCancelled, captureStart.Add(time.Minute), units(distributedtask.UnitStatusPending)),
+			classes:        []string{"Movies"},
+			workerExitedAt: captureStart.Add(time.Minute),
+			want:           ReindexOverlapEnded,
 		},
 		{
 			name:           "a live local worker means all-PENDING is not proof nothing was written",
@@ -215,7 +235,7 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 					return nil, errors.New("leader unknown")
 				}
 				return listed, nil
-			}, noDelays)
+			}, noDelays, time.Minute)
 
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -228,10 +248,26 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 			func(context.Context) (map[string][]*distributedtask.Task, error) {
 				calls++
 				return nil, errors.New("leader unknown")
-			}, noDelays)
+			}, noDelays, time.Minute)
 
 		require.Error(t, err)
 		assert.Equal(t, len(noDelays)+1, calls)
+	})
+
+	// Wait-for-ready plus a deadline-less caller means an unreachable leader
+	// parks the call, so unbounded the schedule above is never reached at all.
+	t.Run("an attempt that never answers is retried, not waited on", func(t *testing.T) {
+		calls := 0
+		parked := func(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+			calls++
+			<-ctx.Done() // what a not-ready channel does to a wait-for-ready call
+			return nil, ctx.Err()
+		}
+
+		_, err := ListReindexTasksForOverlap(context.Background(), parked, noDelays, 20*time.Millisecond)
+
+		require.Error(t, err, "an unreachable leader ends as a refusal, never as a hang")
+		assert.Equal(t, len(noDelays)+1, calls, "every attempt in the schedule runs")
 	})
 
 	t.Run("a cancelled context stops the retries", func(t *testing.T) {
@@ -242,7 +278,7 @@ func TestListReindexTasksForOverlapRetries(t *testing.T) {
 				calls++
 				cancel()
 				return nil, errors.New("leader unknown")
-			}, OverlapListRetryDelays)
+			}, OverlapListRetryDelays, time.Minute)
 
 		require.Error(t, err)
 		assert.Equal(t, 1, calls, "no waiting out a 30s schedule after a cancel")
@@ -771,6 +807,50 @@ func TestReindexWorkerClaimsBeforeItWrites(t *testing.T) {
 		"the claim is the first thing the worker does, and a claim it could not land stops it")
 }
 
+// TestStartTaskStampsOnlyWhereUnitsWereAssigned drives the real StartTask. The
+// scheduler starts a task on every node while any unit is unclaimed, because
+// NodeHasNonTerminalUnits answers on the unit's empty NodeID rather than on
+// this node. Stamping on a node holding none of them would report a write that
+// never happened and fail a clean capture; a node that was assigned units must
+// keep stamping, or a real overlap goes free.
+func TestStartTaskStampsOnlyWhereUnitsWereAssigned(t *testing.T) {
+	const class, localNode = "Movies", "node-1"
+	desc := distributedtask.TaskDescriptor{ID: "t1", Version: 1}
+
+	for unitNode, wantStamp := range map[string]bool{"node-2": false, localNode: true} {
+		t.Run("the unit belongs to "+unitNode, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			idx := &Index{Config: IndexConfig{ClassName: entschema.ClassName(class)}, logger: logger}
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection: class, MigrationType: ReindexTypeChangeTokenization,
+				Properties: []string{"body"}, UnitToShard: map[string]string{"u1": "shard-1"},
+				UnitToNode: map[string]string{"u1": unitNode},
+			})
+			require.NoError(t, err)
+			task := &distributedtask.Task{
+				Namespace: ReindexNamespace, TaskDescriptor: desc, Payload: payload,
+				Status: distributedtask.TaskStatusStarted,
+				Units:  map[string]*distributedtask.Unit{"u1": {Status: distributedtask.UnitStatusPending}},
+			}
+			require.True(t, task.NodeHasNonTerminalUnits(localNode),
+				"an unclaimed unit routes the task to every node, this one included")
+
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(class)): idx}, logger: logger},
+				nil, nil, logger, localNode, func() int { return 1 }, context.Background())
+			handle, err := p.StartTask(task)
+			require.NoError(t, err)
+			// Wait on the goroutine, never on the stamp: waiting on the stamp
+			// reads "no stamp" as "not finished" and can only ever time out on
+			// the row that must not produce one.
+			<-handle.(*reindexTaskHandle).doneCh
+
+			_, lastExit := p.LocalWorkerActivity(desc)
+			require.Equal(t, wantStamp, !lastExit.IsZero(), "a stamp says a worker wrote here")
+		})
+	}
+}
+
 // TestLocalWorkerActivity walks the disjunct behind the all-PENDING waiver and
 // the exit stamp the task record cannot supply.
 func TestLocalWorkerActivity(t *testing.T) {
@@ -804,7 +884,7 @@ func TestLocalWorkerActivity(t *testing.T) {
 			name: "the worker has stopped",
 			drive: func(p *ReindexProvider) {
 				p.registerStartingTask(desc, &reindexTaskHandle{}, nil)
-				p.deleteRunningHandle(desc)
+				p.deleteRunningHandle(desc, true)
 			},
 			wantExit: true,
 		},

@@ -1145,7 +1145,8 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 	completedTaskTTL := appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL
 	repo.SetReindexOverlapLookup(func(ctx context.Context) db.ReindexOverlapLookup {
 		tasks, err := db.ListReindexTasksForOverlap(ctx,
-			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays)
+			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays,
+			db.OverlapListAttemptTimeout)
 		if err != nil {
 			// A caller that hung up cancelled ctx, and an undetermined verdict
 			// on a cancelled ctx publishes as a cancel, so the alert would lie.
