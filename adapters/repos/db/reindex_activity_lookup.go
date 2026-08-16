@@ -40,24 +40,34 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 		shardName  string
 	}
 	live := make(map[shardKey]bool)
+	wholeCollection := make(map[string]bool)
+	var everyShard bool
 	for _, task := range tasks {
 		if !IsLiveReindexTaskStatus(task.Status) {
 			continue
 		}
+		// Scoped through the decoder the restore gate uses, so one record cannot be
+		// refused there and admitted here. A payload it cannot attribute blocks
+		// everything, exactly as that gate reads it.
+		collection, named := ExtractReindexTaskCollection(task.Payload)
+		if !named {
+			everyShard = true
+			continue
+		}
 		var payload ReindexTaskPayload
-		// Skipping admits the shard; the restore gate decodes the collection field alone and still refuses.
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			logger.WithField("action", "backup_reindex_gate").
 				WithField("task_id", task.ID).
-				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+				Warnf("backup-reindex gate: cannot type task payload; blocking the whole collection: %v", err)
+			wholeCollection[collection] = true
 			continue
 		}
 		for _, shardName := range payload.UnitToShard {
-			live[shardKey{payload.Collection, shardName}] = true
+			live[shardKey{collection, shardName}] = true
 		}
 	}
 	return func(collection, shardName string) (bool, bool) {
-		return live[shardKey{collection, shardName}], false
+		return everyShard || wholeCollection[collection] || live[shardKey{collection, shardName}], false
 	}
 }
 

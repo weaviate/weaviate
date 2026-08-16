@@ -99,6 +99,25 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 	}
 }
 
+// One DTM record, both gates: a payload only one of them can type must not leave the
+// other admitting.
+func TestReindexLookups_PayloadAgreement(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	for _, payload := range []string{
+		`{"collection":"C","unitToShard":"shard-1"}`, // a field a newer node retyped
+		`{"collection":"C","unitToShard":{"u1":"sha`, // truncated
+		`{"unitToShard":{"u1":"shard-1"}}`,           // names no collection
+	} {
+		t.Run(payload, func(t *testing.T) {
+			tasks := []*distributedtask.Task{{Payload: []byte(payload), Status: distributedtask.TaskStatusStarted}}
+			live, _ := NewShardReindexActivityLookup(tasks, logger)("C", "shard-1")
+			_, blocked := NewAnyReindexActivityLookup(tasks)([]string{"C"})
+			require.True(t, blocked, "the restore gate refuses this record")
+			require.Equal(t, blocked, live, "so the backup gate must not admit the shard")
+		})
+	}
+}
+
 // Pins: the lookup key includes TaskVersion, so two versions of one ID
 // (e.g. a dead v1 and a live v2) don't collide.
 func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
