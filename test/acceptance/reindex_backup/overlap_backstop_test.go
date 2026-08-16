@@ -99,8 +99,8 @@ func TestOverlapBackstop(t *testing.T) {
 	}
 }
 
-// A zero retention window is refused at admission for both include shapes, which
-// authorize at different points, so only canCommit sees both.
+// A zero retention window is refused for both include shapes, which authorize
+// at different points, so only canCommit sees both.
 func TestBackupRefusedWhenOverlapCheckCannotAnswer(t *testing.T) {
 	ctx := context.Background()
 	compose, err := reindexhelpers.SingleNodeCompose().

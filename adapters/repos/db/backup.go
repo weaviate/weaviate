@@ -58,9 +58,10 @@ const (
 // retrying, and so on. allReindexRefusals reads the join as a refusal only when every element refuses.
 //
 // Class-missing errors stop aggregation for that class but do not short
-// circuit the whole loop; other classes still get checked. The unanswerable
-// overlap-check refusal is the fallback: a concrete per-class failure outranks
-// it, and it travels alone; a join would cost it its canCommit kind.
+// circuit the whole loop. The unanswerable overlap-check refusal is the fallback:
+// a per-class failure outranks it and defers it to the next attempt, the reverse
+// of refusalRank's cross-node order. It never joins one: admission drops a whole
+// error that matches it, and canCommit would tag the mix with its kind.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
 	var errs []error

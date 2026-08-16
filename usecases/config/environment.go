@@ -1388,8 +1388,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	// 0 = clean completed tasks on the next tick. With RUNTIME_REINDEX_ENABLED,
-	// 0 also refuses every backup at admission. Unsafe until the cluster is
+	// 0 = clean completed tasks on the next tick. With RUNTIME_REINDEX_ENABLED, 0
+	// also refuses every backup before it uploads anything. Unsafe until the cluster is
 	// fully on the stamp version: a pre-stamp node still derives blockmax truth
 	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
 	if err = parseIntVerify(

@@ -1591,8 +1591,8 @@ still listed. With the TTL at `0` that record can be gone by the time the
 backup commits, leaving the check no evidence to clear the capture against.
 
 With `RUNTIME_REINDEX_ENABLED=true` and the TTL at `0`, a node therefore
-refuses every `POST /v1/backups` with 422 at admission, before any bytes
-are uploaded and before the backup id is consumed. Raise
+refuses every `POST /v1/backups` with 422 before any bytes are uploaded
+and before the backup id is consumed. Raise
 `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` above the time a backup takes
 to lift it; the refusal names that variable and no other. Turning
 `RUNTIME_REINDEX_ENABLED` off lifts it too, but that flag gates only the
@@ -1625,7 +1625,7 @@ every node runs the durable-stamp version. During a mixed-version
 
 Set `0` (immediate GC of completed tasks) only once every node runs the
 durable-stamp version — and only with `RUNTIME_REINDEX_ENABLED` off: with
-it on, `0` refuses every backup at admission (above).
+it on, `0` refuses every backup before it uploads anything (above).
 
 One narrower residual remains even at the default TTL. Between node
 startup and the first `RunSearchableBlockmaxRepair` pass, a pre-stamp

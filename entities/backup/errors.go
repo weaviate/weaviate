@@ -34,7 +34,7 @@ var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex o
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
 // The overlap check is installed but could never clear a capture, so the backup is
-// refused at admission. Nothing is in flight, hence its own sentinel.
+// refused before it uploads anything. Nothing is in flight, hence its own sentinel.
 var ErrReindexOverlapCheckUnanswerable = errors.New("backup blocked: the runtime-reindex overlap check cannot answer")
 
 type ReindexBlockedError struct {
