@@ -329,7 +329,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
 				outcome.ScannedCount++
-				if releaseHold == nil && fileExists(filepath.Join(lsmPath, ".migrations")) {
+				if releaseHold == nil && shardCarriesMigrationTracker(lsmPath) {
 					releaseHold = db.reindexHolds.acquire(collection, ReindexHoldCleanup)
 				}
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
@@ -442,6 +442,25 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // fresh DTM state from the leader → classification flips to "known
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
+
+// A tracker generation, not the directory that holds them: nothing removes
+// .migrations itself, and the compressed-vectors migrator creates it on shards
+// that never ran a runtime reindex, so a finished migration and a never-started
+// one look the same from the outside. Unreadable counts as carrying one, since
+// guessing wrong there refuses a backup while guessing wrong the other way
+// admits one during a sweep.
+func shardCarriesMigrationTracker(lsmPath string) bool {
+	entries, err := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	for _, entry := range entries {
+		if _, _, ok := parseMigrationDirName(entry.Name()); ok && entry.IsDir() {
+			return true
+		}
+	}
+	return false
+}
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
 // tracker dir classified as an orphan (started.mig present,

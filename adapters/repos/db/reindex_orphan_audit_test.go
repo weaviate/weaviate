@@ -193,12 +193,16 @@ func TestAuditOrphanReindexTrackers_CleanCollectionIsNeverHeld(t *testing.T) {
 	className := "AuditCleanCollection"
 	_, idx := testShard(t, ctx, className)
 
-	// A tenant-sized shard list, so the walk outlasts many sampler rounds.
+	// A tenant-sized shard list, so the walk outlasts many sampler rounds. Each
+	// keeps the .migrations dir a finished migration leaves behind, and one also
+	// keeps a name that is not a tracker generation.
 	indexPath := filepath.Join(idx.Config.RootPath, indexID(idx.Config.ClassName))
 	for i := range 1000 {
 		require.NoError(t, os.MkdirAll(
-			filepath.Join(indexPath, fmt.Sprintf("tenant-%04d", i), "lsm"), 0o755))
+			filepath.Join(indexPath, fmt.Sprintf("tenant-%04d", i), "lsm", ".migrations"), 0o755))
 	}
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(indexPath, "tenant-0007", "lsm", ".migrations", "not_a_generation"), 0o755))
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
