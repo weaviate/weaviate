@@ -143,7 +143,7 @@ func (o *BackupsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsCreateUnprocessableEntityCode int = 422
 
 /*
-BackupsCreateUnprocessableEntity Invalid backup creation request. Check the request body and backend configuration.
+BackupsCreateUnprocessableEntity The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, which is transient: retry once the migration finishes.
 
 swagger:response backupsCreateUnprocessableEntity
 */

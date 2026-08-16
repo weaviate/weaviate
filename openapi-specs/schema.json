@@ -10765,7 +10765,7 @@
             }
           },
           "422": {
-            "description": "Invalid backup creation request. Check the request body and backend configuration.",
+            "description": "The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, which is transient: retry once the migration finishes.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11038,7 +11038,7 @@
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.",
+            "description": "Backup not found on the specified backend with the given ID. A 422 is returned instead while a runtime-reindex is in flight and the gate covers this request: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id. The gate covers the collections named literally in include; a request whose include is empty or holds a wildcard pattern is instead gated cluster-wide, and only for a caller holding cluster-wide backup CREATE. Any other request gets the plain 404.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

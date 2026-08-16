@@ -275,7 +275,7 @@ func NewBackupsRestoreNotFound() *BackupsRestoreNotFound {
 /*
 BackupsRestoreNotFound describes a response with status code 404, with default header values.
 
-Backup not found on the specified backend with the given ID. While a runtime-reindex is in flight on a collection the request names, the 422 is returned instead: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id.
+Backup not found on the specified backend with the given ID. A 422 is returned instead while a runtime-reindex is in flight and the gate covers this request: the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id. The gate covers the collections named literally in include; a request whose include is empty or holds a wildcard pattern is instead gated cluster-wide, and only for a caller holding cluster-wide backup CREATE. Any other request gets the plain 404.
 */
 type BackupsRestoreNotFound struct {
 	Payload *models.ErrorResponse

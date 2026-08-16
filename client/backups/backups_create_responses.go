@@ -269,7 +269,7 @@ func NewBackupsCreateUnprocessableEntity() *BackupsCreateUnprocessableEntity {
 /*
 BackupsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup creation request. Check the request body and backend configuration.
+The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, which is transient: retry once the migration finishes.
 */
 type BackupsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
