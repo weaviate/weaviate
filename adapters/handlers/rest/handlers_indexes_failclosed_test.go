@@ -12,15 +12,37 @@
 package rest
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// What the gates answer while DTM is unreachable is the whole point of the wiring:
+// a lookup reporting "nothing in flight" admits a backup racing a migration it never saw.
+func TestReindexGatesFailClosedOnADTMOutage(t *testing.T) {
+	ctx := context.Background()
+	repo := &db.DB{}
+	logger, _ := test.NewNullLogger()
+	outage := func(context.Context) (map[string][]*distributedtask.Task, error) {
+		return nil, errors.New("raft: leader unreachable")
+	}
+	installReindexGateLookups(outage, logger, repo, ctx)
+
+	live, unreadable := repo.AnyLiveReindexForShard("Movies", "shard1")
+	assert.False(t, live, "a list this node could not read names no task")
+	assert.True(t, unreadable, "and is not an answer a backup may proceed on")
+	require.ErrorIs(t, repo.RefuseIfAnyReindexInFlight(ctx, []string{"Movies"}),
+		backup.ErrReindexActivityUndetermined, "a restore is refused the same way")
+}
 
 // rawTask builds a task with an arbitrary raw payload (undecodable or empty).
 func rawTask(id string, status distributedtask.TaskStatus, payload string) *distributedtask.Task {

@@ -1015,7 +1015,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
-	installReindexGateLookups(appState, repo, serverShutdownCtx)
+	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1103,30 +1103,35 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
+// The distributed task list both reindex gates snapshot from, narrowed to what they ask of it.
+type reindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
+
 // Runs after the internal cluster listener is already serving canCommit, so a peer's request landing before this line is admitted ungated.
-func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context) {
+func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldLogger,
+	repo *db.DB, serverShutdownCtx context.Context,
+) {
 	// A list failure refuses every backup: admitting one races a migration.
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
-		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)
+		tasksByNamespace, err := listTasks(serverShutdownCtx)
 		if err != nil {
 			// At shutdown the failure is this process exiting, not a DTM outage.
 			if serverShutdownCtx.Err() == nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
+				logger.WithField("action", "backup_reindex_gate").
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 			}
 			// Fail closed, but as "could not check": claiming a task the node never
 			// saw sends the operator to cancel a migration that may not exist.
 			return func(string, string) (bool, bool) { return false, true }
 		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger)
 	})
 
 	repo.SetAnyReindexActivityLookup(func(ctx context.Context) db.AnyReindexActivityLookup {
-		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+		tasksByNamespace, err := listTasks(ctx)
 		if err != nil {
 			// A caller that hung up cancelled ctx; the refusal stands, the alert would lie.
 			if ctx.Err() == nil {
-				appState.Logger.WithField("action", "restore_reindex_gate").
+				logger.WithField("action", "restore_reindex_gate").
 					Warnf("restore-reindex gate: cannot list DTM tasks; refusing all restores until DTM is reachable: %v", err)
 			}
 			return func([]string) (db.ReindexActivity, bool) {
