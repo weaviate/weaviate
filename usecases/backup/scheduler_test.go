@@ -551,30 +551,33 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
 
-	// The same condition answers 422 from this node's own admission check, and
-	// which node answers first is decided by a mixed-TTL rolling restart.
-	t.Run("a peer's reindex refusal is not a server fault", func(t *testing.T) {
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		fs.selector.On("ListClasses", ctx).Return([]string{cls})
-		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
-		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
-		fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("HomeDir", any, any, any).Return(path)
-		fs.backend.On("Initialize", ctx, any).Return(nil)
-		fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
-			ID: backupID, Method: OpCreate, ErrKind: CanCommitErrOverlapCheckUnanswerable,
-			Err: backup.ErrReindexOverlapCheckUnanswerable.Error() +
-				": raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS above the time a backup takes",
-		}, nil)
+	// Every kind the 422 arm admits. The same conditions answer 422 from this
+	// node's own admission check, and which node answers first is decided by a
+	// mixed-TTL rolling restart.
+	for kind, sentinel := range map[CanCommitErrorKind]error{
+		CanCommitErrOverlapCheckUnanswerable: backup.ErrReindexOverlapCheckUnanswerable,
+		CanCommitErrInFlightReindex:          backup.ErrBackupBlockedByInFlightReindex,
+	} {
+		t.Run("a peer's "+string(kind)+" refusal is not a server fault", func(t *testing.T) {
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.selector.On("ListClasses", ctx).Return([]string{cls})
+			fs.selector.On("Backupable", ctx, req.Include).Return(nil)
+			fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+			fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("HomeDir", any, any, any).Return(path)
+			fs.backend.On("Initialize", ctx, any).Return(nil)
+			fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
+				ID: backupID, Method: OpCreate, ErrKind: kind, Err: sentinel.Error(),
+			}, nil)
 
-		_, err := fs.scheduler().Backup(ctx, nil, &req)
+			_, err := fs.scheduler().Backup(ctx, nil, &req)
 
-		require.ErrorAs(t, err, &backup.ErrUnprocessable{},
-			"a refusal the caller can act on is 422, not 500")
-		// ErrUnprocessable has no Unwrap, so the body is what a caller reads.
-		assert.Contains(t, err.Error(), backup.ErrReindexOverlapCheckUnanswerable.Error())
-		assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
-	})
+			require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+				"a refusal the caller can act on is 422, not 500")
+			// ErrUnprocessable has no Unwrap, so the body is what a caller reads.
+			assert.Contains(t, err.Error(), sentinel.Error())
+		})
+	}
 }
 
 func TestSchedulerRestoration(t *testing.T) {
