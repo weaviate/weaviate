@@ -41,8 +41,8 @@ const (
 	holdWindowTrackerShards = holdWindowTenants * 2 / 3
 )
 
-// The only CI coverage of the restore gate's node-local hold arm: dropping the hold read
-// from RefuseIfAnyReindexInFlight leaves every other test green.
+// The unit tests pin what the hold arm answers; this pins that a real cleanup raises one
+// a real restore then sees, across the REST hop and a live migration's teardown.
 //
 // The probe must start before the cancel; the window it samples can close before the task reaches a terminal status.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
