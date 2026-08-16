@@ -61,6 +61,12 @@ func (s *recordingSlot) saw(st backup.Status) bool {
 	return false
 }
 
+// The refusal the commit-time check composes for an overlap it attributed.
+func observedOverlap(class string) error {
+	return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrReindexOverlappedBackup, class)
+}
+
 // uploadFixture builds an uploader over a capture that produces one class
 // descriptor, carrying descErr when the capture itself failed. It publishes
 // into the caller's slot, which the status-API cases need so OnStatus reads
@@ -133,9 +139,8 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 		wantFailures bool
 	}{
 		{
-			name: "an overlap the check observed",
-			refusal: fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-				backup.ErrReindexOverlappedBackup, class),
+			name:         "an overlap the check observed",
+			refusal:      observedOverlap(class),
 			wantStatus:   backup.Failed,
 			wantFailures: true,
 		},
@@ -180,8 +185,6 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 // left alone on a clean capture, which has no torn state to protect.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
-	observed := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrReindexOverlappedBackup, class)
 	cancelledWrite := fmt.Errorf("s3: %w", context.Canceled)
 
 	tests := []struct {
@@ -193,7 +196,7 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	}{
 		{
 			name:    "an overlap the check observed, and the metadata write was cancelled too",
-			refusal: observed, metaErr: cancelledWrite, wantStatus: backup.Failed,
+			refusal: observedOverlap(class), metaErr: cancelledWrite, wantStatus: backup.Failed,
 		},
 		{
 			// The capture passed the check, so there is nothing torn under
@@ -230,8 +233,6 @@ func TestReindexRefusalOnTheStatusAPI(t *testing.T) {
 		class    = "Article"
 		shard    = "vT4Kq9LmShardId"
 	)
-	overlap := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrReindexOverlappedBackup, class)
 	// The shape the storage layer produces: a redacted refusal, wrapped
 	// on its way up by layers that do name the shard.
 	blocked := fmt.Errorf("shard %q: %w", shard, backup.ReindexBlockedError{
@@ -249,7 +250,7 @@ func TestReindexRefusalOnTheStatusAPI(t *testing.T) {
 	}{
 		{
 			name:       "the commit-time refusal and the descriptor does not land",
-			overlapErr: overlap, metaErr: metaErr,
+			overlapErr: observedOverlap(class), metaErr: metaErr,
 			wantSentinel: backup.ErrReindexOverlappedBackup,
 		},
 		{
@@ -287,12 +288,11 @@ func TestReindexRefusalOnTheStatusAPI(t *testing.T) {
 			}
 			assert.True(t, strings.HasPrefix(res.Err, desc.Error),
 				"the refusal has to lead; got: %s", res.Err)
-			if tt.metaErr != nil {
-				assert.Contains(t, res.Err, "uploading the backup metadata also failed",
-					"the write fault is named beside the refusal, not in place of it")
-				assert.NotContains(t, desc.Error, "uploading the backup metadata also failed",
-					"the descriptor records the refusal, not a write that failed after it")
-			}
+			const metaFault = "uploading the backup metadata also failed"
+			assert.Equal(t, tt.metaErr != nil, strings.Contains(res.Err, metaFault),
+				"the write fault is named beside the refusal, and only when there was one")
+			assert.NotContains(t, desc.Error, metaFault,
+				"the descriptor records the refusal, not a write that failed after it")
 		})
 	}
 }

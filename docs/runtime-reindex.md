@@ -1561,9 +1561,10 @@ Seven known holes, each needing state or a layer this change does not touch:
   the overlap check to read. Closing it means recording each node's
   cleanup runs somewhere the check can see them.
 - **A terminal task's PREP or SWAP work.** `LocalWorkerActivity` covers the
-  unit phase only, in what it reports running and in the exit it stamps;
-  PREP and SWAP are covered because both statuses are live. A node that
-  restarts mid-capture loses its stamps.
+  unit phase only, in what it reports running and in the exit it stamps.
+  While the task is live its status covers PREP and SWAP; once it is terminal,
+  work still running in those phases leaves nothing for the check to read. A
+  node that restarts mid-capture loses its stamps too.
 - **The refusal survives per node, not per cluster.** The commit-phase
   aggregation reads participants in map order, so a sibling can clobber
   the refusal's reason or relabel the operation `CANCELLED` and make the
