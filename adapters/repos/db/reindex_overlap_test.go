@@ -319,20 +319,32 @@ func TestReindexOverlapRetentionWindow(t *testing.T) {
 // random suffix, so a weaker answer sorting first must not win.
 func TestReindexOverlapRanksTheStrongestAnswer(t *testing.T) {
 	// No units reads as undetermined; a completed one as an overlap that ended.
-	weaker := func(us map[string]*distributedtask.Unit) *distributedtask.Task {
-		task := reindexTask("a", distributedtask.TaskStatusCancelled, payloadFor("Movies"))
+	cancelled := func(id string, us map[string]*distributedtask.Unit) *distributedtask.Task {
+		task := reindexTask(id, distributedtask.TaskStatusCancelled, payloadFor("Movies"))
 		task.FinishedAt, task.Units = captureStart.Add(time.Minute), us
 		return task
 	}
+	ended := units(distributedtask.UnitStatusCompleted)
 	live := reindexTask("b", distributedtask.TaskStatusStarted, payloadFor("Movies"))
 	live.Units = units(distributedtask.UnitStatusInProgress)
 
-	for _, first := range []*distributedtask.Task{weaker(nil), weaker(units(distributedtask.UnitStatusCompleted))} {
-		verdict := NewReindexOverlapLookup([]*distributedtask.Task{first, live},
-			24*time.Hour, noLocalWorker, func() time.Time { return commitTime })([]string{"Movies"}, captureStart)
+	// A record nothing here can judge may be a migration still running, so it
+	// must not lose to one known to be over either.
+	tests := []struct {
+		want  ReindexOverlapOutcome
+		tasks []*distributedtask.Task
+	}{
+		{ReindexOverlapLive, []*distributedtask.Task{cancelled("a", nil), live}},
+		{ReindexOverlapLive, []*distributedtask.Task{cancelled("a", ended), live}},
+		{ReindexOverlapUndetermined, []*distributedtask.Task{cancelled("a", ended), cancelled("b", nil)}},
+	}
 
-		require.Equal(t, ReindexOverlapLive, verdict.Outcome)
-		require.Equal(t, "b", verdict.TaskID, "the live migration is the one to name")
+	for _, tt := range tests {
+		verdict := NewReindexOverlapLookup(tt.tasks, 24*time.Hour, noLocalWorker,
+			func() time.Time { return commitTime })([]string{"Movies"}, captureStart)
+
+		require.Equal(t, tt.want, verdict.Outcome)
+		require.Equal(t, "b", verdict.TaskID, "the stronger answer is the one to name")
 	}
 }
 
