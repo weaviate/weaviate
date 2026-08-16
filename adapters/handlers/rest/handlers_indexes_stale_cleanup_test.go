@@ -31,6 +31,7 @@ import (
 type fakeStaleCleaner struct {
 	calls    []string
 	sessions []int
+	heldFor  []string // sessions pins the hold's span, this pins its identity
 	held     int
 	opened   int
 	err      error
@@ -44,7 +45,8 @@ func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexS
 	}
 }
 
-func (f *fakeStaleCleaner) HoldReindexCleanup(_ string, fn func()) {
+func (f *fakeStaleCleaner) HoldReindexCleanup(collection string, fn func()) {
+	f.heldFor = append(f.heldFor, collection)
 	if f.held != 0 {
 		fn()
 		return
@@ -102,6 +104,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			"the coupled migration must scrub both inverted index dirs")
 		require.Equal(t, []int{1, 1}, cleaner.sessions,
 			"the hold spans the whole teardown; released between the two, a backup lands mid-migration")
+		require.Equal(t, []string{"C"}, cleaner.heldFor, "the hold names the collection being swept")
 	})
 }
 
@@ -120,4 +123,5 @@ func TestSweepCancelledReindexStateHoldsAcrossEveryIndexType(t *testing.T) {
 	require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls)
 	require.Equal(t, []int{1, 1}, cleaner.sessions,
 		"the hold spans the whole teardown; released between the two, a backup lands mid-migration")
+	require.Equal(t, []string{"C"}, cleaner.heldFor, "the hold names the collection being swept")
 }
