@@ -118,8 +118,9 @@ func TestAnyLiveReindexForShard(t *testing.T) {
 			case tt.builder != nil:
 				db.SetShardReindexActivityLookup(tt.builder)
 			}
-			live, _ := db.AnyLiveReindexForShard("MyClass", "shard1")
+			live, unreadable := db.AnyLiveReindexForShard("MyClass", "shard1")
 			require.Equal(t, tt.want, live)
+			require.False(t, unreadable, "no lookup answered, so nothing was unreadable")
 		})
 	}
 }
