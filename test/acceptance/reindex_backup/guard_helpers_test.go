@@ -116,10 +116,8 @@ func liveReindexStatus(status string) bool {
 	}
 }
 
-// slowBackupConfig throttles the upload so a test has time to submit a
-// migration before the backup commits. It widens the window, it does not open
-// it: pair it with awaitCapturedClassUploaded, which is what keeps the
-// per-shard gate out of the way.
+// slowBackupConfig widens the window for submitting a migration mid-backup; it does
+// not open it, so pair it with awaitCapturedClassUploaded.
 func slowBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelBestCompression,
@@ -127,11 +125,8 @@ func slowBackupConfig() *models.BackupConfig {
 	}
 }
 
-// awaitCapturedClassUploaded blocks until the capture has written a class file
-// (chunks land under <id>/<node>/<class>/). Every per-shard gate consultation
-// happens while a class's descriptor is built and its files go up only after,
-// so a landed file proves the gate ran and passed. Exit status alone, so a
-// missing directory and an empty one both read as not done.
+// awaitCapturedClassUploaded blocks until the capture writes a class file, which only
+// happens once the per-shard gate passed. Exit status alone: no directory is not done.
 func awaitCapturedClassUploaded(t *testing.T, ctx context.Context, compose *docker.DockerCompose, backupID string) {
 	t.Helper()
 	dir := "/tmp/backups/" + backupID

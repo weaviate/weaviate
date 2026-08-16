@@ -26,10 +26,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestOverlapBackstop proves end to end that a migration the per-shard gate
-// never saw still fails the backup, and that one on a collection the backup
-// did not capture leaves it alone - without the second case the first passes
-// on a check that fails everything.
+// End to end: a migration the gate never saw fails the backup, one on an uncaptured
+// collection does not - without the second row the first passes on a check failing all.
 func TestOverlapBackstop(t *testing.T) {
 	const backend = "filesystem"
 
@@ -71,9 +69,7 @@ func TestOverlapBackstop(t *testing.T) {
 			if tt.migratingClass != "" {
 				migrating = tt.migratingClass
 				createBodyClass(t, migrating, "body")
-				// Same size as the captured class: AwaitReindexLive below fails
-				// a task that finishes before it looks, and a small class
-				// finishes at once.
+				// Same size, or the migration ends before AwaitReindexLive sees it.
 				importBodies(t, migrating, guardDataset)
 			}
 
@@ -93,10 +89,8 @@ func TestOverlapBackstop(t *testing.T) {
 			if tt.wantStatus != entitiesbackup.Failed {
 				return
 			}
-			// The per-shard gate can also refuse this backup, and its text also
-			// says FAILED, runtime-reindex and the collection. Only the
-			// commit-time check says "overlapped this backup", so that is what
-			// proves which one fired.
+			// The per-shard gate refuses with near-identical text; only the
+			// commit-time check names this sentinel.
 			require.Contains(t, reason, entitiesbackup.ErrReindexOverlappedBackup.Error(),
 				"the commit-time check has to be what failed this backup; got: %s", reason)
 			require.Contains(t, reason, tt.capturedClass,
@@ -105,10 +99,8 @@ func TestOverlapBackstop(t *testing.T) {
 	}
 }
 
-// TestBackupRefusedWhenOverlapCheckCannotAnswer pins the admission refusal a
-// zero retention window earns, for both include shapes: an explicit include is
-// authorized before the class list is validated and an empty one after, so
-// only canCommit sees both.
+// A zero retention window is refused at admission for both include shapes, which
+// authorize at different points, so only canCommit sees both.
 func TestBackupRefusedWhenOverlapCheckCannotAnswer(t *testing.T) {
 	ctx := context.Background()
 	compose, err := reindexhelpers.SingleNodeCompose().
