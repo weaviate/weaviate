@@ -546,6 +546,26 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
+
+	mutex := sync.RWMutex{}
+	var refusal, peerFailure error
+	// Tracked separately, and by producer and consumers alike: the error group returns
+	// only its first error, and a refusal often wins that race.
+	recordPeerFailure := func(err error) error {
+		mutex.Lock()
+		defer mutex.Unlock()
+		// A refusal cancels the group, so a sibling cut short by that cancellation
+		// reports the refusal, not a failure of its own. A deadline is kept: the
+		// shared canCommit timeout is a genuine signal.
+		if refusal != nil && errors.Is(err, context.Canceled) {
+			return err
+		}
+		if peerFailure == nil {
+			peerFailure = err
+		}
+		return err
+	}
+
 	g.Go(func() error {
 		defer close(reqChan)
 		for nodeName, gr := range c.descriptor.Nodes {
@@ -560,7 +580,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
-				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", nodeName, c.descriptor.Nodes, c.descriptor.NodeMapping)
+				return recordPeerFailure(fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v",
+					nodeName, c.descriptor.Nodes, c.descriptor.NodeMapping))
 			}
 
 			reqChan <- &Request{
@@ -588,9 +609,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	// The whole operation's list, not the slice one node holds: which classes share a node is placement the caller cannot otherwise learn.
 	requested := req.Classes
 
-	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
-	var refusal, peerFailure error
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
@@ -609,14 +628,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					mutex.Unlock()
 					return err
 				}
-				// Tracked separately: the error group returns only its first error, and a refusal often wins that race.
-				failed := fmt.Errorf("node %q: %w", req.NodeName, err)
-				mutex.Lock()
-				if peerFailure == nil {
-					peerFailure = failed
-				}
-				mutex.Unlock()
-				return failed
+				return recordPeerFailure(fmt.Errorf("node %q: %w", req.NodeName, err))
 			}
 			mutex.Lock()
 			nodes[req.NodeName] = req.NodeHost

@@ -644,6 +644,8 @@ func newFakeCoordinator(resolver NodeResolver) *fakeCoordinator {
 type fakeNodeResolver struct {
 	hosts  map[string]string
 	leader string
+	// Set to model a resolver that is slow or that fails for some node; nil resolves every node.
+	resolve func(nodeName string) (string, bool)
 }
 
 func (r *fakeNodeResolver) AllHostnames() []string {
@@ -657,6 +659,9 @@ func (r *fakeNodeResolver) AllHostnames() []string {
 }
 
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
+	if r.resolve != nil {
+		return r.resolve(nodeName)
+	}
 	return r.hosts[nodeName], true
 }
 

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -561,6 +562,45 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 		require.Equal(t, bodies[0], bodies[1],
 			"the same restore must be refused in the same words whichever node answered first")
 	})
+}
+
+func TestCanCommitKeepsAnUnresolvableHost(t *testing.T) {
+	const (
+		id           = "1234"
+		cls          = "Movies"
+		node1, node2 = "N1", "N2"
+	)
+	any := mock.Anything
+	refused := make(chan struct{})
+	var asked atomic.Int32
+	resolver := newFakeNodeResolver([]string{node1, node2})
+	// A slow second lookup: the refusal then wins the error group's first-error race,
+	// which is where a host that cannot be resolved used to vanish.
+	resolver.resolve = func(node string) (string, bool) {
+		if asked.Add(1) == 1 {
+			return node, true
+		}
+		<-refused
+		time.Sleep(100 * time.Millisecond)
+		return "", false
+	}
+	fc := newFakeCoordinator(resolver)
+	fc.client.On("CanCommit", any, any, any).
+		Run(func(mock.Arguments) { close(refused) }).
+		Return(&CanCommitResponse{
+			Method: OpCreate, ID: id, ErrKind: CanCommitErrInFlightReindex,
+		}, nil)
+	fc.client.On("Abort", any, any, any).Return(nil).Maybe()
+
+	c := fc.coordinator()
+	c.descriptor = &backup.DistributedBackupDescriptor{ID: id, Nodes: map[string]*backup.NodeDescriptor{
+		node1: {Classes: []string{cls}}, node2: {Classes: []string{cls}},
+	}}
+	_, err := c.canCommit(context.Background(), &Request{Method: OpCreate, ID: id, Classes: []string{cls}})
+
+	assert.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+	assert.Contains(t, err.Error(), "cannot resolve hostname",
+		"a host that could not be resolved must travel with the refusal, not be swallowed by it")
 }
 
 func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
