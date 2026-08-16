@@ -1487,18 +1487,19 @@ refuses a backup on any shard DTM reports a live reindex on, and
 covers it. Restores are covered by `DB.RefuseIfAnyReindexInFlight`, which
 reads the same DTM list and additionally consults a node-local hold
 registry ([`reindex_hold.go`](../adapters/repos/db/reindex_hold.go)), so a
-migration stopped by a failure or a cancel, still removing its temporary
-index files, refuses both a backup and a restore.
+node still removing a migration's temporary index files (after a failure,
+a cancel, a new submit, or during the orphan audit) refuses both a backup
+and a restore.
 
-The hold has a residual worth knowing. It is taken after the node waits
-for the stopped task's local work to drain, not before, and DTM reports
-the task terminal as soon as it stops — so between those two moments
-neither gate refuses even though the temporary files are still on
-disk. If that drain times out, or the task's payload cannot be read, the
-hold is never taken at all and the cleanup does not run on that node
-until it restarts. This is older than the hold: the per-shard cleanup
-registry it replaced was acquired at the same point. It is tracked
-separately.
+The hold has a residual worth knowing. The cleanup that follows a stopped
+task takes it after the node waits for that task's local work to drain,
+not before, and DTM reports the task terminal as soon as it stops — so
+between those two moments neither gate refuses even though the temporary
+files are still on disk. If that drain times out, or the payload cannot
+be read, the hold is never taken at all and the cleanup does not run on
+that node until it restarts. This is older than the hold: the per-shard
+cleanup registry it replaced was acquired at the same point. It is
+tracked separately.
 
 Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running

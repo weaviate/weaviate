@@ -241,7 +241,7 @@ func TestReindexRefusalTexts(t *testing.T) {
 			name:    "a stopped task still tearing its files down",
 			refusal: holdRefusalAfterTerminal(t, distributedtask.TaskStatusFailed),
 			mustContain: []string{
-				"a stopped migration (FAILED or CANCELLED) is still removing its temporary index files",
+				"runtime-reindex cleanup is still removing its temporary index files",
 				"retry once the cleanup finishes",
 			},
 			// The task is already terminal, so a cancel has nothing left

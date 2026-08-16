@@ -200,8 +200,8 @@ func reindexHoldRefusal(collection string, hold ReindexHold) error {
 func reindexHoldDetail(subject string, hold ReindexHold) string {
 	switch hold {
 	case ReindexHoldCleanup:
-		return fmt.Sprintf("a stopped migration (FAILED or CANCELLED) is still removing its "+
-			"temporary index files from %s; retry once the cleanup finishes", subject)
+		return fmt.Sprintf("runtime-reindex cleanup is still removing its temporary "+
+			"index files from %s; retry once the cleanup finishes", subject)
 	default:
 		return fmt.Sprintf("%s is held by runtime-reindex work this build does not recognize; "+
 			"retry once every migration on it has finished", subject)
