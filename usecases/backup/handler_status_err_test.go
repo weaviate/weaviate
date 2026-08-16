@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,10 +166,11 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 	metaErr := errors.New("meta write rejected by object storage")
 
 	cases := []struct {
-		name      string
-		uploadErr error
-		metaErr   error
-		wantIn    []string
+		name       string
+		uploadErr  error
+		metaErr    error
+		wantIn     []string
+		wantPrefix string
 	}{
 		{
 			name:      "the upload failure is the reason",
@@ -176,10 +178,11 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 			wantIn:    []string{uploadErr.Error()},
 		},
 		{
-			name:      "a failed meta write reaches the reason too",
-			uploadErr: uploadErr,
-			metaErr:   metaErr,
-			wantIn:    []string{uploadErr.Error(), metaErr.Error()},
+			name:       "a failed meta write reaches the reason too",
+			uploadErr:  uploadErr,
+			metaErr:    metaErr,
+			wantIn:     []string{uploadErr.Error(), metaErr.Error()},
+			wantPrefix: uploadErr.Error(),
 		},
 		{
 			name:      "a failure with no text still says there was one",
@@ -221,6 +224,10 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 				"the descriptor is what a poll reads once the slot is gone, so it has to state the failure too")
 			for _, want := range tc.wantIn {
 				require.Contains(t, res.Err, want)
+			}
+			if tc.wantPrefix != "" {
+				require.True(t, strings.HasPrefix(res.Err, tc.wantPrefix),
+					"the capture's own reason has to lead; got: %s", res.Err)
 			}
 		})
 	}

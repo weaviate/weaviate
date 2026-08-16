@@ -62,17 +62,10 @@ func (s *recordingSlot) saw(st backup.Status) bool {
 }
 
 // uploadFixture builds an uploader over a capture that produces one class
-// descriptor, carrying descErr when the capture itself failed.
-func uploadFixture(t *testing.T, class string, descErr, metaErr error) (*uploader, *fakeSourcer, *recordingSlot, *backup.BackupDescriptor) {
-	t.Helper()
-	slot := &recordingSlot{}
-	u, sourcer, desc := uploadFixtureWithSlot(t, class, descErr, metaErr, slot)
-	return u, sourcer, slot, desc
-}
-
-// uploadFixtureWithSlot publishes into the caller's slot, which the
-// status-API test needs so OnStatus reads what the uploader published.
-func uploadFixtureWithSlot(t *testing.T, class string, descErr, metaErr error, slot statusPublisher) (*uploader, *fakeSourcer, *backup.BackupDescriptor) {
+// descriptor, carrying descErr when the capture itself failed. It publishes
+// into the caller's slot, which the status-API cases need so OnStatus reads
+// what the uploader published.
+func uploadFixture(t *testing.T, class string, descErr, metaErr error, slot statusPublisher) (*uploader, *fakeSourcer, *backup.BackupDescriptor) {
 	t.Helper()
 	const backupID = "1"
 
@@ -104,7 +97,8 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	const class = "Article"
 
 	t.Run("asked once, about the capture start and the captured classes", func(t *testing.T) {
-		u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
+		slot := &recordingSlot{}
+		u, sourcer, desc := uploadFixture(t, class, nil, nil, slot)
 
 		require.NoError(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
 
@@ -117,7 +111,8 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	})
 
 	t.Run("a capture that already failed is not asked", func(t *testing.T) {
-		u, sourcer, _, desc := uploadFixture(t, class, errors.New("no space left on device"), nil)
+		u, sourcer, desc := uploadFixture(t, class,
+			errors.New("no space left on device"), nil, &recordingSlot{})
 
 		require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
 		assert.Empty(t, sourcer.overlapCalls(),
@@ -162,7 +157,8 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, sourcer, slot, desc := uploadFixture(t, class, nil, nil)
+			slot := &recordingSlot{}
+			u, sourcer, desc := uploadFixture(t, class, nil, nil, slot)
 			sourcer.setOverlapRefusal(tt.refusal)
 
 			require.ErrorIs(t, u.all(context.Background(), []string{class}, desc, nil, "", ""),
@@ -176,56 +172,6 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 			assert.False(t, slot.saw(backup.Success))
 		})
 	}
-}
-
-// TestWithMetaFault pins the reason a status poll is served when the metadata
-// write fails alongside the capture.
-func TestWithMetaFault(t *testing.T) {
-	const reason = `backup blocked: collection "Article" was migrated`
-
-	tests := []struct {
-		name    string
-		metaErr error
-		want    string
-	}{
-		{name: "the write landed", want: reason},
-		{
-			name:    "the write failed",
-			metaErr: errors.New("disk full"),
-			want:    reason + "; uploading the backup metadata also failed: disk full",
-		},
-		{
-			name:    "the write failed on a cancelled request",
-			metaErr: fmt.Errorf("s3: %w", context.Canceled),
-			want:    reason + "; uploading the backup metadata also failed: s3: a canceled context",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := withMetaFault(reason, tt.metaErr)
-
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-// TestOrdinaryCaptureFailureWithAFailedMetaWrite pins the one place the
-// migration kill switch is not a byte-identical no-op: an ordinary capture
-// failure whose metadata write also failed now leads with the capture's own
-// text instead of wrapping it in the write fault.
-func TestOrdinaryCaptureFailureWithAFailedMetaWrite(t *testing.T) {
-	const class = "Article"
-	u, _, slot, desc := uploadFixture(t, class,
-		errors.New("no space left on device"), errors.New("meta write rejected"))
-
-	require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
-
-	require.Len(t, slot.failures, 1)
-	assert.True(t, strings.HasPrefix(slot.failures[0],
-		"no space left on device; uploading the backup metadata also failed: "),
-		"the capture's reason has to lead; got: %s", slot.failures[0])
-	assert.Contains(t, slot.failures[0], "meta write rejected")
 }
 
 // TestPublishedReasonNeverReadsAsACancel pins where the cancel phrase is
@@ -260,7 +206,8 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, sourcer, slot, desc := uploadFixture(t, class, nil, tt.metaErr)
+			slot := &recordingSlot{}
+			u, sourcer, desc := uploadFixture(t, class, nil, tt.metaErr, slot)
 			sourcer.setOverlapRefusal(tt.refusal)
 
 			require.Error(t, u.all(context.Background(), []string{class}, desc, nil, "", ""))
@@ -274,69 +221,59 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	}
 }
 
-// TestCommitTimeOverlapRefusalIsServedWhole pins that the refusal reaches a
-// status poll intact, with a co-occurring metadata write fault after it.
-func TestCommitTimeOverlapRefusalIsServedWhole(t *testing.T) {
-	const (
-		backupID = "1"
-		class    = "Article"
-	)
-	refusal := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
-		backup.ErrReindexOverlappedBackup, class)
-
-	logger, _ := test.NewNullLogger()
-	bp := &backupper{logger: logger}
-	require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
-	u, sourcer, desc := uploadFixtureWithSlot(t, class, nil,
-		errors.New("meta write rejected"), &bp.lastOp)
-	sourcer.setOverlapRefusal(refusal)
-
-	require.ErrorIs(t, u.all(context.Background(), []string{class}, desc, nil, "", ""),
-		backup.ErrReindexOverlappedBackup)
-
-	res := (&Handler{backupper: bp}).OnStatus(context.Background(),
-		&StatusRequest{Method: OpCreate, ID: backupID})
-
-	require.Equal(t, backup.Failed, res.Status)
-	assert.True(t, strings.HasPrefix(res.Err, refusal.Error()),
-		"the reason has to lead; got: %s", res.Err)
-	assert.Contains(t, res.Err, "uploading the backup metadata also failed")
-	assert.Equal(t, refusal.Error(), desc.Error)
-}
-
-// TestGateRefusalIsRedactedOnTheStatusAPI pins that the shard the per-shard
-// gate refused never reaches a status poll.
-func TestGateRefusalIsRedactedOnTheStatusAPI(t *testing.T) {
+// TestReindexRefusalOnTheStatusAPI pins what a poll is told about a capture a
+// reindex check refused: the refusal leads, a co-occurring metadata write fault
+// is named after it, and the shard the wrappers named never reaches the caller.
+func TestReindexRefusalOnTheStatusAPI(t *testing.T) {
 	const (
 		backupID = "1"
 		class    = "Article"
 		shard    = "vT4Kq9LmShardId"
 	)
+	overlap := fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
+		backup.ErrReindexOverlappedBackup, class)
 	// The shape the storage layer produces: a redacted refusal, wrapped
 	// on its way up by layers that do name the shard.
-	blocked := backup.ReindexBlockedError{
+	blocked := fmt.Errorf("shard %q: %w", shard, backup.ReindexBlockedError{
 		Msg: fmt.Sprintf("%s: collection %q has an active runtime-reindex task in DTM",
 			backup.ErrBackupBlockedByInFlightReindex, class),
-	}
-	wrapped := fmt.Errorf("shard %q: %w", shard, blocked)
+	})
+	metaErr := errors.New("meta write rejected")
 
-	cases := []struct {
-		name    string
-		metaErr error
+	tests := []struct {
+		name         string
+		overlapErr   error
+		descErr      error
+		metaErr      error
+		wantSentinel error
 	}{
-		{name: "the descriptor lands"},
-		{name: "the descriptor does not land", metaErr: errors.New("meta write rejected")},
+		{
+			name:       "the commit-time refusal and the descriptor does not land",
+			overlapErr: overlap, metaErr: metaErr,
+			wantSentinel: backup.ErrReindexOverlappedBackup,
+		},
+		{
+			name:         "the per-shard refusal and the descriptor lands",
+			descErr:      blocked,
+			wantSentinel: backup.ErrBackupBlockedByInFlightReindex,
+		},
+		{
+			name:    "the per-shard refusal and the descriptor does not land",
+			descErr: blocked, metaErr: metaErr,
+			wantSentinel: backup.ErrBackupBlockedByInFlightReindex,
+		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			bp := &backupper{logger: logger}
 			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
-			u, _, desc := uploadFixtureWithSlot(t, class, wrapped, tc.metaErr, &bp.lastOp)
+			u, sourcer, desc := uploadFixture(t, class, tt.descErr, tt.metaErr, &bp.lastOp)
+			sourcer.setOverlapRefusal(tt.overlapErr)
 
 			require.ErrorIs(t, u.all(context.Background(), []string{class}, desc, nil, "", ""),
-				backup.ErrBackupBlockedByInFlightReindex)
+				tt.wantSentinel)
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
 				&StatusRequest{Method: OpCreate, ID: backupID})
@@ -346,11 +283,15 @@ func TestGateRefusalIsRedactedOnTheStatusAPI(t *testing.T) {
 				assert.NotContains(t, served, shard,
 					"the shard the wrappers named must not reach a status poll")
 				assert.Contains(t, served, class)
-				assert.Contains(t, served, backup.ErrBackupBlockedByInFlightReindex.Error())
+				assert.Contains(t, served, tt.wantSentinel.Error())
 			}
-			if tc.metaErr != nil {
+			assert.True(t, strings.HasPrefix(res.Err, desc.Error),
+				"the refusal has to lead; got: %s", res.Err)
+			if tt.metaErr != nil {
 				assert.Contains(t, res.Err, "uploading the backup metadata also failed",
 					"the write fault is named beside the refusal, not in place of it")
+				assert.NotContains(t, desc.Error, "uploading the backup metadata also failed",
+					"the descriptor records the refusal, not a write that failed after it")
 			}
 		})
 	}

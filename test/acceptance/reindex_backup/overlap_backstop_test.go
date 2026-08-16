@@ -23,82 +23,80 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestBackupFailsWhenAMigrationRanThroughItsCapture proves end to end that a
-// migration the per-shard gate never saw still fails the backup.
-func TestBackupFailsWhenAMigrationRanThroughItsCapture(t *testing.T) {
-	ctx := context.Background()
+// TestOverlapBackstop proves end to end that a migration the per-shard gate
+// never saw still fails the backup, and that one on a collection the backup
+// did not capture leaves it alone - without the second case the first passes
+// on a check that fails everything.
+func TestOverlapBackstop(t *testing.T) {
+	const backend = "filesystem"
 
-	compose := startGuardNode(ctx, t)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+	tests := []struct {
+		name           string
+		capturedClass  string
+		migratingClass string
+		backupID       string
+		wantStatus     entitiesbackup.Status
+	}{
+		{
+			name:          "a migration that ran through the capture fails it",
+			capturedClass: "OverlapBackstop_Overlapped",
+			backupID:      "overlap-backstop",
+			wantStatus:    entitiesbackup.Failed,
+		},
+		{
+			name:           "a migration on a collection this backup never captured does not",
+			capturedClass:  "OverlapBackstop_Captured",
+			migratingClass: "OverlapBackstop_Elsewhere",
+			backupID:       "overlap-backstop-clean",
+			wantStatus:     entitiesbackup.Success,
+		},
+	}
 
-	restURI := compose.GetWeaviate().URI()
-	helper.SetupClient(restURI)
-	t.Cleanup(helper.ResetClient)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			compose := startGuardNode(ctx, t)
+			t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
 
-	const (
-		className = "OverlapBackstop_Overlapped"
-		backend   = "filesystem"
-		backupID  = "overlap-backstop"
-	)
+			restURI := compose.GetWeaviate().URI()
+			helper.SetupClient(restURI)
+			t.Cleanup(helper.ResetClient)
 
-	createBodyClass(t, className, "body")
-	importBodies(t, className, guardDataset)
+			migrating := tt.capturedClass
+			createBodyClass(t, tt.capturedClass, "body")
+			importBodies(t, tt.capturedClass, guardDataset)
+			if tt.migratingClass != "" {
+				migrating = tt.migratingClass
+				createBodyClass(t, migrating, "body")
+				// Same size as the captured class: AwaitReindexLive below fails
+				// a task that finishes before it looks, and a small class
+				// finishes at once.
+				importBodies(t, migrating, guardDataset)
+			}
 
-	_, err := helper.CreateBackup(t, slowBackupConfig(), className, backend, backupID)
-	require.NoError(t, err, "the capture must be admitted: nothing is migrating yet")
+			_, err := helper.CreateBackup(t, slowBackupConfig(), tt.capturedClass, backend, tt.backupID)
+			require.NoError(t, err, "the capture must be admitted: nothing is migrating yet")
 
-	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
-	t.Logf("change-tokenization task submitted mid-capture: %s", taskID)
-	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
-		reindexhelpers.WithTimeout(30*time.Second))
+			taskID := submitChangeTokenization(t, restURI, migrating, "body", "lowercase")
+			reindexhelpers.AwaitReindexLive(t, restURI, taskID,
+				reindexhelpers.WithTimeout(30*time.Second))
 
-	status, reason := awaitBackupTerminal(t, backend, backupID, 5*time.Minute)
+			status, reason := awaitBackupTerminal(t, backend, tt.backupID, 5*time.Minute)
 
-	require.Equalf(t, string(entitiesbackup.Failed), status,
-		"a capture a migration ran through must not be published as good (reason=%q)", reason)
-	// The per-shard gate can also refuse this backup, and its text also says
-	// FAILED, runtime-reindex and the collection. Only the commit-time check
-	// says "overlapped this backup", so that is what proves which one fired.
-	require.Contains(t, reason, entitiesbackup.ErrReindexOverlappedBackup.Error(),
-		"the commit-time check has to be what failed this backup; got: %s", reason)
-	require.Contains(t, reason, className,
-		"the recorded reason must name the collection; got: %s", reason)
-}
-
-// TestBackupSucceedsWhenNoMigrationTouchesTheCapture is the negative half:
-// without it the test above passes on a check that fails everything.
-func TestBackupSucceedsWhenNoMigrationTouchesTheCapture(t *testing.T) {
-	ctx := context.Background()
-
-	compose := startGuardNode(ctx, t)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	restURI := compose.GetWeaviate().URI()
-	helper.SetupClient(restURI)
-	t.Cleanup(helper.ResetClient)
-
-	const (
-		capturedClass  = "OverlapBackstop_Captured"
-		migratingClass = "OverlapBackstop_Elsewhere"
-		backend        = "filesystem"
-		backupID       = "overlap-backstop-clean"
-	)
-
-	createBodyClass(t, capturedClass, "body")
-	importBodies(t, capturedClass, guardDataset)
-	createBodyClass(t, migratingClass, "body")
-	// Same size as the captured class: AwaitReindexLive below fails a task
-	// that finishes before it looks, and a small class finishes at once.
-	importBodies(t, migratingClass, guardDataset)
-
-	_, err := helper.CreateBackup(t, slowBackupConfig(), capturedClass, backend, backupID)
-	require.NoError(t, err)
-
-	taskID := submitChangeTokenization(t, restURI, migratingClass, "body", "lowercase")
-	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
-		reindexhelpers.WithTimeout(30*time.Second))
-
-	status, reason := awaitBackupTerminal(t, backend, backupID, 5*time.Minute)
-	require.Equalf(t, string(entitiesbackup.Success), status,
-		"a migration on a collection this backup never captured must not fail it (reason=%q)", reason)
+			require.Equalf(t, string(tt.wantStatus), status,
+				"captured %q while %q was migrating (reason=%q)",
+				tt.capturedClass, migrating, reason)
+			if tt.wantStatus != entitiesbackup.Failed {
+				return
+			}
+			// The per-shard gate can also refuse this backup, and its text also
+			// says FAILED, runtime-reindex and the collection. Only the
+			// commit-time check says "overlapped this backup", so that is what
+			// proves which one fired.
+			require.Contains(t, reason, entitiesbackup.ErrReindexOverlappedBackup.Error(),
+				"the commit-time check has to be what failed this backup; got: %s", reason)
+			require.Contains(t, reason, tt.capturedClass,
+				"the recorded reason must name the collection; got: %s", reason)
+		})
+	}
 }
