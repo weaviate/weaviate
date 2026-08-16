@@ -21,12 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testRestoreRefusedDuringInFlightReindex pins both halves of the restore
-// gate while a migration is live.
-//
-// The second arm is what makes the first one mean something. A gate that
-// refused every restore while anything migrated anywhere would pass the
-// first arm and be unusable.
+// Without the cross-collection restore below, a gate refusing every restore would still pass this test.
 func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 	helper.SetupClient(restURI)
 	const (
@@ -40,12 +35,9 @@ func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 	createBodyClass(t, reindexClass, "body")
 	importBodies(t, reindexClass, guardDataset)
 
-	// One backup holding both, so each arm below names a backup that
-	// really contains what it asks to restore.
 	createBackupOf(t, backend, backupID, unrelatedClass, reindexClass)
 
-	// Deleted after the backup so its restore is otherwise valid. The
-	// migrating class stays: it is what the migration runs on.
+	// Deleted after the backup so its restore is otherwise valid.
 	helper.DeleteClass(t, unrelatedClass)
 	taskID := submitChangeTokenization(t, restURI, reindexClass, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
@@ -56,14 +48,11 @@ func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 	crossCollectionErr := restoreClasses(t, backend, backupID, unrelatedClass)
 	statusAfter := reindexTaskStatus(t, restURI, taskID)
 
-	// Judge the window before the verdicts: a migration that drained early
-	// would make either outcome below meaningless.
 	require.Truef(t, liveReindexStatus(statusBefore) && liveReindexStatus(statusAfter),
 		"the migration must still be live on both sides of the two restore calls "+
 			"(before=%q after=%q); grow guardDataset until it outlives them",
 		statusBefore, statusAfter)
 
-	// Arm 1: the restore names the migrating collection.
 	require.Error(t, sameCollectionErr,
 		"a restore including the migrating collection must be refused synchronously")
 	var refusal *clientbackups.BackupsRestoreUnprocessableEntity
@@ -78,18 +67,14 @@ func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 		"the body must include an actionable next step; got: %s", errMsg)
 	require.Contains(t, errMsg, reindexClass,
 		"the body must name the collection that is blocked; got: %s", errMsg)
-	// "backup blocked" is the per-shard backup gate's own prefix. Seeing it
-	// here means the two gates' errors got crossed.
+	// "backup blocked" is the backup gate's prefix; seeing it here means the two gates got crossed.
 	require.NotContains(t, errMsg, "backup blocked",
 		"a restore refusal must not be worded as a backup refusal; got: %s", errMsg)
-	// Placement the caller has no other way to learn.
 	requireNoPlacement(t, errMsg, reindexhelpers.GetFirstShardName(t, restURI, reindexClass))
 
 	_, exists := reindexhelpers.FetchClass(restURI, unrelatedClass, true)
 	require.Falsef(t, exists, "a refused restore must not create %s", unrelatedClass)
 
-	// Arm 2: same migration, same moment, a collection it does not name. It
-	// passes the coordinator's gate and every participant's.
 	require.NoErrorf(t, crossCollectionErr,
 		"a restore of %s must be admitted while the migration on %s is live",
 		unrelatedClass, reindexClass)

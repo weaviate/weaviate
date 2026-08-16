@@ -21,9 +21,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestGatesAreNoOpsWithTheFeatureOff smoke-tests the shipped default end to
-// end: with RUNTIME_REINDEX_ENABLED off there is no migration to refuse in
-// the first place, and a backup and a restore both run through.
 func TestGatesAreNoOpsWithTheFeatureOff(t *testing.T) {
 	ctx := context.Background()
 	compose, err := reindexhelpers.SingleNodeComposeWithReindex(false).
@@ -53,9 +50,6 @@ func TestGatesAreNoOpsWithTheFeatureOff(t *testing.T) {
 		helper.WithDeadline(2*time.Minute))
 }
 
-// requireReindexRefused proves the flag really is off, so the successes
-// above are the kill switch working rather than a cluster with nothing
-// migrating.
 func requireReindexRefused(t *testing.T, restURI, className string) {
 	t.Helper()
 	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, "body", "searchable",

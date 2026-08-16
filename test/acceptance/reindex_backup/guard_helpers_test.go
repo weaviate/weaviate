@@ -25,8 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// guardDataset is sized so a change-tokenization migration over it stays
-// live on CI long enough to land a backup or a restore inside.
+// Sized so a change-tokenization migration stays live on CI long enough to land a call inside it.
 const guardDataset = 50_000
 
 func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
@@ -38,8 +37,6 @@ func startGuardNode(ctx context.Context, t *testing.T) *docker.DockerCompose {
 	return compose
 }
 
-// createBodyClass creates a single word-tokenized text property, which is
-// what a change-tokenization migration needs to have work to do.
 func createBodyClass(t *testing.T, className, propName string) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -51,8 +48,6 @@ func createBodyClass(t *testing.T, className, propName string) {
 	})
 }
 
-// createBackupOf backs up several collections in one operation, which the
-// single-class helpers in test/helper cannot express.
 func createBackupOf(t *testing.T, backend, backupID string, classes ...string) {
 	t.Helper()
 	params := clientbackups.NewBackupsCreateParams().
@@ -68,8 +63,6 @@ func createBackupOf(t *testing.T, backend, backupID string, classes ...string) {
 		helper.WithDeadline(2*time.Minute))
 }
 
-// restoreClasses restores a named subset of a backup and returns the error
-// unjudged: both admitted and refused are legitimate answers to ask for.
 func restoreClasses(t *testing.T, backend, backupID string, classes ...string) error {
 	t.Helper()
 	params := clientbackups.NewBackupsRestoreParams().
@@ -83,10 +76,7 @@ func restoreClasses(t *testing.T, backend, backupID string, classes ...string) e
 	return err
 }
 
-// requireNoPlacement asserts a published refusal names neither the shard nor
-// the node the work is on. The resolved shard name is matched too: a leak
-// worded without the quote passes the format assertion above it. An empty
-// shardName is for a refusal that is collection-wide and never resolved one.
+// An empty shardName is for a refusal that is collection-wide and never resolved one.
 func requireNoPlacement(t *testing.T, msg, shardName string) {
 	t.Helper()
 	require.NotContainsf(t, msg, `shard "`, "a refusal names no shard; got: %s", msg)
@@ -100,8 +90,6 @@ func requireNoPlacement(t *testing.T, msg, shardName string) {
 	}
 }
 
-// reindexTaskStatus reads a task's DTM status, so a test can prove the
-// migration was still live on both sides of the window it tested.
 func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	t.Helper()
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
@@ -117,9 +105,7 @@ func reindexTaskStatus(t *testing.T, restURI, taskID string) string {
 	return ""
 }
 
-// liveReindexStatus mirrors the server's own liveness predicate: a status
-// this build does not recognize counts as live, because the alternative
-// reads a newer node's migration as finished.
+// An unrecognized status counts as live: the alternative reads a newer node's task as finished.
 func liveReindexStatus(status string) bool {
 	switch status {
 	case "FINISHED", "CANCELLED", "FAILED":

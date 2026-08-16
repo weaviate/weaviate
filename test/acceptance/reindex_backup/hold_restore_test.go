@@ -34,30 +34,14 @@ import (
 )
 
 const (
-	// holdWindowTenants is how many shards the cleanup has to walk: the sweep
-	// runs once per (property, index type) and each run walks every local shard.
 	holdWindowTenants = 150
-	// holdWindowObjectsPerTenant only has to keep the migration alive long
-	// enough to reach the tracker count below, which is a cheaper job than
-	// widening the teardown and a different one.
+	// Only has to keep the migration alive until the tracker count below is reached.
 	holdWindowObjectsPerTenant = 40
-	// holdWindowTrackerShards is how many shards must already carry a tracker
-	// dir when the cancel lands. See awaitTrackerDirs.
+	// Trackers, not tenants: a shard with nothing to sweep is skipped without being loaded.
 	holdWindowTrackerShards = holdWindowTenants * 2 / 3
 )
 
-// TestRestoreRefusedByCleanupHold pins the node-local arm of the restore
-// gate, which nothing else in CI reaches: dropping the hold read from
-// RefuseIfAnyReindexInFlight leaves every other test green.
-//
-// The window is small and it opens early: the sweep starts within
-// milliseconds of the cancel and is usually done before the task reaches a
-// terminal status in DTM. So the probe runs across the cancel rather than
-// after it, and the arm that answered is read off the refusal's own words —
-// while the task is still live the cluster-wide arm refuses the same probe.
-//
-// The hold is only observable if the cleanup has something to clean up;
-// see awaitTrackerDirs.
+// The probe must start before the cancel; the window it samples can close before the task reaches a terminal status.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
 	ctx := context.Background()
 	compose := startGuardNode(ctx, t)
@@ -70,9 +54,7 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 		className = "RestoreHold_Migrating"
 		propName  = "body"
 		backend   = "filesystem"
-		// Never created. The unknown-id path is side-effect free, so it can
-		// be retried at speed; a real restore would create the class on its
-		// first admitted attempt and stop being a probe.
+		// Never created: only an unknown id is side-effect free enough to retry at speed.
 		unknownBackupID = "restore-hold-probe-no-such-backup"
 	)
 
@@ -95,11 +77,8 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 
 	require.Containsf(t, refusal, className,
 		"the refusal must name the collection it is about; got: %s", refusal)
-	// A hold is collection-wide, so there is no shard name to resolve.
 	requireNoPlacement(t, refusal, "")
 
-	// The hold has to release. One that did not would wedge every restore on
-	// this node until it restarted.
 	require.Eventuallyf(t, func() bool {
 		var missing *clientbackups.BackupsRestoreNotFound
 		return errors.As(restoreClasses(t, backend, unknownBackupID, className), &missing)
@@ -107,8 +86,6 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 		"once the cleanup drains the same probe must fall through to 404")
 }
 
-// createHoldWindowClass builds the multi-tenant class whose teardown this
-// test needs to outlast a probe. A hold is node-local, so one node is enough.
 func createHoldWindowClass(t *testing.T, className, propName string) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -132,8 +109,6 @@ func createHoldWindowClass(t *testing.T, className, propName string) {
 	}
 }
 
-// importTenantBodies fills one tenant, so the migration has work to do on
-// every shard the cleanup will later walk.
 func importTenantBodies(t *testing.T, className, propName, tenant string, count int) {
 	t.Helper()
 	body := "Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliett"
@@ -153,12 +128,9 @@ func importTenantBodies(t *testing.T, className, propName, tenant string, count 
 	require.NotNil(t, resp)
 }
 
-// holdRefusalMarker is the wording only the cleanup arm produces. Both arms
-// answer 422 on the same probe, so the status code alone attributes nothing.
+// Both gate arms answer 422, so only this wording attributes a refusal to the cleanup hold.
 const holdRefusalMarker = "still removing its temporary index files"
 
-// holdProbe asks for the same unknown backup id over and over and keeps the
-// first refusal the cleanup hold answered.
 type holdProbe struct {
 	mu      sync.Mutex
 	refusal string
@@ -168,8 +140,6 @@ type holdProbe struct {
 	once    sync.Once
 }
 
-// startHoldProbe begins probing immediately, so the caller can issue the
-// cancel with the probe already in flight.
 func startHoldProbe(t *testing.T, backend, backupID, className string) *holdProbe {
 	t.Helper()
 	p := &holdProbe{stop: make(chan struct{}), done: make(chan struct{})}
@@ -204,8 +174,6 @@ func (p *holdProbe) record(msg string) {
 	}
 }
 
-// awaitHoldRefusal returns "" if the deadline passed with the hold never
-// answering, whatever the other arm did meanwhile.
 func (p *holdProbe) awaitHoldRefusal(t *testing.T, timeout time.Duration) string {
 	t.Helper()
 	defer p.shutdown()
@@ -230,18 +198,7 @@ func (p *holdProbe) shutdown() {
 	})
 }
 
-// awaitTrackerDirs blocks until at least want shards carry a tracker dir
-// for the migrating property.
-//
-// Without this the test observes nothing. The cleanup only deletes where a
-// unit already wrote a tracker, so a cancel taken the moment the task goes
-// live leaves it nothing to do and the hold exists for milliseconds. Tenant
-// count alone does not widen that: a shard with nothing to sweep is skipped
-// without being loaded, so what has to be waited for is trackers, not tenants.
-//
-// want is a duration knob, not a correctness one. One tracker already makes
-// the sweep do work; the rest are there so the window lasts long enough to
-// sample, since each one costs the sweep a shard load and a delete.
+// Without this wait the cleanup has no tracker to delete and the hold never opens.
 func awaitTrackerDirs(t *testing.T, ctx context.Context, container testcontainers.Container,
 	className, propName string, want int, timeout time.Duration,
 ) {
@@ -273,8 +230,7 @@ func awaitTrackerDirs(t *testing.T, ctx context.Context, container testcontainer
 		"holdWindowObjectsPerTenant so the migration outlives this poll", last, want, propName, timeout)
 }
 
-// stripExecFrames drops the multiplexed-stream header bytes the docker
-// exec API prefixes each chunk with, leaving the command's own output.
+// stripExecFrames drops the header bytes the docker exec API prefixes each chunk with.
 func stripExecFrames(raw string) string {
 	var out strings.Builder
 	for _, r := range raw {

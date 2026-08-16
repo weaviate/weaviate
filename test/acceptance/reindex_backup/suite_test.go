@@ -200,7 +200,6 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "accepted only while the task is STARTED",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 
-	// Placement the caller has no other way to learn.
 	requireNoPlacement(t, errMsg, reindexhelpers.GetFirstShardName(t, restURI, className))
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
