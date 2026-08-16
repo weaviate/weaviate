@@ -24,11 +24,47 @@ import (
 
 const maxNamedClasses = 5
 
-// Any refusal in the chain; onlyReindexRefusals in handler.go is the stricter form.
+// Every sentinel a reindex gate refuses with. One list, so the any-member and
+// all-members classifiers below can never disagree about what a refusal is.
+var reindexGateSentinels = []error{
+	backup.ErrReindexInFlight,
+	backup.ErrBackupBlockedByInFlightReindex,
+	backup.ErrReindexActivityUndetermined,
+}
+
+// Any refusal in the chain; allReindexRefusals is the stricter form.
 func isReindexRefusal(err error) bool {
-	return errors.Is(err, backup.ErrReindexInFlight) ||
-		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
-		errors.Is(err, backup.ErrReindexActivityUndetermined)
+	for _, sentinel := range reindexGateSentinels {
+		if errors.Is(err, sentinel) {
+			return true
+		}
+	}
+	return false
+}
+
+// allReindexRefusals reports whether every member of err is a reindex-gate refusal,
+// so a refusal joined with a permanent failure is never answered as retryable.
+//
+// It recurses structurally and tests sentinels shallowly. errors.Is at a wrapper
+// would descend into a join underneath it and answer "any member", which is the
+// opposite question; one fmt.Errorf around a join is enough to hit that.
+func allReindexRefusals(err error) bool {
+	if err == nil {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		members := joined.Unwrap()
+		for _, member := range members {
+			if !allReindexRefusals(member) {
+				return false
+			}
+		}
+		return len(members) > 0
+	}
+	if slices.Contains(reindexGateSentinels, err) {
+		return true
+	}
+	return allReindexRefusals(errors.Unwrap(err))
 }
 
 // Ranks concurrent refusals so the reported one is deterministic: an observed

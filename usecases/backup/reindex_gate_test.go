@@ -203,6 +203,42 @@ func TestIsReindexRefusal(t *testing.T) {
 	}
 }
 
+// errors.Join drops nil members, so an empty join needs its own shape.
+type emptyJoin struct{}
+
+func (emptyJoin) Error() string   { return "nothing went wrong" }
+func (emptyJoin) Unwrap() []error { return nil }
+
+func TestAllReindexRefusals(t *testing.T) {
+	refusal := reindexRefusal("Movies")
+	failure := errors.New("connection refused")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil"},
+		{name: "an unrelated failure", err: failure},
+		{name: "a lone refusal", err: refusal, want: true},
+		{name: "a lone undetermined answer", err: reindexUndetermined(), want: true},
+		{name: "the blocked-error leaf", err: backup.ReindexBlockedError{Msg: "blocked"}, want: true},
+		{name: "two refusals", err: errors.Join(refusal, reindexUndetermined()), want: true},
+		{name: "joined refusals nested one deeper", err: errors.Join(errors.Join(refusal, refusal), refusal), want: true},
+		{name: "a refusal beside a permanent failure", err: errors.Join(refusal, failure)},
+		{
+			// One wrapper is all it takes for a deep errors.Is to answer "any member".
+			name: "the same pair behind a wrapper",
+			err:  fmt.Errorf("canCommit: %w", errors.Join(refusal, failure)),
+		},
+		{name: "a join of nothing", err: emptyJoin{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, allReindexRefusals(tt.err))
+		})
+	}
+}
+
 func TestRestoreGateOrdering(t *testing.T) {
 	const (
 		cls         = "MyClass"
@@ -517,14 +553,24 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 					node1: {err: errors.New("connection refused")},
 					node2: {resp: refusalNaming(clsB)},
 				})
-				require.ErrorAs(t, err, &backup.ErrUnprocessable{},
-					"a refusal is 422 whichever answer the fan-out recorded first")
+				require.NotErrorAs(t, err, &backup.ErrUnprocessable{},
+					"waiting out the migration cannot fix a peer that failed permanently")
 				assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
 				assert.Contains(t, err.Error(), "connection refused",
 					"a peer that failed for its own reason must travel with the refusal")
 				assert.NotContains(t, err.Error(), node2, "the refusing node is still not named")
 			})
 		}
+	})
+
+	t.Run("a peer the refusal itself cut short is not a second failure", func(t *testing.T) {
+		err := restore(t, node2, map[string]answer{
+			node1: {err: context.Canceled},
+			node2: {resp: refusalNaming(clsB)},
+		})
+		require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+			"the refusal cancels its own siblings; that cancellation must not make it permanent")
+		assert.NotContains(t, err.Error(), context.Canceled.Error())
 	})
 
 	t.Run("an observed migration outranks a node that could not check", func(t *testing.T) {

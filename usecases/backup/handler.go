@@ -38,29 +38,10 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
-	if onlyReindexRefusals(err) {
+	if allReindexRefusals(err) {
 		return CanCommitErrInFlightReindex
 	}
 	return CanCommitErrCannotCommit
-}
-
-// onlyReindexRefusals requires every error in the chain to be a refusal: Backupable
-// joins one per class, and a refusal beside a missing class keeps the generic kind.
-func onlyReindexRefusals(err error) bool {
-	joined, ok := err.(interface{ Unwrap() []error })
-	if !ok {
-		return errors.Is(err, backup.ErrBackupBlockedByInFlightReindex)
-	}
-	errs := joined.Unwrap()
-	if len(errs) == 0 {
-		return false
-	}
-	for _, e := range errs {
-		if !onlyReindexRefusals(e) {
-			return false
-		}
-	}
-	return true
 }
 
 // classifyRestoreGateErr keeps the gate's two answers apart across the RPC boundary: a migration it observed, and a check it could not complete.

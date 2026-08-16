@@ -196,7 +196,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
-		if isReindexRefusal(err) {
+		if allReindexRefusals(err) {
 			// Retryable, as on the restore path.
 			return nil, backup.NewErrUnprocessable(err)
 		}
@@ -304,7 +304,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
-		if isReindexRefusal(err) {
+		if allReindexRefusals(err) {
 			// Forwarded as-is: the coordinator already rebuilt it node-agnostically.
 			return nil, backup.NewErrUnprocessable(err)
 		}
