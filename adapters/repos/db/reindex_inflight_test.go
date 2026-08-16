@@ -400,6 +400,9 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-1")
 	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
 	assert.Contains(t, err.Error(), "still removing its temporary index files")
+	require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+		"restated as text, not chained: only the busy sentinel may be reachable, or an upstream "+
+			"gate check reads a deferred movement as a refused backup")
 
 	require.NotErrorIs(t, shard.HaltForTransfer(ctx, false, 0), enterrors.ErrShardBusyStructuralOp,
 		"only the movement entry restates the refusal; the shared halt keeps it as it is")
@@ -412,6 +415,7 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-2")
 	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
 	require.ErrorContains(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined.Error())
+	require.NotErrorIs(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined)
 }
 
 func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
