@@ -310,11 +310,18 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 					collection = idx.Config.ClassName.String()
 				}
 			}
-			// Held across the whole walk: neither cleaner goes through
+			// Taken on the first shard that carries trackers and kept for the
+			// rest of this index's walk: neither cleaner goes through
 			// [DB.NewStalePartialReindexSweep], the scanning between shards reads
 			// the same dirs, and the backup gate samples the hold once for a
-			// collection's whole shard list.
-			defer db.reindexHolds.acquire(collection, ReindexHoldCleanup)()
+			// collection's whole shard list. A collection with no tracker
+			// anywhere has nothing being cleaned, so it is never held.
+			var releaseHold func()
+			defer func() {
+				if releaseHold != nil {
+					releaseHold()
+				}
+			}()
 			for _, shardEntry := range shardEntries {
 				if !shardEntry.IsDir() {
 					continue
@@ -322,6 +329,9 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
 				outcome.ScannedCount++
+				if releaseHold == nil && fileExists(filepath.Join(lsmPath, ".migrations")) {
+					releaseHold = db.reindexHolds.acquire(collection, ReindexHoldCleanup)
+				}
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
 					// No orphans this sweep: clear any stale quarantine

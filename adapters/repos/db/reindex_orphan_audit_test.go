@@ -184,6 +184,51 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
 }
 
+// A collection with no tracker anywhere has no cleanup to shield, so the audit
+// must leave the backup gate open across its whole walk. The sampler runs
+// alongside the walk because a collection with nothing to clean writes no log
+// line to hang an assertion on.
+func TestAuditOrphanReindexTrackers_CleanCollectionIsNeverHeld(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditCleanCollection"
+	_, idx := testShard(t, ctx, className)
+
+	// A tenant-sized shard list, so the walk outlasts many sampler rounds.
+	indexPath := filepath.Join(idx.Config.RootPath, indexID(idx.Config.ClassName))
+	for i := range 1000 {
+		require.NoError(t, os.MkdirAll(
+			filepath.Join(indexPath, fmt.Sprintf("tenant-%04d", i), "lsm"), 0o755))
+	}
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+
+	stop := make(chan struct{})
+	sampled := make(chan ReindexHold, 1)
+	go func() {
+		held := ReindexHoldNone
+		for {
+			select {
+			case <-stop:
+				sampled <- held
+				return
+			default:
+				held = max(held, db.reindexHolds.HoldFor(className))
+			}
+		}
+	}()
+
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, func(string, uint64) bool { return false }, logrus.New())
+	close(stop)
+	require.NoError(t, err)
+	require.Equal(t, AuditStatusRan, outcome.Status)
+	require.Zero(t, outcome.OrphansFound)
+	assert.Equal(t, ReindexHoldNone, <-sampled,
+		"nothing on this collection is being cleaned, so the gate must stay open")
+}
+
 // TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard pins that all
 // orphans on a single loaded shard are cleaned in one audit run, under
 // a single PauseCompaction window.
